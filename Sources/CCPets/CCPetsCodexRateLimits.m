@@ -35,27 +35,39 @@ static BOOL RateLimitReached(id value) {
 
 // App Server 以 camelCase 返回额度。按 windowDurationMins 分窗而不是假设 primary/
 // secondary 的位置，这样服务端将来调整字段顺序时，5 小时和 7 天也不会被画反。
+//
+// 分窗结果决定了要不要写 NSNull：账号确实没有某个窗口时，用 NSNull 盖掉会话里的陈旧
+// 快照是对的；但一个窗口都没认出来（服务端改了窗长、或响应里缺 windowDurationMins）
+// 时再盖，就等于用一次解析失败清空本来可用的数据——那比不读实时额度还糟。所以两个窗口
+// 全没命中时只回传受限状态，让会话快照继续兜底。
 static NSDictionary *LiveUsageFromRateLimitBucket(NSDictionary *bucket) {
     if (![bucket isKindOfClass:NSDictionary.class]) return nil;
     NSString *limitID = [bucket[@"limitId"] isKindOfClass:NSString.class]
         ? bucket[@"limitId"] : nil;
     if (limitID.length > 0 && ![limitID hasPrefix:@"codex"]) return nil;
 
-    NSMutableDictionary *usage = [@{
-        @"fiveHour": NSNull.null,
-        @"week": NSNull.null,
-        @"sampledAt": @(NSDate.date.timeIntervalSince1970)
-    } mutableCopy];
+    NSDictionary *fiveHour = nil;
+    NSDictionary *week = nil;
     for (id value in @[bucket[@"primary"] ?: NSNull.null,
                          bucket[@"secondary"] ?: NSNull.null]) {
         NSDictionary *quota = QuotaFromAppServerWindow(value);
         NSInteger minutes = [quota[@"window_minutes"] integerValue];
-        if (minutes == 300) usage[@"fiveHour"] = quota;
-        else if (minutes == 10080) usage[@"week"] = quota;
+        if (minutes == 300) fiveHour = quota;
+        else if (minutes == 10080) week = quota;
     }
-    if (RateLimitReached(bucket[@"rateLimitReachedType"])) {
+
+    BOOL exhausted = RateLimitReached(bucket[@"rateLimitReachedType"]);
+    if (!fiveHour && !week && !exhausted) return nil;
+
+    NSNumber *sampledAt = @(NSDate.date.timeIntervalSince1970);
+    NSMutableDictionary *usage = [@{@"sampledAt": sampledAt} mutableCopy];
+    if (fiveHour || week) {
+        usage[@"fiveHour"] = fiveHour ?: NSNull.null;
+        usage[@"week"] = week ?: NSNull.null;
+    }
+    if (exhausted) {
         // 服务端已分类为额度受限时，不能让一次成功请求留下的百分比继续显示为可用。
-        usage[@"exhaustedAt"] = usage[@"sampledAt"];
+        usage[@"exhaustedAt"] = sampledAt;
     }
     return usage;
 }
@@ -215,14 +227,24 @@ static NSDictionary<NSString *, NSString *> *CodexAppServerEnvironment(NSString 
     task.standardError = [NSFileHandle fileHandleForWritingAtPath:@"/dev/null"];
 
     __weak typeof(self) weakSelf = self;
+    // 两个回调都跑在后台线程，与 dealloc -> stop 清理回调之间存在竞态窗口。reader 已经
+    // 释放时 weakSelf.queue 是 nil，而 dispatch_async 到 NULL 队列会直接崩，所以必须先
+    // strongify 再判空，不能图省事写成 dispatch_async(weakSelf.queue, ...)。
     outputPipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
         NSData *data = handle.availableData;
-        dispatch_async(weakSelf.queue, ^{
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) {
+            handle.readabilityHandler = nil;
+            return;
+        }
+        dispatch_async(strongSelf.queue, ^{
             [weakSelf consumeOutputDataOnQueue:data fromHandle:handle];
         });
     };
     task.terminationHandler = ^(NSTask *finishedTask) {
-        dispatch_async(weakSelf.queue, ^{ [weakSelf taskDidTerminateOnQueue:finishedTask]; });
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        dispatch_async(strongSelf.queue, ^{ [weakSelf taskDidTerminateOnQueue:finishedTask]; });
     };
 
     NSError *error = nil;

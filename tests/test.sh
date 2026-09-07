@@ -464,6 +464,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   -framework Foundation -framework CoreServices \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsCodexRateLimits.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsageMonitor.m" \
   "${PROJECT_DIR}/tests/usage-monitor-harness.m" \
   -o "${USAGE_MONITOR_TMP}/usage-monitor-test"
