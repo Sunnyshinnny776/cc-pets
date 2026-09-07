@@ -18,11 +18,42 @@ static const NSTimeInterval QuotaResetSkewSeconds = 600.0;
 // 一份快照要么描述当前窗口，要么就没有任何用处：resets_at 落在过去说明这个窗口早就翻篇，
 // 落在一个窗长之外则根本不可能是它的重置时刻。2026-08-19 实测被顶进来的坏快照正是后者
 // ——5 小时窗口的 resets_at 报到了十几小时之后。两种都在入口就拒绝，别让它进文件。
-static BOOL QuotaWindowLooksCurrent(NSDictionary *quota, double windowMinutes, NSTimeInterval now) {
+static BOOL QuotaWindowLooksCurrentAt(NSDictionary *quota, double windowMinutes,
+    NSTimeInterval sampledAt) {
     NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
     if (!reset || windowMinutes <= 0) return NO;
     double value = reset.doubleValue;
-    return value > now && value <= now + windowMinutes * 60.0 + QuotaResetSkewSeconds;
+    return value > sampledAt && value <= sampledAt + windowMinutes * 60.0 + QuotaResetSkewSeconds;
+}
+
+static BOOL QuotaWindowLooksCurrent(NSDictionary *quota, double windowMinutes, NSTimeInterval now) {
+    return QuotaWindowLooksCurrentAt(quota, windowMinutes, now);
+}
+
+// Codex 的 rate_limits 是一份会话快照，不会在窗口自然重置时自行刷新。一个快照里的
+// 5 小时和 7 天窗口因此可能处于不同状态：例如 5 小时的 resets_at 已过去几天，但 7 天
+// 的仍在未来。不能因为后者还活着，就把前者的旧百分比继续当成当前额度展示。
+//
+// 缺 resets_at 的旧版记录暂时保留，兼容历史会话和只提供百分比的上游版本；只要服务端给了
+// 重置时间，就必须用它校验窗口。这个函数放在读取层而不是绘制层，状态栏、历史曲线和气泡
+// 台词才能使用同一份已校正的数据。
+static NSDictionary *UsageByRemovingInactiveQuotaWindows(NSDictionary *usage) {
+    if (![usage isKindOfClass:NSDictionary.class]) return usage;
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSDictionary<NSString *, NSNumber *> *windows = @{
+        @"fiveHour": @(FiveHourWindowMinutes),
+        @"week": @(SevenDayWindowMinutes)
+    };
+    NSMutableDictionary *result = nil;
+    for (NSString *key in windows) {
+        NSDictionary *quota = [usage[key] isKindOfClass:NSDictionary.class] ? usage[key] : nil;
+        NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class]
+            ? quota[@"resets_at"] : nil;
+        if (!reset || QuotaWindowLooksCurrent(quota, windows[key].doubleValue, now)) continue;
+        if (!result) result = [usage mutableCopy];
+        result[key] = NSNull.null;
+    }
+    return result ?: usage;
 }
 
 // 同一个账号下的每个 Claude 会话都会把自己那次响应里的 rate_limits 抄到同一个文件上，
@@ -351,16 +382,34 @@ static NSDictionary *UsageFromCodexLine(NSData *lineData) {
 static BOOL ExhaustionStillHolds(NSDictionary *usage, NSTimeInterval exhaustedAt) {
     if (![usage isKindOfClass:NSDictionary.class] || exhaustedAt <= 0) return NO;
     if (exhaustedAt < [usage[@"sampledAt"] doubleValue]) return NO;
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     NSTimeInterval earliestReset = 0;
-    for (NSString *key in @[@"fiveHour", @"week"]) {
+    BOOL foundReset = NO;
+    BOOL foundQuotaWithoutReset = NO;
+    NSDictionary<NSString *, NSNumber *> *windows = @{
+        @"fiveHour": @(FiveHourWindowMinutes),
+        @"week": @(SevenDayWindowMinutes)
+    };
+    for (NSString *key in windows) {
         NSDictionary *quota = [usage[key] isKindOfClass:NSDictionary.class] ? usage[key] : nil;
         NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
+        // 关键是“限额错误发生时”这个 reset 是否还属于当前窗口，而不是它现在是否已过期。
+        // 例如错误发生后 5 小时窗口自然重置，标记应当清掉；反过来，数天前就过期的
+        // 5 小时快照不能让一条刚发生的错误立即失效。
+        if (!quota) continue;
+        if (!reset) {
+            foundQuotaWithoutReset = YES;
+            continue;
+        }
+        foundReset = YES;
+        if (!QuotaWindowLooksCurrentAt(quota, windows[key].doubleValue, exhaustedAt)) continue;
         double value = reset.doubleValue;
-        if (value <= 0) continue;
         if (earliestReset == 0 || value < earliestReset) earliestReset = value;
     }
-    if (earliestReset > 0 && NSDate.date.timeIntervalSince1970 > earliestReset) return NO;
-    return YES;
+    if (earliestReset > now) return YES;
+    // 老版会话只给百分比、没有 resets_at 时无法推断受限状态的有效期；沿用之前的保守
+    // 行为，等更新的额度快照来清掉它。只要至少有一个明确的 reset，就以它为准。
+    return !foundReset && foundQuotaWithoutReset;
 }
 
 // 受限事件仍然成立时，把标记贴到 usage 上。事件本身没有窗口归属，面板只能提示"额度受限"
@@ -535,10 +584,13 @@ static NSData *SessionTailData(NSURL *url) {
 
 static BOOL UsageHasLiveWindow(NSDictionary *usage) {
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    for (NSString *key in @[@"fiveHour", @"week"]) {
+    NSDictionary<NSString *, NSNumber *> *windows = @{
+        @"fiveHour": @(FiveHourWindowMinutes),
+        @"week": @(SevenDayWindowMinutes)
+    };
+    for (NSString *key in windows) {
         NSDictionary *quota = [usage[key] isKindOfClass:NSDictionary.class] ? usage[key] : nil;
-        NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
-        if (reset && reset.doubleValue > now) return YES;
+        if (QuotaWindowLooksCurrent(quota, windows[key].doubleValue, now)) return YES;
     }
     return NO;
 }
@@ -1243,6 +1295,7 @@ NSDictionary *LatestUsage(void) {
     NSNumber *exhaustedAt = nil;
     NSDictionary *usage = LatestUsageInData(tail, &exhaustedAt)
         ?: LatestQuotaInRecentSessions(sessions, newest);
+    usage = UsageByRemovingInactiveQuotaWindows(usage);
     // --status 这类一次性调用不带缓存也不写归档：它只需要当下这一份数字。
     usage = UsageByAddingTokenTotals(usage, sessions, newest ? @[newest] : nil,
         [NSMutableDictionary dictionary],
@@ -1306,6 +1359,7 @@ static const NSTimeInterval TokenCacheSaveInterval = 60.0;
 }
 - (NSDictionary *)usageWithTokenTotals:(NSDictionary *)usage {
     if (![usage isKindOfClass:NSDictionary.class]) usage = @{};
+    usage = UsageByRemovingInactiveQuotaWindows(usage);
     NSString *identity = TokenWindowIdentity(usage);
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     BOOL reusable = !self.forcesTokenAggregation && self.tokenUsage &&

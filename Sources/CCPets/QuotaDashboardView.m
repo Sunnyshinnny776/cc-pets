@@ -709,10 +709,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSArray<NSDictionary *> *windows = @[
         @{@"x": @(NSMinX(card) + 214), @"title": @"官方 5 小时窗口", @"quota": five ?: @{},
           @"tokens": fiveTokens ?: @{}, @"used": fiveUsed ?: NSNull.null,
-          @"rolling": @"无限制"},
+          @"rolling": @"官方额度待刷新"},
         @{@"x": @(NSMinX(card) + 394), @"title": @"官方 7 天窗口", @"quota": week ?: @{},
           @"tokens": weekTokens ?: @{}, @"used": weekUsed ?: NSNull.null,
-          @"rolling": @"无限制"}
+          @"rolling": @"官方额度待刷新"}
     ];
     for (NSDictionary *window in windows) {
         CGFloat x = [window[@"x"] doubleValue];
@@ -729,10 +729,14 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         CGFloat valueWidth = ceil([official sizeWithAttributes:valueAttributes].width);
         [official drawInRect:NSMakeRect(x, NSMinY(card) + 74, valueWidth + 4, 34)
             withAttributes:valueAttributes];
-        // 没有数字可标时不给口径标签："-- 快照"读起来像是快照本身坏了。
-        NSString *valueLabel = (used && exhausted) ? @"快照" : @"剩余";
-        [valueLabel drawInRect:NSMakeRect(x + valueWidth + 7, NSMinY(card) + 78, 60, 20)
-            withAttributes:[self textAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
+        // 没有数字可标时不给口径标签："-- 剩余"看起来像一个真实的 0 值，而实际上是
+        // 官方快照待刷新。下方的状态文字会说明它为何不可用。
+        NSString *valueLabel = !used ? @"" : (exhausted ? @"快照" : @"剩余");
+        if (valueLabel.length > 0) {
+            [valueLabel drawInRect:NSMakeRect(x + valueWidth + 7, NSMinY(card) + 78, 60, 20)
+                withAttributes:[self textAttributesWithSize:12 color:secondary
+                    weight:NSFontWeightRegular]];
+        }
         // 官方窗口拿不到时（账号没有这个窗口、或响应里没带），Token 走的是本机滚动窗口。
         // 说清楚这一行的口径，比留一个 `--` 让人以为是渲染坏了要好。
         NSString *resetValue = [self resetText:window[@"quota"]];

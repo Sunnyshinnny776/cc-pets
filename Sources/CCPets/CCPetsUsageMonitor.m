@@ -1,5 +1,6 @@
 #import "CCPetsUsageMonitor.h"
 #import "CCPetsUsage.h"
+#import "CCPetsCodexRateLimits.h"
 #import "CCPetsPaths.h"
 #import <CoreServices/CoreServices.h>
 #import <fcntl.h>
@@ -14,9 +15,12 @@
 @interface CCPetsUsageMonitor ()
 @property dispatch_queue_t queue;
 @property CodexUsageReader *codexReader;
+@property CCPetsCodexRateLimitsReader *codexRateLimitsReader;
 @property ClaudeUsageReader *claudeReader;
 @property(readwrite) NSDictionary *codexUsage;
 @property(readwrite) NSDictionary *claudeUsage;
+@property NSDictionary *codexLiveUsage;
+@property NSTimeInterval codexLiveUsageUpdatedAt;
 @property FSEventStreamRef codexStream;
 @property dispatch_source_t claudeSource;
 @property unsigned long long claudeSize;
@@ -24,7 +28,12 @@
 @property BOOL started;
 - (void)publishChange;
 - (void)startClaudeSource;
+- (NSDictionary *)usageByApplyingLiveCodexUsage:(NSDictionary *)sessionUsage;
 @end
+
+// App Server 是服务端当前额度的权威源；会话日志只在成功响应落盘时才更新。短暂失败时
+// 留出一小段缓存寿命，既不因一次网络抖动闪回旧日志，也不会把实时值永久钉在界面上。
+static const NSTimeInterval CodexLiveUsageTTL = 5 * 60.0;
 
 static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
     void *clientCallBackInfo, size_t numEvents, void *eventPaths,
@@ -54,11 +63,13 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         }
     }
     if (requiresFullDiscovery) {
-        monitor.codexUsage = [monitor.codexReader refreshWithFullDiscovery];
+        monitor.codexUsage = [monitor usageByApplyingLiveCodexUsage:
+            [monitor.codexReader refreshWithFullDiscovery]];
     } else if (changedSessions.count > 0) {
         NSMutableArray<NSURL *> *urls = [NSMutableArray arrayWithCapacity:changedSessions.count];
         for (NSString *path in changedSessions) [urls addObject:[NSURL fileURLWithPath:path]];
-        monitor.codexUsage = [monitor.codexReader refreshForSessionURLs:urls];
+        monitor.codexUsage = [monitor usageByApplyingLiveCodexUsage:
+            [monitor.codexReader refreshForSessionURLs:urls]];
     }
     if (requiresFullDiscovery || changedSessions.count > 0) [monitor publishChange];
 }
@@ -70,12 +81,36 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
             dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
                 QOS_CLASS_UTILITY, 0));
         _codexReader = [CodexUsageReader new];
+        _codexRateLimitsReader = [CCPetsCodexRateLimitsReader new];
         _claudeReader = [ClaudeUsageReader new];
         // 桌宠是唯一的常驻读取者，摘要缓存由它维护并落盘。
         _codexReader.persistsCache = YES;
         _claudeReader.persistsCache = YES;
+        __weak typeof(self) weakSelf = self;
+        _codexRateLimitsReader.liveUsageHandler = ^(NSDictionary *liveUsage) {
+            dispatch_async(weakSelf.queue, ^{
+                typeof(self) strongSelf = weakSelf;
+                if (!strongSelf || !strongSelf.started) return;
+                strongSelf.codexLiveUsage = liveUsage;
+                strongSelf.codexLiveUsageUpdatedAt = NSDate.date.timeIntervalSince1970;
+                strongSelf.codexUsage = [strongSelf usageByApplyingLiveCodexUsage:
+                    strongSelf.codexReader.usage ?: strongSelf.codexUsage];
+                [strongSelf publishChange];
+            });
+        };
     }
     return self;
+}
+
+- (NSDictionary *)usageByApplyingLiveCodexUsage:(NSDictionary *)sessionUsage {
+    if (self.codexLiveUsage && NSDate.date.timeIntervalSince1970 -
+        self.codexLiveUsageUpdatedAt > CodexLiveUsageTTL) {
+        self.codexLiveUsage = nil;
+        self.codexLiveUsageUpdatedAt = 0;
+    }
+    return self.codexLiveUsage
+        ? CodexUsageByApplyingLiveUsage(sessionUsage, self.codexLiveUsage)
+        : sessionUsage;
 }
 // 回调交给主线程：下游全是 UI（面板重排、气泡定位、系统通知）。
 - (void)publishChange {
@@ -171,7 +206,9 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 - (void)refreshOnQueue {
     if (!self.started) return;
     // 手动刷新、面板打开和 120 秒兜底都走全量路径，Token 聚合的节流只约束 FSEvents 热路径。
-    self.codexUsage = [self.codexReader refreshWithFullDiscovery];
+    self.codexUsage = [self usageByApplyingLiveCodexUsage:
+        [self.codexReader refreshWithFullDiscovery]];
+    [self.codexRateLimitsReader refresh];
     self.claudeUsage = [self readClaudeUsageChanged:NO forcingAggregation:YES];
     if (!self.codexStream) [self startCodexStream];
     if (!self.claudeSource) [self startClaudeSource];
@@ -186,6 +223,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
     dispatch_sync(self.queue, ^{ [unsafeSelf teardownSources]; });
 }
 - (void)teardownSources {
+    [self.codexRateLimitsReader stop];
     if (self.codexStream) {
         FSEventStreamStop(self.codexStream);
         FSEventStreamInvalidate(self.codexStream);
