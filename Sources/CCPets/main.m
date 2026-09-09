@@ -7,6 +7,7 @@
 #import "CCPetsUsage.h"
 #import "CCPetsVersion.h"
 #import "CCPetsCleanup.h"
+#import "CCPetsTerminalFocus.h"
 #import <sys/file.h>
 #import <sys/stat.h>
 #import <fcntl.h>
@@ -37,6 +38,10 @@ int main(int argc, const char *argv[]) {
             return RestartAfterPID(pid, appPath, managed);
         }
         if (argc > 1 && strcmp(argv[1], "--hook") == 0) return RecordHookEvent();
+        if (argc > 1 && strcmp(argv[1], "--frontmost-bundle-id") == 0) {
+            puts(FrontmostApplicationBundleIdentifier().UTF8String);
+            return EXIT_SUCCESS;
+        }
         if (argc > 1 && (strcmp(argv[1], "--provider-event") == 0 ||
                          strcmp(argv[1], "provider-event") == 0)) return RecordProviderEvent();
         if (argc > 1 && strcmp(argv[1], "--claude-usage") == 0) return RecordClaudeUsage();

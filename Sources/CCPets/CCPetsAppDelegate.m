@@ -7,6 +7,7 @@
 #import "CCPetsPhrases.h"
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
+#import "CCPetsTerminalFocus.h"
 #import "MenuToggleSwitch.h"
 #import <UserNotifications/UserNotifications.h>
 #import <signal.h>
@@ -20,6 +21,17 @@ static const NSUInteger PendingApprovalLimit = 100;
 static const unsigned long long UpdateLogSizeLimit = 1024 * 1024;
 static NSString *const PetInteractionPhrasesV1MigratedKey =
     @"CCPetsInteractionPhrasesV1Migrated";
+
+@interface CCPetsStatusClickButton : NSButton
+@end
+
+@implementation CCPetsStatusClickButton
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (void)resetCursorRects {
+    [super resetCursorRects];
+    [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+}
+@end
 
 static void TrimUpdateLog(NSString *path) {
     NSFileHandle *handle = [NSFileHandle fileHandleForReadingAtPath:path];
@@ -651,6 +663,10 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     if (self.hasAgentStatus && [provider isEqualToString:self.lastStatusProvider] &&
         [self isTrailingRecord:record afterState:self.lastStatusState]) return;
 
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    self.lastTerminalFocusTarget = terminal.count > 0 ? terminal : nil;
+
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(hideAgentStatus) object:nil];
     [NSObject cancelPreviousPerformRequestsWithTarget:self
@@ -721,6 +737,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     // 说话是事件流的新消费者，不改变事件生产。冷启动重放已被 processAgentEventData
     // 的 recentOnly + 5 秒 cutoff 挡住，再加上预算制和冷却，最坏也只多说一句。
     [self considerSpeechForRecord:record];
+}
+- (BOOL)focusLatestAgentTerminal {
+    // 气泡消失后单击仍然保留原来的摸宠互动；只有当前 hook 状态可见时才接管点击。
+    if (!self.hasAgentStatus || self.lastTerminalFocusTarget.count == 0) return NO;
+    return ActivateTerminalFocusTarget(self.lastTerminalFocusTarget);
+}
+- (void)focusLatestAgentTerminal:(id)sender {
+    [self focusLatestAgentTerminal];
 }
 - (NSDictionary *)petManifestInDirectory:(NSString *)directory {
     NSString *jsonPath = [directory stringByAppendingPathComponent:@"pet.json"];
@@ -1005,6 +1029,9 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         NSString *text = PetPhraseForTag(tag, [weakSelf speechSlots]);
         if (text.length > 0) [weakSelf presentSpeechText:text];
     };
+    self.petView.terminalFocusRequested = ^BOOL{
+        return [weakSelf focusLatestAgentTerminal];
+    };
     // 附属面板的跟随必须挂在窗口自身的移动通知上，不能只挂 PetView 的拖动回调：
     // panel 开了 movableByWindowBackground，按在 PetView 之外的透明边上时由 AppKit
     // 直接搬窗口，PetView 的 mouseDragged 根本不触发，气泡就会留在原地。
@@ -1022,7 +1049,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusPanel.opaque = NO;
     self.statusPanel.backgroundColor = NSColor.clearColor;
     self.statusPanel.hasShadow = NO;
-    self.statusPanel.ignoresMouseEvents = YES;
+    self.statusPanel.ignoresMouseEvents = NO;
     self.statusPanel.level = NSFloatingWindowLevel;
     self.statusPanel.collectionBehavior =
         NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
@@ -1085,6 +1112,16 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusIconButton.layer.masksToBounds = YES;
     [self.statusGlass addSubview:self.statusIconButton];
     [statusRoot addSubview:self.statusGlass];
+    CCPetsStatusClickButton *statusClick = [[CCPetsStatusClickButton alloc]
+        initWithFrame:self.statusGlass.frame];
+    statusClick.bordered = NO;
+    statusClick.transparent = YES;
+    statusClick.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    statusClick.title = @"";
+    statusClick.toolTip = @"返回触发此状态的 Agent 终端";
+    statusClick.target = self;
+    statusClick.action = @selector(focusLatestAgentTerminal:);
+    [statusRoot addSubview:statusClick];
     self.statusPanel.contentView = statusRoot;
 
     NSSize quotaSize = NSMakeSize(QuotaLogicalWidth * QuotaScale, QuotaLogicalHeight * QuotaScale);

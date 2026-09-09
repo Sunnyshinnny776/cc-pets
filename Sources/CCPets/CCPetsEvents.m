@@ -1,5 +1,6 @@
 #import "CCPetsEvents.h"
 #import "CCPetsPaths.h"
+#import "CCPetsTerminalFocus.h"
 #import <sys/stat.h>
 #import <fcntl.h>
 #import <unistd.h>
@@ -196,6 +197,8 @@ int RecordHookEvent(void) {
         @"timestamp": @([NSDate.date timeIntervalSince1970])
     } mutableCopy];
     if (session.length > 0) record[@"session"] = session;
+    NSDictionary *terminal = TerminalFocusTargetFromEnvironment();
+    if (terminal.count > 0) record[@"terminal"] = terminal;
     AppendAgentEventRecord(record);
     return EXIT_SUCCESS;
 }
@@ -233,14 +236,16 @@ int RecordProviderEvent(void) {
         @"failed": @"StopFailure",
         @"notification": @"Notification"
     };
-    NSDictionary *record = @{
+    NSMutableDictionary *record = [@{
         @"event": events[state],
         @"tool": tool,
         @"failed": @([state isEqualToString:@"failed"] || [state isEqualToString:@"tool_failed"]),
         @"provider": provider,
         @"state": state,
         @"timestamp": @([NSDate.date timeIntervalSince1970])
-    };
+    } mutableCopy];
+    NSDictionary *terminal = TerminalFocusTargetFromEnvironment();
+    if (terminal.count > 0) record[@"terminal"] = terminal;
     if (!AppendAgentEventRecord(record)) {
         fprintf(stderr, "无法写入 Provider 事件。\n");
         return EXIT_FAILURE;

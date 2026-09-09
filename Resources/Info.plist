@@ -22,5 +22,7 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>用于在点击 Agent 状态气泡时返回对应的终端标签页。</string>
 </dict>
 </plist>

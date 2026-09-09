@@ -29,6 +29,8 @@ extern NSString *const PetInteractionIntervalKey;
 @property(copy) void (^pocketHoverChanged)(BOOL hovering);
 @property(copy) void (^dragStateChanged)(BOOL dragging);
 @property(copy) void (^interactionPhraseRequested)(NSString *tag);
+// 返回 YES 表示当前 hook 气泡已执行终端回跳，本次单击不再触发摸宠互动。
+@property(copy) BOOL (^terminalFocusRequested)(void);
 @property(copy) NSArray<NSDictionary *> *(^petOptionsRequested)(void);
 @property(copy) void (^switchPetRequested)(NSString *petID);
 @property(copy) BOOL (^deletePetRequested)(NSString *petID);

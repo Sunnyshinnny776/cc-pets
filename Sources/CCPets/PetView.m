@@ -847,6 +847,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         [self endPetDrag];
         return;
     }
+    if (self.terminalFocusRequested && self.terminalFocusRequested()) return;
     [self handleInteractionClick];
 }
 - (void)handleInteractionClick {

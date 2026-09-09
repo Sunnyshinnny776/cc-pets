@@ -41,6 +41,12 @@ if [[ -d "${INSTALLED_APP}" ]]; then
   PET_APP="${INSTALLED_APP}"
 fi
 
+# 固定 Agent 所在终端；后续所有 Hook 都会继承，用户中途切换应用也不会改错目标。
+export CC_PETS_TERMINAL_TTY="${TTY:-}"
+export CC_PETS_TERMINAL_PROGRAM="${TERM_PROGRAM:-}"
+export CC_PETS_TERMINAL_SESSION="${TERM_SESSION_ID:-${ITERM_SESSION_ID:-}}"
+export CC_PETS_TERMINAL_BUNDLE_ID="$("${PET_BIN}" --frontmost-bundle-id 2>/dev/null || true)"
+
 mkdir -p "${CLIENT_DIR}"
 # 写入 provider 名，桌宠据此判断“这一家的客户端是否还活着”。见 codex-with-pet 同处注释。
 print -r -- 'Claude' > "${CLIENT_FILE}"

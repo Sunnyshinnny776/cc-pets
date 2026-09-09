@@ -39,6 +39,12 @@ if [[ -d "${INSTALLED_APP}" ]]; then
   PET_APP="${INSTALLED_APP}"
 fi
 
+# Hook 的 stdin 是 JSON 管道，完成时再调用 tty 已经拿不到原始终端；必须在 exec 前固定。
+export CC_PETS_TERMINAL_TTY="${TTY:-}"
+export CC_PETS_TERMINAL_PROGRAM="${TERM_PROGRAM:-}"
+export CC_PETS_TERMINAL_SESSION="${TERM_SESSION_ID:-${ITERM_SESSION_ID:-}}"
+export CC_PETS_TERMINAL_BUNDLE_ID="$("${PET_BIN}" --frontmost-bundle-id 2>/dev/null || true)"
+
 mkdir -p "${CLIENT_DIR}"
 # 写入 provider 名，桌宠据此判断“这一家的客户端是否还活着”。只 touch 空文件的话，
 # Codex 全部退出后桌宠分不清剩下的客户端是谁，状态气泡会一直停在最后一条事件上。

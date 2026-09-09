@@ -40,6 +40,7 @@
 @property NSInteger liveClientCount;
 @property NSString *lastStatusState;
 @property NSString *lastStatusProvider;
+@property NSDictionary *lastTerminalFocusTarget;
 @property NSTimeInterval lastStatusTimestamp;
 @property NSSet<NSString *> *liveClientProviders;
 // 每个 provider 最近一次事件的时间。不经包装脚本启动的客户端没有 pid 文件，
