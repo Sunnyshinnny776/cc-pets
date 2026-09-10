@@ -632,7 +632,7 @@ if ! grep -q 'intersectSet:valid' "${PET_SOURCES[@]}"; then
   print -u2 "卡住提醒的去重集合没有回收失效键，会随会话数无限增长"
   exit 1
 fi
-grep -q '长时间无响应' "${PET_SOURCES[@]}"
+grep -q '响应超时' "${PET_SOURCES[@]}"
 print "Agent 卡住检测与提醒测试通过"
 
 print -n '{"hook_event_name":"PostToolUseFailure","tool_name":"Bash"}' | \
