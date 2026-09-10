@@ -23,7 +23,7 @@ sessions and Claude Code's official status line input.
 - Converts reset times to the Mac's current system time zone.
 - Responds to thinking, tool, approval, subagent, completion, and failure events.
 - Displays a redacted glass status card with the active CLI session count.
-- Returns to the terminal that triggered an event when its hook status card or the pet is clicked.
+- Returns to the terminal that triggered an event when its hook status card is clicked.
 - Supports optional local quota history and macOS notifications.
 - Supports third-party CLI agents through a provider event protocol.
 - Includes editable global and per-pet speech.
@@ -69,8 +69,7 @@ The allowlist only affects future installs, so reinstall the package or run
 `cc-pets install` after changing it.
 
 When launched through `codex-with-pet` or `claude-with-pet`, CC Pets captures the
-terminal identity before the agent starts. Every hook status card is clickable,
-and clicking the pet while a status card is visible performs the same action.
+terminal identity before the agent starts. Every hook status card is clickable.
 Terminal.app and iTerm2 are selected precisely by TTY. Without an editor
 extension, VS Code, JetBrains IDEs, Warp, WezTerm, and Ghostty fall back to
 activating the owning application; selection of an internal tab is left to that

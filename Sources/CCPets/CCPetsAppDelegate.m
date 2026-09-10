@@ -739,7 +739,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     [self considerSpeechForRecord:record];
 }
 - (BOOL)focusLatestAgentTerminal {
-    // 气泡消失后单击仍然保留原来的摸宠互动；只有当前 hook 状态可见时才接管点击。
+    // 只有 Hook 状态气泡上的透明按钮会调用这里；桌宠本体继续负责原有互动。
     if (!self.hasAgentStatus || self.lastTerminalFocusTarget.count == 0) return NO;
     return ActivateTerminalFocusTarget(self.lastTerminalFocusTarget);
 }
@@ -1028,9 +1028,6 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.petView.interactionPhraseRequested = ^(NSString *tag) {
         NSString *text = PetPhraseForTag(tag, [weakSelf speechSlots]);
         if (text.length > 0) [weakSelf presentSpeechText:text];
-    };
-    self.petView.terminalFocusRequested = ^BOOL{
-        return [weakSelf focusLatestAgentTerminal];
     };
     // 附属面板的跟随必须挂在窗口自身的移动通知上，不能只挂 PetView 的拖动回调：
     // panel 开了 movableByWindowBackground，按在 PetView 之外的透明边上时由 AppKit
