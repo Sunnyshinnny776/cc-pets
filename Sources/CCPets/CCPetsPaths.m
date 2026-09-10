@@ -213,6 +213,7 @@ NSString *const HistoryEnabledKey = @"CCPetsQuotaHistoryEnabled";
 NSString *const NotificationCompletionKey = @"CCPetsNotifyCompletion";
 NSString *const NotificationFailureKey = @"CCPetsNotifyFailure";
 NSString *const NotificationApprovalKey = @"CCPetsNotifyApproval";
+NSString *const NotificationStallKey = @"CCPetsNotifyStall";
 NSString *const StatusBubbleExpandedKey = @"CCPetsStatusBubbleExpanded";
 NSString *const StatusBubblePreferenceV2Key = @"CCPetsStatusBubblePreferenceV2";
 NSString *const ImportCodexPetsKey = @"CCPetsImportCodexPets";
@@ -230,6 +231,11 @@ const NSTimeInterval AgentStatusOrphanInterval = 10.0;
 // "正在启动"只在会话拉起的一瞬间成立。超过这段还没有任何后续事件，说明会话已经就绪、
 // 正在等用户输入，气泡应当落到"待机中"，否则启动态和空闲态看起来完全一样。
 const NSTimeInterval AgentStartingGraceInterval = 8.0;
+// 审批和思考是唯二会长时间停住不动的状态：窗口切走之后没人知道 Agent 早就停在
+// 那儿了。超过这两个阈值就主动提醒一次，会话有新事件后重新武装。审批是纯粹在等
+// 人，给得短；思考本来就可能跑很久，给得长，免得正常的长任务被当成卡死。
+const NSTimeInterval AgentApprovalStallInterval = 120.0;
+const NSTimeInterval AgentThinkingStallInterval = 300.0;
 // 刚发布的版本存在 registry 传播竞态，更新失败后等这么久再自动重试一次。
 const NSTimeInterval UpdateRetryDelay = 5.0;
 // 额度变化由 FSEvents/VNODE 主动推送；定时器只保留为监听不可用时的 120 秒兜底。

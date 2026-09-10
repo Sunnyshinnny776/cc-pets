@@ -25,6 +25,8 @@ sessions and Claude Code's official status line input.
 - Displays a redacted glass status card with the active CLI session count.
 - Returns to the terminal that triggered an event when its hook status card is clicked.
 - Lists up to eight recent online Agent terminal sessions from the status card icon.
+- Badges the status icon with the number of sessions waiting for approval and pins those sessions to the top of the list.
+- Speaks up when an Agent sits in approval or thinking longer than its threshold.
 - Supports optional local quota history and macOS notifications.
 - Supports third-party CLI agents through a provider event protocol.
 - Includes editable global and per-pet speech.

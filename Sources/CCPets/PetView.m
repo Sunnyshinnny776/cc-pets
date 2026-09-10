@@ -1505,7 +1505,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     NSArray<NSDictionary *> *notificationOptions = @[
         @{@"title": @"任务完成", @"key": NotificationCompletionKey, @"tag": @1},
         @{@"title": @"任务失败", @"key": NotificationFailureKey, @"tag": @2},
-        @{@"title": @"等待审批", @"key": NotificationApprovalKey, @"tag": @3}
+        @{@"title": @"等待审批", @"key": NotificationApprovalKey, @"tag": @3},
+        @{@"title": @"长时间无响应", @"key": NotificationStallKey, @"tag": @4}
     ];
     for (NSDictionary *option in notificationOptions) {
         [self addPersistentSwitchToMenu:notificationMenu

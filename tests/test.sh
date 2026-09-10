@@ -598,6 +598,43 @@ grep -Fq 'record[@"session"]' "${PET_SOURCES[@]}"
 grep -Fq 'self.pendingApprovalRecords[approvalKey] = record' "${PET_SOURCES[@]}"
 print "跨 Agent 人工审批记录保存测试通过"
 
+# 等审批的会话是停住不动的，时间戳只会越来越旧：状态卡正文跟着最新事件走，会话
+# 列表按时间倒序，两边都会把最该处理的那条推到看不见的地方。角标和置顶各补一头。
+grep -q 'pendingApprovalSessionRecords' "${PET_SOURCES[@]}"
+grep -q 'refreshApprovalBadge' "${PET_SOURCES[@]}"
+grep -q 'CCPetsApprovalBadgeView' "${PET_SOURCES[@]}"
+if ! grep -q 'leftApproval ? NSOrderedAscending : NSOrderedDescending' "${PET_SOURCES[@]}"; then
+  print -u2 "会话列表没有把等审批的排到最前面，最该处理的那条会沉到列表底部"
+  exit 1
+fi
+# 角标不能吃掉圆形状态图标的点击，否则会话列表再也弹不出来。
+if ! grep -Fq -e 'hitTest:(NSPoint)point { return nil; }' "${PET_SOURCES[@]}"; then
+  print -u2 "待审批角标没有放行点击，会挡住状态图标"
+  exit 1
+fi
+# 60 秒没有新事件就清场的规则不该把未处理的审批一起收走。
+if ! grep -q 'if (self.hasAgentStatus && pending.count > 0)' "${PET_SOURCES[@]}"; then
+  print -u2 "气泡清场没有为未处理的审批留回落，审批会随沉默一起消失"
+  exit 1
+fi
+print "待审批角标与会话列表置顶测试通过"
+
+grep -q 'AgentApprovalStallInterval' "${PET_SOURCES[@]}"
+grep -q 'AgentThinkingStallInterval' "${PET_SOURCES[@]}"
+grep -q 'checkStalledAgentSessions' "${PET_SOURCES[@]}"
+grep -q 'NotificationStallKey' "${PET_SOURCES[@]}"
+# 去重键必须带上会话当时的时间戳：只用会话键的话，卡住提醒一辈子只会响一次。
+if ! grep -Fq '[NSString stringWithFormat:@"%@|%.0f", key, timestamp]' "${PET_SOURCES[@]}"; then
+  print -u2 "卡住提醒的去重键不含时间戳，会话恢复后再次卡住将不再提醒"
+  exit 1
+fi
+if ! grep -q 'intersectSet:valid' "${PET_SOURCES[@]}"; then
+  print -u2 "卡住提醒的去重集合没有回收失效键，会随会话数无限增长"
+  exit 1
+fi
+grep -q '长时间无响应' "${PET_SOURCES[@]}"
+print "Agent 卡住检测与提醒测试通过"
+
 print -n '{"hook_event_name":"PostToolUseFailure","tool_name":"Bash"}' | \
   CC_PETS_STATE_DIR="${HOOK_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --hook
 assert_file_contains "${HOOK_EVENT_FILE}" '"event":"PostToolUseFailure"' "Claude Code 失败事件测试"
@@ -1601,9 +1638,10 @@ print "客户端退出后状态气泡清场测试通过"
 AGENT_STATUS_TMP="$(mktemp -d /tmp/cc-pets-agent-status-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
-  -framework Foundation \
+  -framework Foundation -framework AppKit \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsEvents.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m" \
   "${PROJECT_DIR}/tests/agent-status-harness.m" \
   -o "${AGENT_STATUS_TMP}/agent-status-test"
 "${AGENT_STATUS_TMP}/agent-status-test"

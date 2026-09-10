@@ -20,6 +20,7 @@ static const NSTimeInterval PendingApprovalTTL = 24 * 60 * 60;
 static const NSUInteger PendingApprovalLimit = 100;
 static const NSUInteger AgentSessionRecordLimit = 20;
 static const NSUInteger AgentSessionMenuLimit = 8;
+static const CGFloat PetApprovalBadgeSize = 17.0;
 static const unsigned long long UpdateLogSizeLimit = 1024 * 1024;
 static NSString *const PetInteractionPhrasesV1MigratedKey =
     @"CCPetsInteractionPhrasesV1Migrated";
@@ -32,6 +33,45 @@ static NSString *const PetInteractionPhrasesV1MigratedKey =
 - (void)resetCursorRects {
     [super resetCursorRects];
     [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+}
+@end
+
+// 待审批角标。等审批的会话按定义是停住不动的，它的时间戳只会越来越旧——状态卡
+// 正文永远显示最新事件，会话列表又按时间倒序，两边都会把最该处理的那条推到看
+// 不见的地方。角标把这个数字单独拎出来常驻。
+@interface CCPetsApprovalBadgeView : NSView
+@property(nonatomic) NSUInteger count;
+@end
+
+@implementation CCPetsApprovalBadgeView
+- (void)setCount:(NSUInteger)count {
+    if (_count == count) return;
+    _count = count;
+    self.hidden = count == 0;
+    self.needsDisplay = YES;
+}
+// 角标压在圆形状态图标的右上角，但不能把那颗按钮的点击吃掉。
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (void)drawRect:(NSRect)dirtyRect {
+    if (self.count == 0) return;
+    // 描边是给玻璃卡片准备的：审批色和卡片背景都偏亮，没有这圈白边角标会糊在一起。
+    NSRect circle = NSInsetRect(self.bounds, 1.0, 1.0);
+    NSBezierPath *fill = [NSBezierPath bezierPathWithOvalInRect:circle];
+    [[NSColor colorWithRed:0.86 green:0.24 blue:0.24 alpha:1] setFill];
+    [fill fill];
+    fill.lineWidth = 1.5;
+    [[NSColor colorWithWhite:1 alpha:0.92] setStroke];
+    [fill stroke];
+    BOOL overflow = self.count > 9;
+    NSString *text = overflow ? @"9+" : @(self.count).stringValue;
+    NSDictionary *attributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:overflow ? 8.5 : 10
+            weight:NSFontWeightBold],
+        NSForegroundColorAttributeName: NSColor.whiteColor
+    };
+    NSSize size = [text sizeWithAttributes:attributes];
+    [text drawAtPoint:NSMakePoint(NSMidX(self.bounds) - size.width / 2.0,
+        NSMidY(self.bounds) - size.height / 2.0) withAttributes:attributes];
 }
 @end
 
@@ -361,6 +401,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     if (tag == 1) return NotificationCompletionKey;
     if (tag == 2) return NotificationFailureKey;
     if (tag == 3) return NotificationApprovalKey;
+    if (tag == 4) return NotificationStallKey;
     return nil;
 }
 - (void)toggleSpeech:(NSButton *)sender {
@@ -587,10 +628,39 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     [self hideAgentStatus];
 }
 - (void)hideAgentStatus {
+    // 卡在审批的会话不该跟着沉默一起消失。60 秒没有新事件时，气泡不清场，而是回落
+    // 到最近那条审批：这样"有人在等你确认"始终有个落点，点卡片就能跳回那个终端，
+    // 角标也不会随面板一起被收走。
+    //
+    // 这不是把旧的"审批全局优先"逻辑搬回来——那一版在事件流里拦截，一个未处理的
+    // 审批会把其他 Agent 的所有 Hook 全挡住。这里只在完全没有新事件时才接管，任何
+    // 一条新事件都照常刷新正文。
+    NSArray<NSDictionary *> *pending = [self pendingApprovalSessionRecords];
+    if (self.hasAgentStatus && pending.count > 0) {
+        [self performSelector:@selector(hideAgentStatus) withObject:nil
+            afterDelay:AgentStatusInactivityInterval];
+        [self presentPendingApprovalRecord:pending.firstObject];
+        return;
+    }
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(enterIdleStatus) object:nil];
     [self.statusPanel orderOut:nil];
     self.hasAgentStatus = NO;
+    [self refreshApprovalBadge];
+}
+// 只改卡片内容和回跳目标，不走 displayAgentRecord：那条路会连带播动画、说一句话、
+// 发一次通知，而这里是"气泡闲下来后回落"，重复表演反而吵。
+- (void)presentPendingApprovalRecord:(NSDictionary *)record {
+    if (record.count == 0) return;
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
+    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
+    if ([self.lastStatusState isEqualToString:@"approval"] &&
+        [self.lastStatusProvider isEqualToString:provider]) return;
+    [self applyStatusPresentationForState:@"approval"
+        provider:provider.length > 0 ? provider : @"Agent" tool:tool];
 }
 // 勾选 = 显示气泡。没有 agent 状态时也允许改，这样用户可以提前设好偏好，
 // 而不必等下一次会话开始。
@@ -635,6 +705,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusIconButton.contentTintColor = [stateColor blendedColorWithFraction:0.18
         ofColor:NSColor.blackColor] ?: stateColor;
     [self resizeStatusCardToFitText];
+    [self layoutApprovalBadge];
     [self positionAgentStatus];
     if (self.statusBubbleExpanded) {
         [self.statusPanel orderFrontRegardless];
@@ -779,10 +850,117 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         if (oldKey) [self.agentSessionRecords removeObjectForKey:oldKey];
     }
 }
+- (BOOL)isApprovalSessionRecord:(NSDictionary *)record {
+    NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
+    return [state isEqualToString:@"approval"];
+}
+// 卡在审批的在线会话，最近的排前面。角标计数和会话列表置顶共用这一份，两处数字
+// 才不会打架。判据是"该会话的最后一条事件是审批"——审批一旦被处理，后续事件会
+// 把这条记录顶掉，会话自然退出这个集合，不需要额外的解除信号。
+- (NSArray<NSDictionary *> *)pendingApprovalSessionRecords {
+    [self pruneOfflineAgentSessionRecords];
+    NSMutableArray<NSDictionary *> *pending = [NSMutableArray array];
+    for (NSDictionary *record in self.agentSessionRecords.allValues) {
+        if ([self isApprovalSessionRecord:record]) [pending addObject:record];
+    }
+    [pending sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        return [right[@"timestamp"] compare:left[@"timestamp"]];
+    }];
+    return pending;
+}
+- (NSTimeInterval)stallIntervalForState:(NSString *)state {
+    if ([state isEqualToString:@"approval"]) return AgentApprovalStallInterval;
+    if ([state isEqualToString:@"thinking"]) return AgentThinkingStallInterval;
+    return 0;
+}
+// 会话停在同一个状态太久就提醒一次。去重键带上该会话当时的时间戳：会话一有新
+// 事件，时间戳变了，旧键自然失效，于是下一次卡住还会再提醒。每轮用当前有效键
+// 求交集，退出的会话不会在集合里留垃圾。
+- (void)checkStalledAgentSessions {
+    if (self.agentSessionRecords.count == 0) {
+        [self.stallNotifiedSessionKeys removeAllObjects];
+        return;
+    }
+    [self pruneOfflineAgentSessionRecords];
+    if (!self.stallNotifiedSessionKeys) self.stallNotifiedSessionKeys = [NSMutableSet set];
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    BOOL shouldNotify = [NSUserDefaults.standardUserDefaults boolForKey:NotificationStallKey];
+    NSMutableSet<NSString *> *valid = [NSMutableSet set];
+    NSDictionary *stalled = nil;
+    for (NSString *key in self.agentSessionRecords.allKeys) {
+        NSDictionary *record = self.agentSessionRecords[key];
+        NSTimeInterval timestamp = [record[@"timestamp"] doubleValue];
+        NSString *stamp = [NSString stringWithFormat:@"%@|%.0f", key, timestamp];
+        [valid addObject:stamp];
+        NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
+        NSTimeInterval limit = [self stallIntervalForState:state];
+        if (limit <= 0 || now - timestamp < limit) continue;
+        if ([self.stallNotifiedSessionKeys containsObject:stamp]) continue;
+        [self.stallNotifiedSessionKeys addObject:stamp];
+        NSString *provider = SanitizedShortString(record[@"provider"], 32);
+        if (provider.length == 0) provider = @"Agent";
+        if (shouldNotify) {
+            NSInteger minutes = (NSInteger)((now - timestamp) / 60.0);
+            [self sendNotificationWithTitle:
+                [state isEqualToString:@"approval"] ? @"审批仍在等待" : @"Agent 长时间无响应"
+                body:[NSString stringWithFormat:@"%@ 已%@ %ld 分钟。",
+                    provider, [self statusTextForState:state tool:record[@"tool"]], (long)minutes]];
+        }
+        // 多个会话同时卡住时只把最旧的那条顶到气泡上：它等得最久。
+        if (!stalled || [record[@"timestamp"] doubleValue] < [stalled[@"timestamp"] doubleValue]) {
+            stalled = record;
+        }
+    }
+    [self.stallNotifiedSessionKeys intersectSet:valid];
+    if (!stalled) return;
+    NSString *event = [stalled[@"event"] isKindOfClass:NSString.class] ? stalled[@"event"] : @"";
+    NSString *tool = [stalled[@"tool"] isKindOfClass:NSString.class] ? stalled[@"tool"] : @"";
+    [self.petView handleAgentEvent:event tool:tool failed:NO];
+    [self presentStalledRecord:stalled];
+}
+// 卡住提醒要把气泡重新推到眼前，所以这里不走 presentPendingApprovalRecord 那条
+// 带早退的回落路径——面板此刻很可能已经因为长时间沉默被收走了，必须强制重现。
+- (void)presentStalledRecord:(NSDictionary *)record {
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
+    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
+    self.hasAgentStatus = YES;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+        selector:@selector(hideAgentStatus) object:nil];
+    [self applyStatusPresentationForState:state
+        provider:provider.length > 0 ? provider : @"Agent"
+        tool:[record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @""];
+    [self.panel orderFrontRegardless];
+    [self performSelector:@selector(hideAgentStatus) withObject:nil
+        afterDelay:AgentStatusInactivityInterval];
+}
+- (void)layoutApprovalBadge {
+    if (!self.approvalBadgeView) return;
+    // statusIconButton 在玻璃卡片内，角标在卡片外层，差一个 6 点的卡片边距。
+    // 再各让出 4 点压到图标身上，看起来才是"贴在图标角上"而不是浮在旁边。
+    NSRect icon = self.statusIconButton.frame;
+    self.approvalBadgeView.frame = NSMakeRect(
+        6 + NSMaxX(icon) - PetApprovalBadgeSize + 4,
+        6 + NSMaxY(icon) - PetApprovalBadgeSize + 4,
+        PetApprovalBadgeSize, PetApprovalBadgeSize);
+}
+- (void)refreshApprovalBadge {
+    CCPetsApprovalBadgeView *badge = (CCPetsApprovalBadgeView *)self.approvalBadgeView;
+    if (!badge) return;
+    badge.count = [self pendingApprovalSessionRecords].count;
+    [self layoutApprovalBadge];
+}
+// 等审批的排最前面。纯按时间倒序会把它们推到最底下——它们的时间戳按定义只会
+// 越来越旧，而它们恰恰是唯一需要用户动手的那几条。
 - (NSArray<NSDictionary *> *)recentAgentSessionRecords {
     [self pruneOfflineAgentSessionRecords];
     NSArray<NSDictionary *> *records = [self.agentSessionRecords.allValues
         sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+            BOOL leftApproval = [self isApprovalSessionRecord:left];
+            BOOL rightApproval = [self isApprovalSessionRecord:right];
+            if (leftApproval != rightApproval) return leftApproval ? NSOrderedAscending : NSOrderedDescending;
             return [right[@"timestamp"] compare:left[@"timestamp"]];
         }];
     if (records.count <= AgentSessionMenuLimit) return records;
@@ -816,15 +994,23 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     NSMenuItem *heading = [menu addItemWithTitle:@"最近 Agent 会话" action:nil keyEquivalent:@""];
     heading.enabled = NO;
     [menu addItem:NSMenuItem.separatorItem];
+    BOOL separatedApprovals = NO;
     for (NSDictionary *record in records) {
         NSString *provider = SanitizedShortString(record[@"provider"], 32);
         NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
         NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
         NSDictionary *target = record[@"terminal"];
+        BOOL approval = [self isApprovalSessionRecord:record];
+        // 置顶的审批组和其余会话之间划一道线，免得两段看起来像同一个时间序列。
+        if (!approval && !separatedApprovals && record != records.firstObject) {
+            [menu addItem:NSMenuItem.separatorItem];
+            separatedApprovals = YES;
+        }
         NSDate *date = [NSDate dateWithTimeIntervalSince1970:[record[@"timestamp"] doubleValue]];
         NSString *time = [NSDateFormatter localizedStringFromDate:date
             dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle];
-        NSString *title = [NSString stringWithFormat:@"%@ · %@ · %@ · %@",
+        NSString *title = [NSString stringWithFormat:@"%@%@ · %@ · %@ · %@",
+            approval ? @"⚠️ " : @"",
             provider.length > 0 ? provider : @"Agent",
             [self statusTextForState:state tool:tool], [self terminalNameForTarget:target], time];
         NSMenuItem *item = [menu addItemWithTitle:title
@@ -1221,6 +1407,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     statusClick.action = @selector(focusLatestAgentTerminal:);
     self.statusClickButton = statusClick;
     [statusRoot addSubview:statusClick];
+    // 角标挂在 statusRoot 而不是 statusGlass 里：玻璃卡片是 masksToBounds 的胶囊，
+    // 右上角正好落在圆角外面，放进去会被裁掉一半。
+    CCPetsApprovalBadgeView *badge = [[CCPetsApprovalBadgeView alloc]
+        initWithFrame:NSMakeRect(0, 0, PetApprovalBadgeSize, PetApprovalBadgeSize)];
+    badge.hidden = YES;
+    self.approvalBadgeView = badge;
+    [statusRoot addSubview:badge];
+    [self layoutApprovalBadge];
     self.statusPanel.contentView = statusRoot;
 
     NSSize quotaSize = NSMakeSize(QuotaLogicalWidth * QuotaScale, QuotaLogicalHeight * QuotaScale);
@@ -1271,6 +1465,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.systemMonitor = [CCPetsSystemMonitor new];
     self.agentEventPartialLine = [NSMutableData data];
     self.pendingApprovalRecords = [NSMutableDictionary dictionary];
+    self.stallNotifiedSessionKeys = [NSMutableSet set];
     self.usageMonitor.changeHandler = ^(NSDictionary *codexUsage, NSDictionary *claudeUsage) {
         [weakSelf applyCodexUsage:codexUsage claudeUsage:claudeUsage];
         [weakSelf considerQuotaSpeech];
@@ -2000,6 +2195,7 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
             [self displayAgentRecord:record notify:YES];
         }
     }
+    [self refreshApprovalBadge];
 }
 - (void)readNewAgentEvents {
     NSString *path = AgentEventPath();
@@ -2128,6 +2324,8 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     [self updateQuotaLiveState];
     [self refreshDetectedProviders];
     [self hideAgentStatusIfClientGone];
+    [self checkStalledAgentSessions];
+    [self refreshApprovalBadge];
     // 启动模式在应用生命周期内保持不变。手动启动的桌宠即使后来检测到
     // Codex/Claude 客户端，也不应被转成 CLI 托管模式并随客户端退出。
     if (liveClients == 0 && self.managedByCLI) [NSApp terminate:nil];

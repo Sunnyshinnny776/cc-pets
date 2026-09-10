@@ -39,6 +39,8 @@ extern NSString *const HistoryEnabledKey;
 extern NSString *const NotificationCompletionKey;
 extern NSString *const NotificationFailureKey;
 extern NSString *const NotificationApprovalKey;
+// Agent 卡在审批或思考态超过阈值时的提醒开关。
+extern NSString *const NotificationStallKey;
 extern NSString *const StatusBubbleExpandedKey;
 extern NSString *const StatusBubblePreferenceV2Key;
 extern NSString *const ImportCodexPetsKey;
@@ -55,6 +57,8 @@ extern NSString *const DetectedProvidersKey;
 extern const NSTimeInterval AgentStatusInactivityInterval;
 extern const NSTimeInterval AgentStatusOrphanInterval;
 extern const NSTimeInterval AgentStartingGraceInterval;
+extern const NSTimeInterval AgentApprovalStallInterval;
+extern const NSTimeInterval AgentThinkingStallInterval;
 extern const NSTimeInterval UpdateRetryDelay;
 extern const NSTimeInterval UsageRefreshIntervalVisible;
 extern const NSTimeInterval UsageRefreshIntervalHidden;
