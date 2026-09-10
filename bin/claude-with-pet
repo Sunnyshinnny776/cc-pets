@@ -48,8 +48,8 @@ export CC_PETS_TERMINAL_SESSION="${TERM_SESSION_ID:-${ITERM_SESSION_ID:-}}"
 export CC_PETS_TERMINAL_BUNDLE_ID="$("${PET_BIN}" --frontmost-bundle-id 2>/dev/null || true)"
 
 mkdir -p "${CLIENT_DIR}"
-# 写入 provider 名，桌宠据此判断“这一家的客户端是否还活着”。见 codex-with-pet 同处注释。
-print -r -- 'Claude' > "${CLIENT_FILE}"
+# 第一行记录 provider，第二行记录 TTY；桌宠据此判断具体 Agent 会话是否仍在线。
+printf '%s\n%s\n' 'Claude' "${CC_PETS_TERMINAL_TTY:t}" > "${CLIENT_FILE}"
 
 print -rn -- '{"schemaVersion":1,"provider":"Claude","state":"starting"}' | \
   "${PET_BIN}" --provider-event >/dev/null 2>&1 || true

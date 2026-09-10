@@ -759,7 +759,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSNumber *currentUsed = weekUsed;
     NSArray<NSDictionary *> *points = [self curvePointsFromHistory:history currentUsed:currentUsed];
     NSDictionary *pace = exhausted
-        ? @{ @"label": @"待刷新", @"tip": @"等待新的官方额度快照",
+        ? @{ @"label": @"待刷新", @"tip": @"等待官方额度刷新",
              @"color": NSColor.systemOrangeColor }
         : [self paceStatusForQuota:week currentUsed:currentUsed color:color];
     NSColor *paceColor = pace[@"color"];

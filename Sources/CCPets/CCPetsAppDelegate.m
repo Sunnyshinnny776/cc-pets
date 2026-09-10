@@ -18,6 +18,8 @@
 
 static const NSTimeInterval PendingApprovalTTL = 24 * 60 * 60;
 static const NSUInteger PendingApprovalLimit = 100;
+static const NSUInteger AgentSessionRecordLimit = 20;
+static const NSUInteger AgentSessionMenuLimit = 8;
 static const unsigned long long UpdateLogSizeLimit = 1024 * 1024;
 static NSString *const PetInteractionPhrasesV1MigratedKey =
     @"CCPetsInteractionPhrasesV1Migrated";
@@ -716,15 +718,6 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         [self.pendingApprovalRecords removeObjectForKey:key];
     }
 }
-- (NSDictionary *)latestPendingApprovalRecord {
-    NSDictionary *latest = nil;
-    for (NSDictionary *record in self.pendingApprovalRecords.allValues) {
-        if (!latest || [record[@"timestamp"] doubleValue] > [latest[@"timestamp"] doubleValue]) {
-            latest = record;
-        }
-    }
-    return latest;
-}
 - (void)displayAgentRecord:(NSDictionary *)record notify:(BOOL)shouldNotify {
     NSString *event = [record[@"event"] isKindOfClass:NSString.class] ? record[@"event"] : @"";
     NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
@@ -737,6 +730,111 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     // 说话是事件流的新消费者，不改变事件生产。冷启动重放已被 processAgentEventData
     // 的 recentOnly + 5 秒 cutoff 挡住，再加上预算制和冷却，最坏也只多说一句。
     [self considerSpeechForRecord:record];
+}
+- (NSString *)agentSessionKeyForRecord:(NSDictionary *)record {
+    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    NSString *tty = SanitizedShortString(terminal[@"tty"], 64);
+    NSString *bundleID = SanitizedShortString(terminal[@"bundleID"], 128);
+    if (tty.length > 0) {
+        return [NSString stringWithFormat:@"%@|%@|%@", provider, bundleID, tty];
+    }
+    NSString *session = SanitizedShortString(record[@"session"], 128);
+    if (session.length > 0) return [NSString stringWithFormat:@"%@|%@", provider, session];
+    return terminal.count > 0 ? [NSString stringWithFormat:@"%@|%@", provider, bundleID] : nil;
+}
+- (NSString *)onlineAgentSessionKeyForProvider:(NSString *)provider tty:(NSString *)tty {
+    provider = SanitizedShortString(provider, 32);
+    tty = SanitizedShortString(tty.lastPathComponent, 64);
+    if (provider.length == 0 || tty.length == 0) return nil;
+    return [NSString stringWithFormat:@"%@|%@", provider, tty];
+}
+- (NSString *)onlineAgentSessionKeyForRecord:(NSDictionary *)record {
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    return [self onlineAgentSessionKeyForProvider:record[@"provider"] tty:terminal[@"tty"]];
+}
+- (void)pruneOfflineAgentSessionRecords {
+    for (NSString *key in self.agentSessionRecords.allKeys) {
+        NSString *onlineKey = [self onlineAgentSessionKeyForRecord:self.agentSessionRecords[key]];
+        if (onlineKey.length == 0 || ![self.liveAgentSessionKeys containsObject:onlineKey]) {
+            [self.agentSessionRecords removeObjectForKey:key];
+        }
+    }
+}
+- (void)trackAgentSessionRecord:(NSDictionary *)record {
+    NSString *key = [self agentSessionKeyForRecord:record];
+    if (key.length == 0) return;
+    if (!self.agentSessionRecords) self.agentSessionRecords = [NSMutableDictionary dictionary];
+    self.agentSessionRecords[key] = record;
+    if (self.agentSessionRecords.count <= AgentSessionRecordLimit) return;
+    NSArray<NSDictionary *> *oldestFirst = [self.agentSessionRecords.allValues
+        sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+            return [left[@"timestamp"] compare:right[@"timestamp"]];
+        }];
+    NSUInteger removeCount = oldestFirst.count - AgentSessionRecordLimit;
+    for (NSUInteger index = 0; index < removeCount; index++) {
+        NSString *oldKey = [self agentSessionKeyForRecord:oldestFirst[index]];
+        if (oldKey) [self.agentSessionRecords removeObjectForKey:oldKey];
+    }
+}
+- (NSArray<NSDictionary *> *)recentAgentSessionRecords {
+    [self pruneOfflineAgentSessionRecords];
+    NSArray<NSDictionary *> *records = [self.agentSessionRecords.allValues
+        sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+            return [right[@"timestamp"] compare:left[@"timestamp"]];
+        }];
+    if (records.count <= AgentSessionMenuLimit) return records;
+    return [records subarrayWithRange:NSMakeRange(0, AgentSessionMenuLimit)];
+}
+- (NSString *)terminalNameForTarget:(NSDictionary *)target {
+    NSString *program = SanitizedShortString(target[@"program"], 64);
+    NSString *lower = program.lowercaseString;
+    if ([lower isEqualToString:@"apple_terminal"]) return @"Terminal";
+    if ([lower containsString:@"iterm"]) return @"iTerm2";
+    if ([lower isEqualToString:@"vscode"]) return @"VS Code";
+    if ([lower containsString:@"jetbrains"]) return @"JetBrains";
+    if ([lower containsString:@"ghostty"]) return @"Ghostty";
+    if ([lower containsString:@"warp"]) return @"Warp";
+    if ([lower containsString:@"wezterm"]) return @"WezTerm";
+    if (program.length > 0) return program;
+    NSString *bundleID = SanitizedShortString(target[@"bundleID"], 128);
+    return bundleID.length > 0 ? bundleID : @"Terminal";
+}
+- (void)focusAgentSessionRecord:(NSMenuItem *)sender {
+    NSDictionary *record = [sender.representedObject isKindOfClass:NSDictionary.class]
+        ? sender.representedObject : nil;
+    NSDictionary *target = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    if (target.count > 0) ActivateTerminalFocusTarget(target);
+}
+- (void)showAgentSessionsMenu:(NSButton *)sender {
+    NSArray<NSDictionary *> *records = [self recentAgentSessionRecords];
+    if (records.count == 0) return;
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"最近 Agent 会话"];
+    NSMenuItem *heading = [menu addItemWithTitle:@"最近 Agent 会话" action:nil keyEquivalent:@""];
+    heading.enabled = NO;
+    [menu addItem:NSMenuItem.separatorItem];
+    for (NSDictionary *record in records) {
+        NSString *provider = SanitizedShortString(record[@"provider"], 32);
+        NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
+        NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
+        NSDictionary *target = record[@"terminal"];
+        NSDate *date = [NSDate dateWithTimeIntervalSince1970:[record[@"timestamp"] doubleValue]];
+        NSString *time = [NSDateFormatter localizedStringFromDate:date
+            dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle];
+        NSString *title = [NSString stringWithFormat:@"%@ · %@ · %@ · %@",
+            provider.length > 0 ? provider : @"Agent",
+            [self statusTextForState:state tool:tool], [self terminalNameForTarget:target], time];
+        NSMenuItem *item = [menu addItemWithTitle:title
+            action:@selector(focusAgentSessionRecord:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = record;
+        if ([target isEqual:self.lastTerminalFocusTarget]) item.state = NSControlStateValueOn;
+    }
+    [menu popUpMenuPositioningItem:nil
+        atLocation:NSMakePoint(0, NSHeight(sender.bounds) + 4) inView:sender];
 }
 - (BOOL)focusLatestAgentTerminal {
     // 只有 Hook 状态气泡上的透明按钮会调用这里；桌宠本体继续负责原有互动。
@@ -1100,17 +1198,20 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusDetailLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [self.statusGlass addSubview:self.statusDetailLabel];
 
-    self.statusIconButton = [[NSButton alloc] initWithFrame:NSMakeRect(
+    self.statusIconButton = [[CCPetsStatusClickButton alloc] initWithFrame:NSMakeRect(
         statusGlassSize.width - 48, 12, 34, 34)];
     self.statusIconButton.bordered = NO;
     self.statusIconButton.imagePosition = NSImageOnly;
     self.statusIconButton.wantsLayer = YES;
     self.statusIconButton.layer.cornerRadius = 17;
     self.statusIconButton.layer.masksToBounds = YES;
+    self.statusIconButton.toolTip = @"查看最近 Agent 会话";
+    self.statusIconButton.target = self;
+    self.statusIconButton.action = @selector(showAgentSessionsMenu:);
     [self.statusGlass addSubview:self.statusIconButton];
     [statusRoot addSubview:self.statusGlass];
     CCPetsStatusClickButton *statusClick = [[CCPetsStatusClickButton alloc]
-        initWithFrame:self.statusGlass.frame];
+        initWithFrame:NSMakeRect(6, 6, statusGlassSize.width - 56, statusGlassSize.height)];
     statusClick.bordered = NO;
     statusClick.transparent = YES;
     statusClick.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -1118,6 +1219,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     statusClick.toolTip = @"返回触发此状态的 Agent 终端";
     statusClick.target = self;
     statusClick.action = @selector(focusLatestAgentTerminal:);
+    self.statusClickButton = statusClick;
     [statusRoot addSubview:statusClick];
     self.statusPanel.contentView = statusRoot;
 
@@ -1733,6 +1835,7 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     }
     self.statusIconButton.frame = NSMakeRect(glassWidth - trailing - iconWidth,
         (height - iconWidth) / 2.0, iconWidth, iconWidth);
+    self.statusClickButton.frame = NSMakeRect(6, 6, glassWidth - 56, height);
 }
 
 // 独立气泡：左右各 16 内边距，没有图标。
@@ -1876,6 +1979,7 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
         NSDictionary *record = [NSJSONSerialization JSONObjectWithData:lineData options:0 error:nil];
         if (![record isKindOfClass:NSDictionary.class]) continue;
         if (recentOnly && [record[@"timestamp"] doubleValue] < cutoff) continue;
+        [self trackAgentSessionRecord:record];
         NSString *event = record[@"event"];
         NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
         if ([event isKindOfClass:NSString.class]) {
@@ -1884,7 +1988,6 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
             }
             [self prunePendingApprovalRecords];
             NSString *approvalKey = [self approvalKeyForRecord:record];
-            NSDictionary *previousPriority = [self latestPendingApprovalRecord];
             BOOL manualApproval = [state isEqualToString:@"approval"];
             if (manualApproval) {
                 self.pendingApprovalRecords[approvalKey] = record;
@@ -1892,15 +1995,8 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
                 [self.pendingApprovalRecords removeObjectForKey:approvalKey];
             }
             [self prunePendingApprovalRecords];
-            NSDictionary *currentPriority = [self latestPendingApprovalRecord];
-            if (currentPriority) {
-                if (manualApproval) {
-                    [self displayAgentRecord:currentPriority notify:YES];
-                } else if (currentPriority != previousPriority) {
-                    [self displayAgentRecord:currentPriority notify:NO];
-                }
-                continue;
-            }
+            // 多会话下不能让一个未处理的审批全局挡住其他 Agent 的所有 Hook。每条事件
+            // 都正常驱动气泡和动画；仍在等待的审批保留在多会话记录中供用户回跳。
             [self displayAgentRecord:record notify:YES];
         }
     }
@@ -1987,6 +2083,7 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:clientDirectory error:nil] ?: @[];
     NSInteger liveClients = 0;
     NSMutableSet<NSString *> *providers = [NSMutableSet set];
+    NSMutableSet<NSString *> *sessionKeys = [NSMutableSet set];
     BOOL unlabeled = NO;
     for (NSString *entry in entries) {
         pid_t pid = (pid_t)entry.intValue;
@@ -2000,10 +2097,18 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
         // 包装脚本会把 provider 名写进 pid 文件。1.0.2 及更早的版本只 touch 出
         // 空文件，升级后仍在运行的老客户端读出来是空的：这类当作“身份不明”，
         // 只要还有一个就不清场，避免把仍然活着的会话误判成已退出。
-        NSString *label = [[NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil]
+        NSString *contents = [NSString stringWithContentsOfFile:path
+            encoding:NSUTF8StringEncoding error:nil] ?: @"";
+        NSArray<NSString *> *lines = [contents componentsSeparatedByCharactersInSet:
+            NSCharacterSet.newlineCharacterSet];
+        NSString *label = [lines.firstObject
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (label.length > 0 && label.length <= 32) [providers addObject:label];
         else unlabeled = YES;
+        NSString *tty = lines.count > 1 ? [lines[1]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"";
+        NSString *sessionKey = [self onlineAgentSessionKeyForProvider:label tty:tty];
+        if (sessionKey.length > 0) [sessionKeys addObject:sessionKey];
     }
     // 包装脚本启动的客户端有精确的退出信号：pid 文件被回收。这一段不该被为"直接跑
     // claude / codex"准备的 60 秒活跃度宽限盖住，否则退出后还要挂满一分钟才转离线。
@@ -2012,7 +2117,9 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     NSSet<NSString *> *previousProviders = self.liveClientProviders;
     self.liveClientCount = liveClients;
     self.liveClientProviders = providers;
+    self.liveAgentSessionKeys = sessionKeys;
     self.hasUnlabeledClient = unlabeled;
+    [self pruneOfflineAgentSessionRecords];
     for (NSString *provider in previousProviders) {
         if (![providers containsObject:provider]) {
             [self.providerActivityAt removeObjectForKey:provider];

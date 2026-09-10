@@ -593,11 +593,10 @@ MANUAL_REVIEW_EVENT_FILE="${MANUAL_REVIEW_STATE}/cc-pets-$(id -u)-agent-events.n
 assert_file_contains "${MANUAL_REVIEW_EVENT_FILE}" '"state":"approval"' "Codex 人工审批状态测试"
 print "Codex 自动审批与人工审批状态区分测试通过"
 grep -q 'pendingApprovalRecords' "${PET_SOURCES[@]}"
-grep -q 'latestPendingApprovalRecord' "${PET_SOURCES[@]}"
 grep -q 'session.length > 0' "${PET_SOURCES[@]}"
 grep -Fq 'record[@"session"]' "${PET_SOURCES[@]}"
-grep -q 'currentPriority != previousPriority' "${PET_SOURCES[@]}"
-print "跨 Agent 人工审批最高优先级配置测试通过"
+grep -Fq 'self.pendingApprovalRecords[approvalKey] = record' "${PET_SOURCES[@]}"
+print "跨 Agent 人工审批记录保存测试通过"
 
 print -n '{"hook_event_name":"PostToolUseFailure","tool_name":"Bash"}' | \
   CC_PETS_STATE_DIR="${HOOK_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --hook

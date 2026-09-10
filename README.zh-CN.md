@@ -24,6 +24,7 @@
 - 响应 Codex 与 Claude Code Agent 的思考、工具调用、审批、子 Agent、完成和失败状态
 - 在桌宠旁显示脱敏后的玻璃 Agent 状态卡片，可展开、折叠并显示活跃 CLI 会话数
 - 点击任意 Hook 状态卡，可返回触发该事件的终端
+- 点击状态卡右侧圆形图标，可从最近 8 个在线 Agent 终端会话中选择并回跳
 - 支持第三方 CLI Agent 通过统一 Provider 事件协议接入动画和状态
 - 可选记录最近 7 天的本地额度历史，并在额度卡片中显示趋势
 - 可分别启用任务完成、失败和等待审批的 macOS 系统通知
@@ -57,10 +58,12 @@ Claude Code Hook 会合并到 `~/.claude/settings.json`，现有的 `env`、`mod
 安装器会自动重启桌宠，使新版本生效。`cc-pets install` 用于手动修复或重新初始化。
 
 通过 `codex-with-pet` / `claude-with-pet` 启动时，包装脚本会在 Agent 启动前记录终端身份。
-所有 Hook 状态卡都可以点击。macOS Terminal 和 iTerm2 会按 TTY 精确选中对应标签页或
-Session。VS Code、JetBrains IDE、Warp、WezTerm、
-Ghostty 等在不安装扩展的模式下会激活对应应用；应用内部标签页是否恢复由应用自身决定。
-首次回跳 Terminal 或 iTerm2 时，macOS 可能要求允许 CC Pets 控制该终端应用。
+所有 Hook 状态卡都可以点击；右侧圆形状态图标会展开最近 8 个在线 Agent 终端会话。
+升级前已启动的 Agent 需要重启一次，以便提供精确的在线会话身份。macOS Terminal 和
+iTerm2 会按 TTY 精确选中对应标签页或 Session。VS Code、
+JetBrains IDE、Warp、WezTerm、Ghostty 等在不安装扩展的模式下仅激活对应应用；应用
+内部标签页是否恢复由应用自身决定。首次回跳 Terminal 或 iTerm2 时，macOS 可能要求
+允许 CC Pets 控制该终端应用。
 
 ### 鼠标互动
 

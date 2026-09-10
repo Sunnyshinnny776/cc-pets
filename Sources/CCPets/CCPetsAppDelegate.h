@@ -34,6 +34,7 @@
 @property NSTextField *statusTitleLabel;
 @property NSTextField *statusDetailLabel;
 @property NSButton *statusIconButton;
+@property NSButton *statusClickButton;
 @property BOOL statusBubbleExpanded;
 @property BOOL statusBubbleAbove;
 @property BOOL hasAgentStatus;
@@ -43,11 +44,15 @@
 @property NSDictionary *lastTerminalFocusTarget;
 @property NSTimeInterval lastStatusTimestamp;
 @property NSSet<NSString *> *liveClientProviders;
+// 包装脚本仍存活的精确 Agent 会话，键为 provider + TTY。
+@property NSSet<NSString *> *liveAgentSessionKeys;
 // 每个 provider 最近一次事件的时间。不经包装脚本启动的客户端没有 pid 文件，
 // 只能靠"最近还在发事件"证明自己活着。
 @property NSMutableDictionary<NSString *, NSNumber *> *providerActivityAt;
 @property BOOL hasUnlabeledClient;
 @property NSMutableDictionary<NSString *, NSDictionary *> *pendingApprovalRecords;
+// 按终端会话保存最后一条 Hook 状态，供状态图标展开最近多会话列表。
+@property NSMutableDictionary<NSString *, NSDictionary *> *agentSessionRecords;
 @property QuotaDashboardView *quotaView;
 @property BOOL managedByCLI;
 @property BOOL pocketHovering;
