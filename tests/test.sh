@@ -1345,6 +1345,36 @@ grep -Fq '7 * 24 * 60 * 60' "${PET_SOURCES[@]}"
 grep -q 'CCPetsQuotaHistoryEnabled' "${PET_SOURCES[@]}"
 print "本地额度历史格式、采样间隔与默认开关测试通过"
 
+# 受限期间官方 rate_limits 仍会返回窗口百分比。一律丢掉的话，长期受限的 provider
+# 在 7 天里攒不下一个历史点，趋势曲线只剩"当前"这一个点、画不出线。两个用例各用
+# 一个独立的支持目录：RecordQuotaHistory 有 15 分钟采样闸门，同目录跑第二次必被拒。
+QUOTA_HISTORY_TMP="$(mktemp -d /tmp/cc-pets-quota-history-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsQuotaHistory.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PROJECT_DIR}/tests/quota-history-harness.m" \
+  -o "${QUOTA_HISTORY_TMP}/quota-history-test"
+CC_PETS_APPLICATION_SUPPORT_DIR="${QUOTA_HISTORY_TMP}/fresh" \
+  "${QUOTA_HISTORY_TMP}/quota-history-test" fresh-snapshot
+CC_PETS_APPLICATION_SUPPORT_DIR="${QUOTA_HISTORY_TMP}/stale" \
+  "${QUOTA_HISTORY_TMP}/quota-history-test" stale-snapshot
+rm -rf "${QUOTA_HISTORY_TMP}"
+
+# 趋势列算的是 7 天窗口。exhaustedAt 没有窗口归属（撞墙的通常是 5 小时窗口），拿它
+# 一票否决整列，会出现左边 7 天还剩 45%、右边却说"等待官方额度刷新"的自相矛盾。
+grep -q 'weekUnknown' "${PET_SOURCES[@]}"
+grep -Fq 'exhausted && currentUsed == nil' "${PET_SOURCES[@]}"
+print "受限时 7 天趋势仍按官方余量判档测试通过"
+
+# 关掉终端窗口只销毁 pty，claude / codex 是 Node 进程，不一定跟着 SIGHUP 退出，会变成
+# 脱离控制终端的孤儿继续活着。只问 kill(pid, 0) 的话 pid 一直在，会话就永久挂在"在线"。
+grep -q 'ClientProcessAlive' "${PET_SOURCES[@]}"
+grep -q 'e_tdev' "${PET_SOURCES[@]}"
+grep -q 'NODEV' "${PET_SOURCES[@]}"
+print "客户端存活判定要求控制终端仍匹配测试通过"
+
 DASHBOARD_PREVIEW="${CLAUDE_USAGE_TMP}/dashboard.png"
 "${PROJECT_DIR}/.build/release/cc-pets" --render-dashboard "${DASHBOARD_PREVIEW}"
 [[ -s "${DASHBOARD_PREVIEW}" ]]

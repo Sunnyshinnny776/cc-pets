@@ -758,11 +758,24 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         ? self.codexHistory : self.claudeHistory;
     NSNumber *currentUsed = weekUsed;
     NSArray<NSDictionary *> *points = [self curvePointsFromHistory:history currentUsed:currentUsed];
-    NSDictionary *pace = exhausted
+    // 趋势这一列算的是 7 天窗口（currentUsed 取 weekUsed）。而 exhaustedAt 来自
+    // rateLimitReachedType，没有窗口归属，实际撞墙的通常是 5 小时窗口——拿它一票否决
+    // 整列，会出现左边 7 天窗口好好显示着 45% 剩余、右边却说"等待官方额度刷新"的自相
+    // 矛盾。所以只有 7 天窗口自己确实没有百分比时才退回"待刷新"。
+    BOOL weekUnknown = exhausted && currentUsed == nil;
+    NSDictionary *pace = weekUnknown
         ? @{ @"label": @"待刷新", @"tip": @"等待官方额度刷新",
              @"color": NSColor.systemOrangeColor }
         : [self paceStatusForQuota:week currentUsed:currentUsed color:color];
     NSColor *paceColor = pace[@"color"];
+    // 档位讲的是 7 天趋势，脚注讲的是此刻为什么发不出请求：受限但 7 天窗口尚有余量时
+    // 两者都要说清，所以脚注单独取色，不跟着档位走。
+    NSString *paceTip = pace[@"tip"];
+    NSColor *tipColor = paceColor;
+    if (exhausted && !weekUnknown) {
+        paceTip = @"官方额度受限，等待重置";
+        tipColor = NSColor.systemOrangeColor;
+    }
     NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:paceColor
         weight:NSFontWeightSemibold];
     // 档位标签跟在标题后面。宽度仍按文字算：四个档位不一样长，最宽的"数据不足"到
@@ -786,8 +799,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         withAttributes:[self rightAlignedTextAttributesWithSize:10 color:secondary
             weight:NSFontWeightRegular]];
     // 与左边两列的"已用 Token"同一条基线（+22），也和 API 卡的脚注行对齐。
-    [pace[@"tip"] drawInRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18)
-        withAttributes:[self textAttributesWithSize:11 color:paceColor weight:NSFontWeightMedium]];
+    [paceTip drawInRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18)
+        withAttributes:[self textAttributesWithSize:11 color:tipColor weight:NSFontWeightMedium]];
 }
 - (void)drawRect:(NSRect)dirtyRect {
     [NSGraphicsContext saveGraphicsState];

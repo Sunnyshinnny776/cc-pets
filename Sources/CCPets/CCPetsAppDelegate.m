@@ -15,6 +15,8 @@
 #import <fcntl.h>
 #import <unistd.h>
 #import <errno.h>
+#import <sys/sysctl.h>
+#import <stdlib.h>
 
 static const NSTimeInterval PendingApprovalTTL = 24 * 60 * 60;
 static const NSUInteger PendingApprovalLimit = 100;
@@ -2271,6 +2273,26 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     self.quotaView.hasUnlabeledClient = self.hasUnlabeledClient;
     self.quotaView.needsDisplay = YES;
 }
+// 客户端是否真的还在跑。只问 kill(pid, 0) 不够：关掉终端窗口只是销毁 pty，claude /
+// codex（Node 进程）不一定跟着 SIGHUP 退出，会变成脱离控制终端的孤儿继续活着。那样
+// pid 一直存在，会话就永久挂在"在线"上，最近会话列表里那条也永远不消失。
+// 所以再看两件事：进程是否还有控制终端；以及它是不是仍然是 pid 文件里记的那个 TTY
+// （pty 会被新开的窗口复用，光看"有 tty"挡不住换了主人的情况）。
+// recordedTTY 为空是 1.0.2 及更早的老客户端，只能退回"有控制终端"这一条。
+static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
+    if (pid <= 1) return NO;
+    struct kinfo_proc info;
+    size_t length = sizeof(info);
+    int name[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
+    if (sysctl(name, 4, &info, &length, NULL, 0) != 0 || length == 0) return NO;
+    if (info.kp_proc.p_stat == SZOMB) return NO;
+    dev_t device = info.kp_eproc.e_tdev;
+    if (device == NODEV) return NO;
+    if (recordedTTY.length == 0) return YES;
+    const char *current = devname(device, S_IFCHR);
+    if (!current) return NO;
+    return [recordedTTY isEqualToString:@(current).lastPathComponent];
+}
 - (void)refreshClientLifecycle:(id)sender {
     [self considerIdleSpeech];
     [self prunePendingApprovalRecords];
@@ -2283,26 +2305,25 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     BOOL unlabeled = NO;
     for (NSString *entry in entries) {
         pid_t pid = (pid_t)entry.intValue;
-        BOOL alive = pid > 1 && (kill(pid, 0) == 0 || errno == EPERM);
         NSString *path = [clientDirectory stringByAppendingPathComponent:entry];
-        if (!alive) {
-            [NSFileManager.defaultManager removeItemAtPath:path error:nil];
-            continue;
-        }
-        liveClients += 1;
-        // 包装脚本会把 provider 名写进 pid 文件。1.0.2 及更早的版本只 touch 出
-        // 空文件，升级后仍在运行的老客户端读出来是空的：这类当作“身份不明”，
-        // 只要还有一个就不清场，避免把仍然活着的会话误判成已退出。
+        // 包装脚本会把 provider 名写进 pid 文件第一行、TTY 写进第二行。1.0.2 及更早
+        // 的版本只 touch 出空文件，升级后仍在运行的老客户端读出来是空的：这类当作
+        // “身份不明”，只要还有一个就不清场，避免把仍然活着的会话误判成已退出。
         NSString *contents = [NSString stringWithContentsOfFile:path
             encoding:NSUTF8StringEncoding error:nil] ?: @"";
         NSArray<NSString *> *lines = [contents componentsSeparatedByCharactersInSet:
             NSCharacterSet.newlineCharacterSet];
         NSString *label = [lines.firstObject
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (label.length > 0 && label.length <= 32) [providers addObject:label];
-        else unlabeled = YES;
         NSString *tty = lines.count > 1 ? [lines[1]
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"";
+        if (!ClientProcessAlive(pid, tty)) {
+            [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+            continue;
+        }
+        liveClients += 1;
+        if (label.length > 0 && label.length <= 32) [providers addObject:label];
+        else unlabeled = YES;
         NSString *sessionKey = [self onlineAgentSessionKeyForProvider:label tty:tty];
         if (sessionKey.length > 0) [sessionKeys addObject:sessionKey];
     }
