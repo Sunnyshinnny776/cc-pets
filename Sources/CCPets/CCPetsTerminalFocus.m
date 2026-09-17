@@ -1,5 +1,44 @@
 #import "CCPetsTerminalFocus.h"
 #import "CCPetsEvents.h"
+#import <sys/sysctl.h>
+#import <sys/stat.h>
+#import <stdlib.h>
+#import <unistd.h>
+
+static BOOL ProcessInfoForPID(pid_t pid, struct kinfo_proc *info) {
+    if (pid <= 0) return NO;
+    size_t length = sizeof(*info);
+    int name[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
+    return sysctl(name, 4, info, &length, NULL, 0) == 0 && length > 0;
+}
+
+// 包装脚本没被走到时（用户直接跑 codex / claude，或终端窗口早于 shim 安装就已打开）
+// 环境里没有 CC_PETS_TERMINAL_*。记录端自己是 Agent 的子进程，控制终端就是 Agent
+// 所在的那个 tty，直接问内核即可——stdin 是 JSON 管道，isatty 这类办法在这里没用。
+static NSString *ControllingTerminalName(void) {
+    struct kinfo_proc info;
+    if (!ProcessInfoForPID(getpid(), &info)) return @"";
+    dev_t device = info.kp_eproc.e_tdev;
+    if (device == NODEV) return @"";
+    const char *tty = devname(device, S_IFCHR);
+    return tty ? @(tty).lastPathComponent : @"";
+}
+
+// 承载终端的应用：沿父进程链往上走，第一个能被 NSRunningApplication 认领的就是
+// GUI 应用本体（Ghostty / Terminal / iTerm2 …）。不能用"当前前台应用"兜底——
+// Hook 触发时用户往往已经切到别的窗口，那样会把跳转目标记错。
+static NSString *HostApplicationBundleIdentifier(void) {
+    pid_t pid = getppid();
+    for (NSUInteger depth = 0; depth < 16 && pid > 1; depth++) {
+        NSString *bundleID = [NSRunningApplication
+            runningApplicationWithProcessIdentifier:pid].bundleIdentifier;
+        if (bundleID.length > 0) return bundleID;
+        struct kinfo_proc info;
+        if (!ProcessInfoForPID(pid, &info)) break;
+        pid = info.kp_eproc.e_ppid;
+    }
+    return @"";
+}
 
 static NSString *TerminalTargetValue(NSDictionary<NSString *, NSString *> *environment,
     NSString *key, NSUInteger maximumLength) {
@@ -14,6 +53,10 @@ NSDictionary *TerminalFocusTargetFromEnvironment(void) {
     NSString *program = TerminalTargetValue(environment, @"CC_PETS_TERMINAL_PROGRAM", 64);
     NSString *session = TerminalTargetValue(environment, @"CC_PETS_TERMINAL_SESSION", 128);
     NSString *bundleID = TerminalTargetValue(environment, @"CC_PETS_TERMINAL_BUNDLE_ID", 128);
+    if (tty.length == 0) tty = SanitizedShortString(ControllingTerminalName(), 64);
+    if (bundleID.length == 0) {
+        bundleID = SanitizedShortString(HostApplicationBundleIdentifier(), 128);
+    }
     if (tty.length == 0 && program.length == 0 && session.length == 0 && bundleID.length == 0) {
         return @{};
     }

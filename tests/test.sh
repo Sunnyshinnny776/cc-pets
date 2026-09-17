@@ -650,6 +650,34 @@ assert_file_contains "${POST_TOOL_EVENT_FILE}" '"provider":"Codex"' "Codex 工�
 assert_file_contains "${POST_TOOL_EVENT_FILE}" '"state":"thinking"' "Codex 工具完成后恢复思考测试"
 print "Codex 工具完成后恢复思考状态测试通过"
 
+# 没走包装脚本的会话（直接跑 codex / claude，或终端窗口早于 shim 安装就已打开）环境里
+# 没有 CC_PETS_TERMINAL_*。记录端自己就是 Agent 的子进程，控制终端必须由内核兜底问出来，
+# 否则事件没有 terminal，点状态气泡跳不回终端、会话也进不了最近列表。
+TTY_FALLBACK_TMP="$(mktemp -d /tmp/cc-pets-tty-fallback-test.XXXXXX)"
+TTY_FALLBACK_EVENT_FILE="${TTY_FALLBACK_TMP}/cc-pets-$(id -u)-agent-events.ndjson"
+cat > "${TTY_FALLBACK_TMP}/emit.sh" <<'TTY_FALLBACK'
+#!/bin/zsh
+print -rn -- '{"hook_event_name":"Stop"}' | "${PET_BINARY}" --hook
+TTY_FALLBACK
+chmod +x "${TTY_FALLBACK_TMP}/emit.sh"
+env -u CC_PETS_TERMINAL_TTY -u CC_PETS_TERMINAL_PROGRAM -u CC_PETS_TERMINAL_SESSION \
+  -u CC_PETS_TERMINAL_BUNDLE_ID \
+  PET_BINARY="${PROJECT_DIR}/.build/release/cc-pets" \
+  CC_PETS_CODEX_AGENT_HOOK=1 CC_PETS_STATE_DIR="${TTY_FALLBACK_TMP}" \
+  script -q /dev/null "${TTY_FALLBACK_TMP}/emit.sh" </dev/null >/dev/null
+if ! grep -q '"tty":"ttys' "${TTY_FALLBACK_EVENT_FILE}"; then
+  print -u2 "缺少 CC_PETS_TERMINAL_* 时 Hook 没有回落到控制终端"
+  exit 1
+fi
+rm -rf "${TTY_FALLBACK_TMP}"
+print "Hook 在无包装脚本环境下回落到控制终端测试通过"
+
+# 同一个原因的另一半：没有包装脚本就没有 pid 文件，最近会话列表若只认 pid 文件，
+# 这类会话会被当场判死，哪怕它的 Hook 正在正常发事件。
+grep -q 'isAgentSessionRecordLive' "${PET_SOURCES[@]}"
+grep -q 'HostApplicationBundleIdentifier' "${PET_SOURCES[@]}"
+print "无 pid 文件的会话按活跃度保留测试通过"
+
 emit_hook_event() {
   local state_dir="$1"
   local payload="$2"
