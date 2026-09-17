@@ -5,6 +5,32 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
+## [2.0.3] - 2026-09-17
+
+Terminal jump-back and session-liveness fixes for agents started outside the wrapper scripts.
+
+### Agent status
+
+- Fall back to the kernel when `CC_PETS_TERMINAL_*` is missing: read the controlling terminal through `sysctl(KERN_PROC_PID)` and resolve the host terminal application by walking up the parent process chain, so `claude` / `codex` launched directly can still be jumped back to.
+- Fix sessions without a pid file being declared dead immediately: liveness now prefers the pid file, and falls back to the activity grace window for providers that never wrote one.
+
+## [2.0.2] - 2026-09-11
+
+Multi-session agent list, plus session-liveness and Codex usage-trend fixes.
+
+### Agent status
+
+- Every hook status card is clickable and returns to the terminal that triggered the event; Terminal.app and iTerm2 are selected precisely by TTY, other terminals fall back to activating the owning application.
+- The circular status icon lists up to eight recent online agent terminal sessions, badges the number of sessions waiting for approval, and pins those sessions to the top of the list.
+- Notify once and pull the card back to the front when an agent sits in approval for 2 minutes or in thinking for 5 minutes; the session re-arms after its next event.
+- The card no longer clears after 60 idle seconds while an approval is outstanding.
+- Fix stale online sessions: a session is online only when its controlling terminal still matches the TTY recorded in the pid file, so orphaned Node processes no longer keep a closed window listed.
+
+### Quota and usage
+
+- Fix the usage-trend column being overridden by the pending refresh state while a 7-day percentage is available, and give the rate-limited footnote its own color.
+- Keep official window percentages in quota history while rate limited, so a long-limited provider still has samples to draw a trend curve from.
+
 ## [2.0.1] - 2026-09-07
 
 Bug fixes for quota display and panel stability.
