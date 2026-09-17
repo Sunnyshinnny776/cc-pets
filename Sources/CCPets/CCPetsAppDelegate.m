@@ -828,10 +828,22 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         ? record[@"terminal"] : nil;
     return [self onlineAgentSessionKeyForProvider:record[@"provider"] tty:terminal[@"tty"]];
 }
+// 在线判定优先用包装脚本写出的 pid 文件：它给出精确的退出信号，会话一关列表就更新。
+// 但直接跑 claude / codex（或终端窗口早于 shim 安装就已打开）的会话根本没有 pid 文件，
+// 只按 pid 文件判定会把它们当场判死，列表里永远看不到——哪怕它们的 Hook 正在正常发事件。
+// 这类会话退回活跃度宽限：最近一次事件在静默窗口内就算在线。某个 provider 一旦出现过
+// pid 文件，说明包装脚本对它生效，继续按精确信号判定，不被宽限盖住。
+- (BOOL)isAgentSessionRecordLive:(NSDictionary *)record {
+    NSString *onlineKey = [self onlineAgentSessionKeyForRecord:record];
+    if (onlineKey.length > 0 && [self.liveAgentSessionKeys containsObject:onlineKey]) return YES;
+    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    if (provider.length > 0 && [self.liveClientProviders containsObject:provider]) return NO;
+    return NSDate.date.timeIntervalSince1970 - [record[@"timestamp"] doubleValue]
+        < AgentStatusInactivityInterval;
+}
 - (void)pruneOfflineAgentSessionRecords {
     for (NSString *key in self.agentSessionRecords.allKeys) {
-        NSString *onlineKey = [self onlineAgentSessionKeyForRecord:self.agentSessionRecords[key]];
-        if (onlineKey.length == 0 || ![self.liveAgentSessionKeys containsObject:onlineKey]) {
+        if (![self isAgentSessionRecordLive:self.agentSessionRecords[key]]) {
             [self.agentSessionRecords removeObjectForKey:key];
         }
     }
