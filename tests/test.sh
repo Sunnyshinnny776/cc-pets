@@ -1710,6 +1710,20 @@ grep -q 'AgentStartingGraceInterval' "${PET_SOURCES[@]}"
 grep -q 'enterIdleStatus' "${PET_SOURCES[@]}"
 print "Agent 状态气泡终态保持与待机降级测试通过"
 
+TERMINAL_FOCUS_TMP="$(mktemp -d /tmp/cc-pets-terminal-focus-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation -framework AppKit \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsEvents.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m" \
+  "${PROJECT_DIR}/tests/terminal-focus-harness.m" \
+  -o "${TERMINAL_FOCUS_TMP}/terminal-focus-test"
+"${TERMINAL_FOCUS_TMP}/terminal-focus-test"
+# 候选必须逐个试。只认第一个候选时，分支编辑器和映射值没在运行的宿主都会点了没反应。
+grep -q 'for (NSString \*bundleID in TerminalFocusBundleCandidates(target))' \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m"
+
 UPDATE_RETRY_TMP="$(mktemp -d /tmp/cc-pets-update-retry-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \

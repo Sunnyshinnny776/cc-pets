@@ -7,5 +7,8 @@ NSDictionary *TerminalFocusTargetFromEnvironment(void);
 // Terminal / iTerm2 按 TTY 精确选中 tab/session；其他终端在无扩展模式下激活应用。
 BOOL ActivateTerminalFocusTarget(NSDictionary *target);
 
+// 回跳目标的候选 bundle ID，按优先级排列，已去重去空。
+NSArray<NSString *> *TerminalFocusBundleCandidates(NSDictionary *target);
+
 // 供包装脚本在 exec Agent 之前捕获承载终端的应用。
 NSString *FrontmostApplicationBundleIdentifier(void);

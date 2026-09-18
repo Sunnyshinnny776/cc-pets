@@ -4,6 +4,12 @@
 
 本项目遵循语义化版本号。版本号以 `package.json` 为唯一来源。
 
+## [未发布]
+
+### Agent 状态
+
+- 修复在 VS Code 家族编辑器里点状态卡片无法回跳：`TERM_PROGRAM=vscode` 是 VS Code、Cursor、Windsurf、Antigravity 共用的标记，不再由它单独决定跳转的应用——捕获到的 bundle ID 优先，候选里没在运行的直接跳过，不再让整次回跳失败。
+
 ## [2.0.3] - 2026-09-17
 
 修复未经包装脚本启动的 Agent 的终端回跳与会话存活判定。

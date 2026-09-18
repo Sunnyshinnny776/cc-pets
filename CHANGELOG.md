@@ -5,6 +5,12 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
+## [Unreleased]
+
+### Agent status
+
+- Fix the status card not jumping back from VS Code family editors: `TERM_PROGRAM=vscode` is shared by VS Code, Cursor, Windsurf and Antigravity, so it no longer decides the application on its own — the captured bundle identifier goes first, and every candidate that is not running is skipped instead of failing the whole jump.
+
 ## [2.0.3] - 2026-09-17
 
 Terminal jump-back and session-liveness fixes for agents started outside the wrapper scripts.
