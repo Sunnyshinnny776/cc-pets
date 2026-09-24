@@ -60,7 +60,9 @@ exit 1
 const fakeAgent = (name) => {
   const link = path.join(root, "fake", name);
   if (!fs.existsSync(link)) fs.symlinkSync("/bin/sleep", link);
-  const child = spawn(link, ["600"], { stdio: "ignore" });
+  // detached = 新会话（setsid），不带控制终端。否则在交互终端里跑测试（如 npm publish）时，
+  // 子进程会继承那个终端的 tty，tty 列就不再是 "-"，与 CI / 无终端环境下的结果不一致。
+  const child = spawn(link, ["600"], { stdio: "ignore", detached: true });
   children.push(child);
   return child;
 };
