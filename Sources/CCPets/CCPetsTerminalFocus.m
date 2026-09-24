@@ -127,24 +127,46 @@ static NSString *BundleIDForTerminalProgram(NSString *program) {
     return @"";
 }
 
-BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
-    if (![target isKindOfClass:NSDictionary.class]) return NO;
-    NSString *tty = SanitizedShortString(target[@"tty"], 64);
+// TERM_PROGRAM=vscode 是整个 VS Code 家族共用的标记：官方 VS Code、Cursor、Windsurf、
+// Antigravity 这些分支全都这么写。它认不出具体是哪一个应用，固定映射到 com.microsoft.
+// VSCode 就会把所有分支编辑器的回跳打死——那个 bundle ID 在机器上根本没有进程，激活
+// 直接失败，点状态卡片毫无反应。家族内部谁是谁只有捕获到的 bundleID 知道。
+static BOOL TerminalProgramIsVSCodeFamily(NSString *program) {
+    return [program.lowercaseString isEqualToString:@"vscode"];
+}
+
+NSArray<NSString *> *TerminalFocusBundleCandidates(NSDictionary *target) {
+    if (![target isKindOfClass:NSDictionary.class]) return @[];
+    NSString *program = SanitizedShortString(target[@"program"], 64);
     // 已知 TERM_PROGRAM 比“启动瞬间的前台应用”更可靠：VS Code Task 可能在窗口不位于
     // 前台时启动 shell。JetBrains 等没有稳定统一 bundle ID 的宿主才使用捕获值兜底。
-    NSString *bundleID = BundleIDForTerminalProgram(
-        SanitizedShortString(target[@"program"], 64));
-    if (bundleID.length == 0) bundleID = SanitizedShortString(target[@"bundleID"], 128);
-    if (bundleID.length == 0) return NO;
-    if (RunTerminalSelectionScript(bundleID, tty)) return YES;
+    // vscode 家族是例外，那个值分不出分支，只能反过来让捕获值当第一候选。
+    NSString *mapped = BundleIDForTerminalProgram(program);
+    NSString *captured = SanitizedShortString(target[@"bundleID"], 128);
+    NSArray<NSString *> *ordered = TerminalProgramIsVSCodeFamily(program)
+        ? @[captured, mapped] : @[mapped, captured];
+    NSMutableArray<NSString *> *candidates = [NSMutableArray array];
+    for (NSString *candidate in ordered) {
+        if (candidate.length == 0 || [candidates containsObject:candidate]) continue;
+        [candidates addObject:candidate];
+    }
+    return candidates;
+}
 
-    NSArray<NSRunningApplication *> *applications =
-        [NSRunningApplication runningApplicationsWithBundleIdentifier:bundleID];
-    NSRunningApplication *application = applications.firstObject;
-    if (!application) return NO;
+BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
+    NSString *tty = SanitizedShortString(target[@"tty"], 64);
+    // 候选按优先级往下试，没在运行的直接跳过：映射值和捕获值总有一个指向真正承载
+    // 会话的那个应用，卡在第一个候选上就会白白丢掉一次可用的回跳。
+    for (NSString *bundleID in TerminalFocusBundleCandidates(target)) {
+        if (RunTerminalSelectionScript(bundleID, tty)) return YES;
+        NSRunningApplication *application =
+            [NSRunningApplication runningApplicationsWithBundleIdentifier:bundleID].firstObject;
+        if (!application) continue;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    return [application activateWithOptions:
-        NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps];
+        return [application activateWithOptions:
+            NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps];
 #pragma clang diagnostic pop
+    }
+    return NO;
 }

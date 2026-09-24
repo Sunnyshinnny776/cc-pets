@@ -16,6 +16,9 @@
 - 桌宠显示：状态图标右下角的消息角标（蓝色为新送达，橙色为信箱积压），会话菜单列出最近的跨会话消息，点击跳到收件会话的终端；只显示会话名与时间，不显示正文。
 - 选项与菜单开关：`cc-pets bridge configure` 与 `enable` 支持 `--approve` / `--codex-approve` / `--claude-allow`（按分组放开 Codex 免审批与 Claude 免确认）、`--wake`、`--edit-guard`，未给出的选项保持原值；桌宠右键菜单新增 CC Bridge 开关组（启用、免审批四组、自动唤醒、编辑拦截、消息角标、新消息系统通知）。
 - 会话名可自定义：启动时用 `CC_BRIDGE_NAME`，或会话内调用 `set_name` / `cc-pets bridge name`；`list_agents` 显示会话所在终端（tty）。
+### Agent 状态
+
+- 修复在 VS Code 家族编辑器里点状态卡片无法回跳：`TERM_PROGRAM=vscode` 是 VS Code、Cursor、Windsurf、Antigravity 共用的标记，不再由它单独决定跳转的应用——捕获到的 bundle ID 优先，候选里没在运行的直接跳过，不再让整次回跳失败。
 
 ## [2.0.3] - 2026-09-17
 

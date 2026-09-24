@@ -17,6 +17,9 @@ truth for the version.
 - Pet integration: a message badge on the status icon (blue for new deliveries, orange for inbox backlog), recent cross-session messages in the session menu, and click-to-jump to the recipient's terminal; names and times only, never bodies.
 - Options and pet switches: `cc-pets bridge configure` and `enable` accept `--approve` / `--codex-approve` / `--claude-allow` (skip approval in Codex and Claude by tool group), `--wake`, and `--edit-guard`, keeping anything not given; the pet's right-click menu gains a CC Bridge section (enable, four approval groups, auto-wake, edit guard, message badge, new-message notifications).
 - Custom session names via `CC_BRIDGE_NAME` at launch, or `set_name` / `cc-pets bridge name` in a session; `list_agents` shows each session's terminal (tty).
+### Agent status
+
+- Fix the status card not jumping back from VS Code family editors: `TERM_PROGRAM=vscode` is shared by VS Code, Cursor, Windsurf and Antigravity, so it no longer decides the application on its own — the captured bundle identifier goes first, and every candidate that is not running is skipped instead of failing the whole jump.
 
 ## [2.0.3] - 2026-09-17
 
