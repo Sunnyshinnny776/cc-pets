@@ -16,6 +16,11 @@ if [[ "${1:-}" == "pet" ]]; then
   exec node "${PROJECT_DIR}/scripts/pet-store.mjs" "$@"
 fi
 
+if [[ "${1:-}" == "bridge" ]]; then
+  shift
+  exec node "${PROJECT_DIR}/scripts/bridge/cli.mjs" "$@"
+fi
+
 if [[ "${1:-}" == "uninstall" ]]; then
   exec "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh"
 fi

@@ -5,6 +5,19 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
+## [Unreleased]
+
+### CC Bridge (experimental, off by default)
+
+- Added `cc-pets bridge enable|disable|status`, which lets Claude Code and Codex terminal sessions on the same Mac discover each other, exchange messages, and wake each other, including Claude ↔ Codex and Codex ↔ Codex. See [CC_BRIDGE.md](./CC_BRIDGE.md).
+- Uses documented extension points only: an MCP server (`list_agents` / `send_message` / `check_inbox`) for sending, `codex queue` for delivery to Codex, and an `asyncRewake` hook for delivery to Claude Code.
+- Checks that the recipient is online before delivery so Codex never runs stale messages on resume; 16 KB message limit, 24-hour expiry, and a 20-messages-per-10-minutes pair limit to break auto-reply loops.
+- `cc-pets uninstall` removes CC Bridge integrations; reinstalls and upgrades refresh them with the saved options.
+- File reservations: `reserve_files` / `release_files` / `list_reservations`, where the first edit to a file someone else reserved is paused once by a PreToolUse hook with the reason, and a retry goes through; reservations expire and are released when the session ends.
+- Pet integration: a message badge on the status icon (blue for new deliveries, orange for inbox backlog), recent cross-session messages in the session menu, and click-to-jump to the recipient's terminal; names and times only, never bodies.
+- Options and pet switches: `cc-pets bridge configure` and `enable` accept `--approve` / `--codex-approve` / `--claude-allow` (skip approval in Codex and Claude by tool group), `--wake`, and `--edit-guard`, keeping anything not given; the pet's right-click menu gains a CC Bridge section (enable, four approval groups, auto-wake, edit guard, message badge, new-message notifications).
+- Custom session names via `CC_BRIDGE_NAME` at launch, or `set_name` / `cc-pets bridge name` in a session; `list_agents` shows each session's terminal (tty).
+
 ## [2.0.3] - 2026-09-17
 
 Terminal jump-back and session-liveness fixes for agents started outside the wrapper scripts.

@@ -50,6 +50,9 @@ LIVE_EVENT_BASELINE=0
 # 漏设的用例自动落到临时目录，需要独立目录的用例再就近覆盖。
 SHIM_GUARD_TMP="$(mktemp -d /tmp/cc-pets-shim-guard.XXXXXX)"
 export CC_PETS_SHIM_DIR="${SHIM_GUARD_TMP}/shims"
+# 同理：卸载 / 安装流程会读写 ~/.cc-pets/bridge-enabled（CC Bridge 开关），开启过 CC Bridge 的开发机上
+# 跑测试会把它删掉并去注销真实的 MCP 注册。统一指到临时目录。
+export CC_PETS_HOME="${SHIM_GUARD_TMP}/home"
 
 # 兜底本身失灵是最坏的情况，所以再记一份真实 shim 的快照，收尾比对。
 LIVE_SHIM_DIR="${HOME}/.cc-pets/shims"
@@ -472,6 +475,18 @@ CC_PETS_CODEX_HOME="${USAGE_MONITOR_TMP}/codex" \
 CC_PETS_STATE_DIR="${USAGE_MONITOR_TMP}/state" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${USAGE_MONITOR_TMP}/Application Support" \
   "${USAGE_MONITOR_TMP}/usage-monitor-test"
+
+BRIDGE_STATE_TMP="$(mktemp -d /tmp/cc-pets-bridge-state-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridge.m" \
+  "${PROJECT_DIR}/tests/bridge-state-harness.m" \
+  -o "${BRIDGE_STATE_TMP}/bridge-state-test"
+CC_PETS_STATE_DIR="${BRIDGE_STATE_TMP}/state" \
+CC_PETS_HOME="${BRIDGE_STATE_TMP}/home" \
+  "${BRIDGE_STATE_TMP}/bridge-state-test"
 
 SESSION_PICK_TMP="$(mktemp -d /tmp/cc-pets-session-pick-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
@@ -1609,8 +1624,16 @@ for wrapper provider in codex-with-pet Codex claude-with-pet Claude; do
     print -u2 "${wrapper} 应该恰好写出 1 个客户端 pid 文件，实际 ${#client_files[@]} 个"
     exit 1
   fi
-  if [[ "$(<"${client_files[1]}")" != "${provider}" ]]; then
-    print -u2 "${wrapper} 的客户端 pid 文件应写入 provider 名 ${provider}，实际是 '$(<"${client_files[1]}")'"
+  # pid 文件是两行：第一行 provider，第二行 TTY。只比第一行，不要拿整个文件去比——
+  # 交互终端下 $TTY 非空，第二行有内容，整文件比较必然失败；CI 里 $TTY 为空，
+  # $(<file) 吃掉结尾换行后又恰好等于 provider，于是同一条断言在两种环境下结论相反。
+  if [[ "$(head -n 1 "${client_files[1]}")" != "${provider}" ]]; then
+    print -u2 "${wrapper} 的客户端 pid 文件第一行应是 provider 名 ${provider}，实际是 '$(head -n 1 "${client_files[1]}")'"
+    exit 1
+  fi
+  # 行数与 TTY 是否为空无关（printf 两个 \n 恒定写出 2 行），钉住格式防止再退化成一行。
+  if (( $(wc -l < "${client_files[1]}") != 2 )); then
+    print -u2 "${wrapper} 的客户端 pid 文件应为两行（provider + tty），实际 $(wc -l < "${client_files[1]}") 行"
     exit 1
   fi
 done
@@ -1724,6 +1747,11 @@ grep -q 'UpdateFailureIsTransient' "${PET_SOURCES[@]}"
 grep -q 'UpdateRetryDelay' "${PET_SOURCES[@]}"
 grep -q 'update-retry-cache' "${PET_SOURCES[@]}"
 print "自动更新暂时性故障重试测试通过"
+
+# CC Bridge 自带隔离（临时状态目录、假 claude / codex 进程、假 codex queue），
+# 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。
+node "${PROJECT_DIR}/tests/bridge-harness.mjs"
+print "CC Bridge 测试通过"
 
 # 这条断言本身失灵是最坏的情况：它会一路绿灯，直到某天真的把用户桌宠打回“正在启动”。
 # 先用一个隔离目录验证“写入端确实打了标记、检测确实数得出来”，再去看真实事件流。

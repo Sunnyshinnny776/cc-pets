@@ -390,6 +390,11 @@ printf '%s' '{"schemaVersion":1,"provider":"MyAgent","state":"thinking"}' \
 # 手动修复或重新初始化 Hooks、shell 集成，并让已运行桌宠加载当前版本
 cc-pets install
 
+# CC Bridge（实验性，默认关闭）：让本机 Claude Code / Codex 会话互发消息，详见 CC_BRIDGE.zh-CN.md
+cc-pets bridge enable
+cc-pets bridge status
+cc-pets bridge disable
+
 # 安全移除 Hooks、恢复 Claude status line，并清理 shell 集成
 cc-pets uninstall
 
@@ -591,6 +596,8 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 - 状态气泡和通知只显示 Provider、状态及脱敏工具类别，不显示会话正文。
 - 项目不上传会话内容、额度、凭据或使用统计，也不包含遥测服务。
 - 右键“退出桌宠”或执行 `cc-pets uninstall` 后，不会继续运行后台守护进程。
+- [CC Bridge](./CC_BRIDGE.zh-CN.md) 默认关闭；开启后，会话之间的消息正文会保存在当前用户的临时目录
+  （仅本人可读，24 小时过期），这是本项目唯一会保存正文的功能。
 
 ## 卸载
 

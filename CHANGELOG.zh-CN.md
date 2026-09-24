@@ -4,6 +4,19 @@
 
 本项目遵循语义化版本号。版本号以 `package.json` 为唯一来源。
 
+## [未发布]
+
+### CC Bridge（实验性，默认关闭）
+
+- 新增 `cc-pets bridge enable|disable|status`：让本机的 Claude Code 与 Codex 终端会话互相发现、发消息、唤醒对方，支持 Claude ↔ Codex、Codex ↔ Codex，详见 [CC_BRIDGE.zh-CN.md](./CC_BRIDGE.zh-CN.md)。
+- 只使用官方扩展点：MCP server（`list_agents` / `send_message` / `check_inbox`）负责发送；投递到 Codex 用 `codex queue`，投递到 Claude Code 用 `asyncRewake` hook。
+- 投递前确认目标在线，避免 Codex 在 resume 时执行过期消息；单条 16KB 上限、24 小时过期、同一对会话 10 分钟 20 条的防循环限流。
+- `cc-pets uninstall` 一并移除 CC Bridge 集成；重装与升级时按原选项自动刷新。
+- 文件预留：`reserve_files` / `release_files` / `list_reservations`，第一次编辑他人预留的文件时由 PreToolUse hook 暂停一次并说明原因，重试即放行，过期与会话结束自动释放。
+- 桌宠显示：状态图标右下角的消息角标（蓝色为新送达，橙色为信箱积压），会话菜单列出最近的跨会话消息，点击跳到收件会话的终端；只显示会话名与时间，不显示正文。
+- 选项与菜单开关：`cc-pets bridge configure` 与 `enable` 支持 `--approve` / `--codex-approve` / `--claude-allow`（按分组放开 Codex 免审批与 Claude 免确认）、`--wake`、`--edit-guard`，未给出的选项保持原值；桌宠右键菜单新增 CC Bridge 开关组（启用、免审批四组、自动唤醒、编辑拦截、消息角标、新消息系统通知）。
+- 会话名可自定义：启动时用 `CC_BRIDGE_NAME`，或会话内调用 `set_name` / `cc-pets bridge name`；`list_agents` 显示会话所在终端（tty）。
+
 ## [2.0.3] - 2026-09-17
 
 修复未经包装脚本启动的 Agent 的终端回跳与会话存活判定。

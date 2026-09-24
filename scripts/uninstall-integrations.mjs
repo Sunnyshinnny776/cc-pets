@@ -212,6 +212,16 @@ if (!preparingInstall && fs.existsSync(shimDirectory)) {
   if (fs.readdirSync(shimDirectory).length === 0) fs.rmdirSync(shimDirectory);
 }
 
+// CC Bridge 只在真正卸载时移除；重装时由 install-shell-integration.sh 的 bridge refresh 接管。
+// MCP 注册只在确实开启过时才去调用 claude / codex 注销，避免卸载时无谓地拉起它们的 CLI。
+if (!preparingInstall) {
+  const bridge = await import("./bridge/install.mjs");
+  const bridgeStore = await import("./bridge/store.mjs");
+  bridgeStore.migrateLegacyFlag();
+  for (const line of bridge.uninstall({ unregisterMcp: bridgeStore.isBridgeEnabled() })) console.log(line);
+  bridgeStore.setBridgeEnabled(false);
+}
+
 const action = preparingInstall ? "已迁移" : "已移除";
 if (codexChanged) console.log(`${action} ${codexHooksPath} 中的 CC Pets Hooks。`);
 if (claudeChanged) console.log(`${action} ${claudeSettingsPath} 中的 CC Pets Hooks，并恢复原 status line。`);

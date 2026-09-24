@@ -1,6 +1,6 @@
 {
   "name": "cc-pets",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "description": "A native macOS desktop pet for Codex CLI and Claude Code",
   "author": {
     "name": "Sunnyshiny",
@@ -40,6 +40,8 @@
     "README.zh-CN.md",
     "PROVIDER_PROTOCOL.md",
     "PROVIDER_PROTOCOL.zh-CN.md",
+    "CC_BRIDGE.md",
+    "CC_BRIDGE.zh-CN.md",
     "CHANGELOG.md",
     "CHANGELOG.zh-CN.md",
     "CONTRIBUTING.md",

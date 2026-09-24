@@ -132,6 +132,9 @@ cc-pets pet list              # List installed assets.
 cc-pets pet remove boba       # Remove an installed asset.
 
 cc-pets install               # Repair or reinitialize integrations.
+cc-pets bridge enable            # CC Bridge (experimental, off by default); see CC_BRIDGE.md.
+cc-pets bridge status            # Show CC Bridge state and online sessions.
+cc-pets bridge disable           # Remove CC Bridge integrations.
 cc-pets uninstall             # Remove integrations and restore the status line.
 cc-pets uninstall --purge     # Also remove the app and all local data after confirmation.
 cc-pets uninstall-app         # Remove only ~/Applications/CC Pets.app.
@@ -304,6 +307,9 @@ external assets.
 - Status cards and notifications show only provider, state, and redacted tool category.
 - CC Pets contains no telemetry and uploads no conversations, quotas, credentials, or usage statistics.
 - Exiting the pet or running `cc-pets uninstall` leaves no background daemon running.
+- [CC Bridge](./CC_BRIDGE.md) is off by default. When enabled, messages between sessions are stored
+  in the current user's temporary directory (owner-only, 24-hour expiry); it is the only feature
+  that stores message content.
 
 ## Uninstall
 

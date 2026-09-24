@@ -63,3 +63,9 @@ change the managed lifecycle of the Codex and Claude integrations.
 
 An incompatible schema version or invalid field returns exit code `2`. A write
 failure returns a non-zero exit code.
+
+## Relationship to CC Bridge
+
+This protocol carries state only, never content. To pass message content between sessions,
+use [CC Bridge](./CC_BRIDGE.md), which is off by default and must be enabled explicitly. It does
+not go through this protocol and does not change its field constraints.
