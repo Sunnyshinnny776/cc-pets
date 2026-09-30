@@ -45,6 +45,7 @@ int main(int argc, const char *argv[]) {
         if (argc > 1 && (strcmp(argv[1], "--provider-event") == 0 ||
                          strcmp(argv[1], "provider-event") == 0)) return RecordProviderEvent();
         if (argc > 1 && strcmp(argv[1], "--claude-usage") == 0) return RecordClaudeUsage();
+        if (argc > 1 && strcmp(argv[1], "--codex-launch") == 0) return RegisterCodexLaunch();
         if (argc > 1 && strcmp(argv[1], "--clean") == 0) return CleanCCPetsData(NO);
         if (argc > 1 && strcmp(argv[1], "--purge-data") == 0) return CleanCCPetsData(YES);
         if (argc > 1 && strcmp(argv[1], "--history") == 0) {
