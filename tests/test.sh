@@ -157,6 +157,20 @@ fi
 print "CC Pets 应用包名称、版本命令与元数据测试通过"
 print "自动更新版本比较测试通过"
 
+# 总帮助只列面向用户的命令；拼错的双横线参数必须报错退出，而不是悄悄启动桌宠。
+HELP_OUTPUT="$("${PROJECT_DIR}/bin/cc-pets" --help)"
+[[ "${HELP_OUTPUT}" == *"cc-pets bridge"* && "${HELP_OUTPUT}" == *"cc-pets clean"* ]]
+[[ "${HELP_OUTPUT}" != *"--claude-usage"* && "${HELP_OUTPUT}" != *"--hook"* ]]
+[[ "$("${PROJECT_DIR}/bin/cc-pets" -h)" == "${HELP_OUTPUT}" ]]
+UNKNOWN_FLAG_STATUS=0
+UNKNOWN_FLAG_OUTPUT="$(CC_PETS_STATE_DIR="$(mktemp -d /tmp/cc-pets-unknown-flag.XXXXXX)" \
+  "${PROJECT_DIR}/.build/release/cc-pets" --no-such-flag 2>&1)" || UNKNOWN_FLAG_STATUS=$?
+if (( UNKNOWN_FLAG_STATUS != 2 )) || [[ "${UNKNOWN_FLAG_OUTPUT}" != *"未知参数：--no-such-flag"* ]]; then
+  print -u2 "未知参数应以状态 2 报错，实际状态 ${UNKNOWN_FLAG_STATUS}：${UNKNOWN_FLAG_OUTPUT}"
+  exit 1
+fi
+print "命令行帮助与未知参数拒绝测试通过"
+
 APP_INSTALL_TMP="$(mktemp -d /tmp/cc-pets-app-install-test.XXXXXX)"
 CC_PETS_APPLICATIONS_DIR="${APP_INSTALL_TMP}/Applications" "${PROJECT_DIR}/scripts/install-app.sh" >/dev/null
 INSTALLED_APP="${APP_INSTALL_TMP}/Applications/CC Pets.app"

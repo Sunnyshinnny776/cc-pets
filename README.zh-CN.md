@@ -395,6 +395,9 @@ cc-pets bridge enable
 cc-pets bridge status
 cc-pets bridge disable
 
+# 查看全部命令
+cc-pets --help
+
 # 安全移除 Hooks、恢复 Claude status line，并清理 shell 集成
 cc-pets uninstall
 

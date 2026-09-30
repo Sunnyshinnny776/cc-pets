@@ -131,6 +131,7 @@ cc-pets pet add boba          # Install an asset into CC Pets' own directory.
 cc-pets pet list              # List installed assets.
 cc-pets pet remove boba       # Remove an installed asset.
 
+cc-pets --help                # List all commands.
 cc-pets install               # Repair or reinitialize integrations.
 cc-pets bridge enable            # CC Bridge (experimental, off by default); see CC_BRIDGE.md.
 cc-pets bridge status            # Show CC Bridge state and online sessions.
