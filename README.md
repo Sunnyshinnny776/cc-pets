@@ -1,22 +1,46 @@
+<p align="center">
+  <img src="docs/images/cover.png" alt="CC Pets v2.1.1: Liquid Glass theme and multi-terminal jump-back">
+</p>
+
 # CC Pets
 
 English | [简体中文](./README.zh-CN.md)
 
-A native macOS desktop pet for Codex CLI and Claude Code CLI. CC Pets runs without
-either desktop app and reads five-hour and weekly quota data from local Codex
-sessions and Claude Code's official status line input.
+A native macOS desktop pet for Codex CLI and Claude Code CLI that needs neither
+desktop app. Launch CC Pets directly, or let it appear automatically when Codex CLI
+or Claude Code CLI starts. It reads five-hour and weekly quota data from the official
+Codex App Server interface and Claude Code's official status line input.
 
 > The application UI and the screenshots below are currently in Simplified Chinese.
-> English UI localization and English screenshots are planned for v2.1.0.
+> English UI localization and English screenshots are planned for a future release.
+
+## What's new in v2.1.1
+
+- **Liquid Glass theme** — on macOS 26 and later, choose **Panel theme → Liquid Glass**
+  in the right-click menu. The quota panel, status card, speech bubble, session list and
+  menus switch to native system glass, with four **Glass dimming** levels from Clear (0%)
+  to Legible (45%). Classic stays the default.
+- **Multi-terminal jump-back** — click any agent status card, or pick one of up to eight
+  online sessions from the status icon, to return to the terminal that raised it.
+  Terminal.app and iTerm2 are selected precisely by TTY; VS Code, Cursor, Windsurf,
+  Antigravity, JetBrains IDEs, Warp, WezTerm and Ghostty are brought to the front.
+  Codex sessions that share one background app-server no longer jump to the wrong terminal.
+
+See the [changelog](./CHANGELOG.md) for the full list.
 
 ## Screenshots
 
-| Subscription view | API usage view |
-| --- | --- |
-| ![Subscription view in the current Simplified Chinese UI](docs/images/subscription-mode.png) | ![API usage view in the current Simplified Chinese UI](docs/images/api-mode.png) |
+<p align="center">
+  <img src="docs/images/liquid-glass-panel.png" width="80%" alt="Quota panel, speech bubble and pet in the Liquid Glass theme, current Simplified Chinese UI">
+</p>
+
+<p align="center">
+  <img src="docs/images/liquid-glass-menu.png" width="80%" alt="Right-click menu with the Panel theme submenu, current Simplified Chinese UI">
+</p>
 
 ## Features
 
+- Offers Classic and native Liquid Glass panel themes on macOS 26 and later.
 - Starts with Codex CLI or Claude Code CLI and closes after the last managed CLI exits.
 - Shares one pet across multiple simultaneous Codex and Claude sessions.
 - Shows five-hour and weekly remaining quota, reset times, local token totals, and seven-day trends.
@@ -211,8 +235,12 @@ add 16-direction mouse tracking while idle.
 
 ## Quota and local usage data
 
-Codex quota data comes from local `token_count` events under
-`~/.codex/sessions`. A `window_minutes` value of `300` is the five-hour window and
+Codex quota data comes from the official Codex App Server interface. CC Pets starts
+the installed Codex CLI as `codex app-server --stdio`, reads the current windows with
+`account/rateLimits/read`, and follows `account/rateLimits/updated` notifications. The
+server-side values replace the rate-limit snapshots recorded in local `token_count`
+events under `~/.codex/sessions`; a local snapshot is used only when it is newer than
+the last server value. A `window_minutes` value of `300` is the five-hour window and
 `10080` is the weekly window. CC Pets displays remaining percentage and does not
 substitute expired history when a current window is unavailable.
 
@@ -311,7 +339,7 @@ external assets.
 
 ## Privacy
 
-- Quota and token data are read from local Codex and Claude Code files.
+- Codex quota is read through the official Codex App Server started from your installed Codex CLI with its existing sign-in; Claude quota comes from the status line input Claude Code passes locally. Token counts are read from local Codex and Claude Code files.
 - Hooks write only redacted state events and quota cache files to the current user's temporary directory.
 - Local quota history is disabled by default and retains seven days when enabled.
 - Status cards and notifications show only provider, state, and redacted tool category.

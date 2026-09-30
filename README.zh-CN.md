@@ -1,18 +1,39 @@
+<p align="center">
+  <img src="docs/images/cover.png" alt="CC Pets v2.1.1：Liquid Glass 主题与多终端回跳">
+</p>
+
 # CC Pets
 
 [English](./README.md) | 简体中文
 
-一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。启动 Codex CLI 或 Claude Code CLI 时自动出现，
-并从本机 `~/.codex/sessions` 与 Claude Code 官方 status line 数据中读取 5 小时额度、周额度和周重置时间。
+一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
+并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
 
-## 展示模式
+## v2.1.1 新功能
 
-| 订阅展示模式 | API 调用展示模式 |
-| --- | --- |
-| ![订阅展示模式](docs/images/subscription-mode.png) | ![API 调用展示模式](docs/images/api-mode.png) |
+- **Liquid Glass 主题**：macOS 26 及以上，在右键菜单「面板主题」中选择「Liquid Glass」，
+  额度面板、状态卡、说话气泡、会话列表和菜单都会切换为系统原生玻璃；「玻璃压暗」提供通透（0%）
+  到清晰（45%）四档。默认仍为经典样式。
+- **多终端跳转**：点击任意 Agent 状态卡，或从状态图标展开的最近 8 个在线会话中选择一个，
+  即可回到触发它的终端。Terminal 和 iTerm2 按 TTY 精确选中标签页；VS Code、Cursor、Windsurf、
+  Antigravity、JetBrains IDE、Warp、WezTerm、Ghostty 会被切到前台。共用同一个 Codex 后台服务的
+  多个会话不会再跳错终端。
+
+完整改动见 [更新记录](./CHANGELOG.zh-CN.md)。
+
+## 界面预览
+
+<p align="center">
+  <img src="docs/images/liquid-glass-panel.png" width="80%" alt="Liquid Glass 主题下的额度面板、说话气泡与桌宠">
+</p>
+
+<p align="center">
+  <img src="docs/images/liquid-glass-menu.png" width="80%" alt="右键菜单中的面板主题子菜单">
+</p>
 
 ## 功能
 
+- macOS 26 及以上可在经典与原生 Liquid Glass 两种面板主题之间切换
 - 随 Codex CLI 或 Claude Code CLI 自动启动，无需打开对应桌面版
 - 多个 Codex/Claude CLI 共用一个桌宠，最后一个 CLI 退出后桌宠自动关闭
 - 鼠标悬停口袋时展开额度详情面板，用两张卡分别显示 Codex、Claude 的剩余 5 小时额度、周额度和精确到秒的周重置时间
@@ -426,7 +447,11 @@ claude-with-pet
 
 ## 用量数据
 
-Codex 用量来自 `~/.codex/sessions` 的本地 `token_count` 事件：
+Codex 额度来自 Codex App Server 官方接口：桌宠用本机已安装的 Codex CLI 启动
+`codex app-server --stdio`，通过 `account/rateLimits/read` 读取当前额度窗口，并订阅
+`account/rateLimits/updated` 推送。服务端返回的额度会覆盖 `~/.codex/sessions` 本地
+`token_count` 事件里记录的额度快照；只有本地快照比最近一次服务端数据更新时才使用本地值。
+本地 Token 统计仍来自 `token_count` 事件：
 
 - `window_minutes = 300` 对应 5 小时额度
 - `window_minutes = 10080` 对应周额度
@@ -598,7 +623,7 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 
 ## 隐私
 
-- Codex 额度与 Token 只从本机 `~/.codex/sessions` 读取（可用 `CC_PETS_CODEX_HOME` 覆盖）。
+- Codex 额度通过本机 Codex CLI 启动的官方 App Server 读取，沿用 Codex CLI 自身的登录状态；Codex Token 只从本机 `~/.codex/sessions` 读取（可用 `CC_PETS_CODEX_HOME` 覆盖）。
 - Claude 额度只从 Claude Code 传给本机 status line 的 `rate_limits` 字段读取。
 - Agent Hooks 只向当前用户的临时目录写入桌宠事件和额度缓存。
 - 额度历史默认关闭；启用后只在本机保留最近 7 天的剩余比例快照。

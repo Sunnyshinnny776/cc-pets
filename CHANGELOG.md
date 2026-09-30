@@ -7,7 +7,7 @@ truth for the version.
 
 ## [2.1.1] - 2026-09-30
 
-Liquid Glass panel theme, Codex jump-back through the shared background server, and quota fixes.
+Feature release: the native Liquid Glass panel theme and multi-terminal jump-back, plus quota fixes.
 
 ### Panels and menus
 
