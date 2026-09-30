@@ -212,15 +212,15 @@ Right-click the pet → **CC Bridge**:
 | Switch | Effect |
 | --- | --- |
 | 启用 (Enable) | Same as `cc-pets bridge enable / disable`; takes a few seconds |
-| 免审批 (Skip approval): 查看类 view / 发消息 send / 文件预留 reserve / 改会话名 rename | Each group applies to both Codex approval and Claude permissions. With "send" on, agents can message other sessions without asking |
 | 自动唤醒 (Auto-wake) | Same as `--wake` |
 | 编辑拦截 (Edit guard) | Same as `--edit-guard` |
-| 消息角标 (Message badge) | Pet only: show the message badge on the status icon |
-| 新消息通知 (New-message notifications) | Pet only: a system notification when sessions message each other (sender and recipient only, never the body); asks for notification permission the first time |
+| 免审批 (Skip approval) › 查看类 view / 发消息 send / 文件预留 reserve / 改会话名 rename | Each group applies to both Codex approval and Claude permissions. With "send" on, agents can message other sessions without asking |
+| 桌宠提醒 (Pet alerts) › 消息角标 (Message badge) | Pet only: show the message badge on the status icon |
+| 桌宠提醒 (Pet alerts) › 新消息通知 (New-message notifications) | Pet only: a system notification when sessions message each other (sender and recipient only, never the body); asks for notification permission the first time |
 
-The pet's UI is currently in Simplified Chinese. The bottom of the menu shows "N 会话 · M 预留"
-(online sessions and active reservations), and each switch has a hover tooltip. Except for the badge and
-notification switches, everything is dimmed while CC Bridge is off. The menu finds the command-line
+The pet's UI is currently in Simplified Chinese. "N 会话 · M 预留" (online sessions and active
+reservations) appears under 启用, and each switch has a hover tooltip. While CC Bridge is off the menu
+shows only 启用; reopen the menu after enabling to see the other switches. The menu finds the command-line
 tool through `~/.cc-pets/bridge-cli.json`, written on every `cc-pets install`; if it's missing, you'll be asked to reinstall.
 
 ## Security and privacy

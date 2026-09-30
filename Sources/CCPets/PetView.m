@@ -1469,34 +1469,59 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
 }
 // CC Bridge 开关组。状态每次打开菜单时现读（开关文件 / 选项），不在视图里缓存。
 // 除"消息角标 / 新消息通知"这两项只影响桌宠外，其余开关都通过 cc-pets bridge enable / configure
-// 落到 Claude Code / Codex 的配置里；bridge 未开启时它们置灰。
+// 落到 Claude Code / Codex 的配置里。
 - (void)addBridgeSwitchToMenu:(NSMenu *)menu title:(NSString *)title checked:(BOOL)checked
-    action:(SEL)action tag:(NSInteger)tag enabled:(BOOL)enabled toolTip:(NSString *)toolTip {
+    action:(SEL)action tag:(NSInteger)tag toolTip:(NSString *)toolTip {
     // 与其他子菜单同宽。菜单宽度取最宽的一行：标题都控制在 5 个字以内，说明性文字放进悬停提示，
     // 否则长文字行会把菜单撑宽，而自绘开关行是固定宽度，开关就不再贴右边。
     NSMenuItem *item = [self addPersistentSwitchToMenu:menu title:title checked:checked
         action:action width:PetSubmenuRowWidth tag:tag];
     item.view.toolTip = toolTip;
-    for (NSView *subview in item.view.subviews) {
-        if ([subview isKindOfClass:MenuToggleSwitch.class]) ((MenuToggleSwitch *)subview).enabled = enabled;
-        if ([subview isKindOfClass:NSTextField.class] && !enabled) {
-            ((NSTextField *)subview).textColor = NSColor.disabledControlTextColor;
-        }
-    }
 }
+// 一级子菜单只放启用和最常动的两个开关（开关在上、二级菜单在下）；免审批（设一次就不动）和只影响桌宠的提醒各收进二级菜单。
+// 未开启时只留"启用"一行：其余开关此时都不生效，列出来只是占地方。开启是异步的，
+// 菜单停留期间不会自己长出其余项，下次打开时按实际状态重建。
 - (void)addBridgeMenuToMenu:(NSMenu *)menu {
     NSMenuItem *bridgeItem = [menu addItemWithTitle:@"CC Bridge" action:nil keyEquivalent:@""];
     NSMenu *bridgeMenu = [NSMenu new];
+    bridgeItem.submenu = bridgeMenu;
     BOOL enabled = CCBridgeEnabled();
-    NSDictionary *options = CCBridgeOptions();
     [self addBridgeSwitchToMenu:bridgeMenu title:@"启用" checked:enabled
-        action:@selector(toggleBridgeEnabled:) tag:0 enabled:YES
+        action:@selector(toggleBridgeEnabled:) tag:0
         toolTip:@"让本机 Claude Code / Codex 会话互相发消息、唤醒对方、预留文件"];
+    if (!enabled) return;
+
+    // 状态放在"启用"行的第二行，省掉底部单独的状态行和分隔线。开关上移与标题对齐，
+    // 状态文字才能占满整行宽度，不被开关截断。
+    NSDictionary *sessions = CCBridgeSessions();
+    NSUInteger reservations = CCBridgeActiveReservationCount([NSSet setWithArray:sessions.allKeys]);
+    NSView *enableRow = bridgeMenu.itemArray.lastObject.view;
+    const CGFloat statusHeight = 14;
+    [enableRow setFrameSize:NSMakeSize(NSWidth(enableRow.frame), NSHeight(enableRow.frame) + statusHeight)];
+    for (NSView *subview in enableRow.subviews) {
+        [subview setFrameOrigin:NSMakePoint(NSMinX(subview.frame), NSMinY(subview.frame) + statusHeight - 2)];
+    }
+    NSTextField *status = [NSTextField labelWithString:[NSString stringWithFormat:@"%lu 会话 · %lu 预留",
+        (unsigned long)sessions.count, (unsigned long)reservations]];
+    status.frame = NSMakeRect(12, 4, NSWidth(enableRow.frame) - 12 - PetMenuControlGap, statusHeight);
+    status.font = [NSFont menuFontOfSize:11];
+    status.textColor = NSColor.secondaryLabelColor;
+    status.lineBreakMode = NSLineBreakByTruncatingTail;
+    status.toolTip = @"在线会话数 · 有效的文件预留数";
+    [enableRow addSubview:status];
 
     [bridgeMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *approvalHeader = [bridgeMenu addItemWithTitle:@"免审批" action:nil keyEquivalent:@""];
-    approvalHeader.enabled = NO;
-    approvalHeader.toolTip = @"每组同时作用于 Codex 免审批与 Claude 免确认；Codex 需重启会话生效";
+    NSDictionary *options = CCBridgeOptions();
+    [self addBridgeSwitchToMenu:bridgeMenu title:@"自动唤醒" checked:[options[@"wake"] boolValue]
+        action:@selector(toggleBridgeWake:) tag:0
+        toolTip:@"自动唤醒空闲会话。关闭后消息只进信箱，等对方下次收到你的输入时带入，可省 token；Codex 需重启会话生效"];
+    [self addBridgeSwitchToMenu:bridgeMenu title:@"编辑拦截" checked:[options[@"editGuard"] boolValue]
+        action:@selector(toggleBridgeEditGuard:) tag:0
+        toolTip:@"编辑他人预留的文件时先暂停一次并说明原因，重试即放行；Codex 需重启会话生效"];
+
+    NSMenuItem *approvalItem = [bridgeMenu addItemWithTitle:@"免审批" action:nil keyEquivalent:@""];
+    approvalItem.toolTip = @"每组同时作用于 Codex 免审批与 Claude 免确认；Codex 需重启会话生效";
+    NSMenu *approvalMenu = [NSMenu new];
     NSArray<NSDictionary *> *groups = @[
         @{@"title": @"查看类", @"group": @"view", @"tag": @1,
           @"tip": @"列出会话、查看预留、读取信箱免审批；只读，放开没有风险"},
@@ -1507,47 +1532,28 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         @{@"title": @"改会话名", @"group": @"name", @"tag": @4,
           @"tip": @"修改当前会话在 CC Bridge 中的名字免审批"}
     ];
+    NSSet *codex = [NSSet setWithArray:options[@"codexApprove"]];
+    NSSet *claude = [NSSet setWithArray:options[@"claudeAllow"]];
     for (NSDictionary *group in groups) {
-        NSArray<NSString *> *tools = CCBridgeToolGroup(group[@"group"]);
-        NSSet *codex = [NSSet setWithArray:options[@"codexApprove"]];
-        NSSet *claude = [NSSet setWithArray:options[@"claudeAllow"]];
-        BOOL checked = tools.count > 0 && [[NSSet setWithArray:tools] isSubsetOfSet:codex] &&
-            [[NSSet setWithArray:tools] isSubsetOfSet:claude];
-        [self addBridgeSwitchToMenu:bridgeMenu title:group[@"title"] checked:checked
-            action:@selector(toggleBridgeApproval:) tag:[group[@"tag"] integerValue] enabled:enabled
-            toolTip:group[@"tip"]];
+        NSSet *tools = [NSSet setWithArray:CCBridgeToolGroup(group[@"group"])];
+        BOOL checked = tools.count > 0 && [tools isSubsetOfSet:codex] && [tools isSubsetOfSet:claude];
+        [self addBridgeSwitchToMenu:approvalMenu title:group[@"title"] checked:checked
+            action:@selector(toggleBridgeApproval:) tag:[group[@"tag"] integerValue] toolTip:group[@"tip"]];
     }
+    approvalItem.submenu = approvalMenu;
 
-    [bridgeMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *behaviorHeader = [bridgeMenu addItemWithTitle:@"行为" action:nil keyEquivalent:@""];
-    behaviorHeader.enabled = NO;
-    [self addBridgeSwitchToMenu:bridgeMenu title:@"自动唤醒" checked:[options[@"wake"] boolValue]
-        action:@selector(toggleBridgeWake:) tag:0 enabled:enabled
-        toolTip:@"自动唤醒空闲会话。关闭后消息只进信箱，等对方下次收到你的输入时带入，可省 token；Codex 需重启会话生效"];
-    [self addBridgeSwitchToMenu:bridgeMenu title:@"编辑拦截" checked:[options[@"editGuard"] boolValue]
-        action:@selector(toggleBridgeEditGuard:) tag:0 enabled:enabled
-        toolTip:@"编辑他人预留的文件时先暂停一次并说明原因，重试即放行；Codex 需重启会话生效"];
-    [self addBridgeSwitchToMenu:bridgeMenu title:@"消息角标"
+    NSMenuItem *alertItem = [bridgeMenu addItemWithTitle:@"桌宠提醒" action:nil keyEquivalent:@""];
+    alertItem.toolTip = @"只影响桌宠，不改 Claude Code / Codex 的配置";
+    NSMenu *alertMenu = [NSMenu new];
+    [self addBridgeSwitchToMenu:alertMenu title:@"消息角标"
         checked:[NSUserDefaults.standardUserDefaults boolForKey:BridgeBadgeEnabledKey]
-        action:@selector(toggleBridgeBadge:) tag:0 enabled:YES
+        action:@selector(toggleBridgeBadge:) tag:0
         toolTip:@"状态图标右下角：蓝色为新送达，橙色为信箱积压"];
-    [self addBridgeSwitchToMenu:bridgeMenu title:@"新消息通知"
+    [self addBridgeSwitchToMenu:alertMenu title:@"新消息通知"
         checked:[NSUserDefaults.standardUserDefaults boolForKey:BridgeNotificationKey]
-        action:@selector(toggleBridgeNotification:) tag:0 enabled:YES
+        action:@selector(toggleBridgeNotification:) tag:0
         toolTip:@"会话之间有消息送达时发一条系统通知（只含谁发给谁，不含正文）"];
-
-    [bridgeMenu addItem:NSMenuItem.separatorItem];
-    NSString *status = @"未开启";
-    if (enabled) {
-        NSDictionary *sessions = CCBridgeSessions();
-        NSUInteger reservations = CCBridgeActiveReservationCount([NSSet setWithArray:sessions.allKeys]);
-        status = [NSString stringWithFormat:@"%lu 会话 · %lu 预留",
-            (unsigned long)sessions.count, (unsigned long)reservations];
-    }
-    NSMenuItem *statusItem = [bridgeMenu addItemWithTitle:status action:nil keyEquivalent:@""];
-    statusItem.enabled = NO;
-    statusItem.toolTip = @"在线会话数 · 有效的文件预留数";
-    bridgeItem.submenu = bridgeMenu;
+    alertItem.submenu = alertMenu;
 }
 - (void)rightMouseDown:(NSEvent *)event {
     NSArray<NSDictionary *> *availablePets = self.petOptionsRequested ? self.petOptionsRequested() : @[];
