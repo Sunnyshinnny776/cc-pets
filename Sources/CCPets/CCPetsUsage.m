@@ -81,20 +81,37 @@ static NSDictionary *UsageByRemovingInactiveQuotaWindows(NSDictionary *usage) {
 // 滚动、无条件接受归零"于是对 7 天窗口几乎每次都成立，这道防线等同于从未生效——
 // 2026-08-19 实测面板被一份 used=2% 的旧快照顶成剩余 98%，就是从这条分支进来的。
 // 真正的窗口滚动只可能发生在旧窗口到期之后，拿 now 和 storedReset 判断就够了。
+//
+// 用量真的下降（官方口径调整、临时提额）时单调性不成立，只能靠"这份快照来自更新的响应"
+// 放行。freshSince / storedSince 就是两份快照各自对应响应的时刻（见 QuotaValueSince）。
+// 原先这里是"上次接受已过 10 分钟就无条件放行"，但 statusline 配了 refreshInterval 时，
+// 每个开着的空闲会话每分钟都会把自己最后一次响应里的旧额度重报一遍：活跃会话一关，
+// 10 分钟后面板就被某个空闲会话的旧值顶掉（2026-09-29 实测剩余 18% → 跳回 70%）。
 static BOOL ShouldAcceptQuotaWindow(id storedValue, NSDictionary *fresh, double windowMinutes,
-    BOOL stale, NSTimeInterval now) {
+    NSTimeInterval freshSince, NSTimeInterval storedSince, NSTimeInterval now) {
     if (!QuotaWindowLooksCurrent(fresh, windowMinutes, now)) return NO;
     NSDictionary *stored = [storedValue isKindOfClass:NSDictionary.class] ? storedValue : nil;
     if (!stored) return YES;
     // 旧窗口确实到期了：新周期里用量归零是真的。
     if (now >= [stored[@"resets_at"] doubleValue]) return YES;
-    if (stale) return YES;
-    return [fresh[@"used_percentage"] doubleValue] >= [stored[@"used_percentage"] doubleValue];
+    if ([fresh[@"used_percentage"] doubleValue] >= [stored[@"used_percentage"] doubleValue]) return YES;
+    return freshSince > storedSince;
 }
 
-// 单调性判据只在旧快照还新鲜时成立。官方口径调整（例如临时提额）会让用量真的掉下去，
-// 这时旧值必须能被顶掉，否则面板会被永久钉在一个偏高的数字上。
-static const NSTimeInterval StaleQuotaSnapshotSeconds = 600.0;
+// 一份快照对应的响应是什么时候拿到的。statusline 的 payload 不带这个时刻，只能按会话推断：
+// 同一个会话重报的值和它上次一模一样，说明它没有拿到新响应，时刻沿用上次记下的；值变了
+// 才是新响应，记为现在。第一次见到的会话记 0（未知）——它可能是早就开着的空闲会话，
+// 不能凭"刚被看到"就当成最新；它下一次真的变了自然会拿到时刻。
+static NSTimeInterval QuotaValueSince(NSDictionary *previous, NSDictionary *fresh, NSTimeInterval now) {
+    if (![previous isKindOfClass:NSDictionary.class]) return 0;
+    BOOL unchanged = [previous[@"used_percentage"] isEqual:fresh[@"used_percentage"]] &&
+        [previous[@"resets_at"] isEqual:fresh[@"resets_at"]];
+    return unchanged ? [previous[@"since"] doubleValue] : now;
+}
+
+// 会话记录只为判断"值有没有变"，一天没再上报的会话早就关了；上限防止异常情况下无限增长。
+static const NSTimeInterval QuotaSessionRecordTTL = 24 * 60 * 60;
+static const NSUInteger QuotaSessionRecordLimit = 64;
 
 // 拿锁的重试上限。拿不到就放弃这次写入：并发写者手里的数据同样新鲜，跳过一次不丢信息，
 // 而无锁写入正是要避免的读改写交错。阻塞版 flock 没有超时，一个被 SIGSTOP 或卡在慢速
@@ -130,27 +147,55 @@ int RecordClaudeUsage(void) {
         ? [NSJSONSerialization JSONObjectWithData:existing options:0 error:nil] : nil;
     NSDictionary *stored = [storedValue isKindOfClass:NSDictionary.class] ? storedValue : nil;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    // 过期判据必须逐窗口记"上一次被接受的时刻"。用整个文件的写盘时间会让逃生阀失效：
-    // 快照被判倒退而拒绝时文件照样被写，只要还有会话在持续上报，就永远到不了 10 分钟，
-    // 于是官方真的下调用量时面板被永久钉住——正是这个阀门要防的情况。
-    id acceptedValue = stored[@"accepted_at"];
-    NSDictionary *accepted = [acceptedValue isKindOfClass:NSDictionary.class] ? acceptedValue : nil;
+    NSDictionary *storedSinceValue = [stored[@"value_since"] isKindOfClass:NSDictionary.class]
+        ? stored[@"value_since"] : @{};
+    NSMutableDictionary *sessions = [stored[@"sessions"] isKindOfClass:NSDictionary.class]
+        ? [stored[@"sessions"] mutableCopy] : [NSMutableDictionary dictionary];
+    // 没有 session_id 的 payload 无法区分"空闲重报"和"新响应"，只按单调性判。
+    NSString *sessionID = [payload[@"session_id"] isKindOfClass:NSString.class] &&
+        [payload[@"session_id"] length] > 0 ? payload[@"session_id"] : nil;
+    NSDictionary *previousRecord = [sessions[sessionID] isKindOfClass:NSDictionary.class]
+        ? sessions[sessionID] : nil;
+    NSMutableDictionary *sessionRecord = [@{@"seen_at": @(now)} mutableCopy];
 
     NSMutableDictionary *merged = stored ? [stored mutableCopy] : [NSMutableDictionary dictionary];
-    NSMutableDictionary *mergedAccepted = accepted ? [accepted mutableCopy] : [NSMutableDictionary dictionary];
+    [merged removeObjectForKey:@"accepted_at"];  // 上一版的逃生阀字段，已不再使用。
+    NSMutableDictionary *mergedSince = [storedSinceValue mutableCopy];
     NSDictionary *windowMinutes = @{@"five_hour": @(FiveHourWindowMinutes),
                                     @"seven_day": @(SevenDayWindowMinutes)};
     for (NSString *key in @[@"five_hour", @"seven_day"]) {
         NSDictionary *fresh = [limits[key] isKindOfClass:NSDictionary.class] ? limits[key] : nil;
         if (!fresh) continue;  // 这次响应没带某个窗口时保留旧的：整体覆盖会让面板凭空少掉一个窗口。
-        // accepted_at 缺失的是上一版写的文件，当过期处理，一次就能迁移过来。
-        BOOL stale = now - [accepted[key] doubleValue] > StaleQuotaSnapshotSeconds;
+        NSTimeInterval freshSince = sessionID ? QuotaValueSince(previousRecord[key], fresh, now) : 0;
+        if (sessionID) {
+            sessionRecord[key] = @{@"used_percentage": fresh[@"used_percentage"] ?: NSNull.null,
+                                   @"resets_at": fresh[@"resets_at"] ?: NSNull.null,
+                                   @"since": @(freshSince)};
+        }
+        NSTimeInterval storedSince = [storedSinceValue[key] doubleValue];
         if (!ShouldAcceptQuotaWindow(stored[key], fresh, [windowMinutes[key] doubleValue],
-                                     stale, now)) continue;
+                                     freshSince, storedSince, now)) continue;
         merged[key] = fresh;
-        mergedAccepted[key] = @(now);
+        // 按单调性收下的旧响应不能把时刻往回拨，否则更旧的快照就能借它反超。
+        mergedSince[key] = @(fmax(freshSince, storedSince));
     }
-    merged[@"accepted_at"] = mergedAccepted;
+    merged[@"value_since"] = mergedSince;
+
+    if (sessionID) sessions[sessionID] = sessionRecord;
+    for (NSString *key in sessions.allKeys) {
+        NSDictionary *record = [sessions[key] isKindOfClass:NSDictionary.class] ? sessions[key] : nil;
+        if (!record || now - [record[@"seen_at"] doubleValue] > QuotaSessionRecordTTL) {
+            [sessions removeObjectForKey:key];
+        }
+    }
+    if (sessions.count > QuotaSessionRecordLimit) {
+        NSArray *oldestFirst = [sessions keysSortedByValueUsingComparator:^NSComparisonResult(id left, id right) {
+            return [left[@"seen_at"] compare:right[@"seen_at"]];
+        }];
+        [sessions removeObjectsForKeys:[oldestFirst subarrayWithRange:
+            NSMakeRange(0, sessions.count - QuotaSessionRecordLimit)]];
+    }
+    merged[@"sessions"] = sessions;
     // 最后一次写盘时间。不再参与任何判据，只留给排查用。
     merged[@"written_at"] = @(now);
 
@@ -172,7 +217,9 @@ NSDictionary *ClaudeRateLimits(void) {
     if (![limits isKindOfClass:NSDictionary.class]) return nil;
     id fiveHour = [limits[@"five_hour"] isKindOfClass:NSDictionary.class] ? limits[@"five_hour"] : NSNull.null;
     id week = [limits[@"seven_day"] isKindOfClass:NSDictionary.class] ? limits[@"seven_day"] : NSNull.null;
-    return @{@"fiveHour": fiveHour, @"week": week};
+    // 快照只在有会话上报时更新。窗口到期后没人再报，旧百分比会一直挂着（实测 5 小时窗口
+    // 重置后面板仍显示剩余 0%），与 Codex 同样按 resets_at 清掉已经翻篇的窗口。
+    return UsageByRemovingInactiveQuotaWindows(@{@"fiveHour": fiveHour, @"week": week});
 }
 
 NSDictionary *LatestClaudeUsage(void) {
