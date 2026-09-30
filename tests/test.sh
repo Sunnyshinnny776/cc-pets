@@ -1012,6 +1012,7 @@ mkdir -p "${CLEAN_TMP}/state/cc-pets-$(id -u)-clients" \
   "${CLEAN_TMP}/Application Support/CC Pets" "${CLEAN_TMP}/.build/clang-cache"
 print old-event > "${CLEAN_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson"
 print old-usage > "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json"
+print old-live > "${CLEAN_TMP}/state/cc-pets-$(id -u)-codex-live-usage.json"
 print usage-lock > "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json.lock"
 print lock > "${CLEAN_TMP}/state/cc-pets-$(id -u).lock"
 print Codex > "${CLEAN_TMP}/state/cc-pets-$(id -u)-clients/999999"
@@ -1025,6 +1026,7 @@ CC_PETS_BUILD_CACHE_DIR="${CLEAN_TMP}/.build/clang-cache" \
   "${PROJECT_DIR}/.build/release/cc-pets" --clean >/dev/null
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json" ]]
+[[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-codex-live-usage.json" ]]
 # 锁文件必须长期保留；即使桌宠没运行，Claude statusline 仍可能持有它。
 [[ -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json.lock" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u).lock" ]]

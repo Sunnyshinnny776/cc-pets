@@ -9,5 +9,6 @@
 @end
 
 // 把实时额度覆盖到会话读取器产出的用量上；本机 Token 聚合等非官方字段会被保留。
+// 会话快照的 sampledAt 更晚时原样返回会话快照。
 NSDictionary *CodexUsageByApplyingLiveUsage(NSDictionary *sessionUsage,
     NSDictionary *liveUsage);

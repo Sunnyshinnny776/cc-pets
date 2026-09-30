@@ -107,6 +107,11 @@ NSString *ClaudeUsageLockPath(void) {
     return [ClaudeUsagePath() stringByAppendingPathExtension:@"lock"];
 }
 
+NSString *CodexLiveUsagePath(void) {
+    NSString *name = [NSString stringWithFormat:@"cc-pets-%u-codex-live-usage.json", getuid()];
+    return [PetStateDirectory() stringByAppendingPathComponent:name];
+}
+
 NSString *ApplicationSupportDirectory(void) {
     NSString *override = NSProcessInfo.processInfo.environment[@"CC_PETS_APPLICATION_SUPPORT_DIR"];
     if (override.length > 0) return override.stringByStandardizingPath;

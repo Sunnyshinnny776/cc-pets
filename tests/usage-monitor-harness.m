@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import "CCPetsUsageMonitor.h"
 #import "CCPetsPaths.h"
+#import "CCPetsCodexRateLimits.h"
 
 static NSData *CodexLine(double five, double week) {
     NSString *line = [NSString stringWithFormat:
@@ -73,6 +74,57 @@ int main(void) {
             return EXIT_FAILURE;
         }
         puts("额度事件监听与兜底运行时测试通过");
+
+        // 实时额度与会话快照按采样时刻比新旧，不再是实时值一律覆盖、到期一律丢弃。
+        NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+        NSDictionary *olderLive = @{@"sampledAt": @(now - 100),
+            @"week": @{@"used_percent": @50, @"resets_at": @(now + 86400)}};
+        NSDictionary *newerSession = @{@"sampledAt": @(now - 10),
+            @"week": @{@"used_percent": @60, @"resets_at": @(now + 86400)}};
+        if ([CodexUsageByApplyingLiveUsage(newerSession, olderLive)[@"week"][@"used_percent"]
+                doubleValue] != 60) {
+            fputs("更新的会话快照被更旧的实时额度盖掉了\n", stderr);
+            return EXIT_FAILURE;
+        }
+        NSDictionary *olderSession = @{@"sampledAt": @(now - 1000),
+            @"week": @{@"used_percent": @30, @"resets_at": @(now + 86400)}};
+        if ([CodexUsageByApplyingLiveUsage(olderSession, olderLive)[@"week"][@"used_percent"]
+                doubleValue] != 50) {
+            fputs("实时额度没有盖过更旧的会话快照\n", stderr);
+            return EXIT_FAILURE;
+        }
+        puts("Codex 实时额度与会话快照按采样时刻取新测试通过");
+
+        // 桌宠随最后一个客户端退出。重启后 App Server 回话之前，面板要先用上次存下的实时值，
+        // 而不是会话日志里的旧快照（本用例的会话行没有时间戳，采样时刻为 0，必然更旧）。
+        // 存下的受限标记已过寿命，不能跟着挂出来；5 小时窗口已翻篇，要清掉。
+        NSDictionary *saved = @{@"sampledAt": @(now - 3600), @"exhaustedAt": @(now - 3600),
+            @"fiveHour": @{@"used_percent": @40, @"resets_at": @(now - 60), @"window_minutes": @300},
+            @"week": @{@"used_percent": @66, @"resets_at": @(now + 86400), @"window_minutes": @10080}};
+        [[NSJSONSerialization dataWithJSONObject:saved options:0 error:nil]
+            writeToFile:CodexLiveUsagePath() atomically:YES];
+        __block NSDictionary *restored = nil;
+        CCPetsUsageMonitor *restarted = [CCPetsUsageMonitor new];
+        __weak CCPetsUsageMonitor *weakRestarted = restarted;
+        restarted.changeHandler = ^(NSDictionary *codex, NSDictionary *claude) {
+            if (![codex[@"week"] isKindOfClass:NSDictionary.class]) return;
+            restored = codex;
+            [weakRestarted stop];
+            CFRunLoopStop(CFRunLoopGetMain());
+        };
+        [restarted start];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC),
+            dispatch_get_main_queue(), ^{
+                [weakRestarted stop];
+                CFRunLoopStop(CFRunLoopGetMain());
+            });
+        CFRunLoopRun();
+        if ([restored[@"week"][@"used_percent"] doubleValue] != 66 ||
+            restored[@"fiveHour"] != NSNull.null || restored[@"exhaustedAt"]) {
+            fprintf(stderr, "重启后没有沿用存下的实时额度：%s\n", restored.description.UTF8String);
+            return EXIT_FAILURE;
+        }
+        puts("Codex 实时额度重启恢复测试通过");
     }
     return EXIT_SUCCESS;
 }

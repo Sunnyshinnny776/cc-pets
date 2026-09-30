@@ -126,6 +126,7 @@ void PruneStaleRuntimeState(void) {
     NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - RuntimeStateTTL;
     RemoveExpiredFile(AgentEventPath(), cutoff);
     RemoveExpiredFile(ClaudeUsagePath(), cutoff);
+    RemoveExpiredFile(CodexLiveUsagePath(), cutoff);
     RemoveDeadClientRecords();
 }
 
@@ -148,7 +149,7 @@ int CleanCCPetsData(BOOL purge) {
     }
     NSUInteger removed = 0;
     if (RemoveClaudeUsageIfUnlocked()) removed += 1;
-    for (NSString *path in @[AgentEventPath(), RuntimeLockPath(),
+    for (NSString *path in @[AgentEventPath(), CodexLiveUsagePath(), RuntimeLockPath(),
                              ClientStateDirectory(), buildCache ?: @""]) {
         if (RemoveIfPresent(path)) removed += 1;
     }

@@ -71,6 +71,10 @@ static NSDictionary *UsageByRemovingInactiveQuotaWindows(NSDictionary *usage) {
     return result ?: usage;
 }
 
+NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage) {
+    return UsageByRemovingInactiveQuotaWindows(usage);
+}
+
 // 同一个账号下的每个 Claude 会话都会把自己那次响应里的 rate_limits 抄到同一个文件上，
 // 而"响应更早、落盘更晚"在并发会话下完全正常。无条件覆盖时旧快照会盖掉新快照，面板上
 // 的剩余额度于是来回跳（实测 99% → 94% → 又回 99%）。同一窗口内官方用量只增不减，

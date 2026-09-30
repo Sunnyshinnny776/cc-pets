@@ -5,6 +5,8 @@ int RecordClaudeUsage(void);
 NSDictionary *ClaudeRateLimits(void);
 NSDictionary *LatestClaudeUsage(void);
 NSDictionary *LatestUsage(void);
+// 清掉 resets_at 已经翻篇（或不可能属于当前窗口）的额度窗口，缺 resets_at 的保留。
+NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 
 // 增量跟读 ~/.claude/projects 下的会话转录，按官方 5 小时 / 7 天窗口聚合本地 Token。
 @interface ClaudeUsageReader : NSObject
