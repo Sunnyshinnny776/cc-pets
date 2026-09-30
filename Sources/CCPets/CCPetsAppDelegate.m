@@ -303,6 +303,30 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
             message:[NSString stringWithFormat:@"正在下载并安装 CC Pets %@。完成后桌宠会自动重启。", version]];
     }
 }
+// 系统标准关于面板：图标取自 Info.plist，版本号用构建时注入的 CC_PETS_VERSION（与检查更新
+// 同一口径）。桌宠是 LSUIElement，不先激活的话面板会开在其他 App 后面。
+- (void)showAboutPanel:(id)sender {
+    NSMutableAttributedString *credits = [[NSMutableAttributedString alloc]
+        initWithString:@"Claude Code / Codex CLI 的多功能桌面宠物。\n\n"
+        attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                     NSForegroundColorAttributeName: NSColor.secondaryLabelColor}];
+    NSString *homepage = @"https://github.com/Sunnyshinnny776/cc-pets";
+    [credits appendAttributedString:[[NSAttributedString alloc] initWithString:homepage
+        attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                     NSLinkAttributeName: [NSURL URLWithString:homepage]}]];
+    NSMutableParagraphStyle *centered = [NSMutableParagraphStyle new];
+    centered.alignment = NSTextAlignmentCenter;
+    [credits addAttribute:NSParagraphStyleAttributeName value:centered
+        range:NSMakeRange(0, credits.length)];
+    [NSApp activateIgnoringOtherApps:YES];
+    [NSApp orderFrontStandardAboutPanelWithOptions:@{
+        NSAboutPanelOptionApplicationName: @"CC Pets",
+        NSAboutPanelOptionApplicationVersion: @CC_PETS_VERSION,
+        // 空字符串才能去掉版本号后面括号里的 CFBundleVersion（Info.plist 里没有这一项）。
+        NSAboutPanelOptionVersion: @"",
+        NSAboutPanelOptionCredits: credits
+    }];
+}
 - (void)checkForUpdates:(id)sender {
     if (self.checkingForUpdate || self.updating) return;
     self.checkingForUpdate = YES;

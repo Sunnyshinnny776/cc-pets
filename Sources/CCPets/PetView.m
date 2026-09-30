@@ -1703,6 +1703,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         action:@selector(editPhrasesFile:) keyEquivalent:@""];
     editPhrases.target = NSApp.delegate;
     speechItem.submenu = speechMenu;
+    NSMenuItem *aboutItem = [menu addItemWithTitle:@"关于 CC Pets" action:@selector(showAboutPanel:) keyEquivalent:@""];
+    aboutItem.target = NSApp.delegate;
     NSMenuItem *updateItem = [menu addItemWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
     updateItem.target = NSApp.delegate;
     [menu addItem:NSMenuItem.separatorItem];
