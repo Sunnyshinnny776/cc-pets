@@ -1,6 +1,7 @@
 #import "PetView.h"
 #import <QuartzCore/QuartzCore.h>
 #import "MenuToggleSwitch.h"
+#import "MenuHintView.h"
 #import "CCPetsPaths.h"
 #import "CCPetsImageLoader.h"
 #import "CCPetsBridge.h"
@@ -1406,8 +1407,17 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         ? item.representedObject : nil;
     if (pet) [self showMenuPreviewForPet:pet item:item menu:menu];
     else [self.petMenuPreviewPanel orderOut:nil];
+    // 自绘行的说明由 MenuHintRowView 自己的进出事件管，这里不能去取消它。
+    if (item.view) return;
+    NSString *hint = [item.representedObject isKindOfClass:NSString.class] ? item.representedObject : nil;
+    NSRect itemFrame = item.accessibilityFrame;
+    if (hint && !NSIsEmptyRect(itemFrame)) [MenuHint scheduleText:hint belowScreenRect:itemFrame];
+    else [MenuHint cancel];
 }
 - (void)menuDidClose:(NSMenu *)menu {
+    [MenuHint cancel];
+    // CC Bridge 子菜单也以 self 为代理（为了悬停说明），删除确认和预览只属于"管理桌宠"。
+    if (menu != self.activePetSwitchMenu) return;
     [self resetPendingDeleteButton];
     [self.petMenuPreviewPanel orderOut:nil];
 }
@@ -1424,7 +1434,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     const CGFloat leadingInset = 12;
     CGFloat toggleX = width - trailingInset - toggleWidth;
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
-    NSView *row = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, 28)];
+    NSView *row = [[MenuHintRowView alloc] initWithFrame:NSMakeRect(0, 0, width, 28)];
     NSTextField *label = [NSTextField labelWithString:title];
     label.frame = NSMakeRect(leadingInset, 5, toggleX - leadingInset - trailingInset, 18);
     label.font = [NSFont menuFontOfSize:13];
@@ -1474,9 +1484,10 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     action:(SEL)action tag:(NSInteger)tag toolTip:(NSString *)toolTip {
     // 与其他子菜单同宽。菜单宽度取最宽的一行：标题都控制在 5 个字以内，说明性文字放进悬停提示，
     // 否则长文字行会把菜单撑宽，而自绘开关行是固定宽度，开关就不再贴右边。
+    // 说明不用系统 toolTip：它只在 App 激活时显示，见 MenuHintView.h。
     NSMenuItem *item = [self addPersistentSwitchToMenu:menu title:title checked:checked
         action:action width:PetSubmenuRowWidth tag:tag];
-    item.view.toolTip = toolTip;
+    ((MenuHintRowView *)item.view).hint = toolTip;
 }
 // 一级子菜单只放启用和最常动的两个开关（开关在上、二级菜单在下）；免审批（设一次就不动）和只影响桌宠的提醒各收进二级菜单。
 // 未开启时只留"启用"一行：其余开关此时都不生效，列出来只是占地方。开启是异步的，
@@ -1484,6 +1495,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
 - (void)addBridgeMenuToMenu:(NSMenu *)menu {
     NSMenuItem *bridgeItem = [menu addItemWithTitle:@"CC Bridge" action:nil keyEquivalent:@""];
     NSMenu *bridgeMenu = [NSMenu new];
+    // 免审批 / 桌宠提醒 是普通菜单项，悬停说明走 menu:willHighlightItem:。
+    bridgeMenu.delegate = self;
     bridgeItem.submenu = bridgeMenu;
     BOOL enabled = CCBridgeEnabled();
     [self addBridgeSwitchToMenu:bridgeMenu title:@"启用" checked:enabled
@@ -1495,7 +1508,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     // 状态文字才能占满整行宽度，不被开关截断。
     NSDictionary *sessions = CCBridgeSessions();
     NSUInteger reservations = CCBridgeActiveReservationCount([NSSet setWithArray:sessions.allKeys]);
-    NSView *enableRow = bridgeMenu.itemArray.lastObject.view;
+    MenuHintRowView *enableRow = (MenuHintRowView *)bridgeMenu.itemArray.lastObject.view;
+    enableRow.hint = [enableRow.hint stringByAppendingString:@"\n下方为在线会话数 · 有效的文件预留数"];
     const CGFloat statusHeight = 14;
     [enableRow setFrameSize:NSMakeSize(NSWidth(enableRow.frame), NSHeight(enableRow.frame) + statusHeight)];
     for (NSView *subview in enableRow.subviews) {
@@ -1507,7 +1521,6 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     status.font = [NSFont menuFontOfSize:11];
     status.textColor = NSColor.secondaryLabelColor;
     status.lineBreakMode = NSLineBreakByTruncatingTail;
-    status.toolTip = @"在线会话数 · 有效的文件预留数";
     [enableRow addSubview:status];
 
     [bridgeMenu addItem:NSMenuItem.separatorItem];
@@ -1520,7 +1533,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         toolTip:@"编辑他人预留的文件时先暂停一次并说明原因，重试即放行；Codex 需重启会话生效"];
 
     NSMenuItem *approvalItem = [bridgeMenu addItemWithTitle:@"免审批" action:nil keyEquivalent:@""];
-    approvalItem.toolTip = @"每组同时作用于 Codex 免审批与 Claude 免确认；Codex 需重启会话生效";
+    approvalItem.representedObject = @"每组同时作用于 Codex 免审批与 Claude 免确认；Codex 需重启会话生效";
     NSMenu *approvalMenu = [NSMenu new];
     NSArray<NSDictionary *> *groups = @[
         @{@"title": @"查看类", @"group": @"view", @"tag": @1,
@@ -1543,7 +1556,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     approvalItem.submenu = approvalMenu;
 
     NSMenuItem *alertItem = [bridgeMenu addItemWithTitle:@"桌宠提醒" action:nil keyEquivalent:@""];
-    alertItem.toolTip = @"只影响桌宠，不改 Claude Code / Codex 的配置";
+    alertItem.representedObject = @"只影响桌宠，不改 Claude Code / Codex 的配置";
     NSMenu *alertMenu = [NSMenu new];
     [self addBridgeSwitchToMenu:alertMenu title:@"消息角标"
         checked:[NSUserDefaults.standardUserDefaults boolForKey:BridgeBadgeEnabledKey]
@@ -1711,6 +1724,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     NSMenuItem *quitItem = [menu addItemWithTitle:@"退出桌宠" action:@selector(terminate:) keyEquivalent:@"q"];
     quitItem.target = NSApp;
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+    [MenuHint cancel];
     self.activePetSwitchMenu = nil;
     [self.petMenuPreviewPanel orderOut:nil];
 }
