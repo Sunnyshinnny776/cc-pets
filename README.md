@@ -179,7 +179,16 @@ prompts, command text, file contents, or model output.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, quota, notification, update, and exit menu |
+| Right-click | Pet, notification, update, and exit menu |
+
+The **Panel theme** submenu offers **Classic** and **Liquid Glass**. Classic is the
+default. Changes apply immediately to the quota panel, status card, and speech
+bubble, and persist across restarts. Liquid Glass uses native system glass and is
+available on macOS 26 and later only. Building native glass support requires the
+macOS 26 SDK or later. The same submenu has a **Glass dimming** setting for the quota
+panel, status card, and speech bubble: Clear (0%), Light (15%), Standard (25%,
+default), or Legible (45%). Lower levels
+look more transparent; higher levels keep text readable over light backgrounds.
 
 The pet switcher scans only built-in assets and `~/.cc-pets/pets/`. It does not
 scan `~/.petdex/pets/` or `~/.codex/pets/`. To use assets installed by Codex,

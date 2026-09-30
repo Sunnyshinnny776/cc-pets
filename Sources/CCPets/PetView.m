@@ -5,6 +5,8 @@
 #import "CCPetsPaths.h"
 #import "CCPetsImageLoader.h"
 #import "CCPetsBridge.h"
+#import "CCPetsGlassView.h"
+#import "MenuChoiceRow.h"
 
 // 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate.m，这里只读不写；
 // 单独 extern 而不 import 那个头文件，是因为它反过来 import 了 PetView.h。
@@ -1581,8 +1583,6 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     self.activePetSwitchMenu = switchMenu;
     switchItem.submenu = switchMenu;
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *refreshItem = [menu addItemWithTitle:@"刷新用量" action:@selector(refreshUsage:) keyEquivalent:@"r"];
-    refreshItem.target = NSApp.delegate;
     [self addPersistentSwitchToMenu:menu
         title:@"显示消息气泡"
         checked:[NSUserDefaults.standardUserDefaults boolForKey:StatusBubbleExpandedKey]
@@ -1602,6 +1602,40 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     [self addUsageModeControlToMenu:usageModeMenu provider:@"Claude"
         preferenceKey:ClaudeUsageDisplayModeKey tag:2];
     usageModeItem.submenu = usageModeMenu;
+    NSMenuItem *themeItem = [menu addItemWithTitle:@"面板主题" action:nil keyEquivalent:@""];
+    NSMenu *themeMenu = [[NSMenu alloc] initWithTitle:@"面板主题"];
+    // 两组都用自绘单选行：点了立即生效且菜单不收起，方便连着对比主题和压暗档位。
+    NSString *selectedTheme = CCPetsPanelTheme();
+    for (NSArray<NSString *> *option in @[
+        @[@"经典", @"classic"], @[@"Liquid Glass", @"liquid"]]) {
+        NSMenuItem *item = [MenuChoiceRowView addToMenu:themeMenu title:option[0] group:@"theme"
+            representedObject:option[1] checked:[selectedTheme isEqualToString:option[1]]
+            target:NSApp.delegate action:@selector(setPanelTheme:) width:PetSubmenuRowWidth];
+        if ([option[1] isEqualToString:@"liquid"] && !CCPetsLiquidGlassAvailable()) {
+            ((MenuChoiceRowView *)item.view).enabled = NO;
+            [item.view setAccessibilityHelp:@"需要 macOS 26 及以上"];
+        }
+    }
+    // 压暗作用于额度面板、状态卡和说话气泡的原生玻璃；经典主题下没有这层，置灰。切主题时当场联动。
+    [themeMenu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *dimHeader = [themeMenu addItemWithTitle:@"玻璃压暗" action:nil keyEquivalent:@""];
+    dimHeader.enabled = NO;
+    BOOL (^dimApplies)(void) = ^BOOL {
+        return [CCPetsPanelTheme() isEqualToString:@"liquid"] && CCPetsLiquidGlassAvailable();
+    };
+    NSDictionary<NSNumber *, NSString *> *dimTitles = @{
+        @0: @"通透（0%）", @15: @"轻度（15%）", @25: @"标准（25%）", @45: @"清晰（45%）"};
+    NSInteger selectedDim = CCPetsGlassDimLevel();
+    for (NSNumber *level in CCPetsGlassDimLevels()) {
+        NSMenuItem *item = [MenuChoiceRowView addToMenu:themeMenu title:dimTitles[level] group:@"dim"
+            representedObject:level checked:level.integerValue == selectedDim
+            target:NSApp.delegate action:@selector(setGlassDimLevel:) width:PetSubmenuRowWidth];
+        MenuChoiceRowView *row = (MenuChoiceRowView *)item.view;
+        row.indentation = 10;
+        row.enabledHandler = dimApplies;
+        row.enabled = dimApplies();
+    }
+    themeItem.submenu = themeMenu;
     NSMenuItem *notificationItem = [menu addItemWithTitle:@"系统通知" action:nil keyEquivalent:@""];
     NSMenu *notificationMenu = [NSMenu new];
     NSArray<NSDictionary *> *notificationOptions = @[

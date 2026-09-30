@@ -8,6 +8,8 @@
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
 #import "CCPetsTerminalFocus.h"
+#import "MenuChoiceRow.h"
+#import "CCPetsGlassMenu.h"
 #import "CCPetsBridge.h"
 #import "MenuToggleSwitch.h"
 #import <UserNotifications/UserNotifications.h>
@@ -442,6 +444,52 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     if (tag == 4) return NotificationStallKey;
     return nil;
 }
+// sender 是菜单里的 MenuChoiceRowView，勾选状态由它自己更新。
+- (void)setPanelTheme:(MenuChoiceRowView *)sender {
+    NSString *theme = sender.representedObject;
+    if (![@[@"classic", @"liquid"] containsObject:theme]) return;
+    [NSUserDefaults.standardUserDefaults setObject:theme forKey:CCPetsPanelThemeKey];
+    [self.statusGlass applyTheme];
+    [self.speechGlass applyTheme];
+    [self.quotaGlass applyTheme];
+    self.statusShadowView.hidden = self.statusGlass.usesLiquidGlass;
+    self.quotaView.usesLiquidGlass = self.quotaGlass.usesLiquidGlass;
+    self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
+    self.quotaView.needsDisplay = YES;
+    [self applyBubbleTextStyle];
+    // quotaView 换了父视图，mouseExited 不一定会送达；切主题是在宠物右键菜单里点的，
+    // 鼠标此刻不在面板上，直接复位，免得面板一直当作"悬停中"不收起。
+    self.dashboardHovering = NO;
+}
+// 状态卡和说话气泡原来是浅色磨砂配深色字；换成原生清透玻璃后背景是任意壁纸加一层
+// 压暗，深色字会看不见，改成白字加贴字形的投影，和额度面板一致。
+- (void)applyBubbleTextStyle {
+    NSShadow *shadow = [NSShadow new];
+    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
+    shadow.shadowBlurRadius = 2;
+    shadow.shadowOffset = NSMakeSize(0, -0.5);
+    BOOL statusLiquid = self.statusGlass.usesLiquidGlass;
+    self.statusTitleLabel.textColor = statusLiquid ? [NSColor colorWithWhite:1 alpha:0.78]
+        : [NSColor colorWithWhite:0.42 alpha:0.90];
+    self.statusDetailLabel.textColor = statusLiquid ? [NSColor colorWithWhite:1 alpha:0.97]
+        : [NSColor colorWithWhite:0.12 alpha:0.96];
+    self.statusTitleLabel.shadow = statusLiquid ? shadow : nil;
+    self.statusDetailLabel.shadow = statusLiquid ? shadow : nil;
+    BOOL speechLiquid = self.speechGlass.usesLiquidGlass;
+    self.speechLabel.textColor = speechLiquid ? [NSColor colorWithWhite:1 alpha:0.97]
+        : [NSColor colorWithWhite:0.10 alpha:0.96];
+    self.speechLabel.shadow = speechLiquid ? shadow : nil;
+}
+- (void)setGlassDimLevel:(MenuChoiceRowView *)sender {
+    NSNumber *level = sender.representedObject;
+    if (![CCPetsGlassDimLevels() containsObject:level]) return;
+    [NSUserDefaults.standardUserDefaults setObject:level forKey:CCPetsGlassDimKey];
+    [self.quotaGlass applyDimLevel];
+    [self.statusGlass applyDimLevel];
+    [self.speechGlass applyDimLevel];
+    self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
+    self.quotaView.needsDisplay = YES;
+}
 - (void)toggleSpeech:(NSButton *)sender {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     id current = [defaults objectForKey:@"CCPetsSpeechEnabled"];
@@ -683,6 +731,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(enterIdleStatus) object:nil];
     [self.statusPanel orderOut:nil];
+    [CCPetsGlassMenu dismiss];
     self.hasAgentStatus = NO;
     [self refreshApprovalBadge];
 }
@@ -712,6 +761,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         [self.statusPanel orderFrontRegardless];
     } else {
         [self.statusPanel orderOut:nil];
+        [CCPetsGlassMenu dismiss];
     }
 }
 // Stop 之后还会飘来 SubagentStop / PostToolUse / TaskCompleted 这类"仍在工作"的尾巴事件
@@ -751,6 +801,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         if (self.speechPanel.isVisible) [self hideSpeechBubble];
     } else {
         [self.statusPanel orderOut:nil];
+        [CCPetsGlassMenu dismiss];
     }
 }
 // "正在启动"只在会话拉起的一瞬间成立。之后如果没有任何后续事件，真实情况是会话已就绪、
@@ -1056,8 +1107,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.bridgeSeenAt = NSDate.date.timeIntervalSince1970;
     [self refreshBridgeBadge];
     if (records.count == 0) {
-        [menu popUpMenuPositioningItem:nil
-            atLocation:NSMakePoint(0, NSHeight(sender.bounds) + 4) inView:sender];
+        [self popUpAgentSessionsMenu:menu from:sender];
         return;
     }
     NSMenuItem *heading = [menu addItemWithTitle:@"最近 Agent 会话" action:nil keyEquivalent:@""];
@@ -1093,6 +1143,15 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         item.target = self;
         item.representedObject = record;
         if ([target isEqual:self.lastTerminalFocusTarget]) item.state = NSControlStateValueOn;
+    }
+    [self popUpAgentSessionsMenu:menu from:sender];
+}
+// Liquid Glass 主题下用玻璃面板展示，和旁边的玻璃状态卡保持一致；经典主题仍是系统菜单。
+// 玻璃面板不抢焦点，所以不支持方向键选择，Esc 只在本 App 处于前台时有效。
+- (void)popUpAgentSessionsMenu:(NSMenu *)menu from:(NSButton *)sender {
+    if (self.statusGlass.usesLiquidGlass) {
+        [CCPetsGlassMenu showMenu:menu belowView:self.statusGlass alignRightTo:self.statusGlass];
+        return;
     }
     [menu popUpMenuPositioningItem:nil
         atLocation:NSMakePoint(0, NSHeight(sender.bounds) + 4) inView:sender];
@@ -1713,8 +1772,8 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     NSView *statusShadow = [[NSView alloc] initWithFrame:NSMakeRect(
         6, 6, statusGlassSize.width, statusGlassSize.height)];
     self.statusShadowView = statusShadow;
-    statusShadow.layer.cornerRadius = statusGlassSize.height / 2.0;
     statusShadow.wantsLayer = YES;
+    statusShadow.layer.cornerRadius = statusGlassSize.height / 2.0;
     statusShadow.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:0.01].CGColor;
     statusShadow.layer.cornerCurve = kCACornerCurveContinuous;
     statusShadow.layer.shadowColor = NSColor.blackColor.CGColor;
@@ -1728,18 +1787,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     CGPathRelease(statusShadowPath);
     [statusRoot addSubview:statusShadow];
 
-    self.statusGlass = [[NSVisualEffectView alloc]
-        initWithFrame:NSMakeRect(6, 6, statusGlassSize.width, statusGlassSize.height)];
-    self.statusGlass.material = NSVisualEffectMaterialPopover;
-    self.statusGlass.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    self.statusGlass.state = NSVisualEffectStateActive;
-    self.statusGlass.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-    self.statusGlass.wantsLayer = YES;
-    self.statusGlass.layer.cornerRadius = statusGlassSize.height / 2.0;
-    self.statusGlass.layer.cornerCurve = kCACornerCurveContinuous;
-    self.statusGlass.layer.masksToBounds = YES;
-    self.statusGlass.layer.borderWidth = 1;
-    self.statusGlass.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.48].CGColor;
+    self.statusGlass = [[CCPetsGlassView alloc]
+        initWithFrame:NSMakeRect(6, 6, statusGlassSize.width, statusGlassSize.height)
+        material:NSVisualEffectMaterialPopover appearance:NSAppearanceNameAqua
+        cornerRadius:statusGlassSize.height / 2.0];
+    // 胶囊比面板矮，边缘高光占比更大；10pt / 0.6 是对照截图里深色背景下刚好压住的值。
+    self.statusGlass.edgeShadeHeight = 10;
+    self.statusGlass.edgeShadeAlpha = 0.6;
+    self.statusGlass.usesWidgetGlass = YES;
 
     self.statusTitleLabel = [NSTextField labelWithString:@""];
     // 层级是反的：宠物是主角，事实退成眉标。
@@ -1748,14 +1803,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusTitleLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
     self.statusTitleLabel.textColor = [NSColor colorWithWhite:0.42 alpha:0.90];
     self.statusTitleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.statusGlass addSubview:self.statusTitleLabel];
+    [self.statusGlass.contentView addSubview:self.statusTitleLabel];
 
     self.statusDetailLabel = [NSTextField labelWithString:@""];
     self.statusDetailLabel.frame = NSMakeRect(20, 10, statusGlassSize.width - 80, 22);
     self.statusDetailLabel.font = [NSFont systemFontOfSize:14 weight:NSFontWeightMedium];
     self.statusDetailLabel.textColor = [NSColor colorWithWhite:0.12 alpha:0.96];
     self.statusDetailLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.statusGlass addSubview:self.statusDetailLabel];
+    [self.statusGlass.contentView addSubview:self.statusDetailLabel];
 
     self.statusIconButton = [[CCPetsStatusClickButton alloc] initWithFrame:NSMakeRect(
         statusGlassSize.width - 48, 12, 34, 34)];
@@ -1767,8 +1822,11 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusIconButton.toolTip = @"查看最近 Agent 会话与 CC Bridge 消息";
     self.statusIconButton.target = self;
     self.statusIconButton.action = @selector(showAgentSessionsMenu:);
-    [self.statusGlass addSubview:self.statusIconButton];
+    [self.statusGlass.contentView addSubview:self.statusIconButton];
+    // 原生玻璃自带阴影，再叠手工阴影会糊成两层。
+    self.statusShadowView.hidden = self.statusGlass.usesLiquidGlass;
     [statusRoot addSubview:self.statusGlass];
+    [self applyBubbleTextStyle];
     CCPetsStatusClickButton *statusClick = [[CCPetsStatusClickButton alloc]
         initWithFrame:NSMakeRect(6, 6, statusGlassSize.width - 56, statusGlassSize.height)];
     statusClick.bordered = NO;
@@ -1780,7 +1838,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     statusClick.action = @selector(focusLatestAgentTerminal:);
     self.statusClickButton = statusClick;
     [statusRoot addSubview:statusClick];
-    // 角标挂在 statusRoot 而不是 statusGlass 里：玻璃卡片是 masksToBounds 的胶囊，
+    // 角标挂在 statusRoot 而不是玻璃内容里：玻璃卡片会按胶囊形状裁切，
     // 右上角正好落在圆角外面，放进去会被裁掉一半。
     CCPetsApprovalBadgeView *badge = [[CCPetsApprovalBadgeView alloc]
         initWithFrame:NSMakeRect(0, 0, PetApprovalBadgeSize, PetApprovalBadgeSize)];
@@ -1811,17 +1869,15 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.quotaPanel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     self.quotaPanel.hidesOnDeactivate = NO;
     NSView *quotaRoot = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, quotaSize.width, quotaSize.height)];
-    NSVisualEffectView *glass = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0, 0,
-        quotaSize.width, quotaSize.height)];
-    glass.material = NSVisualEffectMaterialUnderWindowBackground;
-    glass.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    glass.state = NSVisualEffectStateActive;
-    glass.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    glass.wantsLayer = YES;
-    glass.layer.cornerRadius = 13;
-    glass.layer.masksToBounds = YES;
-    [quotaRoot addSubview:glass];
+    self.quotaGlass = [[CCPetsGlassView alloc] initWithFrame:quotaRoot.bounds
+        material:NSVisualEffectMaterialUnderWindowBackground
+        appearance:NSAppearanceNameDarkAqua cornerRadius:13];
+    self.quotaGlass.usesWidgetGlass = YES;
+    [quotaRoot addSubview:self.quotaGlass];
     self.quotaView = [[QuotaDashboardView alloc] initWithFrame:NSMakeRect(0, 0, quotaSize.width, quotaSize.height)];
+    self.quotaView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.quotaView.usesLiquidGlass = self.quotaGlass.usesLiquidGlass;
+    self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
     [self applySystemMetricPreferences];
     [self applyUsageDisplayModePreferences];
     self.quotaView.codexLogo = OfficialAppIcon(@"com.openai.codex", @"icon-chatgpt.icns");
@@ -1830,10 +1886,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         weakSelf.dashboardHovering = hovering;
         if (!hovering) [weakSelf scheduleQuotaDashboardHide];
     };
-    self.quotaView.refreshRequested = ^{
-        [weakSelf refreshUsage:nil];
-    };
-    [quotaRoot addSubview:self.quotaView];
+    [self.quotaGlass.contentView addSubview:self.quotaView];
     self.quotaPanel.contentView = quotaRoot;
     // 先探测再第一次显示：否则面板会先按两张卡的高度弹出来再收缩一下。
     [self refreshDetectedProviders];
@@ -2171,20 +2224,13 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
     self.speechPanel.ignoresMouseEvents = YES;
 
     NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height)];
-    self.speechGlass = [[NSVisualEffectView alloc]
-        initWithFrame:NSMakeRect(6, 6, glassSize.width, glassSize.height)];
-    self.speechGlass.material = NSVisualEffectMaterialPopover;
-    self.speechGlass.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    self.speechGlass.state = NSVisualEffectStateActive;
-    self.speechGlass.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-    self.speechGlass.wantsLayer = YES;
-    // 圆角交给 layer 自己：cornerRadius 是 GPU 端矢量裁切，配 continuous 曲率就是
-    // macOS 那个 squircle。位图 maskImage 换不来这个质感。
-    self.speechGlass.layer.cornerRadius = glassSize.height / 2.0;
-    self.speechGlass.layer.cornerCurve = kCACornerCurveContinuous;
-    self.speechGlass.layer.masksToBounds = YES;
-    self.speechGlass.layer.borderWidth = 1;
-    self.speechGlass.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.48].CGColor;
+    self.speechGlass = [[CCPetsGlassView alloc]
+        initWithFrame:NSMakeRect(6, 6, glassSize.width, glassSize.height)
+        material:NSVisualEffectMaterialPopover appearance:NSAppearanceNameAqua
+        cornerRadius:glassSize.height / 2.0];
+    self.speechGlass.edgeShadeHeight = 9;
+    self.speechGlass.edgeShadeAlpha = 0.6;
+    self.speechGlass.usesWidgetGlass = YES;
 
     self.speechLabel = [NSTextField labelWithString:@""];
     self.speechLabel.frame = NSMakeRect(14, 10, glassSize.width - 28, 18);
@@ -2193,8 +2239,9 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
     self.speechLabel.textColor = [NSColor colorWithWhite:0.10 alpha:0.96];
     self.speechLabel.alignment = NSTextAlignmentCenter;
     self.speechLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.speechGlass addSubview:self.speechLabel];
+    [self.speechGlass.contentView addSubview:self.speechLabel];
     [root addSubview:self.speechGlass];
+    [self applyBubbleTextStyle];
     self.speechPanel.contentView = root;
 }
 // 独立气泡只在没有状态卡时出现（有状态卡时话并进它的副行），所以固定放宠物头顶即可，
@@ -2401,7 +2448,9 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     [self.statusPanel setContentSize:panelSize];
     self.statusPanel.contentView.frame = NSMakeRect(0, 0, panelSize.width, panelSize.height);
     self.statusGlass.frame = NSMakeRect(6, 6, glassWidth, height);
+    self.statusGlass.cornerRadius = height / 2.0;
     self.statusShadowView.frame = NSMakeRect(6, 6, glassWidth, height);
+    self.statusShadowView.layer.cornerRadius = height / 2.0;
     // shadowPath 是按旧尺寸算死的，卡片变宽后不重算，阴影会留在原来的形状上。
     CGPathRef path = CGPathCreateWithRoundedRect(self.statusShadowView.bounds,
         height / 2.0, height / 2.0, NULL);
@@ -2430,7 +2479,7 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     [self.speechPanel setContentSize:panelSize];
     self.speechPanel.contentView.frame = NSMakeRect(0, 0, panelSize.width, panelSize.height);
     self.speechGlass.frame = NSMakeRect(6, 6, width, PetSpeechBodyHeight);
-    self.speechGlass.layer.cornerRadius = PetSpeechBodyHeight / 2.0;
+    self.speechGlass.cornerRadius = PetSpeechBodyHeight / 2.0;
     self.speechLabel.frame = NSMakeRect(padding, 10, width - padding * 2, 18);
 }
 
@@ -2737,8 +2786,7 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
     // Codex/Claude 客户端，也不应被转成 CLI 托管模式并随客户端退出。
     if (liveClients == 0 && self.managedByCLI) [NSApp terminate:nil];
 }
-// 面板高度取决于渲染几张额度卡。quotaRoot / 毛玻璃 / quotaView 三层都是固定 frame、
-// 没有 autoresizingMask，所以统一在这里按 contentView 的 subviews 铺一遍，避免漏掉一层。
+// 面板高度取决于渲染几张额度卡。调整玻璃容器后，内部内容随 autoresizingMask 铺满。
 - (void)resizeQuotaDashboard {
     NSSize size = NSMakeSize(QuotaLogicalWidth * QuotaScale,
         QuotaLogicalHeightForProviderCount([self.quotaView visibleProviders].count) * QuotaScale);

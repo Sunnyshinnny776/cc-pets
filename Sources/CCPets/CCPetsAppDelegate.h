@@ -4,6 +4,7 @@
 #import "QuotaDashboardView.h"
 #import "CCPetsUsageMonitor.h"
 #import "CCPetsSystemMonitor.h"
+#import "CCPetsGlassView.h"
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @property NSPanel *panel;
@@ -11,7 +12,7 @@
 // 说话气泡。懒创建：用户不开启说话功能就永远不存在这个窗口。
 @property NSPanel *speechPanel;
 @property NSTextField *speechLabel;
-@property NSVisualEffectView *speechGlass;
+@property CCPetsGlassView *speechGlass;
 // 预算制：这一小时说过几句、以及冷却到什么时候。
 @property NSMutableArray<NSNumber *> *speechTimestamps;
 @property NSTimeInterval speechCooldownUntil;
@@ -28,7 +29,8 @@
 @property NSInteger lastQuotaTier;
 @property BOOL lastQuotaTierInitialized;
 @property NSPanel *statusPanel;
-@property NSVisualEffectView *statusGlass;
+@property CCPetsGlassView *statusGlass;
+@property CCPetsGlassView *quotaGlass;
 // 卡片要随文案长度伸缩，阴影层得跟着一起改，所以不能再是个局部变量。
 @property NSView *statusShadowView;
 @property NSTextField *statusTitleLabel;
