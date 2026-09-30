@@ -10,6 +10,9 @@ CGFloat QuotaLogicalHeightForProviderCount(NSUInteger count);
 NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 
 @interface QuotaDashboardView : NSView
+@property BOOL usesLiquidGlass;
+// 原生玻璃下卡片和汇总区衬底的不透明度，由 App 按压暗档位设置。
+@property CGFloat cardScrimAlpha;
 @property NSDictionary *codexUsage;
 @property NSDictionary *claudeUsage;
 @property NSArray<NSDictionary *> *codexHistory;
@@ -38,9 +41,5 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 - (BOOL)isProviderOnline:(NSString *)name;
 @property NSImage *codexLogo;
 @property NSImage *claudeLogo;
-@property BOOL refreshHovered;
-@property BOOL refreshPressed;
-@property NSTimeInterval refreshedUntil;
 @property(copy) void (^hoverChanged)(BOOL hovering);
-@property(copy) void (^refreshRequested)(void);
 @end

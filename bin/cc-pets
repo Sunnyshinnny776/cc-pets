@@ -7,6 +7,36 @@ PET_BIN="${PROJECT_DIR}/.build/release/cc-pets"
 BUILD_APP="${PROJECT_DIR}/.build/release/CC Pets.app"
 INSTALLED_APP="${CC_PETS_APPLICATIONS_DIR:-${HOME}/Applications}/CC Pets.app"
 
+# 只列面向用户的命令。--hook / --claude-usage / --provider-event / --render-* 等是
+# hooks、statusline 和测试调用的内部入口，列出来只会让人误用。
+print_usage() {
+  cat <<'USAGE'
+用法：cc-pets [命令]
+
+  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）
+  cc-pets install            安装或修复 shell / Claude Code / Codex 集成
+  cc-pets uninstall          移除集成并恢复 status line
+  cc-pets uninstall --purge  同时删除 App 和全部本地数据（会先确认）
+  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app
+  cc-pets build              重新构建
+  cc-pets clean              清理缓存（需先退出桌宠）
+  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help
+  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help
+  cc-pets --status           输出 Codex 当前额度
+  cc-pets --history          输出额度历史（JSON）
+  cc-pets --foreground       在前台运行桌宠（调试用）
+  cc-pets -v, --version      显示版本
+  cc-pets -h, --help         显示本帮助
+
+codex-with-pet / claude-with-pet 会在启动 CLI 的同时拉起桌宠。
+USAGE
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
+  print_usage
+  exit 0
+fi
+
 if [[ "${1:-}" == "install" ]]; then
   exec "${PROJECT_DIR}/scripts/install-shell-integration.sh"
 fi
@@ -16,8 +46,15 @@ if [[ "${1:-}" == "pet" ]]; then
   exec node "${PROJECT_DIR}/scripts/pet-store.mjs" "$@"
 fi
 
+if [[ "${1:-}" == "bridge" ]]; then
+  shift
+  exec node "${PROJECT_DIR}/scripts/bridge/cli.mjs" "$@"
+fi
+
 if [[ "${1:-}" == "uninstall" ]]; then
-  exec "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh"
+  shift
+  # --purge / --yes 要传下去；原先这里吞掉了参数，README 里的 uninstall --purge 实际不生效。
+  exec "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh" "$@"
 fi
 
 if [[ "${1:-}" == "uninstall-app" ]]; then

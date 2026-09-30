@@ -50,6 +50,9 @@ LIVE_EVENT_BASELINE=0
 # 漏设的用例自动落到临时目录，需要独立目录的用例再就近覆盖。
 SHIM_GUARD_TMP="$(mktemp -d /tmp/cc-pets-shim-guard.XXXXXX)"
 export CC_PETS_SHIM_DIR="${SHIM_GUARD_TMP}/shims"
+# 同理：卸载 / 安装流程会读写 ~/.cc-pets/bridge-enabled（CC Bridge 开关），开启过 CC Bridge 的开发机上
+# 跑测试会把它删掉并去注销真实的 MCP 注册。统一指到临时目录。
+export CC_PETS_HOME="${SHIM_GUARD_TMP}/home"
 
 # 兜底本身失灵是最坏的情况，所以再记一份真实 shim 的快照，收尾比对。
 LIVE_SHIM_DIR="${HOME}/.cc-pets/shims"
@@ -153,6 +156,20 @@ fi
 /usr/bin/codesign --verify "${PROJECT_DIR}/.build/release/CC Pets.app"
 print "CC Pets 应用包名称、版本命令与元数据测试通过"
 print "自动更新版本比较测试通过"
+
+# 总帮助只列面向用户的命令；拼错的双横线参数必须报错退出，而不是悄悄启动桌宠。
+HELP_OUTPUT="$("${PROJECT_DIR}/bin/cc-pets" --help)"
+[[ "${HELP_OUTPUT}" == *"cc-pets bridge"* && "${HELP_OUTPUT}" == *"cc-pets clean"* ]]
+[[ "${HELP_OUTPUT}" != *"--claude-usage"* && "${HELP_OUTPUT}" != *"--hook"* ]]
+[[ "$("${PROJECT_DIR}/bin/cc-pets" -h)" == "${HELP_OUTPUT}" ]]
+UNKNOWN_FLAG_STATUS=0
+UNKNOWN_FLAG_OUTPUT="$(CC_PETS_STATE_DIR="$(mktemp -d /tmp/cc-pets-unknown-flag.XXXXXX)" \
+  "${PROJECT_DIR}/.build/release/cc-pets" --no-such-flag 2>&1)" || UNKNOWN_FLAG_STATUS=$?
+if (( UNKNOWN_FLAG_STATUS != 2 )) || [[ "${UNKNOWN_FLAG_OUTPUT}" != *"未知参数：--no-such-flag"* ]]; then
+  print -u2 "未知参数应以状态 2 报错，实际状态 ${UNKNOWN_FLAG_STATUS}：${UNKNOWN_FLAG_OUTPUT}"
+  exit 1
+fi
+print "命令行帮助与未知参数拒绝测试通过"
 
 APP_INSTALL_TMP="$(mktemp -d /tmp/cc-pets-app-install-test.XXXXXX)"
 CC_PETS_APPLICATIONS_DIR="${APP_INSTALL_TMP}/Applications" "${PROJECT_DIR}/scripts/install-app.sh" >/dev/null
@@ -472,6 +489,18 @@ CC_PETS_CODEX_HOME="${USAGE_MONITOR_TMP}/codex" \
 CC_PETS_STATE_DIR="${USAGE_MONITOR_TMP}/state" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${USAGE_MONITOR_TMP}/Application Support" \
   "${USAGE_MONITOR_TMP}/usage-monitor-test"
+
+BRIDGE_STATE_TMP="$(mktemp -d /tmp/cc-pets-bridge-state-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridge.m" \
+  "${PROJECT_DIR}/tests/bridge-state-harness.m" \
+  -o "${BRIDGE_STATE_TMP}/bridge-state-test"
+CC_PETS_STATE_DIR="${BRIDGE_STATE_TMP}/state" \
+CC_PETS_HOME="${BRIDGE_STATE_TMP}/home" \
+  "${BRIDGE_STATE_TMP}/bridge-state-test"
 
 SESSION_PICK_TMP="$(mktemp -d /tmp/cc-pets-session-pick-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
@@ -997,6 +1026,7 @@ mkdir -p "${CLEAN_TMP}/state/cc-pets-$(id -u)-clients" \
   "${CLEAN_TMP}/Application Support/CC Pets" "${CLEAN_TMP}/.build/clang-cache"
 print old-event > "${CLEAN_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson"
 print old-usage > "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json"
+print old-live > "${CLEAN_TMP}/state/cc-pets-$(id -u)-codex-live-usage.json"
 print usage-lock > "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json.lock"
 print lock > "${CLEAN_TMP}/state/cc-pets-$(id -u).lock"
 print Codex > "${CLEAN_TMP}/state/cc-pets-$(id -u)-clients/999999"
@@ -1010,6 +1040,7 @@ CC_PETS_BUILD_CACHE_DIR="${CLEAN_TMP}/.build/clang-cache" \
   "${PROJECT_DIR}/.build/release/cc-pets" --clean >/dev/null
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json" ]]
+[[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-codex-live-usage.json" ]]
 # 锁文件必须长期保留；即使桌宠没运行，Claude statusline 仍可能持有它。
 [[ -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json.lock" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u).lock" ]]
@@ -1219,52 +1250,51 @@ node -e '
 ' "${CLAUDE_USAGE_TMP}"
 print "Claude 额度采集与原状态栏转发测试通过"
 
-# 逐窗口的过期判据。倒退的快照被拒绝时不能续期，否则只要还有会话在持续上报，
-# 10 分钟的逃生阀就永远到不了，官方真的下调用量时面板会被永久钉在偏高的数字上。
+# statusline 配了 refreshInterval 时，每个开着的空闲会话每分钟都会重报自己最后一次响应里的
+# 旧额度。活跃会话关掉之后，这些重报不能把面板顶回偏高的剩余；同一个会话的值变了才说明
+# 拿到了新响应，那时用量下降（官方下调）必须收下。
 QUOTA_STALE_TMP="$(mktemp -d /tmp/cc-pets-quota-stale-test.XXXXXX)"
 QUOTA_STALE_FILE="${QUOTA_STALE_TMP}/cc-pets-$(id -u)-claude-usage.json"
-record_quota() {
-  print -rn -- "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":$1,\"resets_at\":${2:-${QUOTA_FUTURE_FIVE}}}}}" | \
+record_quota() {  # $1=session_id $2=used_percentage
+  print -rn -- "{\"session_id\":\"$1\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":$2,\"resets_at\":${QUOTA_FUTURE_FIVE}}}}" | \
     CC_PETS_STATE_DIR="${QUOTA_STALE_TMP}" \
     "${PROJECT_DIR}/bin/claude-statusline-with-pet" "${ORIGINAL_STATUS}" >/dev/null
 }
-record_quota 90
-record_quota 60
+assert_quota() {  # $1=期望的 used_percentage $2=失败时的说明
+  node -e '
+    const fs = require("fs");
+    const cache = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (cache.five_hour.used_percentage !== Number(process.argv[2])) {
+      console.error(`${process.argv[3]}：${cache.five_hour.used_percentage}`);
+      process.exit(1);
+    }
+  ' "${QUOTA_STALE_FILE}" "$1" "$2"
+}
+record_quota idle 30
+record_quota active 30
+record_quota active 82
+assert_quota 82 "活跃会话的新响应没有被收下"
+# 空闲会话反复重报旧值：无论报多少次、隔多久，都不能顶掉更新的快照。
+record_quota idle 30
+record_quota idle 30
+assert_quota 82 "空闲会话重报的旧快照顶掉了新快照"
+# 上一版的逃生阀（上次接受超过 10 分钟就放行）必须不再生效。
 node -e '
   const fs = require("fs");
   const cache = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  if (cache.five_hour.used_percentage !== 90) {
-    console.error(`倒退的快照没有被拒绝：${cache.five_hour.used_percentage}`);
-    process.exit(1);
-  }
-  if (typeof cache.accepted_at?.five_hour !== "number") {
-    console.error("缺少逐窗口的 accepted_at");
-    process.exit(1);
-  }
-' "${QUOTA_STALE_FILE}"
-# 被拒绝的那次不许把 accepted_at 推到现在：把它拨回 11 分钟前，若拒绝时续过期，
-# 这里读到的就是刚才那一刻，下面的用例也就跟着失去意义。
-node -e '
-  const fs = require("fs");
-  const cache = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  const age = Date.now() / 1000 - cache.accepted_at.five_hour;
-  if (age > 5) {
-    console.error(`accepted_at 不该这么旧：${age}s`);
-    process.exit(1);
-  }
-  cache.accepted_at.five_hour -= 660;
+  cache.accepted_at = {five_hour: Date.now() / 1000 - 3600};
+  cache.written_at = Date.now() / 1000 - 3600;
   fs.writeFileSync(process.argv[1], JSON.stringify(cache));
 ' "${QUOTA_STALE_FILE}"
-record_quota 60
-node -e '
-  const fs = require("fs");
-  const cache = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  if (cache.five_hour.used_percentage !== 60) {
-    console.error(`旧快照超过 10 分钟后仍未被顶掉：${cache.five_hour.used_percentage}`);
-    process.exit(1);
-  }
-' "${QUOTA_STALE_FILE}"
-print "配额快照逐窗口过期与倒退拒绝测试通过"
+record_quota idle 30
+assert_quota 82 "上次接受很久以前时，空闲会话的旧快照被放行了"
+# 第一次见到的会话来历不明，也只能按单调性判。
+record_quota newcomer 10
+assert_quota 82 "来历不明的会话把用量拉低了"
+# 同一个会话的值变了，说明拿到了新响应：用量真的下降时必须收下。
+record_quota active 60
+assert_quota 60 "活跃会话新响应里的下调没有被收下"
+print "配额快照空闲会话重报拒绝与下调放行测试通过"
 
 # 7 天窗口是滚动的，resets_at 随旧用量滑出窗口不断前移，同一个窗口内前后两次上报差出
 # 十几个小时都算正常。旧版判据把"resets_at 变了"一律当成窗口滚动、无条件接受归零，于是
@@ -1292,26 +1322,18 @@ record_roll_quota 40 $(( QUOTA_ROLL_NOW + 3000 ))
 record_roll_quota 5 $(( QUOTA_ROLL_NOW + 3600 ))
 assert_roll_quota 40 "resets_at 前移的旧快照被当成窗口滚动收下了"
 
-# resets_at 落在一个窗长之外的快照不可能属于当前 5 小时窗口。这种坏值连逃生阀都不能放行：
-# 一旦落盘，面板上的剩余额度和重置时间会一起错，而且要等到下一次真实响应才纠得回来。
-node -e '
-  const fs = require("fs");
-  const cache = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  cache.accepted_at.five_hour -= 660;
-  fs.writeFileSync(process.argv[1], JSON.stringify(cache));
-' "${QUOTA_ROLL_FILE}"
+# resets_at 落在一个窗长之外的快照不可能属于当前 5 小时窗口。这种坏值哪怕来自更新的响应也
+# 不能放行：一旦落盘，面板上的剩余额度和重置时间会一起错，要等到下一次真实响应才纠得回来。
 record_roll_quota 5 $(( QUOTA_ROLL_NOW + 72000 ))
 assert_roll_quota 40 "resets_at 超出窗长的快照被收下了"
 record_roll_quota 5 $(( QUOTA_ROLL_NOW - 60 ))
 assert_roll_quota 40 "resets_at 已经过期的快照被收下了"
 
-# 反过来，旧窗口真的到期时归零是真的，必须收下。这里把 accepted_at 拨回当下，
-# 确保验的是"旧窗口已过期"这条通路，而不是 10 分钟逃生阀顺手放行。
+# 反过来，旧窗口真的到期时归零是真的，必须收下。
 node -e '
   const fs = require("fs");
   const cache = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
   cache.five_hour.resets_at = Math.floor(Date.now() / 1000) - 60;
-  cache.accepted_at.five_hour = Date.now() / 1000;
   fs.writeFileSync(process.argv[1], JSON.stringify(cache));
 ' "${QUOTA_ROLL_FILE}"
 record_roll_quota 5 $(( QUOTA_ROLL_NOW + 3000 ))
@@ -1609,8 +1631,16 @@ for wrapper provider in codex-with-pet Codex claude-with-pet Claude; do
     print -u2 "${wrapper} 应该恰好写出 1 个客户端 pid 文件，实际 ${#client_files[@]} 个"
     exit 1
   fi
-  if [[ "$(<"${client_files[1]}")" != "${provider}" ]]; then
-    print -u2 "${wrapper} 的客户端 pid 文件应写入 provider 名 ${provider}，实际是 '$(<"${client_files[1]}")'"
+  # pid 文件是两行：第一行 provider，第二行 TTY。只比第一行，不要拿整个文件去比——
+  # 交互终端下 $TTY 非空，第二行有内容，整文件比较必然失败；CI 里 $TTY 为空，
+  # $(<file) 吃掉结尾换行后又恰好等于 provider，于是同一条断言在两种环境下结论相反。
+  if [[ "$(head -n 1 "${client_files[1]}")" != "${provider}" ]]; then
+    print -u2 "${wrapper} 的客户端 pid 文件第一行应是 provider 名 ${provider}，实际是 '$(head -n 1 "${client_files[1]}")'"
+    exit 1
+  fi
+  # 行数与 TTY 是否为空无关（printf 两个 \n 恒定写出 2 行），钉住格式防止再退化成一行。
+  if (( $(wc -l < "${client_files[1]}") != 2 )); then
+    print -u2 "${wrapper} 的客户端 pid 文件应为两行（provider + tty），实际 $(wc -l < "${client_files[1]}") 行"
     exit 1
   fi
 done
@@ -1738,6 +1768,11 @@ grep -q 'UpdateFailureIsTransient' "${PET_SOURCES[@]}"
 grep -q 'UpdateRetryDelay' "${PET_SOURCES[@]}"
 grep -q 'update-retry-cache' "${PET_SOURCES[@]}"
 print "自动更新暂时性故障重试测试通过"
+
+# CC Bridge 自带隔离（临时状态目录、假 claude / codex 进程、假 codex queue），
+# 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。
+node "${PROJECT_DIR}/tests/bridge-harness.mjs"
+print "CC Bridge 测试通过"
 
 # 这条断言本身失灵是最坏的情况：它会一路绿灯，直到某天真的把用户桌宠打回“正在启动”。
 # 先用一个隔离目录验证“写入端确实打了标记、检测确实数得出来”，再去看真实事件流。

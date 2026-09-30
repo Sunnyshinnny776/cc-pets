@@ -468,6 +468,14 @@ int main(void) {
             NSLog(@"缺失或过期的额度窗口应降级为滚动窗口统计: %@", degraded);
             return EXIT_FAILURE;
         }
+        // 窗口到期后没人再上报，旧百分比不能继续挂着（实测 5 小时窗口重置后仍显示剩余 0%）。
+        // 缺 resets_at 的旧记录无从判断，照旧保留。
+        NSDictionary *expiredLimits = LatestClaudeUsage();
+        if (expiredLimits[@"week"] != NSNull.null ||
+            [expiredLimits[@"fiveHour"][@"used_percentage"] integerValue] != 23) {
+            NSLog(@"已过期的额度窗口应清掉，缺 resets_at 的应保留: %@", expiredLimits);
+            return EXIT_FAILURE;
+        }
         puts("Claude Code 额度窗口缺失与过期降级测试通过");
 
         // 额度快照文件压根不存在（第三方 statusline 注入不进去、或账号本身不带 rate_limits）

@@ -367,6 +367,13 @@ static NSDictionary<NSString *, NSString *> *CodexAppServerEnvironment(NSString 
 NSDictionary *CodexUsageByApplyingLiveUsage(NSDictionary *sessionUsage,
     NSDictionary *liveUsage) {
     if (![liveUsage isKindOfClass:NSDictionary.class]) return sessionUsage;
+    // 两边都是同一账号的快照，谁采样得晚用谁。实时值不再到期就丢：它丢了以后退回的会话快照
+    // 往往更旧（在 Codex App、其他设备上用掉的额度不会写进本机会话日志），面板会先跳回
+    // 旧值、等下一次实时查询再跳回来。本机会话拿到更新的响应时自然会胜出。
+    if ([sessionUsage isKindOfClass:NSDictionary.class] &&
+        [sessionUsage[@"sampledAt"] doubleValue] > [liveUsage[@"sampledAt"] doubleValue]) {
+        return sessionUsage;
+    }
     NSMutableDictionary *merged = [sessionUsage isKindOfClass:NSDictionary.class]
         ? [sessionUsage mutableCopy] : [NSMutableDictionary dictionary];
     for (NSString *key in @[@"fiveHour", @"week"]) {

@@ -27,6 +27,9 @@ export PATH="${NODE_EXECUTABLE:h}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 "${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" \
   "${PROJECT_DIR}/.build/release/cc-pets"
 "${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/configure-updater.mjs"
+# CC Bridge 默认关闭；用户开启过的话，包路径可能随升级变化，按原选项重写一遍集成。
+"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/bridge/cli.mjs" refresh || \
+  print -u2 "CC Bridge 集成刷新失败，可稍后执行 cc-pets bridge enable 重试。"
 
 PET_APP="${PROJECT_DIR}/.build/release/CC Pets.app"
 PET_APP_EXECUTABLE="${PET_APP}/Contents/MacOS/cc-pets"

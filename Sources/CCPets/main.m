@@ -45,6 +45,7 @@ int main(int argc, const char *argv[]) {
         if (argc > 1 && (strcmp(argv[1], "--provider-event") == 0 ||
                          strcmp(argv[1], "provider-event") == 0)) return RecordProviderEvent();
         if (argc > 1 && strcmp(argv[1], "--claude-usage") == 0) return RecordClaudeUsage();
+        if (argc > 1 && strcmp(argv[1], "--codex-launch") == 0) return RegisterCodexLaunch();
         if (argc > 1 && strcmp(argv[1], "--clean") == 0) return CleanCCPetsData(NO);
         if (argc > 1 && strcmp(argv[1], "--purge-data") == 0) return CleanCCPetsData(YES);
         if (argc > 1 && strcmp(argv[1], "--history") == 0) {
@@ -82,6 +83,21 @@ int main(int argc, const char *argv[]) {
                 fiveHour ? [[[fiveHour[@"used_percent"] stringValue] stringByAppendingString:@"%"] UTF8String] : "--",
                 week ? [[[week[@"used_percent"] stringValue] stringByAppendingString:@"%"] UTF8String] : "--");
             return EXIT_SUCCESS;
+        }
+
+        // 走到这里就要启动桌宠了。拼错的 `--xxx` 原先会被当成"启动"：桌宠已在运行时静默退出，
+        // 否则在前台拉起一个桌宠占住终端，两种都让人看不出哪里错了。只拦双横线参数：
+        // 单横线的 -psn_* / -NS* / -Apple* 是系统和 Xcode 启动 App 时自己加的。
+        for (int index = 1; index < argc; index++) {
+            if (strncmp(argv[index], "--", 2) != 0) continue;
+            static const char *launchFlags[] = {"--managed", "--standalone", "--preview-dashboard"};
+            BOOL known = NO;
+            for (size_t flag = 0; flag < sizeof(launchFlags) / sizeof(launchFlags[0]); flag++) {
+                if (strcmp(argv[index], launchFlags[flag]) == 0) known = YES;
+            }
+            if (known) continue;
+            fprintf(stderr, "未知参数：%s\n运行 cc-pets --help 查看用法。\n", argv[index]);
+            return 2;
         }
 
         NSString *lockName = [NSString stringWithFormat:@"cc-pets-%u.lock", getuid()];

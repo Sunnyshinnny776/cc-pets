@@ -131,7 +131,11 @@ cc-pets pet add boba          # Install an asset into CC Pets' own directory.
 cc-pets pet list              # List installed assets.
 cc-pets pet remove boba       # Remove an installed asset.
 
+cc-pets --help                # List all commands.
 cc-pets install               # Repair or reinitialize integrations.
+cc-pets bridge enable            # CC Bridge (experimental, off by default); see CC_BRIDGE.md.
+cc-pets bridge status            # Show CC Bridge state and online sessions.
+cc-pets bridge disable           # Remove CC Bridge integrations.
 cc-pets uninstall             # Remove integrations and restore the status line.
 cc-pets uninstall --purge     # Also remove the app and all local data after confirmation.
 cc-pets uninstall-app         # Remove only ~/Applications/CC Pets.app.
@@ -175,7 +179,16 @@ prompts, command text, file contents, or model output.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, quota, notification, update, and exit menu |
+| Right-click | Pet, notification, update, and exit menu |
+
+The **Panel theme** submenu offers **Classic** and **Liquid Glass**. Classic is the
+default. Changes apply immediately to the quota panel, status card, and speech
+bubble, and persist across restarts. Liquid Glass uses native system glass and is
+available on macOS 26 and later only. Building native glass support requires the
+macOS 26 SDK or later. The same submenu has a **Glass dimming** setting for the quota
+panel, status card, and speech bubble: Clear (0%), Light (15%), Standard (25%,
+default), or Legible (45%). Lower levels
+look more transparent; higher levels keep text readable over light backgrounds.
 
 The pet switcher scans only built-in assets and `~/.cc-pets/pets/`. It does not
 scan `~/.petdex/pets/` or `~/.codex/pets/`. To use assets installed by Codex,
@@ -304,6 +317,9 @@ external assets.
 - Status cards and notifications show only provider, state, and redacted tool category.
 - CC Pets contains no telemetry and uploads no conversations, quotas, credentials, or usage statistics.
 - Exiting the pet or running `cc-pets uninstall` leaves no background daemon running.
+- [CC Bridge](./CC_BRIDGE.md) is off by default. When enabled, messages between sessions are stored
+  in the current user's temporary directory (owner-only, 24-hour expiry); it is the only feature
+  that stores message content.
 
 ## Uninstall
 

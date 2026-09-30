@@ -5,6 +5,7 @@
 #import <CoreServices/CoreServices.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <sys/stat.h>
 
 // 读取与聚合全部跑在这条串行队列上，主线程只收结果。两个 reader 都不加锁，线程安全完全
 // 依赖“只有这条队列碰它们”这一条约束：FSEvents 流、Claude 的 vnode source、定时刷新、
@@ -31,9 +32,36 @@
 - (NSDictionary *)usageByApplyingLiveCodexUsage:(NSDictionary *)sessionUsage;
 @end
 
-// App Server 是服务端当前额度的权威源；会话日志只在成功响应落盘时才更新。短暂失败时
-// 留出一小段缓存寿命，既不因一次网络抖动闪回旧日志，也不会把实时值永久钉在界面上。
+// App Server 是服务端当前额度的权威源；会话日志只在成功响应落盘时才更新。实时值的窗口
+// 百分比不设寿命：它和会话快照按 sampledAt 比新旧（见 CodexUsageByApplyingLiveUsage），
+// 窗口翻篇由 resets_at 兜底。只有"额度受限"标记有寿命——它没有窗口归属，实时查询连续
+// 失败时不能让一次旧的受限结论一直挂着。
 static const NSTimeInterval CodexLiveUsageTTL = 5 * 60.0;
+
+static NSDictionary *LoadCodexLiveUsage(void) {
+    NSData *data = [NSData dataWithContentsOfFile:CodexLiveUsagePath()];
+    id value = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![value isKindOfClass:NSDictionary.class]) return nil;
+    NSDictionary *usage = value;
+    if (![usage[@"sampledAt"] isKindOfClass:NSNumber.class]) return nil;
+    for (NSString *key in @[@"fiveHour", @"week"]) {
+        id quota = usage[key];
+        if (quota && quota != NSNull.null && ![quota isKindOfClass:NSDictionary.class]) return nil;
+    }
+    return usage;
+}
+
+static void SaveCodexLiveUsage(NSDictionary *usage) {
+    NSData *json = [NSJSONSerialization isValidJSONObject:usage]
+        ? [NSJSONSerialization dataWithJSONObject:usage options:0 error:nil] : nil;
+    if (!json) return;
+    NSString *path = CodexLiveUsagePath();
+    [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent
+        withIntermediateDirectories:YES attributes:nil error:nil];
+    if ([json writeToFile:path options:NSDataWritingAtomic error:nil]) {
+        chmod(path.fileSystemRepresentation, S_IRUSR | S_IWUSR);
+    }
+}
 
 static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
     void *clientCallBackInfo, size_t numEvents, void *eventPaths,
@@ -86,6 +114,10 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         // 桌宠是唯一的常驻读取者，摘要缓存由它维护并落盘。
         _codexReader.persistsCache = YES;
         _claudeReader.persistsCache = YES;
+        // 桌宠随最后一个客户端退出，下次启动时 App Server 要几秒才回话。这段时间先用上次
+        // 存下的实时值，否则面板会先显示会话日志里可能已经过时十几个小时的快照。
+        _codexLiveUsage = LoadCodexLiveUsage();
+        _codexLiveUsageUpdatedAt = [_codexLiveUsage[@"sampledAt"] doubleValue];
         __weak typeof(self) weakSelf = self;
         _codexRateLimitsReader.liveUsageHandler = ^(NSDictionary *liveUsage) {
             dispatch_async(weakSelf.queue, ^{
@@ -93,6 +125,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
                 if (!strongSelf || !strongSelf.started) return;
                 strongSelf.codexLiveUsage = liveUsage;
                 strongSelf.codexLiveUsageUpdatedAt = NSDate.date.timeIntervalSince1970;
+                SaveCodexLiveUsage(liveUsage);
                 strongSelf.codexUsage = [strongSelf usageByApplyingLiveCodexUsage:
                     strongSelf.codexReader.usage ?: strongSelf.codexUsage];
                 [strongSelf publishChange];
@@ -103,14 +136,16 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 }
 
 - (NSDictionary *)usageByApplyingLiveCodexUsage:(NSDictionary *)sessionUsage {
-    if (self.codexLiveUsage && NSDate.date.timeIntervalSince1970 -
+    NSDictionary *live = self.codexLiveUsage;
+    if (!live) return sessionUsage;
+    if (live[@"exhaustedAt"] && NSDate.date.timeIntervalSince1970 -
         self.codexLiveUsageUpdatedAt > CodexLiveUsageTTL) {
-        self.codexLiveUsage = nil;
-        self.codexLiveUsageUpdatedAt = 0;
+        NSMutableDictionary *withoutExhaustion = [live mutableCopy];
+        [withoutExhaustion removeObjectForKey:@"exhaustedAt"];
+        live = withoutExhaustion;
     }
-    return self.codexLiveUsage
-        ? CodexUsageByApplyingLiveUsage(sessionUsage, self.codexLiveUsage)
-        : sessionUsage;
+    // 存下来的实时值可能是好几个小时前的，窗口早已翻篇，合并后要再按 resets_at 过一遍。
+    return UsageByRemovingExpiredQuotaWindows(CodexUsageByApplyingLiveUsage(sessionUsage, live));
 }
 // 回调交给主线程：下游全是 UI（面板重排、气泡定位、系统通知）。
 - (void)publishChange {

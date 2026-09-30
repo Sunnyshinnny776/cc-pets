@@ -8,6 +8,13 @@ NSString *ClaudeUsagePath(void);
 // 额度文件的写锁。挂在单独的文件上：数据文件本身由 rename 整体替换，
 // 锁在它上面的话两个写者会锁到不同的 inode，等于没锁。
 NSString *ClaudeUsageLockPath(void);
+// 最近一次 Codex App Server 实时额度。桌宠随最后一个客户端退出，重启后先用它，
+// 不从会话日志里可能早已过时的快照起步。
+NSString *CodexLiveUsagePath(void);
+// codex-with-pet 每次启动登记的终端，以及 Codex 会话（thread）与它的配对。
+// 读改写必须在锁里：多个 hook 可能同时第一次见到各自的新会话。
+NSString *CodexLaunchRegistryPath(void);
+NSString *CodexLaunchRegistryLockPath(void);
 // 桌宠端用：只看主账号，不受继承来的 CLAUDE_CONFIG_DIR 影响。
 NSString *DefaultClaudeConfigDirectory(void);
 NSString *CurrentClaudeConfigDirectory(void);

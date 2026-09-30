@@ -4,6 +4,7 @@
 #import "QuotaDashboardView.h"
 #import "CCPetsUsageMonitor.h"
 #import "CCPetsSystemMonitor.h"
+#import "CCPetsGlassView.h"
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @property NSPanel *panel;
@@ -11,7 +12,7 @@
 // 说话气泡。懒创建：用户不开启说话功能就永远不存在这个窗口。
 @property NSPanel *speechPanel;
 @property NSTextField *speechLabel;
-@property NSVisualEffectView *speechGlass;
+@property CCPetsGlassView *speechGlass;
 // 预算制：这一小时说过几句、以及冷却到什么时候。
 @property NSMutableArray<NSNumber *> *speechTimestamps;
 @property NSTimeInterval speechCooldownUntil;
@@ -28,7 +29,8 @@
 @property NSInteger lastQuotaTier;
 @property BOOL lastQuotaTierInitialized;
 @property NSPanel *statusPanel;
-@property NSVisualEffectView *statusGlass;
+@property CCPetsGlassView *statusGlass;
+@property CCPetsGlassView *quotaGlass;
 // 卡片要随文案长度伸缩，阴影层得跟着一起改，所以不能再是个局部变量。
 @property NSView *statusShadowView;
 @property NSTextField *statusTitleLabel;
@@ -38,6 +40,19 @@
 // 圆形状态图标右上角的待审批角标。状态卡正文永远跟着最新事件走，角标负责让
 // "还有几个会话在等你确认"始终留在视线里。
 @property NSView *approvalBadgeView;
+// CC Bridge 消息角标（图标右下角）与其数据：会话名、最近送达、信箱积压。
+// bridgeSeenAt 之后送达的消息算"未读"，打开会话菜单即更新。
+@property NSView *bridgeBadgeView;
+@property NSTimeInterval bridgeSeenAt;
+@property NSDictionary<NSString *, NSDictionary *> *bridgeSessions;
+@property NSArray<NSDictionary *> *bridgeRecentDeliveries;
+@property NSArray<NSDictionary *> *bridgeDeliveryCache;
+@property NSDate *bridgeSentStamp;
+@property NSDictionary<NSString *, NSNumber *> *bridgePendingCounts;
+// 菜单开关触发的 cc-pets bridge 命令正在执行时为 YES，期间忽略新的切换，避免并发改配置。
+@property BOOL bridgeCommandRunning;
+// 已为哪个时间点之前的送达发过系统通知。
+@property NSTimeInterval bridgeNotifiedAt;
 @property BOOL statusBubbleExpanded;
 @property BOOL statusBubbleAbove;
 @property BOOL hasAgentStatus;

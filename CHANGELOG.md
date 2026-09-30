@@ -5,7 +5,50 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
-## [Unreleased]
+## [2.1.1] - 2026-09-30
+
+Liquid Glass panel theme, Codex jump-back through the shared background server, and quota fixes.
+
+### Panels and menus
+
+- Added a Liquid Glass panel theme on macOS 26 and later, chosen under **Panel theme** in the right-click menu; Classic stays the default and is unchanged. It covers the quota panel, status card, speech bubble and agent session list.
+- The public glass styles turn frosted whenever the app is inactive, and the pet never activates. On macOS 27 an undocumented glass variant keeps the clear, refractive look; `defaults write com.universewang.cc-pets CCPetsDisableExperimentalGlass -bool YES` turns it off and falls back to public Clear glass.
+- **Glass dimming** offers Clear (0%), Light (15%), Standard (25%, default) and Legible (45%); soft shades on the top and bottom edges tone down the bright rim.
+- In Liquid Glass the quota panel uses white text with colored dots instead of colored text and pill badges, a minimum text size, monospaced digits and a light scrim under each card.
+- The agent session list opens as a glass panel with a height limit and scrolling; unlike the system menu it has no arrow-key navigation.
+- Theme and dimming choices apply immediately and keep the menu open, so levels can be compared.
+- Added **About CC Pets** to the right-click menu.
+- Menu switch hints now show even while the pet app is inactive.
+- Removed the **Refresh usage** menu item and the quota panel's refresh button; usage still refreshes on a timer.
+- The CC Bridge submenu is down from 14 rows to 6; while CC Bridge is off it shows only **Enable**.
+
+### Agent status
+
+- Fix Codex bubbles jumping to the wrong terminal: Codex 0.159 runs every terminal's sessions in one shared `codex app-server --managed-daemon`, so hooks inherited the environment of whichever terminal started it. `codex-with-pet` now registers each launch, hooks pair new sessions with the launch in the same directory, and when no pairing is certain the bubble does not jump. Codex sessions started before this version need to be restarted once.
+
+### Quota and usage
+
+- Fix idle Claude sessions rolling the quota back to an older, higher remaining value: a lower value is accepted only from a newer response, and expired 5-hour windows no longer show their old percentage.
+- Keep the live Codex quota across restarts and app-server gaps, instead of falling back to an hours-old session-log snapshot.
+
+### CLI
+
+- Added `cc-pets --help`; unknown flags now fail with exit status 2 instead of launching the pet, and `cc-pets uninstall --purge` takes effect.
+
+## [2.1.0] - 2026-09-24
+
+CC Bridge for messaging between Claude Code and Codex sessions.
+
+### CC Bridge (experimental, off by default)
+
+- Added `cc-pets bridge enable|disable|status`, which lets Claude Code and Codex terminal sessions on the same Mac discover each other, exchange messages, and wake each other, including Claude ↔ Codex and Codex ↔ Codex. See [CC_BRIDGE.md](./CC_BRIDGE.md).
+- Uses documented extension points only: an MCP server (`list_agents` / `send_message` / `check_inbox`) for sending, `codex queue` for delivery to Codex, and an `asyncRewake` hook for delivery to Claude Code.
+- Checks that the recipient is online before delivery so Codex never runs stale messages on resume; 16 KB message limit, 24-hour expiry, and a 20-messages-per-10-minutes pair limit to break auto-reply loops.
+- `cc-pets uninstall` removes CC Bridge integrations; reinstalls and upgrades refresh them with the saved options.
+- File reservations: `reserve_files` / `release_files` / `list_reservations`, where the first edit to a file someone else reserved is paused once by a PreToolUse hook with the reason, and a retry goes through; reservations expire and are released when the session ends.
+- Pet integration: a message badge on the status icon (blue for new deliveries, orange for inbox backlog), recent cross-session messages in the session menu, and click-to-jump to the recipient's terminal; names and times only, never bodies.
+- Options and pet switches: `cc-pets bridge configure` and `enable` accept `--approve` / `--codex-approve` / `--claude-allow` (skip approval in Codex and Claude by tool group), `--wake`, and `--edit-guard`, keeping anything not given; the pet's right-click menu gains a CC Bridge section (enable, four approval groups, auto-wake, edit guard, message badge, new-message notifications).
+- Custom session names via `CC_BRIDGE_NAME` at launch, or `set_name` / `cc-pets bridge name` in a session; `list_agents` shows each session's terminal (tty).
 
 ### Agent status
 

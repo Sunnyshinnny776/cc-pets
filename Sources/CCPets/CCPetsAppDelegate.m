@@ -8,6 +8,9 @@
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
 #import "CCPetsTerminalFocus.h"
+#import "MenuChoiceRow.h"
+#import "CCPetsGlassMenu.h"
+#import "CCPetsBridge.h"
 #import "MenuToggleSwitch.h"
 #import <UserNotifications/UserNotifications.h>
 #import <signal.h>
@@ -23,6 +26,10 @@ static const NSUInteger PendingApprovalLimit = 100;
 static const NSUInteger AgentSessionRecordLimit = 20;
 static const NSUInteger AgentSessionMenuLimit = 8;
 static const CGFloat PetApprovalBadgeSize = 17.0;
+// CC Bridge：轮询间隔、"最近消息"的时间窗、菜单里最多列几条。
+static const NSTimeInterval BridgeRefreshInterval = 3.0;
+static const NSTimeInterval BridgeRecentWindow = 30 * 60;
+static const NSUInteger BridgeMenuDeliveryLimit = 5;
 static const unsigned long long UpdateLogSizeLimit = 1024 * 1024;
 static NSString *const PetInteractionPhrasesV1MigratedKey =
     @"CCPetsInteractionPhrasesV1Migrated";
@@ -43,6 +50,8 @@ static NSString *const PetInteractionPhrasesV1MigratedKey =
 // 不见的地方。角标把这个数字单独拎出来常驻。
 @interface CCPetsApprovalBadgeView : NSView
 @property(nonatomic) NSUInteger count;
+// 默认审批红；CC Bridge 消息角标复用同一个视图，换成蓝色 / 橙色。
+@property(nonatomic) NSColor *fillColor;
 @end
 
 @implementation CCPetsApprovalBadgeView
@@ -52,6 +61,11 @@ static NSString *const PetInteractionPhrasesV1MigratedKey =
     self.hidden = count == 0;
     self.needsDisplay = YES;
 }
+- (void)setFillColor:(NSColor *)fillColor {
+    if ([_fillColor isEqual:fillColor]) return;
+    _fillColor = fillColor;
+    self.needsDisplay = YES;
+}
 // 角标压在圆形状态图标的右上角，但不能把那颗按钮的点击吃掉。
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 - (void)drawRect:(NSRect)dirtyRect {
@@ -59,7 +73,7 @@ static NSString *const PetInteractionPhrasesV1MigratedKey =
     // 描边是给玻璃卡片准备的：审批色和卡片背景都偏亮，没有这圈白边角标会糊在一起。
     NSRect circle = NSInsetRect(self.bounds, 1.0, 1.0);
     NSBezierPath *fill = [NSBezierPath bezierPathWithOvalInRect:circle];
-    [[NSColor colorWithRed:0.86 green:0.24 blue:0.24 alpha:1] setFill];
+    [(self.fillColor ?: [NSColor colorWithRed:0.86 green:0.24 blue:0.24 alpha:1]) setFill];
     [fill fill];
     fill.lineWidth = 1.5;
     [[NSColor colorWithWhite:1 alpha:0.92] setStroke];
@@ -291,6 +305,30 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
             message:[NSString stringWithFormat:@"正在下载并安装 CC Pets %@。完成后桌宠会自动重启。", version]];
     }
 }
+// 系统标准关于面板：图标取自 Info.plist，版本号用构建时注入的 CC_PETS_VERSION（与检查更新
+// 同一口径）。桌宠是 LSUIElement，不先激活的话面板会开在其他 App 后面。
+- (void)showAboutPanel:(id)sender {
+    NSMutableAttributedString *credits = [[NSMutableAttributedString alloc]
+        initWithString:@"Claude Code / Codex CLI 的多功能桌面宠物。\n\n"
+        attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                     NSForegroundColorAttributeName: NSColor.secondaryLabelColor}];
+    NSString *homepage = @"https://github.com/Sunnyshinnny776/cc-pets";
+    [credits appendAttributedString:[[NSAttributedString alloc] initWithString:homepage
+        attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                     NSLinkAttributeName: [NSURL URLWithString:homepage]}]];
+    NSMutableParagraphStyle *centered = [NSMutableParagraphStyle new];
+    centered.alignment = NSTextAlignmentCenter;
+    [credits addAttribute:NSParagraphStyleAttributeName value:centered
+        range:NSMakeRange(0, credits.length)];
+    [NSApp activateIgnoringOtherApps:YES];
+    [NSApp orderFrontStandardAboutPanelWithOptions:@{
+        NSAboutPanelOptionApplicationName: @"CC Pets",
+        NSAboutPanelOptionApplicationVersion: @CC_PETS_VERSION,
+        // 空字符串才能去掉版本号后面括号里的 CFBundleVersion（Info.plist 里没有这一项）。
+        NSAboutPanelOptionVersion: @"",
+        NSAboutPanelOptionCredits: credits
+    }];
+}
 - (void)checkForUpdates:(id)sender {
     if (self.checkingForUpdate || self.updating) return;
     self.checkingForUpdate = YES;
@@ -405,6 +443,52 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     if (tag == 3) return NotificationApprovalKey;
     if (tag == 4) return NotificationStallKey;
     return nil;
+}
+// sender 是菜单里的 MenuChoiceRowView，勾选状态由它自己更新。
+- (void)setPanelTheme:(MenuChoiceRowView *)sender {
+    NSString *theme = sender.representedObject;
+    if (![@[@"classic", @"liquid"] containsObject:theme]) return;
+    [NSUserDefaults.standardUserDefaults setObject:theme forKey:CCPetsPanelThemeKey];
+    [self.statusGlass applyTheme];
+    [self.speechGlass applyTheme];
+    [self.quotaGlass applyTheme];
+    self.statusShadowView.hidden = self.statusGlass.usesLiquidGlass;
+    self.quotaView.usesLiquidGlass = self.quotaGlass.usesLiquidGlass;
+    self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
+    self.quotaView.needsDisplay = YES;
+    [self applyBubbleTextStyle];
+    // quotaView 换了父视图，mouseExited 不一定会送达；切主题是在宠物右键菜单里点的，
+    // 鼠标此刻不在面板上，直接复位，免得面板一直当作"悬停中"不收起。
+    self.dashboardHovering = NO;
+}
+// 状态卡和说话气泡原来是浅色磨砂配深色字；换成原生清透玻璃后背景是任意壁纸加一层
+// 压暗，深色字会看不见，改成白字加贴字形的投影，和额度面板一致。
+- (void)applyBubbleTextStyle {
+    NSShadow *shadow = [NSShadow new];
+    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
+    shadow.shadowBlurRadius = 2;
+    shadow.shadowOffset = NSMakeSize(0, -0.5);
+    BOOL statusLiquid = self.statusGlass.usesLiquidGlass;
+    self.statusTitleLabel.textColor = statusLiquid ? [NSColor colorWithWhite:1 alpha:0.78]
+        : [NSColor colorWithWhite:0.42 alpha:0.90];
+    self.statusDetailLabel.textColor = statusLiquid ? [NSColor colorWithWhite:1 alpha:0.97]
+        : [NSColor colorWithWhite:0.12 alpha:0.96];
+    self.statusTitleLabel.shadow = statusLiquid ? shadow : nil;
+    self.statusDetailLabel.shadow = statusLiquid ? shadow : nil;
+    BOOL speechLiquid = self.speechGlass.usesLiquidGlass;
+    self.speechLabel.textColor = speechLiquid ? [NSColor colorWithWhite:1 alpha:0.97]
+        : [NSColor colorWithWhite:0.10 alpha:0.96];
+    self.speechLabel.shadow = speechLiquid ? shadow : nil;
+}
+- (void)setGlassDimLevel:(MenuChoiceRowView *)sender {
+    NSNumber *level = sender.representedObject;
+    if (![CCPetsGlassDimLevels() containsObject:level]) return;
+    [NSUserDefaults.standardUserDefaults setObject:level forKey:CCPetsGlassDimKey];
+    [self.quotaGlass applyDimLevel];
+    [self.statusGlass applyDimLevel];
+    [self.speechGlass applyDimLevel];
+    self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
+    self.quotaView.needsDisplay = YES;
 }
 - (void)toggleSpeech:(NSButton *)sender {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -647,6 +731,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(enterIdleStatus) object:nil];
     [self.statusPanel orderOut:nil];
+    [CCPetsGlassMenu dismiss];
     self.hasAgentStatus = NO;
     [self refreshApprovalBadge];
 }
@@ -676,6 +761,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         [self.statusPanel orderFrontRegardless];
     } else {
         [self.statusPanel orderOut:nil];
+        [CCPetsGlassMenu dismiss];
     }
 }
 // Stop 之后还会飘来 SubagentStop / PostToolUse / TaskCompleted 这类"仍在工作"的尾巴事件
@@ -715,6 +801,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         if (self.speechPanel.isVisible) [self hideSpeechBubble];
     } else {
         [self.statusPanel orderOut:nil];
+        [CCPetsGlassMenu dismiss];
     }
 }
 // "正在启动"只在会话拉起的一瞬间成立。之后如果没有任何后续事件，真实情况是会话已就绪、
@@ -959,6 +1046,10 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         6 + NSMaxX(icon) - PetApprovalBadgeSize + 4,
         6 + NSMaxY(icon) - PetApprovalBadgeSize + 4,
         PetApprovalBadgeSize, PetApprovalBadgeSize);
+    self.bridgeBadgeView.frame = NSMakeRect(
+        6 + NSMaxX(icon) - PetApprovalBadgeSize + 4,
+        6 + NSMinY(icon) - 4,
+        PetApprovalBadgeSize, PetApprovalBadgeSize);
 }
 - (void)refreshApprovalBadge {
     CCPetsApprovalBadgeView *badge = (CCPetsApprovalBadgeView *)self.approvalBadgeView;
@@ -1003,8 +1094,22 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
 }
 - (void)showAgentSessionsMenu:(NSButton *)sender {
     NSArray<NSDictionary *> *records = [self recentAgentSessionRecords];
-    if (records.count == 0) return;
+    [self refreshBridgeState:nil];
+    NSArray<NSDictionary *> *deliveries = self.bridgeRecentDeliveries ?: @[];
+    NSDictionary<NSString *, NSNumber *> *pending = self.bridgePendingCounts ?: @{};
+    if (records.count == 0 && deliveries.count == 0 && pending.count == 0) return;
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"最近 Agent 会话"];
+    if (deliveries.count > 0 || pending.count > 0) {
+        [self addBridgeItemsToMenu:menu deliveries:deliveries pending:pending];
+        [menu addItem:NSMenuItem.separatorItem];
+    }
+    // 菜单打开即视为看过：角标清零，下一条新消息再亮。
+    self.bridgeSeenAt = NSDate.date.timeIntervalSince1970;
+    [self refreshBridgeBadge];
+    if (records.count == 0) {
+        [self popUpAgentSessionsMenu:menu from:sender];
+        return;
+    }
     NSMenuItem *heading = [menu addItemWithTitle:@"最近 Agent 会话" action:nil keyEquivalent:@""];
     heading.enabled = NO;
     [menu addItem:NSMenuItem.separatorItem];
@@ -1023,19 +1128,330 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         NSDate *date = [NSDate dateWithTimeIntervalSince1970:[record[@"timestamp"] doubleValue]];
         NSString *time = [NSDateFormatter localizedStringFromDate:date
             dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle];
-        NSString *title = [NSString stringWithFormat:@"%@%@ · %@ · %@ · %@",
+        // 开启 CC Bridge 时带上会话名：用户和 Agent 之间就是用这个名字互相指代的。
+        NSDictionary *bridge = [self bridgeSessionEntryForRecord:record];
+        NSString *bridgeName = bridge.count > 0
+            ? [NSString stringWithFormat:@"（%@）", bridge[@"name"]] : @"";
+        NSUInteger waiting = [pending[[self bridgeSessionIdForRecord:record] ?: @""] unsignedIntegerValue];
+        NSString *title = [NSString stringWithFormat:@"%@%@%@ · %@ · %@ · %@%@",
             approval ? @"⚠️ " : @"",
-            provider.length > 0 ? provider : @"Agent",
-            [self statusTextForState:state tool:tool], [self terminalNameForTarget:target], time];
+            provider.length > 0 ? provider : @"Agent", bridgeName,
+            [self statusTextForState:state tool:tool], [self terminalNameForTarget:target], time,
+            waiting > 0 ? [NSString stringWithFormat:@" · 📬 %lu", (unsigned long)waiting] : @""];
         NSMenuItem *item = [menu addItemWithTitle:title
             action:@selector(focusAgentSessionRecord:) keyEquivalent:@""];
         item.target = self;
         item.representedObject = record;
         if ([target isEqual:self.lastTerminalFocusTarget]) item.state = NSControlStateValueOn;
     }
+    [self popUpAgentSessionsMenu:menu from:sender];
+}
+// Liquid Glass 主题下用玻璃面板展示，和旁边的玻璃状态卡保持一致；经典主题仍是系统菜单。
+// 玻璃面板不抢焦点，所以不支持方向键选择，Esc 只在本 App 处于前台时有效。
+- (void)popUpAgentSessionsMenu:(NSMenu *)menu from:(NSButton *)sender {
+    if (self.statusGlass.usesLiquidGlass) {
+        [CCPetsGlassMenu showMenu:menu belowView:self.statusGlass alignRightTo:self.statusGlass];
+        return;
+    }
     [menu popUpMenuPositioningItem:nil
         atLocation:NSMakePoint(0, NSHeight(sender.bounds) + 4) inView:sender];
 }
+#pragma mark - CC Bridge
+
+// 菜单开关 → cc-pets bridge enable / disable / configure。逻辑全在 CLI 里，桌宠只负责调用，
+// 命令行与菜单两条路的行为才一致。enable 要跑 claude / codex mcp add，要几秒，所以异步执行；
+// 执行期间忽略新的切换，结束后按实际状态刷新（菜单下次打开时现读）。
+- (void)runBridgeCommand:(NSArray<NSString *> *)arguments sender:(NSButton *)sender
+    successMessage:(NSString *)successMessage {
+    NSDictionary<NSString *, NSString *> *locator = CCBridgeCLILocator();
+    if (!locator) {
+        [self showUpdateAlertWithTitle:@"无法修改 CC Bridge 设置"
+            message:@"没有找到 cc-pets 的命令行程序。请在终端执行一次 cc-pets install 后重试。"];
+        [self syncBridgeSwitch:sender];
+        return;
+    }
+    if (self.bridgeCommandRunning) {
+        [self syncBridgeSwitch:sender];
+        return;
+    }
+    self.bridgeCommandRunning = YES;
+    NSTask *task = [NSTask new];
+    task.executableURL = [NSURL fileURLWithPath:locator[@"node"]];
+    task.arguments = [@[locator[@"cli"]] arrayByAddingObjectsFromArray:arguments];
+    NSMutableDictionary<NSString *, NSString *> *environment =
+        [NSProcessInfo.processInfo.environment mutableCopy];
+    NSString *existingPath = environment[@"PATH"].length > 0 ? environment[@"PATH"] : @"/usr/bin:/bin:/usr/sbin:/sbin";
+    // claude / codex 常装在 node 同目录（nvm），桌宠的 PATH 里未必有。
+    environment[@"PATH"] = [NSString stringWithFormat:@"%@:%@",
+        [locator[@"node"] stringByDeletingLastPathComponent], existingPath];
+    task.environment = environment;
+    NSPipe *output = [NSPipe pipe];
+    task.standardOutput = output;
+    task.standardError = output;
+    __weak typeof(self) weakSelf = self;
+    task.terminationHandler = ^(NSTask *finished) {
+        NSData *data = [output.fileHandleForReading readDataToEndOfFile];
+        NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            strongSelf.bridgeCommandRunning = NO;
+            [strongSelf refreshBridgeState:nil];
+            if (finished.terminationStatus == EXIT_SUCCESS) {
+                if (successMessage.length > 0) {
+                    [strongSelf sendNotificationWithTitle:@"CC Bridge" body:successMessage];
+                }
+                return;
+            }
+            [strongSelf syncBridgeSwitch:sender];
+            NSString *detail = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            [strongSelf showUpdateAlertWithTitle:@"CC Bridge 设置失败"
+                message:detail.length > 0 ? detail : @"命令执行失败。"];
+        });
+    };
+    NSError *error = nil;
+    if (![task launchAndReturnError:&error]) {
+        self.bridgeCommandRunning = NO;
+        [self syncBridgeSwitch:sender];
+        [self showUpdateAlertWithTitle:@"CC Bridge 设置失败" message:error.localizedDescription];
+    }
+}
+// 与其他菜单开关一致：目标状态按"实际存储的状态取反"算，不信任开关视图自己翻转后的 state——
+// 菜单停留期间状态可能已被命令行改过。命令没执行成功时再把开关翻回实际状态。
+- (BOOL)currentBridgeStateForSwitch:(NSButton *)sender {
+    NSDictionary *options = CCBridgeOptions();
+    if (sender.action == @selector(toggleBridgeEnabled:)) return CCBridgeEnabled();
+    if (sender.action == @selector(toggleBridgeWake:)) return [options[@"wake"] boolValue];
+    if (sender.action == @selector(toggleBridgeEditGuard:)) return [options[@"editGuard"] boolValue];
+    if (sender.action == @selector(toggleBridgeApproval:)) {
+        NSSet *tools = [NSSet setWithArray:CCBridgeToolGroup([self bridgeApprovalGroupForTag:sender.tag])];
+        return tools.count > 0 && [tools isSubsetOfSet:[NSSet setWithArray:options[@"codexApprove"]]] &&
+            [tools isSubsetOfSet:[NSSet setWithArray:options[@"claudeAllow"]]];
+    }
+    return NO;
+}
+- (void)syncBridgeSwitch:(NSButton *)sender {
+    if (!sender) return;
+    sender.state = [self currentBridgeStateForSwitch:sender] ? NSControlStateValueOn : NSControlStateValueOff;
+}
+// 返回目标状态，并先把开关视图摆到目标状态上（命令失败时 syncBridgeSwitch 再翻回来）。
+- (BOOL)targetBridgeStateForSwitch:(NSButton *)sender {
+    BOOL target = ![self currentBridgeStateForSwitch:sender];
+    sender.state = target ? NSControlStateValueOn : NSControlStateValueOff;
+    return target;
+}
+- (NSString *)bridgeApprovalGroupForTag:(NSInteger)tag {
+    NSArray<NSString *> *groups = CCBridgeToolGroupNames();
+    return tag >= 1 && tag <= (NSInteger)groups.count ? groups[tag - 1] : @"";
+}
+- (void)toggleBridgeEnabled:(NSButton *)sender {
+    BOOL enable = [self targetBridgeStateForSwitch:sender];
+    [self runBridgeCommand:@[enable ? @"enable" : @"disable"] sender:sender
+        successMessage:enable
+            ? @"已开启。已在运行的 Codex 会话需重启并在 /hooks 中信任；Claude 会话重启后才有 cc-bridge 工具。"
+            : @"已关闭，相关 hooks 与 MCP 注册已移除。"];
+}
+// 一个分组同时作用于 Codex 免审批与 Claude 免确认：菜单上只有一组开关，两边保持一致。
+- (void)toggleBridgeApproval:(NSButton *)sender {
+    NSArray<NSString *> *tools = CCBridgeToolGroup([self bridgeApprovalGroupForTag:sender.tag]);
+    if (tools.count == 0) return;
+    BOOL allow = [self targetBridgeStateForSwitch:sender];
+    NSDictionary *options = CCBridgeOptions();
+    NSString *(^apply)(NSArray<NSString *> *) = ^NSString *(NSArray<NSString *> *current) {
+        NSMutableOrderedSet<NSString *> *next = [NSMutableOrderedSet orderedSetWithArray:current];
+        if (allow) [next addObjectsFromArray:tools]; else [next removeObjectsInArray:tools];
+        return [next.array componentsJoinedByString:@","];
+    };
+    [self runBridgeCommand:@[@"configure",
+        [@"--codex-approve=" stringByAppendingString:apply(options[@"codexApprove"])],
+        [@"--claude-allow=" stringByAppendingString:apply(options[@"claudeAllow"])]]
+        sender:sender successMessage:nil];
+}
+- (void)toggleBridgeWake:(NSButton *)sender {
+    [self runBridgeCommand:@[@"configure",
+        [self targetBridgeStateForSwitch:sender] ? @"--wake=on" : @"--wake=off"] sender:sender successMessage:nil];
+}
+- (void)toggleBridgeEditGuard:(NSButton *)sender {
+    [self runBridgeCommand:@[@"configure",
+        [self targetBridgeStateForSwitch:sender] ? @"--edit-guard=on" : @"--edit-guard=off"]
+        sender:sender successMessage:nil];
+}
+- (void)toggleBridgeBadge:(NSButton *)sender {
+    BOOL enabled = ![NSUserDefaults.standardUserDefaults boolForKey:BridgeBadgeEnabledKey];
+    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:BridgeBadgeEnabledKey];
+    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+    [self refreshBridgeBadge];
+}
+// 与"系统通知"那组开关同一套授权流程：第一次打开时向系统申请通知权限。
+- (void)toggleBridgeNotification:(NSButton *)sender {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    if ([defaults boolForKey:BridgeNotificationKey]) {
+        [defaults setBool:NO forKey:BridgeNotificationKey];
+        sender.state = NSControlStateValueOff;
+        return;
+    }
+    [UNUserNotificationCenter.currentNotificationCenter
+        requestAuthorizationWithOptions:UNAuthorizationOptionAlert | UNAuthorizationOptionSound
+        completionHandler:^(BOOL granted, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [defaults setBool:granted forKey:BridgeNotificationKey];
+            sender.state = granted ? NSControlStateValueOn : NSControlStateValueOff;
+            if (!granted) {
+                [self showUpdateAlertWithTitle:@"无法启用系统通知" message:error.localizedDescription ?:
+                    @"请在“系统设置 → 通知 → CC Pets”中允许通知后重试。"];
+            }
+        });
+    }];
+}
+
+// 读 bridge 状态（会话名、最近送达、信箱积压），刷新角标。bridge 未开启时清空并隐藏。
+// 回执目录没变就不重读文件，只按时间窗重新过滤缓存——回执状态一变，写入端的
+// "临时文件 + rename" 必然改动目录的修改时间。
+- (void)refreshBridgeState:(NSTimer *)timer {
+    if (!CCBridgeEnabled()) {
+        self.bridgeSessions = nil;
+        self.bridgeRecentDeliveries = nil;
+        self.bridgePendingCounts = nil;
+        self.bridgeSentStamp = nil;
+        [self refreshBridgeBadge];
+        return;
+    }
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSString *directory = CCBridgeStateDirectory();
+    self.bridgeSessions = CCBridgeSessions();
+    NSDate *stamp = [NSFileManager.defaultManager attributesOfItemAtPath:
+        [directory stringByAppendingPathComponent:@"sent"] error:nil].fileModificationDate;
+    if (!stamp || ![stamp isEqualToDate:self.bridgeSentStamp] || !self.bridgeDeliveryCache) {
+        self.bridgeDeliveryCache = CCBridgeRecentDeliveries(now - BridgeRecentWindow, 50);
+        self.bridgeSentStamp = stamp;
+    }
+    NSMutableArray<NSDictionary *> *recent = [NSMutableArray array];
+    for (NSDictionary *delivery in self.bridgeDeliveryCache) {
+        if ([delivery[@"at"] doubleValue] >= now - BridgeRecentWindow) [recent addObject:delivery];
+    }
+    self.bridgeRecentDeliveries = recent;
+    // 只算仍在线的会话：已退出会话的积压已经投不出去，提醒也无从处理。
+    NSMutableDictionary<NSString *, NSNumber *> *pending = [NSMutableDictionary dictionary];
+    [CCBridgePendingCounts() enumerateKeysAndObjectsUsingBlock:^(NSString *session, NSNumber *count, BOOL *stop) {
+        if (self.bridgeSessions[session]) pending[session] = count;
+    }];
+    self.bridgePendingCounts = pending;
+    [self notifyNewBridgeDeliveries];
+    [self refreshBridgeBadge];
+}
+// 新送达的跨会话消息发系统通知：只含谁发给谁，不含正文。一次刷新里来了多条时合并成一条。
+- (void)notifyNewBridgeDeliveries {
+    NSMutableArray<NSDictionary *> *fresh = [NSMutableArray array];
+    for (NSDictionary *delivery in self.bridgeRecentDeliveries) {
+        if ([delivery[@"at"] doubleValue] > self.bridgeNotifiedAt) [fresh addObject:delivery];
+    }
+    if (fresh.count == 0) return;
+    for (NSDictionary *delivery in fresh) {
+        self.bridgeNotifiedAt = MAX(self.bridgeNotifiedAt, [delivery[@"at"] doubleValue]);
+    }
+    if (![NSUserDefaults.standardUserDefaults boolForKey:BridgeNotificationKey]) return;
+    NSDictionary *latest = fresh.firstObject;
+    NSString *body = fresh.count == 1
+        ? [NSString stringWithFormat:@"%@ → %@", latest[@"from"], latest[@"to"]]
+        : [NSString stringWithFormat:@"%@ → %@ 等 %lu 条", latest[@"from"], latest[@"to"],
+            (unsigned long)fresh.count];
+    [self sendNotificationWithTitle:@"CC Bridge 新消息" body:body];
+}
+// 蓝色 = 有新的跨会话消息送达；橙色 = 有消息卡在某个会话的信箱里（那个 Claude 会话长时间空闲、
+// 唤醒 watcher 已退出，要等用户在那个终端开口才会送进去），需要用户过去看一眼。
+- (void)refreshBridgeBadge {
+    CCPetsApprovalBadgeView *badge = (CCPetsApprovalBadgeView *)self.bridgeBadgeView;
+    if (!badge) return;
+    if (![NSUserDefaults.standardUserDefaults boolForKey:BridgeBadgeEnabledKey]) {
+        badge.count = 0;
+        return;
+    }
+    NSUInteger unseen = 0;
+    for (NSDictionary *delivery in self.bridgeRecentDeliveries) {
+        if ([delivery[@"at"] doubleValue] > self.bridgeSeenAt) unseen++;
+    }
+    NSUInteger waiting = 0;
+    for (NSNumber *count in self.bridgePendingCounts.allValues) waiting += count.unsignedIntegerValue;
+    badge.fillColor = waiting > 0
+        ? [NSColor colorWithRed:0.92 green:0.58 blue:0.12 alpha:1]
+        : [NSColor colorWithRed:0.20 green:0.47 blue:0.90 alpha:1];
+    badge.count = unseen + waiting;
+    [self layoutApprovalBadge];
+}
+- (NSString *)bridgeSessionIdForRecord:(NSDictionary *)record {
+    NSString *session = SanitizedShortString(record[@"session"], 128);
+    if (session.length > 0 && self.bridgeSessions[session]) return session;
+    // 事件里没有 session id 的记录，退回按 provider + tty 对上 bridge 注册表。
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
+    NSString *tty = SanitizedShortString([terminal[@"tty"] lastPathComponent], 64);
+    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    if (tty.length == 0) return nil;
+    __block NSString *match = nil;
+    [self.bridgeSessions enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSDictionary *entry, BOOL *stop) {
+        if ([entry[@"tty"] isEqualToString:tty] && [entry[@"provider"] isEqualToString:provider]) {
+            match = key;
+            *stop = YES;
+        }
+    }];
+    return match;
+}
+- (NSDictionary *)bridgeSessionEntryForRecord:(NSDictionary *)record {
+    NSString *session = [self bridgeSessionIdForRecord:record];
+    return session ? self.bridgeSessions[session] : nil;
+}
+// 收件会话的终端：优先用桌宠自己记录的该会话终端信息（带宿主应用），其次按 tty 对上任一
+// 已知终端，最后借用最近一次的宿主应用配上 bridge 记录的 tty。
+- (NSDictionary *)terminalTargetForBridgeSession:(NSString *)sessionId {
+    NSString *tty = self.bridgeSessions[sessionId][@"tty"];
+    NSDictionary *byTty = nil;
+    for (NSDictionary *record in self.agentSessionRecords.allValues) {
+        NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
+        if (terminal.count == 0) continue;
+        if ([SanitizedShortString(record[@"session"], 128) isEqualToString:sessionId]) return terminal;
+        if (tty.length > 0 && [[terminal[@"tty"] lastPathComponent] isEqualToString:tty]) byTty = terminal;
+    }
+    if (byTty) return byTty;
+    if (tty.length > 0 && self.lastTerminalFocusTarget.count > 0) {
+        NSMutableDictionary *target = [self.lastTerminalFocusTarget mutableCopy];
+        target[@"tty"] = tty;
+        [target removeObjectForKey:@"session"];
+        return target;
+    }
+    return nil;
+}
+- (void)focusBridgeSession:(NSMenuItem *)sender {
+    NSString *sessionId = [sender.representedObject isKindOfClass:NSString.class] ? sender.representedObject : nil;
+    NSDictionary *target = sessionId ? [self terminalTargetForBridgeSession:sessionId] : nil;
+    if (target.count > 0) ActivateTerminalFocusTarget(target);
+}
+- (void)addBridgeItemsToMenu:(NSMenu *)menu deliveries:(NSArray<NSDictionary *> *)deliveries
+    pending:(NSDictionary<NSString *, NSNumber *> *)pending {
+    NSMenuItem *heading = [menu addItemWithTitle:@"CC Bridge 消息" action:nil keyEquivalent:@""];
+    heading.enabled = NO;
+    [pending enumerateKeysAndObjectsUsingBlock:^(NSString *session, NSNumber *count, BOOL *stop) {
+        NSString *name = self.bridgeSessions[session][@"name"] ?: session;
+        NSString *title = [NSString stringWithFormat:@"📬 %@ 有 %lu 条消息待投递（去那个终端说句话即可送达）",
+            name, count.unsignedLongValue];
+        NSMenuItem *item = [menu addItemWithTitle:title action:@selector(focusBridgeSession:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = session;
+    }];
+    NSUInteger shown = 0;
+    for (NSDictionary *delivery in deliveries) {
+        if (shown++ >= BridgeMenuDeliveryLimit) break;
+        NSDate *date = [NSDate dateWithTimeIntervalSince1970:[delivery[@"at"] doubleValue]];
+        NSString *time = [NSDateFormatter localizedStringFromDate:date
+            dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle];
+        BOOL unseen = [delivery[@"at"] doubleValue] > self.bridgeSeenAt;
+        NSString *title = [NSString stringWithFormat:@"%@%@ → %@ · %@",
+            unseen ? @"✉️ " : @"", delivery[@"from"], delivery[@"to"], time];
+        NSMenuItem *item = [menu addItemWithTitle:title action:@selector(focusBridgeSession:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = delivery[@"toSession"];
+        item.toolTip = [NSString stringWithFormat:@"跳到 %@ 所在的终端", delivery[@"to"]];
+    }
+}
+
 - (BOOL)focusLatestAgentTerminal {
     // 只有 Hook 状态气泡上的透明按钮会调用这里；桌宠本体继续负责原有互动。
     if (!self.hasAgentStatus || self.lastTerminalFocusTarget.count == 0) return NO;
@@ -1261,7 +1677,9 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         PetInteractionEnabledKey: @YES,
         PetInteractionHeartThresholdKey: @3,
         PetInteractionAnnoyedThresholdKey: @10,
-        PetInteractionIntervalKey: @1.2
+        PetInteractionIntervalKey: @1.2,
+        BridgeBadgeEnabledKey: @YES,
+        BridgeNotificationKey: @NO
     }];
     if (![defaults boolForKey:StatusBubblePreferenceV2Key]) {
         [defaults setBool:YES forKey:StatusBubbleExpandedKey];
@@ -1354,8 +1772,8 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     NSView *statusShadow = [[NSView alloc] initWithFrame:NSMakeRect(
         6, 6, statusGlassSize.width, statusGlassSize.height)];
     self.statusShadowView = statusShadow;
-    statusShadow.layer.cornerRadius = statusGlassSize.height / 2.0;
     statusShadow.wantsLayer = YES;
+    statusShadow.layer.cornerRadius = statusGlassSize.height / 2.0;
     statusShadow.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:0.01].CGColor;
     statusShadow.layer.cornerCurve = kCACornerCurveContinuous;
     statusShadow.layer.shadowColor = NSColor.blackColor.CGColor;
@@ -1369,18 +1787,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     CGPathRelease(statusShadowPath);
     [statusRoot addSubview:statusShadow];
 
-    self.statusGlass = [[NSVisualEffectView alloc]
-        initWithFrame:NSMakeRect(6, 6, statusGlassSize.width, statusGlassSize.height)];
-    self.statusGlass.material = NSVisualEffectMaterialPopover;
-    self.statusGlass.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    self.statusGlass.state = NSVisualEffectStateActive;
-    self.statusGlass.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-    self.statusGlass.wantsLayer = YES;
-    self.statusGlass.layer.cornerRadius = statusGlassSize.height / 2.0;
-    self.statusGlass.layer.cornerCurve = kCACornerCurveContinuous;
-    self.statusGlass.layer.masksToBounds = YES;
-    self.statusGlass.layer.borderWidth = 1;
-    self.statusGlass.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.48].CGColor;
+    self.statusGlass = [[CCPetsGlassView alloc]
+        initWithFrame:NSMakeRect(6, 6, statusGlassSize.width, statusGlassSize.height)
+        material:NSVisualEffectMaterialPopover appearance:NSAppearanceNameAqua
+        cornerRadius:statusGlassSize.height / 2.0];
+    // 胶囊比面板矮，边缘高光占比更大；10pt / 0.6 是对照截图里深色背景下刚好压住的值。
+    self.statusGlass.edgeShadeHeight = 10;
+    self.statusGlass.edgeShadeAlpha = 0.6;
+    self.statusGlass.usesWidgetGlass = YES;
 
     self.statusTitleLabel = [NSTextField labelWithString:@""];
     // 层级是反的：宠物是主角，事实退成眉标。
@@ -1389,14 +1803,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusTitleLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
     self.statusTitleLabel.textColor = [NSColor colorWithWhite:0.42 alpha:0.90];
     self.statusTitleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.statusGlass addSubview:self.statusTitleLabel];
+    [self.statusGlass.contentView addSubview:self.statusTitleLabel];
 
     self.statusDetailLabel = [NSTextField labelWithString:@""];
     self.statusDetailLabel.frame = NSMakeRect(20, 10, statusGlassSize.width - 80, 22);
     self.statusDetailLabel.font = [NSFont systemFontOfSize:14 weight:NSFontWeightMedium];
     self.statusDetailLabel.textColor = [NSColor colorWithWhite:0.12 alpha:0.96];
     self.statusDetailLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.statusGlass addSubview:self.statusDetailLabel];
+    [self.statusGlass.contentView addSubview:self.statusDetailLabel];
 
     self.statusIconButton = [[CCPetsStatusClickButton alloc] initWithFrame:NSMakeRect(
         statusGlassSize.width - 48, 12, 34, 34)];
@@ -1405,11 +1819,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.statusIconButton.wantsLayer = YES;
     self.statusIconButton.layer.cornerRadius = 17;
     self.statusIconButton.layer.masksToBounds = YES;
-    self.statusIconButton.toolTip = @"查看最近 Agent 会话";
+    self.statusIconButton.toolTip = @"查看最近 Agent 会话与 CC Bridge 消息";
     self.statusIconButton.target = self;
     self.statusIconButton.action = @selector(showAgentSessionsMenu:);
-    [self.statusGlass addSubview:self.statusIconButton];
+    [self.statusGlass.contentView addSubview:self.statusIconButton];
+    // 原生玻璃自带阴影，再叠手工阴影会糊成两层。
+    self.statusShadowView.hidden = self.statusGlass.usesLiquidGlass;
     [statusRoot addSubview:self.statusGlass];
+    [self applyBubbleTextStyle];
     CCPetsStatusClickButton *statusClick = [[CCPetsStatusClickButton alloc]
         initWithFrame:NSMakeRect(6, 6, statusGlassSize.width - 56, statusGlassSize.height)];
     statusClick.bordered = NO;
@@ -1421,13 +1838,21 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     statusClick.action = @selector(focusLatestAgentTerminal:);
     self.statusClickButton = statusClick;
     [statusRoot addSubview:statusClick];
-    // 角标挂在 statusRoot 而不是 statusGlass 里：玻璃卡片是 masksToBounds 的胶囊，
+    // 角标挂在 statusRoot 而不是玻璃内容里：玻璃卡片会按胶囊形状裁切，
     // 右上角正好落在圆角外面，放进去会被裁掉一半。
     CCPetsApprovalBadgeView *badge = [[CCPetsApprovalBadgeView alloc]
         initWithFrame:NSMakeRect(0, 0, PetApprovalBadgeSize, PetApprovalBadgeSize)];
     badge.hidden = YES;
     self.approvalBadgeView = badge;
     [statusRoot addSubview:badge];
+    // CC Bridge 消息角标压在图标右下角，与右上角的审批角标错开。点击同样穿透到图标，
+    // 打开的会话菜单里列出最近的跨会话消息。
+    CCPetsApprovalBadgeView *bridgeBadge = [[CCPetsApprovalBadgeView alloc]
+        initWithFrame:NSMakeRect(0, 0, PetApprovalBadgeSize, PetApprovalBadgeSize)];
+    bridgeBadge.hidden = YES;
+    bridgeBadge.fillColor = [NSColor colorWithRed:0.20 green:0.47 blue:0.90 alpha:1];
+    self.bridgeBadgeView = bridgeBadge;
+    [statusRoot addSubview:bridgeBadge];
     [self layoutApprovalBadge];
     self.statusPanel.contentView = statusRoot;
 
@@ -1444,17 +1869,15 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.quotaPanel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     self.quotaPanel.hidesOnDeactivate = NO;
     NSView *quotaRoot = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, quotaSize.width, quotaSize.height)];
-    NSVisualEffectView *glass = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0, 0,
-        quotaSize.width, quotaSize.height)];
-    glass.material = NSVisualEffectMaterialUnderWindowBackground;
-    glass.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    glass.state = NSVisualEffectStateActive;
-    glass.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    glass.wantsLayer = YES;
-    glass.layer.cornerRadius = 13;
-    glass.layer.masksToBounds = YES;
-    [quotaRoot addSubview:glass];
+    self.quotaGlass = [[CCPetsGlassView alloc] initWithFrame:quotaRoot.bounds
+        material:NSVisualEffectMaterialUnderWindowBackground
+        appearance:NSAppearanceNameDarkAqua cornerRadius:13];
+    self.quotaGlass.usesWidgetGlass = YES;
+    [quotaRoot addSubview:self.quotaGlass];
     self.quotaView = [[QuotaDashboardView alloc] initWithFrame:NSMakeRect(0, 0, quotaSize.width, quotaSize.height)];
+    self.quotaView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.quotaView.usesLiquidGlass = self.quotaGlass.usesLiquidGlass;
+    self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
     [self applySystemMetricPreferences];
     [self applyUsageDisplayModePreferences];
     self.quotaView.codexLogo = OfficialAppIcon(@"com.openai.codex", @"icon-chatgpt.icns");
@@ -1463,10 +1886,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         weakSelf.dashboardHovering = hovering;
         if (!hovering) [weakSelf scheduleQuotaDashboardHide];
     };
-    self.quotaView.refreshRequested = ^{
-        [weakSelf refreshUsage:nil];
-    };
-    [quotaRoot addSubview:self.quotaView];
+    [self.quotaGlass.contentView addSubview:self.quotaView];
     self.quotaPanel.contentView = quotaRoot;
     // 先探测再第一次显示：否则面板会先按两张卡的高度弹出来再收缩一下。
     [self refreshDetectedProviders];
@@ -1498,6 +1918,13 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     NSTimer *readerTimer = [NSTimer scheduledTimerWithTimeInterval:AgentEventReaderCheckInterval
         target:self selector:@selector(ensureAgentEventReader:) userInfo:nil repeats:YES];
     readerTimer.tolerance = AgentEventReaderCheckInterval * 0.3;
+    // 启动前的消息不算"未读"：角标只提示桌宠运行期间新发生的跨会话往来。通知同理。
+    self.bridgeSeenAt = NSDate.date.timeIntervalSince1970;
+    self.bridgeNotifiedAt = self.bridgeSeenAt;
+    [self refreshBridgeState:nil];
+    NSTimer *bridgeTimer = [NSTimer scheduledTimerWithTimeInterval:BridgeRefreshInterval
+        target:self selector:@selector(refreshBridgeState:) userInfo:nil repeats:YES];
+    bridgeTimer.tolerance = BridgeRefreshInterval * 0.3;
     // 这里刻意不使用 occlusionState / NSWindowDidChangeOcclusionStateNotification：
     // 桌宠是置顶的（NSFloatingWindowLevel + FullScreenAuxiliary），全屏应用也压不住它，
     // 所以“被遮挡”几乎不会真实发生，收益接近零；而实测中 occlusionState 会在
@@ -1797,20 +2224,13 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
     self.speechPanel.ignoresMouseEvents = YES;
 
     NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height)];
-    self.speechGlass = [[NSVisualEffectView alloc]
-        initWithFrame:NSMakeRect(6, 6, glassSize.width, glassSize.height)];
-    self.speechGlass.material = NSVisualEffectMaterialPopover;
-    self.speechGlass.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    self.speechGlass.state = NSVisualEffectStateActive;
-    self.speechGlass.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-    self.speechGlass.wantsLayer = YES;
-    // 圆角交给 layer 自己：cornerRadius 是 GPU 端矢量裁切，配 continuous 曲率就是
-    // macOS 那个 squircle。位图 maskImage 换不来这个质感。
-    self.speechGlass.layer.cornerRadius = glassSize.height / 2.0;
-    self.speechGlass.layer.cornerCurve = kCACornerCurveContinuous;
-    self.speechGlass.layer.masksToBounds = YES;
-    self.speechGlass.layer.borderWidth = 1;
-    self.speechGlass.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.48].CGColor;
+    self.speechGlass = [[CCPetsGlassView alloc]
+        initWithFrame:NSMakeRect(6, 6, glassSize.width, glassSize.height)
+        material:NSVisualEffectMaterialPopover appearance:NSAppearanceNameAqua
+        cornerRadius:glassSize.height / 2.0];
+    self.speechGlass.edgeShadeHeight = 9;
+    self.speechGlass.edgeShadeAlpha = 0.6;
+    self.speechGlass.usesWidgetGlass = YES;
 
     self.speechLabel = [NSTextField labelWithString:@""];
     self.speechLabel.frame = NSMakeRect(14, 10, glassSize.width - 28, 18);
@@ -1819,8 +2239,9 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
     self.speechLabel.textColor = [NSColor colorWithWhite:0.10 alpha:0.96];
     self.speechLabel.alignment = NSTextAlignmentCenter;
     self.speechLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.speechGlass addSubview:self.speechLabel];
+    [self.speechGlass.contentView addSubview:self.speechLabel];
     [root addSubview:self.speechGlass];
+    [self applyBubbleTextStyle];
     self.speechPanel.contentView = root;
 }
 // 独立气泡只在没有状态卡时出现（有状态卡时话并进它的副行），所以固定放宠物头顶即可，
@@ -2027,7 +2448,9 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     [self.statusPanel setContentSize:panelSize];
     self.statusPanel.contentView.frame = NSMakeRect(0, 0, panelSize.width, panelSize.height);
     self.statusGlass.frame = NSMakeRect(6, 6, glassWidth, height);
+    self.statusGlass.cornerRadius = height / 2.0;
     self.statusShadowView.frame = NSMakeRect(6, 6, glassWidth, height);
+    self.statusShadowView.layer.cornerRadius = height / 2.0;
     // shadowPath 是按旧尺寸算死的，卡片变宽后不重算，阴影会留在原来的形状上。
     CGPathRef path = CGPathCreateWithRoundedRect(self.statusShadowView.bounds,
         height / 2.0, height / 2.0, NULL);
@@ -2056,7 +2479,7 @@ static CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     [self.speechPanel setContentSize:panelSize];
     self.speechPanel.contentView.frame = NSMakeRect(0, 0, panelSize.width, panelSize.height);
     self.speechGlass.frame = NSMakeRect(6, 6, width, PetSpeechBodyHeight);
-    self.speechGlass.layer.cornerRadius = PetSpeechBodyHeight / 2.0;
+    self.speechGlass.cornerRadius = PetSpeechBodyHeight / 2.0;
     self.speechLabel.frame = NSMakeRect(padding, 10, width - padding * 2, 18);
 }
 
@@ -2363,8 +2786,7 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
     // Codex/Claude 客户端，也不应被转成 CLI 托管模式并随客户端退出。
     if (liveClients == 0 && self.managedByCLI) [NSApp terminate:nil];
 }
-// 面板高度取决于渲染几张额度卡。quotaRoot / 毛玻璃 / quotaView 三层都是固定 frame、
-// 没有 autoresizingMask，所以统一在这里按 contentView 的 subviews 铺一遍，避免漏掉一层。
+// 面板高度取决于渲染几张额度卡。调整玻璃容器后，内部内容随 autoresizingMask 铺满。
 - (void)resizeQuotaDashboard {
     NSSize size = NSMakeSize(QuotaLogicalWidth * QuotaScale,
         QuotaLogicalHeightForProviderCount([self.quotaView visibleProviders].count) * QuotaScale);

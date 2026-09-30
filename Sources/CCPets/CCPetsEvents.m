@@ -197,7 +197,7 @@ int RecordHookEvent(void) {
         @"timestamp": @([NSDate.date timeIntervalSince1970])
     } mutableCopy];
     if (session.length > 0) record[@"session"] = session;
-    NSDictionary *terminal = TerminalFocusTargetFromEnvironment();
+    NSDictionary *terminal = TerminalFocusTargetForHook(payload, provider);
     if (terminal.count > 0) record[@"terminal"] = terminal;
     AppendAgentEventRecord(record);
     return EXIT_SUCCESS;

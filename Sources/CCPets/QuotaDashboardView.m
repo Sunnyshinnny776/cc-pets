@@ -47,7 +47,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         NSTrackingArea *tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
-            options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved |
+            options:NSTrackingMouseEnteredAndExited |
                     NSTrackingActiveAlways | NSTrackingInVisibleRect
             owner:self userInfo:nil];
         [self addTrackingArea:tracking];
@@ -57,13 +57,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 - (void)mouseEntered:(NSEvent *)event {
     if (self.hoverChanged) self.hoverChanged(YES);
-    [self mouseMoved:event];
 }
 - (void)mouseExited:(NSEvent *)event {
-    self.refreshHovered = NO;
-    self.refreshPressed = NO;
-    [NSCursor.arrowCursor set];
-    self.needsDisplay = YES;
     if (self.hoverChanged) self.hoverChanged(NO);
 }
 // detectedProviders 未赋值时按"两家都有"渲染。这是刻意的兜底：探测是 App 侧的额外信号，
@@ -80,12 +75,6 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (CGFloat)logicalHeight {
     return QuotaLogicalHeightForProviderCount([self visibleProviders].count);
 }
-- (NSRect)logicalRefreshRect { return NSMakeRect(QuotaLogicalWidth - 54, [self logicalHeight] - 52, 34, 32); }
-- (NSRect)refreshRect {
-    NSRect logical = [self logicalRefreshRect];
-    return NSMakeRect(logical.origin.x * QuotaScale, logical.origin.y * QuotaScale,
-        logical.size.width * QuotaScale, logical.size.height * QuotaScale);
-}
 - (NSRect)logicalSummaryRect {
     return NSMakeRect(20, [self logicalHeight] - QuotaHeaderHeight - QuotaSummaryHeight,
         QuotaLogicalWidth - 40, QuotaSummaryHeight);
@@ -97,40 +86,6 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return index < 2
         ? NSMakeRect(NSMinX(summary) + index * width, NSMinY(summary), width, NSHeight(summary))
         : NSZeroRect;
-}
-- (void)mouseMoved:(NSEvent *)event {
-    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-    BOOL hovering = NSPointInRect(point, [self refreshRect]);
-    if (hovering != self.refreshHovered) {
-        self.refreshHovered = hovering;
-        self.needsDisplay = YES;
-    }
-    if (hovering) [NSCursor.pointingHandCursor set];
-    else [NSCursor.arrowCursor set];
-}
-- (void)mouseDown:(NSEvent *)event {
-    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-    if (NSPointInRect(point, [self refreshRect])) {
-        self.refreshPressed = YES;
-        self.needsDisplay = YES;
-    }
-}
-- (void)mouseUp:(NSEvent *)event {
-    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-    BOOL shouldRefresh = self.refreshPressed && NSPointInRect(point, [self refreshRect]);
-    self.refreshPressed = NO;
-    if (shouldRefresh) {
-        if (self.refreshRequested) self.refreshRequested();
-        self.refreshedUntil = NSDate.date.timeIntervalSince1970 + 1.2;
-        [[NSHapticFeedbackManager defaultPerformer] performFeedbackPattern:NSHapticFeedbackPatternAlignment
-            performanceTime:NSHapticFeedbackPerformanceTimeNow];
-        [self performSelector:@selector(clearRefreshConfirmation) withObject:nil afterDelay:1.2];
-    }
-    self.needsDisplay = YES;
-}
-- (void)clearRefreshConfirmation {
-    self.refreshedUntil = 0;
-    self.needsDisplay = YES;
 }
 - (NSDictionary *)quota:(NSDictionary *)usage key:(NSString *)key {
     id value = usage[key];
@@ -219,9 +174,11 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
     formatter.timeZone = NSTimeZone.localTimeZone;
-    formatter.dateFormat = @"yyyy-MM-dd";
-    return [NSString stringWithFormat:@"近 7 天累计用量（%@ 至今·滚动记录）",
-        [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:start.doubleValue]]];
+    // 原生玻璃下字号更大，完整说明在单元格里放不下，只留起始日期。
+    formatter.dateFormat = self.usesLiquidGlass ? @"M/d" : @"yyyy-MM-dd";
+    NSString *date = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:start.doubleValue]];
+    return self.usesLiquidGlass ? [NSString stringWithFormat:@"近 7 天累计用量（%@ 起）", date]
+        : [NSString stringWithFormat:@"近 7 天累计用量（%@ 至今·滚动记录）", date];
 }
 // 在线 = 这一家还有活着的客户端，和有没有额度数据无关：额度会一直缓存着，
 // 拿它当在线信号会恒亮。身份不明的老客户端无法归属到某一家，保守地都算在线。
@@ -229,7 +186,15 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return [self.liveProviders containsObject:name] || self.hasUnlabeledClient;
 }
 - (NSColor *)primaryColor { return [NSColor colorWithWhite:0.97 alpha:1]; }
-- (NSColor *)secondaryColor { return [NSColor colorWithWhite:0.68 alpha:1]; }
+- (NSColor *)secondaryColor {
+    // 没有深色底托着时，0.68 的灰在亮壁纸上会发虚。
+    return [NSColor colorWithWhite:self.usesLiquidGlass ? 0.84 : 0.68 alpha:1];
+}
+// 原生玻璃背后只有一层压暗，原来的紫在上面偏暗，提亮到和青色相近的明度。
+- (NSColor *)claudeColor {
+    return self.usesLiquidGlass ? [NSColor colorWithRed:0.80 green:0.66 blue:1.00 alpha:1]
+        : [NSColor colorWithRed:0.66 green:0.43 blue:0.94 alpha:1];
+}
 - (NSColor *)accentColor { return [NSColor colorWithRed:0.30 green:0.82 blue:0.90 alpha:1]; }
 // 有 Agent 在线才用绿色，否则整块转灰，避免"暂无 Agent 在线"配一个绿点。
 - (NSColor *)agentStatusColor {
@@ -268,7 +233,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         NSString *label = metric[@"label"];
         NSColor *color = metric[@"color"];
         NSDictionary *attributes = @{NSFontAttributeName: font,
-            NSForegroundColorAttributeName: color};
+            NSForegroundColorAttributeName: [self textColor:color]};
         NSImage *icon = [NSImage imageWithSystemSymbolName:metric[@"symbol"]
             accessibilityDescription:label];
         NSImageSymbolConfiguration *sizeConfiguration =
@@ -321,23 +286,90 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     if (age < 3600) return [NSString stringWithFormat:@"%.0f 分钟前", floor(age / 60)];
     return [NSString stringWithFormat:@"%.0f 小时前", floor(age / 3600)];
 }
+// 原生玻璃下背景可以是任意壁纸，面板按 0.58 缩放后小字只有 6–7pt，细笔画很容易被
+// 背后的纹理吃掉。所以 liquid 模式统一收紧文字：小字放大一点、加粗一级；灰字不低于
+// 0.84；彩色字改成白字。
+// 经典主题有深色实底托着，保持原样。
+// 小字统一抬到逻辑 14（屏幕约 8.1pt），这是 440pt 宽面板在不改版式的前提下放得下的上限；
+// 再往上要放大面板或删行。数字用等宽字形，跳动时不左右晃；汉字不受影响。
+- (NSFont *)fontWithSize:(CGFloat)size weight:(NSFontWeight)weight {
+    if (!self.usesLiquidGlass) return [NSFont systemFontOfSize:size weight:weight];
+    if (size < 14) size = 14;
+    else if (size <= 16) size += 1;
+    if (weight < NSFontWeightMedium) weight = NSFontWeightMedium;
+    else if (weight < NSFontWeightSemibold) weight = NSFontWeightSemibold;
+    else if (weight < NSFontWeightBold) weight = NSFontWeightBold;
+    return [NSFont monospacedDigitSystemFontOfSize:size weight:weight];
+}
+// 局部衬底：只垫在卡片和汇总区下面，面板边缘和卡片间隙保持通透。衬底本身不能带
+// 文字投影，否则卡片边缘会多一圈黑晕。
+// 原生玻璃下在文字前画一个彩色小圆点，替代原来的彩色字；经典主题照旧画彩色字。
+- (void)drawText:(NSString *)text inRect:(NSRect)rect size:(CGFloat)size
+    weight:(NSFontWeight)weight color:(NSColor *)color dotColor:(NSColor *)dotColor {
+    if (!self.usesLiquidGlass) {
+        [text drawInRect:rect withAttributes:[self textAttributesWithSize:size color:color weight:weight]];
+        return;
+    }
+    NSMutableDictionary *attributes = [[self textAttributesWithSize:size color:color
+        weight:weight] mutableCopy];
+    NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
+    style.lineBreakMode = NSLineBreakByTruncatingTail;
+    attributes[NSParagraphStyleAttributeName] = style;
+    NSFont *font = attributes[NSFontAttributeName];
+    CGFloat diameter = 9;
+    // drawInRect: 从矩形顶部开始排版，圆点对齐到首行小写字母的中线。
+    CGFloat baselineMid = NSMaxY(rect) - font.ascender + font.xHeight / 2.0;
+    [NSGraphicsContext saveGraphicsState];
+    [[NSShadow new] set];
+    [dotColor setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMinX(rect), baselineMid - diameter / 2.0,
+        diameter, diameter)] fill];
+    [NSGraphicsContext restoreGraphicsState];
+    NSRect textRect = rect;
+    textRect.origin.x += diameter + 6;
+    textRect.size.width -= diameter + 6;
+    [text drawInRect:textRect withAttributes:attributes];
+}
+// 风险提示：原生玻璃下是圆点 + 白字；经典主题照旧画彩色字。
+- (void)drawTip:(NSString *)text inRect:(NSRect)rect color:(NSColor *)color {
+    [self drawText:text inRect:rect size:11 weight:NSFontWeightMedium color:color dotColor:color];
+}
+- (void)fillLiquidScrim:(NSBezierPath *)path {
+    [NSGraphicsContext saveGraphicsState];
+    [[NSShadow new] set];
+    [[NSColor colorWithWhite:0 alpha:self.cardScrimAlpha] setFill];
+    [path fill];
+    [NSGraphicsContext restoreGraphicsState];
+}
+- (NSColor *)textColor:(NSColor *)color {
+    if (!self.usesLiquidGlass) return color;
+    NSColor *rgb = [color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    if (!rgb) return color;
+    CGFloat r, g, b, a;
+    [rgb getRed:&r green:&g blue:&b alpha:&a];
+    CGFloat saturation = MAX(r, MAX(g, b)) - MIN(r, MIN(g, b));
+    if (saturation < 0.05) return [NSColor colorWithWhite:MAX(MAX(r, MAX(g, b)), 0.84) alpha:a];
+    // 彩色字在任意亮度的背景上对比都不稳定，原生玻璃下文字一律用白色；颜色的语义改由
+    // 字前的小圆点、图标和曲线承担（见 drawText:inRect:size:weight:color:dotColor:）。
+    return [NSColor colorWithWhite:0.96 alpha:a];
+}
 - (NSDictionary *)textAttributesWithSize:(CGFloat)size color:(NSColor *)color weight:(NSFontWeight)weight {
-    return @{NSFontAttributeName: [NSFont systemFontOfSize:size weight:weight],
-             NSForegroundColorAttributeName: color};
+    return @{NSFontAttributeName: [self fontWithSize:size weight:weight],
+             NSForegroundColorAttributeName: [self textColor:color]};
 }
 - (NSDictionary *)rightAlignedTextAttributesWithSize:(CGFloat)size color:(NSColor *)color
     weight:(NSFontWeight)weight {
     NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
     style.alignment = NSTextAlignmentRight;
-    return @{NSFontAttributeName: [NSFont systemFontOfSize:size weight:weight],
-             NSForegroundColorAttributeName: color,
+    return @{NSFontAttributeName: [self fontWithSize:size weight:weight],
+             NSForegroundColorAttributeName: [self textColor:color],
              NSParagraphStyleAttributeName: style};
 }
 - (NSDictionary *)centeredTextAttributesWithSize:(CGFloat)size color:(NSColor *)color weight:(NSFontWeight)weight {
     NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
     style.alignment = NSTextAlignmentCenter;
-    return @{NSFontAttributeName: [NSFont systemFontOfSize:size weight:weight],
-             NSForegroundColorAttributeName: color,
+    return @{NSFontAttributeName: [self fontWithSize:size weight:weight],
+             NSForegroundColorAttributeName: [self textColor:color],
              NSParagraphStyleAttributeName: style};
 }
 - (void)fillRoundedRect:(NSRect)rect radius:(CGFloat)radius color:(NSColor *)color {
@@ -560,11 +592,16 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     BOOL online = [self isProviderOnline:name];
 
     NSBezierPath *cardPath = [NSBezierPath bezierPathWithRoundedRect:card xRadius:18 yRadius:18];
-    NSGradient *cardGlass = [[NSGradient alloc]
-        initWithStartingColor:[NSColor colorWithWhite:1 alpha:0.085]
-        endingColor:[color colorWithAlphaComponent:0.025]];
-    [cardGlass drawInBezierPath:cardPath angle:-25];
-    [[NSColor colorWithWhite:1 alpha:0.18] setStroke];
+    // 经典主题的浅色渐变放到玻璃上会变成磨砂；原生玻璃下改垫一层深色衬底托住文字。
+    if (self.usesLiquidGlass) {
+        [self fillLiquidScrim:cardPath];
+    } else {
+        NSGradient *cardGlass = [[NSGradient alloc]
+            initWithStartingColor:[NSColor colorWithWhite:1 alpha:0.085]
+            endingColor:[color colorWithAlphaComponent:0.025]];
+        [cardGlass drawInBezierPath:cardPath angle:-25];
+    }
+    [[NSColor colorWithWhite:1 alpha:self.usesLiquidGlass ? 0.10 : 0.18] setStroke];
     cardPath.lineWidth = 1;
     [cardPath stroke];
 
@@ -597,12 +634,19 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         : (!hasData ? @"等待数据" : (online ? @"● 在线" : @"离线"));
     NSColor *statusColor = (!apiMode && exhausted) ? NSColor.systemOrangeColor
         : (online && hasData ? NSColor.systemGreenColor : secondary);
-    NSDictionary *statusAttributes = [self textAttributesWithSize:11 color:statusColor
-        weight:NSFontWeightMedium];
-    CGFloat statusWidth = ceil([statusText sizeWithAttributes:statusAttributes].width) + 18;
-    NSRect status = NSMakeRect(NSMinX(card) + 94, NSMinY(card) + 55, statusWidth, 24);
-    [self fillRoundedRect:status radius:12 color:[statusColor colorWithAlphaComponent:0.13]];
-    [statusText drawInRect:NSInsetRect(status, 9, 4) withAttributes:statusAttributes];
+    if (self.usesLiquidGlass) {
+        // 原生玻璃下不画彩色底标签，状态色交给字前的圆点；文字里自带的"●"去掉，免得两个点。
+        NSString *plain = [statusText stringByReplacingOccurrencesOfString:@"● " withString:@""];
+        [self drawText:plain inRect:NSMakeRect(NSMinX(card) + 96, NSMinY(card) + 57, 120, 20)
+            size:11 weight:NSFontWeightMedium color:statusColor dotColor:statusColor];
+    } else {
+        NSDictionary *statusAttributes = [self textAttributesWithSize:11 color:statusColor
+            weight:NSFontWeightMedium];
+        CGFloat statusWidth = ceil([statusText sizeWithAttributes:statusAttributes].width) + 18;
+        NSRect status = NSMakeRect(NSMinX(card) + 94, NSMinY(card) + 55, statusWidth, 24);
+        [self fillRoundedRect:status radius:12 color:[statusColor colorWithAlphaComponent:0.13]];
+        [statusText drawInRect:NSInsetRect(status, 9, 4) withAttributes:statusAttributes];
+    }
 
     if (apiMode) {
         CGFloat callX = NSMinX(card) + 214;
@@ -655,26 +699,31 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         NSDictionary *requestComparison = [self comparisonForCurrent:
             [monthComparable[@"request_count"] doubleValue]
             previous:[previousMonthTokens[@"request_count"] doubleValue] color:color];
-        [requestComparison[@"text"] drawInRect:NSMakeRect(callX, NSMinY(card) + 22, 158, 18)
-            withAttributes:[self textAttributesWithSize:11 color:requestComparison[@"color"]
-                weight:NSFontWeightMedium]];
+        [self drawText:requestComparison[@"text"] inRect:NSMakeRect(callX, NSMinY(card) + 22, 158, 18)
+            size:11 weight:NSFontWeightMedium color:requestComparison[@"color"]
+            dotColor:requestComparison[@"color"]];
         NSDictionary *tokenComparison = [self comparisonForCurrent:
             [monthComparable[@"total_tokens"] doubleValue]
             previous:[previousMonthTokens[@"total_tokens"] doubleValue] color:color];
-        [tokenComparison[@"text"] drawInRect:NSMakeRect(tokenX, NSMinY(card) + 22, 158, 18)
-            withAttributes:[self textAttributesWithSize:11 color:tokenComparison[@"color"]
-                weight:NSFontWeightMedium]];
+        [self drawText:tokenComparison[@"text"] inRect:NSMakeRect(tokenX, NSMinY(card) + 22, 158, 18)
+            size:11 weight:NSFontWeightMedium color:tokenComparison[@"color"]
+            dotColor:tokenComparison[@"color"]];
 
         CGFloat trendX = NSMinX(card) + 564;
         // 「按日 Token」跟在标题后面，与标题同一行：它是标题的限定语，单独占一行既浪费
         // 竖向空间，也把曲线和脚注挤得没法与左边两列对齐。
         [@"本月趋势" drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
-        NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:color
-            weight:NSFontWeightSemibold];
-        NSRect pill = NSMakeRect(trendX + 59, NSMinY(card) + 113, 76, 22);
-        [self fillRoundedRect:pill radius:11 color:[color colorWithAlphaComponent:0.14]];
-        [@"按日 Token" drawInRect:NSInsetRect(pill, 9, 3) withAttributes:pillAttributes];
+        if (self.usesLiquidGlass) {
+            [self drawText:@"按日 Token" inRect:NSMakeRect(trendX + 62, NSMinY(card) + 114, 96, 20)
+                size:11 weight:NSFontWeightSemibold color:color dotColor:color];
+        } else {
+            NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:color
+                weight:NSFontWeightSemibold];
+            NSRect pill = NSMakeRect(trendX + 59, NSMinY(card) + 113, 76, 22);
+            [self fillRoundedRect:pill radius:11 color:[color colorWithAlphaComponent:0.14]];
+            [@"按日 Token" drawInRect:NSInsetRect(pill, 9, 3) withAttributes:pillAttributes];
+        }
         NSRect curveRect = NSMakeRect(trendX, NSMinY(card) + 62, 135, 38);
         [self drawMonthlyTokenCurve:monthDaily inRect:curveRect color:color];
         double peak = 0;
@@ -744,10 +793,13 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             ? window[@"rolling"] : [NSString stringWithFormat:@"重置时间 %@", resetValue];
         [reset drawInRect:NSMakeRect(x, NSMinY(card) + 46, 150, 18)
             withAttributes:[self textAttributesWithSize:11 color:secondary weight:NSFontWeightRegular]];
-        NSString *tokenText = [NSString stringWithFormat:@"已用 Token %@",
+        // 原生玻璃下字更大、前面还有圆点，这一栏放不下"Token"一词；脚注里已说明
+        // Token 即本机统计的已用量。
+        NSString *tokenText = [NSString stringWithFormat:
+            self.usesLiquidGlass ? @"已用 %@" : @"已用 Token %@",
             [self formattedTokenCount:window[@"tokens"]]];
-        [tokenText drawInRect:NSMakeRect(x, NSMinY(card) + 22, 150, 22)
-            withAttributes:[self textAttributesWithSize:14 color:color weight:NSFontWeightSemibold]];
+        [self drawText:tokenText inRect:NSMakeRect(x, NSMinY(card) + 22, 150, 22) size:14
+            weight:NSFontWeightSemibold color:color dotColor:color];
     }
 
     CGFloat trendX = NSMinX(card) + 564;
@@ -776,14 +828,19 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         paceTip = @"官方额度受限，等待重置";
         tipColor = NSColor.systemOrangeColor;
     }
-    NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:paceColor
-        weight:NSFontWeightSemibold];
-    // 档位标签跟在标题后面。宽度仍按文字算：四个档位不一样长，最宽的"数据不足"到
-    // trendX + 131，列宽 145 放得下。
-    CGFloat pillWidth = ceil([pace[@"label"] sizeWithAttributes:pillAttributes].width) + 18;
-    NSRect pill = NSMakeRect(trendX + 59, NSMinY(card) + 113, pillWidth, 22);
-    [self fillRoundedRect:pill radius:11 color:[paceColor colorWithAlphaComponent:0.14]];
-    [pace[@"label"] drawInRect:NSInsetRect(pill, 9, 3) withAttributes:pillAttributes];
+    if (self.usesLiquidGlass) {
+        [self drawText:pace[@"label"] inRect:NSMakeRect(trendX + 62, NSMinY(card) + 114, 96, 20)
+            size:11 weight:NSFontWeightSemibold color:paceColor dotColor:paceColor];
+    } else {
+        NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:paceColor
+            weight:NSFontWeightSemibold];
+        // 档位标签跟在标题后面。宽度仍按文字算：四个档位不一样长，最宽的"数据不足"到
+        // trendX + 131，列宽 145 放得下。
+        CGFloat pillWidth = ceil([pace[@"label"] sizeWithAttributes:pillAttributes].width) + 18;
+        NSRect pill = NSMakeRect(trendX + 59, NSMinY(card) + 113, pillWidth, 22);
+        [self fillRoundedRect:pill radius:11 color:[paceColor colorWithAlphaComponent:0.14]];
+        [pace[@"label"] drawInRect:NSInsetRect(pill, 9, 3) withAttributes:pillAttributes];
+    }
 
     NSRect curveRect = NSMakeRect(trendX, NSMinY(card) + 62, 135, 38);
     [self drawUsageCurve:points inRect:curveRect color:color];
@@ -799,8 +856,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         withAttributes:[self rightAlignedTextAttributesWithSize:10 color:secondary
             weight:NSFontWeightRegular]];
     // 与左边两列的"已用 Token"同一条基线（+22），也和 API 卡的脚注行对齐。
-    [paceTip drawInRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18)
-        withAttributes:[self textAttributesWithSize:11 color:tipColor weight:NSFontWeightMedium]];
+    [self drawTip:paceTip inRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18) color:tipColor];
 }
 - (void)drawRect:(NSRect)dirtyRect {
     [NSGraphicsContext saveGraphicsState];
@@ -812,44 +868,65 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSRect logicalBounds = NSMakeRect(0, 0, QuotaLogicalWidth, height);
     NSRect outer = NSInsetRect(logicalBounds, 1, 1);
     NSBezierPath *background = [NSBezierPath bezierPathWithRoundedRect:outer xRadius:24 yRadius:24];
-    NSGradient *gradient = [[NSGradient alloc]
-        initWithStartingColor:[NSColor colorWithRed:0.025 green:0.055 blue:0.095 alpha:0.88]
-        endingColor:[NSColor colorWithRed:0.07 green:0.12 blue:0.19 alpha:0.80]];
-    [gradient drawInBezierPath:background angle:-20];
+    // 原生玻璃按 13pt 圆角裁切整个面板；底色也铺满到同一圆角，否则玻璃边缘和
+    // 底色之间会露出一圈细缝。
+    if (self.usesLiquidGlass) {
+        CGFloat radius = 13 / QuotaScale;
+        background = [NSBezierPath bezierPathWithRoundedRect:logicalBounds
+            xRadius:radius yRadius:radius];
+    }
+    // 原生玻璃不铺底色：任何一层深色都会把 Clear 玻璃压回磨砂感。
+    if (!self.usesLiquidGlass) {
+        NSGradient *gradient = [[NSGradient alloc]
+            initWithStartingColor:[NSColor colorWithRed:0.025 green:0.055 blue:0.095 alpha:0.88]
+            endingColor:[NSColor colorWithRed:0.07 green:0.12 blue:0.19 alpha:0.80]];
+        [gradient drawInBezierPath:background angle:-20];
+    }
 
-    [NSGraphicsContext saveGraphicsState];
-    [background addClip];
-    NSGradient *topGlow = [[NSGradient alloc]
-        initWithStartingColor:[NSColor colorWithWhite:1 alpha:0.34]
-        endingColor:[NSColor colorWithWhite:1 alpha:0.0]];
-    // 两处光晕原本是按 H=590 定的绝对点。面板会变矮，改成跟着高度走：顶部光源始终悬在
-    // 面板上沿之外，冷色光晕落在内容区中段。
-    NSPoint topGlowCenter = NSMakePoint(700, height + 60);
-    [topGlow drawFromCenter:topGlowCenter radius:0
-        toCenter:topGlowCenter radius:250 options:0];
-    NSGradient *cyanGlow = [[NSGradient alloc]
-        initWithStartingColor:[NSColor colorWithRed:0.18 green:0.72 blue:1 alpha:0.11]
-        endingColor:[NSColor colorWithRed:0.18 green:0.88 blue:1 alpha:0.0]];
-    NSPoint cyanGlowCenter = NSMakePoint(660, height * 0.42);
-    [cyanGlow drawFromCenter:cyanGlowCenter radius:0
-        toCenter:cyanGlowCenter radius:260 options:0];
-    [NSGraphicsContext restoreGraphicsState];
+    // 原生玻璃自己绘制高光和边缘，不叠加经典主题的模拟反光。
+    if (!self.usesLiquidGlass) {
+        [NSGraphicsContext saveGraphicsState];
+        [background addClip];
+        NSGradient *topGlow = [[NSGradient alloc]
+            initWithStartingColor:[NSColor colorWithWhite:1 alpha:0.34]
+            endingColor:[NSColor colorWithWhite:1 alpha:0.0]];
+        // 两处光晕原本是按 H=590 定的绝对点。面板会变矮，改成跟着高度走：顶部光源始终悬在
+        // 面板上沿之外，冷色光晕落在内容区中段。
+        NSPoint topGlowCenter = NSMakePoint(700, height + 60);
+        [topGlow drawFromCenter:topGlowCenter radius:0
+            toCenter:topGlowCenter radius:250 options:0];
+        NSGradient *cyanGlow = [[NSGradient alloc]
+            initWithStartingColor:[NSColor colorWithRed:0.18 green:0.72 blue:1 alpha:0.11]
+            endingColor:[NSColor colorWithRed:0.18 green:0.88 blue:1 alpha:0.0]];
+        NSPoint cyanGlowCenter = NSMakePoint(660, height * 0.42);
+        [cyanGlow drawFromCenter:cyanGlowCenter radius:0
+            toCenter:cyanGlowCenter radius:260 options:0];
+        [NSGraphicsContext restoreGraphicsState];
 
-    [[NSColor colorWithWhite:1 alpha:0.34] setStroke];
-    background.lineWidth = 1.5;
-    [background stroke];
-    NSBezierPath *innerGlassBorder = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(outer, 2, 2)
-        xRadius:22 yRadius:22];
-    [[NSColor colorWithRed:0.58 green:0.82 blue:1 alpha:0.22] setStroke];
-    innerGlassBorder.lineWidth = 0.8;
-    [innerGlassBorder stroke];
+        [[NSColor colorWithWhite:1 alpha:0.34] setStroke];
+        background.lineWidth = 1.5;
+        [background stroke];
+        NSBezierPath *innerGlassBorder = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(outer, 2, 2)
+            xRadius:22 yRadius:22];
+        [[NSColor colorWithRed:0.58 green:0.82 blue:1 alpha:0.22] setStroke];
+        innerGlassBorder.lineWidth = 0.8;
+        [innerGlassBorder stroke];
+    }
+    // 玻璃底下可能是任意亮度的壁纸，除了玻璃背后的压暗层，再给白字加一层很淡的投影托底。
+    if (self.usesLiquidGlass) {
+        NSShadow *legibility = [NSShadow new];
+        legibility.shadowColor = [NSColor colorWithWhite:0 alpha:0.4];
+        legibility.shadowBlurRadius = 2;
+        legibility.shadowOffset = NSMakeSize(0, -0.5);
+        [legibility set];
+    }
     NSColor *primary = self.primaryColor;
     NSColor *secondary = self.secondaryColor;
     NSColor *cyan = self.accentColor;
     NSColor *agentColor = self.agentStatusColor;
     [@"Agent Usage" drawInRect:NSMakeRect(28, height - 65, 260, 42)
         withAttributes:[self textAttributesWithSize:30 color:primary weight:NSFontWeightBold]];
-    [@"实时状态与滚动用量" drawInRect:NSMakeRect(30, height - 94, 130, 22)
+    [@"实时状态与滚动用量" drawInRect:NSMakeRect(30, height - 94, self.usesLiquidGlass ? 142 : 130, 22)
         withAttributes:[self textAttributesWithSize:14 color:secondary weight:NSFontWeightRegular]];
     [agentColor setFill];
     [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(174, height - 88, 9, 9)] fill];
@@ -860,17 +937,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         withAttributes:[self textAttributesWithSize:14 color:agentColor weight:NSFontWeightMedium]];
     [self drawSystemMetricsEndingAtX:QuotaLogicalWidth - 28 y:height - 95];
 
-    BOOL recentlyRefreshed = self.refreshedUntil > NSDate.date.timeIntervalSince1970;
-    CGFloat buttonAlpha = self.refreshPressed ? 0.18 : (self.refreshHovered ? 0.12 : 0.06);
-    NSRect logicalRefreshRect = [self logicalRefreshRect];
-    NSRect refreshRect = self.refreshPressed ? NSInsetRect(logicalRefreshRect, 1.5, 1.5) : logicalRefreshRect;
-    [self fillRoundedRect:refreshRect radius:10 color:[NSColor colorWithWhite:1 alpha:buttonAlpha]];
-    [recentlyRefreshed ? @"✓" : @"↻" drawInRect:NSInsetRect(refreshRect, 8, 4)
-        withAttributes:[self textAttributesWithSize:19 color:[NSColor colorWithWhite:0.9 alpha:1] weight:NSFontWeightRegular]];
-    // 贴着刷新按钮左侧右对齐：它说明的正是这个按钮上次生效的时间，挨着放才不用再标一遍
-    // "数据刷新"是什么意思。放回汇总条里会挤掉一整格 Provider 数据。
+    // 用量由定时器自动刷新，面板不再提供手动刷新按钮；右上角只留上次刷新的时间，
+    // 与下一行的系统指标右边对齐。放回汇总条里会挤掉一整格 Provider 数据。
     [[NSString stringWithFormat:@"数据刷新 %@", [self refreshAgeText]]
-        drawInRect:NSMakeRect(NSMinX(logicalRefreshRect) - 206, NSMinY(logicalRefreshRect) + 7, 200, 18)
+        drawInRect:NSMakeRect(QuotaLogicalWidth - 28 - 200, height - 45, 200, 18)
         withAttributes:[self rightAlignedTextAttributesWithSize:11 color:secondary
             weight:NSFontWeightRegular]];
 
@@ -882,7 +952,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         @"Codex": @{@"usage": self.codexUsage ?: @{}, @"usedKey": @"used_percent",
                     @"color": cyan},
         @"Claude": @{@"usage": self.claudeUsage ?: @{}, @"usedKey": @"used_percentage",
-                     @"color": [NSColor colorWithRed:0.66 green:0.43 blue:0.94 alpha:1]}
+                     @"color": self.claudeColor}
     };
     // 卡片从汇总条下方依次向下排。少一家就少一张卡，脚注跟着上移；这里的分段账必须和
     // QuotaLogicalHeightForProviderCount 完全一致，否则面板会多出或少掉一段空白。
@@ -919,11 +989,15 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         ? @"ⓘ  桌宠与系统状态不受影响；额度卡只在检测到对应 CLI 时显示"
         : (hasAPICard
             ? @"ⓘ  API 用量 = 本机会话统计（输入含缓存读写）；环比按上月相同时间进度计算"
-            : @"ⓘ  百分比 = 官方订阅额度的剩余比例；Token = 本机统计的已用量（输入含缓存读写），两者口径不同");
+            : (self.usesLiquidGlass
+                ? @"ⓘ  百分比 = 官方额度剩余；Token = 本机统计已用量（含缓存读写）"
+                : @"ⓘ  百分比 = 官方订阅额度的剩余比例；Token = 本机统计的已用量（输入含缓存读写），两者口径不同"));
     // 最后一块的底边距面板底 QuotaFooterHeight：脚注与其留约 8pt，底部留白 16pt，
     // 和顶部标题的留白大致对称。
     [footer drawInRect:NSMakeRect(28, 16, 650, 20)
-        withAttributes:[self textAttributesWithSize:11 color:[NSColor colorWithWhite:0.58 alpha:1] weight:NSFontWeightRegular]];
+        withAttributes:[self textAttributesWithSize:11
+            color:self.usesLiquidGlass ? self.secondaryColor : [NSColor colorWithWhite:0.58 alpha:1]
+            weight:NSFontWeightRegular]];
     [NSGraphicsContext restoreGraphicsState];
 }
 
@@ -935,9 +1009,13 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     secondary:(NSColor *)secondary accent:(NSColor *)cyan {
     NSRect summary = [self logicalSummaryRect];
     NSBezierPath *summaryPath = [NSBezierPath bezierPathWithRoundedRect:summary xRadius:18 yRadius:18];
-    [[NSColor colorWithWhite:1 alpha:0.065] setFill];
-    [summaryPath fill];
-    [[NSColor colorWithWhite:1 alpha:0.16] setStroke];
+    if (self.usesLiquidGlass) {
+        [self fillLiquidScrim:summaryPath];
+    } else {
+        [[NSColor colorWithWhite:1 alpha:0.065] setFill];
+        [summaryPath fill];
+    }
+    [[NSColor colorWithWhite:1 alpha:self.usesLiquidGlass ? 0.10 : 0.16] setStroke];
     [summaryPath stroke];
 
     NSArray<NSDictionary *> *cells = @[
@@ -949,7 +1027,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSDictionary *rowSpecs = @{
         @"Codex": @{@"usage": self.codexUsage ?: @{}, @"color": cyan},
         @"Claude": @{@"usage": self.claudeUsage ?: @{},
-                     @"color": [NSColor colorWithRed:0.66 green:0.43 blue:0.94 alpha:1]}
+                     @"color": self.claudeColor}
     };
     // 两行版的槽位是写死的。只装了一家时改用居中的单行槽位，否则汇总条会空出半格，
     // 看着像数据没加载出来。
@@ -977,9 +1055,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         CGFloat x = NSMinX([self logicalSummaryCellRectAtIndex:index]);
         const CGFloat inputX = x + 176;
         const CGFloat outputX = x + 276;
-        NSFont *headerFont = [NSFont systemFontOfSize:11 weight:NSFontWeightRegular];
+        NSFont *headerFont = [self fontWithSize:11 weight:NSFontWeightRegular];
         NSDictionary *headerAttributes = @{NSFontAttributeName: headerFont,
-            NSForegroundColorAttributeName: secondary};
+            NSForegroundColorAttributeName: [self textColor:secondary]};
         NSImage *headerIcon = [NSImage imageWithSystemSymbolName:cell[@"headerSymbol"]
             accessibilityDescription:cell[@"label"]];
         NSImageSymbolConfiguration *headerIconConfiguration =
@@ -1009,9 +1087,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             CGFloat nameY = NSMinY(summary) + [row[@"nameY"] doubleValue];
             CGFloat labelY = NSMinY(summary) + [row[@"labelY"] doubleValue];
             CGFloat valueY = NSMinY(summary) + [row[@"valueY"] doubleValue];
+            // 这是图标字形不是文字，原生玻璃下也保留颜色：它负责标出这一行是哪一家。
             [cell[@"icon"] drawInRect:NSMakeRect(x + 20, iconY, 42, 42)
-                withAttributes:[self textAttributesWithSize:30 color:rowColor
-                    weight:NSFontWeightRegular]];
+                withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:30
+                    weight:NSFontWeightRegular], NSForegroundColorAttributeName: rowColor}];
             [row[@"name"] drawInRect:NSMakeRect(x + 66, nameY, 76, 22)
                 withAttributes:[self textAttributesWithSize:14 color:rowColor
                     weight:NSFontWeightMedium]];
