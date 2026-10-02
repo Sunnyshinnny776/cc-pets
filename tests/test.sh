@@ -1769,6 +1769,16 @@ grep -q 'UpdateRetryDelay' "${PET_SOURCES[@]}"
 grep -q 'update-retry-cache' "${PET_SOURCES[@]}"
 print "自动更新暂时性故障重试测试通过"
 
+RELEASE_NOTES_TMP="$(mktemp -d /tmp/cc-pets-release-notes-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
+  "${PROJECT_DIR}/tests/release-notes-harness.m" \
+  -o "${RELEASE_NOTES_TMP}/release-notes-test"
+"${RELEASE_NOTES_TMP}/release-notes-test"
+print "更新说明解析测试通过"
+
 # CC Bridge 自带隔离（临时状态目录、假 claude / codex 进程、假 codex queue），
 # 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。
 node "${PROJECT_DIR}/tests/bridge-harness.mjs"

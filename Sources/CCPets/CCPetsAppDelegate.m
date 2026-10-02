@@ -26,11 +26,23 @@ static const NSUInteger PendingApprovalLimit = 100;
 static const NSUInteger AgentSessionRecordLimit = 20;
 static const NSUInteger AgentSessionMenuLimit = 8;
 static const CGFloat PetApprovalBadgeSize = 17.0;
+static const CGFloat PetUpdateBadgeSize = 24.0;
 // CC Bridge：轮询间隔、"最近消息"的时间窗、菜单里最多列几条。
 static const NSTimeInterval BridgeRefreshInterval = 3.0;
 static const NSTimeInterval BridgeRecentWindow = 30 * 60;
 static const NSUInteger BridgeMenuDeliveryLimit = 5;
 static const unsigned long long UpdateLogSizeLimit = 1024 * 1024;
+static NSString *const CCPetsRepositorySlug = @"Sunnyshinnny776/cc-pets";
+// 更新弹窗里最多列几条说明、每条最多几个字符；多出来的条目用一行「…」代替。
+static const NSUInteger UpdateHighlightLimit = 3;
+static const NSUInteger UpdateHighlightMaxLength = 50;
+// CLI 每开一个终端都会 open 一次桌宠，这个间隔内不重复联网检查。
+static const NSTimeInterval UpdateSilentCheckInterval = 10 * 60;
+// 启动时的更新气泡比普通碎碎念停得久，给用户留出点它的时间。
+static const NSTimeInterval UpdateBubbleDwell = 30.0;
+// 碎碎念开着时，每次够条件说话有一半机会换成更新提醒；提醒气泡停得比闲话久一点，来得及点。
+static const uint32_t UpdateReminderSharePercent = 50;
+static const NSTimeInterval UpdateReminderDwell = 8.0;
 static NSString *const PetInteractionPhrasesV1MigratedKey =
     @"CCPetsInteractionPhrasesV1Migrated";
 
@@ -187,6 +199,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
 }
 - (void)retryUpdate:(NSArray *)context {
     self.updating = NO;
+    [self refreshUpdateBadge];
     [self startUpdateToVersion:context[0] attempt:[context[1] integerValue]];
 }
 - (void)startUpdateToVersion:(NSString *)version attempt:(NSInteger)attempt {
@@ -252,6 +265,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     task.standardOutput = logHandle;
     task.standardError = logHandle;
     self.updating = YES;
+    [self refreshUpdateBadge];
     self.updateTask = task;
     __weak typeof(self) weakSelf = self;
     task.terminationHandler = ^(NSTask *finishedTask) {
@@ -263,6 +277,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
             strongSelf.updateTask = nil;
             if (finishedTask.terminationStatus == EXIT_SUCCESS) {
                 strongSelf.updating = NO;
+                [strongSelf refreshUpdateBadge];
                 if ([strongSelf restartAfterUpdateToVersion:version configuration:configuration]) return;
                 [strongSelf showUpdateAlertWithTitle:@"更新完成"
                     message:@"CC Pets 已更新，但没有找到可自动启动的新版应用，请手动重新启动一次。"];
@@ -279,6 +294,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
                 return;
             }
             strongSelf.updating = NO;
+            [strongSelf refreshUpdateBadge];
             [NSApp activateIgnoringOtherApps:YES];
             NSAlert *alert = [NSAlert new];
             alert.messageText = @"更新失败";
@@ -294,6 +310,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     NSError *launchError = nil;
     if (![task launchAndReturnError:&launchError]) {
         self.updating = NO;
+        [self refreshUpdateBadge];
         self.updateTask = nil;
         [logHandle closeFile];
         [self showUpdateAlertWithTitle:@"无法启动更新" message:launchError.localizedDescription];
@@ -305,75 +322,225 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
             message:[NSString stringWithFormat:@"正在下载并安装 CC Pets %@。完成后桌宠会自动重启。", version]];
     }
 }
-// 系统标准关于面板：图标取自 Info.plist，版本号用构建时注入的 CC_PETS_VERSION（与检查更新
-// 同一口径）。桌宠是 LSUIElement，不先激活的话面板会开在其他 App 后面。
+// 关于弹窗与检查更新同用 NSAlert，保持样式一致；版本号用构建时注入的 CC_PETS_VERSION（与检查更新
+// 同一口径）。桌宠是 LSUIElement，不先激活的话弹窗会开在其他 App 后面。
 - (void)showAboutPanel:(id)sender {
-    NSMutableAttributedString *credits = [[NSMutableAttributedString alloc]
-        initWithString:@"Claude Code / Codex CLI 的多功能桌面宠物。\n\n"
-        attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
-                     NSForegroundColorAttributeName: NSColor.secondaryLabelColor}];
-    NSString *homepage = @"https://github.com/Sunnyshinnny776/cc-pets";
-    [credits appendAttributedString:[[NSAttributedString alloc] initWithString:homepage
-        attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
-                     NSLinkAttributeName: [NSURL URLWithString:homepage]}]];
-    NSMutableParagraphStyle *centered = [NSMutableParagraphStyle new];
-    centered.alignment = NSTextAlignmentCenter;
-    [credits addAttribute:NSParagraphStyleAttributeName value:centered
-        range:NSMakeRange(0, credits.length)];
     [NSApp activateIgnoringOtherApps:YES];
-    [NSApp orderFrontStandardAboutPanelWithOptions:@{
-        NSAboutPanelOptionApplicationName: @"CC Pets",
-        NSAboutPanelOptionApplicationVersion: @CC_PETS_VERSION,
-        // 空字符串才能去掉版本号后面括号里的 CFBundleVersion（Info.plist 里没有这一项）。
-        NSAboutPanelOptionVersion: @"",
-        NSAboutPanelOptionCredits: credits
-    }];
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = @"CC Pets";
+    alert.informativeText = [NSString stringWithFormat:
+        @"当前版本：%@\n\nClaude Code / Codex CLI 的多功能桌面宠物。", @CC_PETS_VERSION];
+    [alert addButtonWithTitle:@"好"];
+    [alert addButtonWithTitle:@"访问主页"];
+    if ([alert runModal] == NSAlertSecondButtonReturn) {
+        [NSWorkspace.sharedWorkspace openURL:
+            [NSURL URLWithString:[@"https://github.com/" stringByAppendingString:CCPetsRepositorySlug]]];
+    }
 }
-- (void)checkForUpdates:(id)sender {
-    if (self.checkingForUpdate || self.updating) return;
-    self.checkingForUpdate = YES;
+// 版本号以 npm Registry 为准（自动更新装的就是它），更新说明取同版本 tag 的 GitHub Release
+// 描述。Release 没写、没建、或 GitHub 请求失败都只是没有说明，不影响提示更新本身。
+- (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSArray<NSString *> *highlights,
+    BOOL highlightsTruncated, NSString *errorMessage))completion {
     NSURL *url = [NSURL URLWithString:@"https://registry.npmjs.org/cc-pets/latest"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url
         cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-    __weak typeof(self) weakSelf = self;
     NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request
         completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            typeof(self) strongSelf = weakSelf;
-            if (!strongSelf) return;
-            strongSelf.checkingForUpdate = NO;
-            NSHTTPURLResponse *httpResponse = [response isKindOfClass:NSHTTPURLResponse.class]
-                ? (NSHTTPURLResponse *)response : nil;
-            NSDictionary *metadata = data
-                ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-            NSString *latestVersion = [metadata[@"version"] isKindOfClass:NSString.class]
-                ? metadata[@"version"] : nil;
-            BOOL valid = NO;
-            NSComparisonResult comparison = CompareStableVersions(@CC_PETS_VERSION, latestVersion, &valid);
-            if (error || httpResponse.statusCode != 200 || !valid) {
-                NSString *message = error.localizedDescription ?: @"npm Registry 返回了无效的版本信息，请稍后重试。";
-                [strongSelf showUpdateAlertWithTitle:@"检查更新失败" message:message];
-                return;
-            }
-            if (comparison != NSOrderedAscending) {
-                [strongSelf showUpdateAlertWithTitle:@"已是最新版本"
-                    message:[NSString stringWithFormat:@"当前版本：%@", @CC_PETS_VERSION]];
-                return;
-            }
-            [NSApp activateIgnoringOtherApps:YES];
-            NSAlert *alert = [NSAlert new];
-            alert.messageText = @"发现新版本";
-            alert.informativeText = [NSString stringWithFormat:
-                @"当前版本：%@\n最新版本：%@\n\n是否立即更新？", @CC_PETS_VERSION, latestVersion];
-            [alert addButtonWithTitle:@"立即更新"];
-            [alert addButtonWithTitle:@"稍后"];
-            if ([alert runModal] == NSAlertFirstButtonReturn) {
-                [strongSelf startUpdateToVersion:latestVersion];
-            }
-        });
+        NSHTTPURLResponse *httpResponse = [response isKindOfClass:NSHTTPURLResponse.class]
+            ? (NSHTTPURLResponse *)response : nil;
+        NSDictionary *metadata = data
+            ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        NSString *latestVersion = [metadata isKindOfClass:NSDictionary.class] &&
+            [metadata[@"version"] isKindOfClass:NSString.class] ? metadata[@"version"] : nil;
+        BOOL valid = NO;
+        NSComparisonResult comparison = CompareStableVersions(@CC_PETS_VERSION, latestVersion, &valid);
+        if (error || httpResponse.statusCode != 200 || !valid) {
+            NSString *message = error.localizedDescription ?: @"npm Registry 返回了无效的版本信息，请稍后重试。";
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, nil, NO, message); });
+            return;
+        }
+        if (comparison != NSOrderedAscending) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(latestVersion, nil, NO, nil); });
+            return;
+        }
+        NSString *releaseURL = [NSString stringWithFormat:
+            @"https://api.github.com/repos/%@/releases/tags/v%@", CCPetsRepositorySlug, latestVersion];
+        NSMutableURLRequest *releaseRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:releaseURL]
+            cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:10];
+        [releaseRequest setValue:@"application/vnd.github+json" forHTTPHeaderField:@"Accept"];
+        [releaseRequest setValue:@"cc-pets/" CC_PETS_VERSION forHTTPHeaderField:@"User-Agent"];
+        NSURLSessionDataTask *releaseTask = [NSURLSession.sharedSession dataTaskWithRequest:releaseRequest
+            completionHandler:^(NSData *releaseData, NSURLResponse *releaseResponse, NSError *releaseError) {
+            NSInteger status = [releaseResponse isKindOfClass:NSHTTPURLResponse.class]
+                ? ((NSHTTPURLResponse *)releaseResponse).statusCode : 0;
+            NSDictionary *release = !releaseError && status == 200 && releaseData
+                ? [NSJSONSerialization JSONObjectWithData:releaseData options:0 error:nil] : nil;
+            NSString *body = [release isKindOfClass:NSDictionary.class] &&
+                [release[@"body"] isKindOfClass:NSString.class] ? release[@"body"] : nil;
+            BOOL truncated = NO;
+            NSArray<NSString *> *highlights = ReleaseNoteHighlights(body,
+                UpdateHighlightLimit, UpdateHighlightMaxLength, &truncated);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(latestVersion, highlights, truncated, nil);
+            });
+        }];
+        [releaseTask resume];
     }];
     [task resume];
+}
+- (void)checkForUpdates:(id)sender {
+    if (self.checkingForUpdate || self.updating) return;
+    self.checkingForUpdate = YES;
+    __weak typeof(self) weakSelf = self;
+    [self fetchLatestReleaseWithCompletion:^(NSString *version, NSArray<NSString *> *highlights,
+        BOOL truncated, NSString *errorMessage) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf.checkingForUpdate = NO;
+        if (errorMessage) {
+            [strongSelf showUpdateAlertWithTitle:@"检查更新失败" message:errorMessage];
+            return;
+        }
+        BOOL valid = NO;
+        if (CompareStableVersions(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
+            [strongSelf clearPendingUpdate];
+            [strongSelf showUpdateAlertWithTitle:@"已是最新版本"
+                message:[NSString stringWithFormat:@"当前版本：%@", @CC_PETS_VERSION]];
+            return;
+        }
+        [strongSelf rememberPendingUpdate:version highlights:highlights truncated:truncated];
+        [strongSelf showUpdateDialog];
+    }];
+}
+// 启动时（含 CLI 再次 open 一个已在运行的桌宠）静默检查一次：失败一律不打扰，
+// 有新版本就让宠物冒一个能点的气泡。距上次联网不到 UpdateSilentCheckInterval 时
+// 不重复请求，已知有新版本的话直接再提示一次。
+- (void)silentCheckForUpdate {
+    if (self.checkingForUpdate || self.updating) return;
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    if (self.lastSilentUpdateCheckAt > 0 && now - self.lastSilentUpdateCheckAt < UpdateSilentCheckInterval) {
+        if (self.pendingUpdateVersion) [self showUpdateBubble];
+        return;
+    }
+    self.lastSilentUpdateCheckAt = now;
+    self.checkingForUpdate = YES;
+    __weak typeof(self) weakSelf = self;
+    [self fetchLatestReleaseWithCompletion:^(NSString *version, NSArray<NSString *> *highlights,
+        BOOL truncated, NSString *errorMessage) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf.checkingForUpdate = NO;
+        if (errorMessage || strongSelf.updating) return;
+        BOOL valid = NO;
+        if (CompareStableVersions(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
+            [strongSelf clearPendingUpdate];
+            return;
+        }
+        [strongSelf rememberPendingUpdate:version highlights:highlights truncated:truncated];
+        [strongSelf showUpdateBubble];
+    }];
+}
+- (void)rememberPendingUpdate:(NSString *)version highlights:(NSArray<NSString *> *)highlights
+    truncated:(BOOL)truncated {
+    // 「稍后」只针对当时那个版本；又出了更新的版本就重新提醒。
+    if (![version isEqualToString:self.pendingUpdateVersion]) self.updateReminderSnoozed = NO;
+    self.pendingUpdateVersion = version;
+    self.pendingUpdateHighlights = highlights ?: @[];
+    self.pendingUpdateHighlightsTruncated = truncated;
+    [self refreshUpdateBadge];
+}
+- (void)refreshUpdateBadge {
+    BOOL show = self.pendingUpdateVersion.length > 0 && !self.updating;
+    self.updateBadgeView.hidden = !show;
+    self.updateBadgeButton.toolTip = show
+        ? [NSString stringWithFormat:@"发现新版本 %@，点击查看", self.pendingUpdateVersion] : nil;
+}
+- (void)clearPendingUpdate {
+    self.pendingUpdateVersion = nil;
+    self.pendingUpdateHighlights = nil;
+    self.pendingUpdateHighlightsTruncated = NO;
+    [self refreshUpdateBadge];
+    if (self.updateBubbleVisible) [self hideSpeechBubble];
+}
+// 更新要点放进 accessoryView 而不是 informativeText：后者是一整段纯文本，列表项折行后
+// 第二行会顶到「•」下面，几条长说明挤成一坨。这里用悬挂缩进让折行对齐到文字起点。
+- (NSView *)updateHighlightsAccessoryView {
+    if (self.pendingUpdateHighlights.count == 0) return nil;
+    const CGFloat width = 300;
+    NSFont *bodyFont = [NSFont systemFontOfSize:12];
+    NSString *bullet = @"•\t";
+    CGFloat indent = ceil([bullet sizeWithAttributes:@{NSFontAttributeName: bodyFont}].width) + 4;
+    NSMutableParagraphStyle *itemStyle = [NSMutableParagraphStyle new];
+    itemStyle.tabStops = @[[[NSTextTab alloc] initWithTextAlignment:NSTextAlignmentLeft
+        location:indent options:@{}]];
+    itemStyle.headIndent = indent;
+    itemStyle.paragraphSpacing = 5;
+    itemStyle.lineSpacing = 1;
+    NSMutableParagraphStyle *headerStyle = [NSMutableParagraphStyle new];
+    headerStyle.paragraphSpacing = 6;
+
+    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] initWithString:@"更新内容\n"
+        attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightSemibold],
+                     NSForegroundColorAttributeName: NSColor.labelColor,
+                     NSParagraphStyleAttributeName: headerStyle}];
+    NSDictionary *itemAttributes = @{NSFontAttributeName: bodyFont,
+        NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
+        NSParagraphStyleAttributeName: itemStyle};
+    [self.pendingUpdateHighlights enumerateObjectsUsingBlock:^(NSString *item, NSUInteger index, BOOL *stop) {
+        NSString *line = [NSString stringWithFormat:@"%@%@%@", bullet, item,
+            index + 1 < self.pendingUpdateHighlights.count || self.pendingUpdateHighlightsTruncated
+                ? @"\n" : @""];
+        [text appendAttributedString:[[NSAttributedString alloc] initWithString:line
+            attributes:itemAttributes]];
+    }];
+    if (self.pendingUpdateHighlightsTruncated) {
+        [text appendAttributedString:[[NSAttributedString alloc] initWithString:@"还有更多更新，完整说明见 GitHub Release"
+            attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                         NSForegroundColorAttributeName: NSColor.tertiaryLabelColor,
+                         NSParagraphStyleAttributeName: itemStyle}]];
+    }
+    NSTextField *label = [NSTextField wrappingLabelWithString:@""];
+    label.attributedStringValue = text;
+    label.preferredMaxLayoutWidth = width;
+    NSSize size = [label.cell cellSizeForBounds:NSMakeRect(0, 0, width, CGFLOAT_MAX)];
+    label.frame = NSMakeRect(0, 0, width, ceil(size.height));
+    return label;
+}
+- (void)showUpdateDialog {
+    NSString *version = self.pendingUpdateVersion;
+    if (version.length == 0 || self.updating) return;
+    if (self.updateBubbleVisible) [self hideSpeechBubble];
+    [NSApp activateIgnoringOtherApps:YES];
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = [NSString stringWithFormat:@"发现新版本 %@", version];
+    alert.informativeText = [NSString stringWithFormat:@"当前版本 %@", @CC_PETS_VERSION];
+    alert.accessoryView = [self updateHighlightsAccessoryView];
+    [alert addButtonWithTitle:@"立即更新"];
+    [alert addButtonWithTitle:@"稍后"];
+    if (self.pendingUpdateHighlights.count > 0) [alert addButtonWithTitle:@"完整说明"];
+    NSModalResponse response = [alert runModal];
+    if (response == NSAlertFirstButtonReturn) {
+        [self startUpdateToVersion:version];
+        return;
+    }
+    if (response == NSAlertThirdButtonReturn) {
+        [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:[NSString stringWithFormat:
+            @"https://github.com/%@/releases/tag/v%@", CCPetsRepositorySlug, version]]];
+    }
+    // 用户没选立即更新，本次运行不再主动冒气泡；角标和菜单入口照旧在。
+    self.updateReminderSnoozed = YES;
+    self.updateBubbleDeferred = NO;
+}
+// 菜单是 PetView 每次右键现建的，它拿不到 AppDelegate 的头文件；在这里按待更新状态改标题，
+// 气泡错过了也能从菜单进去。
+- (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
+    if (menuItem.action == @selector(checkForUpdates:)) {
+        menuItem.title = self.pendingUpdateVersion && !self.updating
+            ? [NSString stringWithFormat:@"发现新版本 %@…", self.pendingUpdateVersion]
+            : @"检查更新…";
+    }
+    return YES;
 }
 - (NSString *)systemMetricKeyForTag:(NSInteger)tag {
     if (tag == 1) return SystemCPUEnabledKey;
@@ -452,6 +619,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     [self.statusGlass applyTheme];
     [self.speechGlass applyTheme];
     [self.quotaGlass applyTheme];
+    [self.updateBadgeGlass applyTheme];
     self.statusShadowView.hidden = self.statusGlass.usesLiquidGlass;
     self.quotaView.usesLiquidGlass = self.quotaGlass.usesLiquidGlass;
     self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
@@ -479,6 +647,19 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     self.speechLabel.textColor = speechLiquid ? [NSColor colorWithWhite:1 alpha:0.97]
         : [NSColor colorWithWhite:0.10 alpha:0.96];
     self.speechLabel.shadow = speechLiquid ? shadow : nil;
+    [self applyUpdateBadgeStyle];
+}
+// 角标箭头与气泡文字同一套规则：清透玻璃上白色加投影，经典磨砂上深色。
+- (void)applyUpdateBadgeStyle {
+    if (!self.updateBadgeGlass) return;
+    BOOL liquid = self.updateBadgeGlass.usesLiquidGlass;
+    self.updateBadgeArrow.contentTintColor = liquid ? [NSColor colorWithWhite:1 alpha:0.97]
+        : [NSColor colorWithWhite:0.12 alpha:0.96];
+    NSShadow *shadow = [NSShadow new];
+    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
+    shadow.shadowBlurRadius = 2;
+    shadow.shadowOffset = NSMakeSize(0, -0.5);
+    self.updateBadgeArrow.shadow = liquid ? shadow : nil;
 }
 - (void)setGlassDimLevel:(MenuChoiceRowView *)sender {
     NSNumber *level = sender.representedObject;
@@ -487,6 +668,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     [self.quotaGlass applyDimLevel];
     [self.statusGlass applyDimLevel];
     [self.speechGlass applyDimLevel];
+    [self.updateBadgeGlass applyDimLevel];
     self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
     self.quotaView.needsDisplay = YES;
 }
@@ -496,7 +678,8 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     BOOL enabled = current == nil ? YES : [current boolValue];
     [defaults setBool:!enabled forKey:@"CCPetsSpeechEnabled"];
     sender.state = !enabled ? NSControlStateValueOn : NSControlStateValueOff;
-    if (enabled) [self hideSpeechBubble];
+    // 更新提示不算碎碎念，关掉碎碎念时不收它。
+    if (enabled && !self.updateBubbleVisible) [self hideSpeechBubble];
 }
 - (void)togglePetInteraction:(NSButton *)sender {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -798,6 +981,7 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
     if (self.statusBubbleExpanded) {
         [self.statusPanel orderFrontRegardless];
         // 卡片一出现就收掉独立气泡：两者都是宠物在说话，同时挂着就是重影。
+        // 更新气泡也一样让开：agent 有新动静时状态卡优先，更新入口还有角标和菜单。
         if (self.speechPanel.isVisible) [self hideSpeechBubble];
     } else {
         [self.statusPanel orderOut:nil];
@@ -1752,6 +1936,38 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         selector:@selector(petWindowDidMove:)
         name:NSWindowDidMoveNotification object:self.panel];
     [root addSubview:self.petView];
+    // 有新版本时挂在宠物右上角的「↑」角标：气泡只冒一会儿，角标一直在，点一下弹更新窗口。
+    // 底子用和状态卡、气泡同一套 CCPetsGlassView，跟着面板主题和压暗档位走。
+    // 在 petView 之后加入，点击先落到角标上。
+    NSView *updateBadge = [[NSView alloc] initWithFrame:NSMakeRect(
+        NSMaxX(self.petView.frame) - 30, NSMaxY(self.petView.frame) - 28,
+        PetUpdateBadgeSize, PetUpdateBadgeSize)];
+    updateBadge.hidden = YES;
+    self.updateBadgeGlass = [[CCPetsGlassView alloc]
+        initWithFrame:updateBadge.bounds material:NSVisualEffectMaterialPopover
+        appearance:NSAppearanceNameAqua cornerRadius:PetUpdateBadgeSize / 2.0];
+    self.updateBadgeGlass.edgeShadeHeight = 4;
+    self.updateBadgeGlass.edgeShadeAlpha = 0.5;
+    self.updateBadgeGlass.usesWidgetGlass = YES;
+    [updateBadge addSubview:self.updateBadgeGlass];
+    self.updateBadgeArrow = [[NSImageView alloc] initWithFrame:updateBadge.bounds];
+    self.updateBadgeArrow.imageScaling = NSImageScaleNone;
+    self.updateBadgeArrow.image = [[NSImage imageWithSystemSymbolName:@"arrow.up"
+        accessibilityDescription:@"有新版本"] imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPointSize:11 weight:NSFontWeightBold]];
+    [updateBadge addSubview:self.updateBadgeArrow];
+    CCPetsStatusClickButton *updateClick = [[CCPetsStatusClickButton alloc]
+        initWithFrame:updateBadge.bounds];
+    updateClick.bordered = NO;
+    updateClick.transparent = YES;
+    updateClick.title = @"";
+    updateClick.target = self;
+    updateClick.action = @selector(updateBubbleClicked:);
+    [updateBadge addSubview:updateClick];
+    self.updateBadgeButton = updateClick;
+    self.updateBadgeView = updateBadge;
+    [root addSubview:updateBadge];
+    [self applyUpdateBadgeStyle];
 
     NSSize statusGlassSize = NSMakeSize(340, PetStatusBodyHeight);
     NSSize statusSize = NSMakeSize(statusGlassSize.width + 12, statusGlassSize.height + 12);
@@ -1935,6 +2151,14 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
         name:NSWorkspaceScreensDidSleepNotification object:nil];
     [workspaceCenter addObserver:self selector:@selector(screensDidWake:)
         name:NSWorkspaceScreensDidWakeNotification object:nil];
+    // 启动先让界面和事件流就位，再联网检查更新，别和启动抢时间。
+    [self performSelector:@selector(silentCheckForUpdate) withObject:nil afterDelay:5.0];
+}
+// CLI 启动时桌宠若已在运行，`open -g` 不会重新启动它，只会发一个 reopen 事件过来。
+// 借这个时机同样静默检查一次更新（silentCheckForUpdate 自己做节流）。
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
+    [self silentCheckForUpdate];
+    return NO;
 }
 - (void)screensDidSleep:(NSNotification *)notification {
     [self.petView setAnimationSuspended:YES];
@@ -2241,6 +2465,16 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
     self.speechLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [self.speechGlass.contentView addSubview:self.speechLabel];
     [root addSubview:self.speechGlass];
+    // 平时气泡不接受点击；只有更新提示把它打开，点一下弹更新窗口。
+    self.speechClickButton = [[CCPetsStatusClickButton alloc] initWithFrame:root.bounds];
+    self.speechClickButton.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.speechClickButton.bordered = NO;
+    self.speechClickButton.transparent = YES;
+    self.speechClickButton.title = @"";
+    self.speechClickButton.target = self;
+    self.speechClickButton.action = @selector(updateBubbleClicked:);
+    self.speechClickButton.hidden = YES;
+    [root addSubview:self.speechClickButton];
     [self applyBubbleTextStyle];
     self.speechPanel.contentView = root;
 }
@@ -2280,8 +2514,8 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
         self.statusDetailLabel.stringValue = text;
         [self resizeStatusCardToFitText];
         [self positionAgentStatus];
-        // 上一句的独立气泡可能还没淡完，收掉它，别和状态卡叠着。
-        [self hideSpeechBubble];
+        // 上一句的独立气泡可能还没淡完，收掉它，别和状态卡叠着。更新气泡不归闲话管。
+        if (!self.updateBubbleVisible) [self hideSpeechBubble];
         // 副行是状态卡的正文，借走说一句之后必须还回去，否则闲话会一直挂着，
         // 看起来像状态卡卡死了。
         //
@@ -2294,6 +2528,8 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
             afterDelay:PetSpeechDwell];
         return;
     }
+    // 更新气泡挂着时闲话让路，别把还没点的提示顶掉。
+    if (self.updateBubbleVisible) return;
     [self showSpeechBubbleWithText:text];
 }
 // 把副行还给状态文案。lastPetVoiceText 里存的就是当前状态本该显示的那句。
@@ -2304,6 +2540,9 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
     [self positionAgentStatus];
 }
 - (void)showSpeechBubbleWithText:(NSString *)text {
+    [self showSpeechBubbleWithText:text dwell:PetSpeechDwell];
+}
+- (void)showSpeechBubbleWithText:(NSString *)text dwell:(NSTimeInterval)dwell {
     [self buildSpeechPanelIfNeeded];
     self.speechLabel.stringValue = text;
     [self resizeSpeechBubbleToFitText];
@@ -2316,7 +2555,46 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
     } completionHandler:nil];
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(hideSpeechBubble) object:nil];
-    [self performSelector:@selector(hideSpeechBubble) withObject:nil afterDelay:PetSpeechDwell];
+    [self performSelector:@selector(hideSpeechBubble) withObject:nil afterDelay:dwell];
+}
+// 更新提示：不受碎碎念开关、冷却和每小时预算限制。宠物头上始终只挂一个泡：
+// agent 在忙就先记下来，等它闲下来（considerIdleSpeech 每 3 秒一跳）再冒；
+// 状态卡只是在待命时，临时把它收起让位，气泡消失后再放回来。
+- (void)showUpdateBubble {
+    if (self.pendingUpdateVersion.length == 0 || self.updating || self.updateReminderSnoozed) {
+        self.updateBubbleDeferred = NO;
+        return;
+    }
+    if ([self agentBusyForSpeech]) {
+        self.updateBubbleDeferred = YES;
+        return;
+    }
+    self.updateBubbleDeferred = NO;
+    [self showUpdateBubbleWithText:[NSString stringWithFormat:@"CC Pets %@ 版本来啦，点我更新",
+        self.pendingUpdateVersion] dwell:UpdateBubbleDwell];
+}
+// 碎碎念时机里的更新提醒，几句轮换，免得每次都是同一句。
+- (NSString *)updateReminderText {
+    NSArray<NSString *> *lines = @[
+        @"新版本 {version} 还在等你哦，点我更新",
+        @"{version} 已经发布啦，点我看看更新了啥",
+        @"要不要升级到 {version}？点我",
+    ];
+    return [lines[arc4random_uniform((uint32_t)lines.count)]
+        stringByReplacingOccurrencesOfString:@"{version}" withString:self.pendingUpdateVersion];
+}
+- (void)showUpdateBubbleWithText:(NSString *)text dwell:(NSTimeInterval)dwell {
+    if (self.statusPanel.isVisible) {
+        [self.statusPanel orderOut:nil];
+        self.updateBubbleSuppressedStatus = YES;
+    }
+    [self showSpeechBubbleWithText:text dwell:dwell];
+    self.updateBubbleVisible = YES;
+    self.speechPanel.ignoresMouseEvents = NO;
+    self.speechClickButton.hidden = NO;
+}
+- (void)updateBubbleClicked:(id)sender {
+    [self showUpdateDialog];
 }
 // 调试触发：写一个标签进 defaults，下一跳（≤3 秒）就强制弹一次独立气泡，
 // 绕开安静期、概率、预算和状态卡判断，弹完自动把键删掉，不会残留。
@@ -2333,6 +2611,17 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
 }
 - (void)hideSpeechBubble {
     if (!self.speechPanel) return;
+    self.updateBubbleVisible = NO;
+    self.speechPanel.ignoresMouseEvents = YES;
+    self.speechClickButton.hidden = YES;
+    // 被更新气泡临时收起的状态卡还回去（会话已结束或用户关了状态卡就不还）。
+    if (self.updateBubbleSuppressedStatus) {
+        self.updateBubbleSuppressedStatus = NO;
+        if (self.hasAgentStatus && self.statusBubbleExpanded && !self.statusPanel.isVisible) {
+            [self positionAgentStatus];
+            [self.statusPanel orderFrontRegardless];
+        }
+    }
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
         context.duration = 0.22;
         self.speechPanel.animator.alphaValue = 0;
@@ -2349,6 +2638,7 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
 // 挂在已有的客户端存活定时器上，不新起 timer——常驻唤醒一个都不该多。
 - (void)considerIdleSpeech {
     [self consumeSpeechDebugTrigger];
+    if (self.updateBubbleDeferred && ![self agentBusyForSpeech]) [self showUpdateBubble];
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     // 真正的判断最多 30 秒做一次，3 秒一跳的定时器上不必每次都算。
     if (now - self.lastIdleSpeechCheck < 30.0) return;
@@ -2371,6 +2661,16 @@ static const CGFloat PetStatusSingleLineHeight = 40.0;
 
     // 不是每次够条件都说：概率化，免得变成整点报时。
     if (arc4random_uniform(100) >= rate.idleChancePercent) return;
+
+    // 有待更新版本时，这句话有一半机会换成更新提醒。照样记进预算和冷却，
+    // 不额外增加说话次数；碎碎念关着时 canSpeakNow 已经挡掉，不会走到这里。
+    if (self.pendingUpdateVersion.length > 0 && !self.updating && !self.updateReminderSnoozed &&
+        !self.updateBubbleVisible && arc4random_uniform(100) < UpdateReminderSharePercent) {
+        [self.speechTimestamps addObject:@(now)];
+        self.speechCooldownUntil = now + [self speechCooldownSeconds];
+        [self showUpdateBubbleWithText:[self updateReminderText] dwell:UpdateReminderDwell];
+        return;
+    }
 
     NSInteger hour = [NSCalendar.currentCalendar component:NSCalendarUnitHour fromDate:NSDate.date];
     NSTimeInterval sessionLength = self.sessionStartedAt > 0 ? now - self.sessionStartedAt : 0;
