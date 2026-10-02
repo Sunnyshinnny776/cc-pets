@@ -17,14 +17,6 @@ static void TrimUpdateLog(NSString *path) {
 }
 
 @implementation AppDelegate (Update)
-- (void)showUpdateAlertWithTitle:(NSString *)title message:(NSString *)message {
-    [NSApp activateIgnoringOtherApps:YES];
-    NSAlert *alert = [NSAlert new];
-    alert.messageText = title;
-    alert.informativeText = message;
-    [alert addButtonWithTitle:@"好"];
-    [alert runModal];
-}
 - (NSDictionary *)updaterConfiguration {
     NSString *path = [[self applicationSupportDirectory] stringByAppendingPathComponent:@"updater.json"];
     NSData *data = [NSData dataWithContentsOfFile:path];
@@ -84,7 +76,7 @@ static void TrimUpdateLog(NSString *path) {
     BOOL npmCliExists = npmCliPath.isAbsolutePath &&
         [NSFileManager.defaultManager isReadableFileAtPath:npmCliPath];
     if (!nodeExecutable || !npmCliExists) {
-        [self showUpdateAlertWithTitle:@"无法自动更新"
+        [self showAlertWithTitle:@"无法自动更新"
             message:@"没有找到安装 CC Pets 时使用的 Node.js/npm。请先手动执行一次：\n\n"
                     "npm install -g cc-pets@latest --allow-scripts=cc-pets"];
         return;
@@ -95,7 +87,7 @@ static void TrimUpdateLog(NSString *path) {
     [NSFileManager.defaultManager createDirectoryAtPath:supportDirectory
         withIntermediateDirectories:YES attributes:nil error:&directoryError];
     if (directoryError) {
-        [self showUpdateAlertWithTitle:@"无法自动更新" message:directoryError.localizedDescription];
+        [self showAlertWithTitle:@"无法自动更新" message:directoryError.localizedDescription];
         return;
     }
     NSString *logPath = [supportDirectory stringByAppendingPathComponent:@"update.log"];
@@ -103,7 +95,7 @@ static void TrimUpdateLog(NSString *path) {
     chmod(logPath.fileSystemRepresentation, S_IRUSR | S_IWUSR);
     NSFileHandle *logHandle = [NSFileHandle fileHandleForWritingAtPath:logPath];
     if (!logHandle) {
-        [self showUpdateAlertWithTitle:@"无法自动更新" message:@"无法创建更新日志。"];
+        [self showAlertWithTitle:@"无法自动更新" message:@"无法创建更新日志。"];
         return;
     }
 
@@ -150,7 +142,7 @@ static void TrimUpdateLog(NSString *path) {
                 strongSelf.updating = NO;
                 [strongSelf refreshUpdateBadge];
                 if ([strongSelf restartAfterUpdateToVersion:version configuration:configuration]) return;
-                [strongSelf showUpdateAlertWithTitle:@"更新完成"
+                [strongSelf showAlertWithTitle:@"更新完成"
                     message:@"CC Pets 已更新，但没有找到可自动启动的新版应用，请手动重新启动一次。"];
                 return;
             }
@@ -184,12 +176,12 @@ static void TrimUpdateLog(NSString *path) {
         [self refreshUpdateBadge];
         self.updateTask = nil;
         [logHandle closeFile];
-        [self showUpdateAlertWithTitle:@"无法启动更新" message:launchError.localizedDescription];
+        [self showAlertWithTitle:@"无法启动更新" message:launchError.localizedDescription];
         return;
     }
     // 重试是静默的：第一次已经弹过"正在更新"，再弹一次只会让人以为出了两回事。
     if (attempt == 0) {
-        [self showUpdateAlertWithTitle:@"正在更新"
+        [self showAlertWithTitle:@"正在更新"
             message:[NSString stringWithFormat:@"正在下载并安装 CC Pets %@。完成后桌宠会自动重启。", version]];
     }
 }
@@ -270,13 +262,13 @@ static void TrimUpdateLog(NSString *path) {
         if (!strongSelf) return;
         strongSelf.checkingForUpdate = NO;
         if (errorMessage) {
-            [strongSelf showUpdateAlertWithTitle:@"检查更新失败" message:errorMessage];
+            [strongSelf showAlertWithTitle:@"检查更新失败" message:errorMessage];
             return;
         }
         BOOL valid = NO;
         if (CompareStableVersions(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
             [strongSelf clearPendingUpdate];
-            [strongSelf showUpdateAlertWithTitle:@"已是最新版本"
+            [strongSelf showAlertWithTitle:@"已是最新版本"
                 message:[NSString stringWithFormat:@"当前版本：%@", @CC_PETS_VERSION]];
             return;
         }

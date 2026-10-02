@@ -51,6 +51,16 @@
 - (NSString *)applicationSupportDirectory {
     return ApplicationSupportDirectory();
 }
+// 只有一个「好」按钮的提示框，各模块报错 / 告知结果都用它。桌宠是 LSUIElement，
+// 不先激活的话弹窗会开在其他 App 后面。
+- (void)showAlertWithTitle:(NSString *)title message:(NSString *)message {
+    [NSApp activateIgnoringOtherApps:YES];
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = title;
+    alert.informativeText = message;
+    [alert addButtonWithTitle:@"好"];
+    [alert runModal];
+}
 // 建一个只有"编辑"的主菜单。
 //
 // ⌘C/⌘V/⌘A/⌘Z 不是 NSTextView 自己处理的：按键先走 NSApp.mainMenu 的

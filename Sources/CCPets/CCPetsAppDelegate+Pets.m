@@ -168,7 +168,7 @@
 
     NSError *error = nil;
     if (![NSFileManager.defaultManager removeItemAtPath:directory error:&error]) {
-        [self showUpdateAlertWithTitle:@"无法删除素材"
+        [self showAlertWithTitle:@"无法删除素材"
             message:error.localizedDescription ?: @"素材目录删除失败。"];
         return NO;
     }

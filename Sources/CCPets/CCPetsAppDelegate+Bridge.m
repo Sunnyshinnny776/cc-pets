@@ -9,7 +9,7 @@
     successMessage:(NSString *)successMessage {
     NSDictionary<NSString *, NSString *> *locator = CCBridgeCLILocator();
     if (!locator) {
-        [self showUpdateAlertWithTitle:@"无法修改 CC Bridge 设置"
+        [self showAlertWithTitle:@"无法修改 CC Bridge 设置"
             message:@"没有找到 cc-pets 的命令行程序。请在终端执行一次 cc-pets install 后重试。"];
         [self syncBridgeSwitch:sender];
         return;
@@ -49,7 +49,7 @@
             }
             [strongSelf syncBridgeSwitch:sender];
             NSString *detail = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-            [strongSelf showUpdateAlertWithTitle:@"CC Bridge 设置失败"
+            [strongSelf showAlertWithTitle:@"CC Bridge 设置失败"
                 message:detail.length > 0 ? detail : @"命令执行失败。"];
         });
     };
@@ -57,7 +57,7 @@
     if (![task launchAndReturnError:&error]) {
         self.bridgeCommandRunning = NO;
         [self syncBridgeSwitch:sender];
-        [self showUpdateAlertWithTitle:@"CC Bridge 设置失败" message:error.localizedDescription];
+        [self showAlertWithTitle:@"CC Bridge 设置失败" message:error.localizedDescription];
     }
 }
 // 与其他菜单开关一致：目标状态按"实际存储的状态取反"算，不信任开关视图自己翻转后的 state——
@@ -141,7 +141,7 @@
             [defaults setBool:granted forKey:BridgeNotificationKey];
             sender.state = granted ? NSControlStateValueOn : NSControlStateValueOff;
             if (!granted) {
-                [self showUpdateAlertWithTitle:@"无法启用系统通知" message:error.localizedDescription ?:
+                [self showAlertWithTitle:@"无法启用系统通知" message:error.localizedDescription ?:
                     @"请在“系统设置 → 通知 → CC Pets”中允许通知后重试。"];
             }
         });

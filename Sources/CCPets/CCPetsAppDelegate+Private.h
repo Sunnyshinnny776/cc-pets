@@ -115,6 +115,7 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 
 @interface AppDelegate ()
 - (NSString *)applicationSupportDirectory;
+- (void)showAlertWithTitle:(NSString *)title message:(NSString *)message;
 - (void)installEditMenu;
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag;
@@ -295,7 +296,6 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 
 // 检查更新、自动更新、更新气泡 / 角标 / 弹窗，以及「关于」
 @interface AppDelegate (Update)
-- (void)showUpdateAlertWithTitle:(NSString *)title message:(NSString *)message;
 - (NSDictionary *)updaterConfiguration;
 - (BOOL)restartAfterUpdateToVersion:(NSString *)version configuration:(NSDictionary *)configuration;
 - (void)startUpdateToVersion:(NSString *)version;

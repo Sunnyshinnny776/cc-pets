@@ -223,7 +223,6 @@ NSUInteger ImportCodexPets(void) {
     return imported;
 }
 
-NSString *const HistoryEnabledKey = @"CCPetsQuotaHistoryEnabled";
 NSString *const NotificationCompletionKey = @"CCPetsNotifyCompletion";
 NSString *const NotificationFailureKey = @"CCPetsNotifyFailure";
 NSString *const NotificationApprovalKey = @"CCPetsNotifyApproval";

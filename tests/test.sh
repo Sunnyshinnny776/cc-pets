@@ -1392,8 +1392,7 @@ print -r -- "${HISTORY_OUTPUT}" | node -e '
 '
 grep -Fq '15 * 60' "${PET_SOURCES[@]}"
 grep -Fq '7 * 24 * 60 * 60' "${PET_SOURCES[@]}"
-grep -q 'CCPetsQuotaHistoryEnabled' "${PET_SOURCES[@]}"
-print "本地额度历史格式、采样间隔与默认开关测试通过"
+print "本地额度历史格式与采样间隔测试通过"
 
 # 受限期间官方 rate_limits 仍会返回窗口百分比。一律丢掉的话，长期受限的 provider
 # 在 7 天里攒不下一个历史点，趋势曲线只剩"当前"这一个点、画不出线。两个用例各用

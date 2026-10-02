@@ -197,7 +197,7 @@
                 sender.state = NSControlStateValueOff;
                 NSString *message = error.localizedDescription ?:
                     @"请在“系统设置 → 通知 → CC Pets”中允许通知后重试。";
-                [self showUpdateAlertWithTitle:@"无法启用系统通知" message:message];
+                [self showAlertWithTitle:@"无法启用系统通知" message:message];
             }
         });
     }];
