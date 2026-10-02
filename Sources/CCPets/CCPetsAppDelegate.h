@@ -112,18 +112,4 @@
 @property NSTimer *quotaClockTimer;
 @property NSTimer *systemMetricsTimer;
 @property CCPetsSystemMonitor *systemMonitor;
-- (void)showQuotaDashboard;
-- (void)positionQuotaDashboard;
-- (void)scheduleQuotaDashboardHide;
-- (void)hideQuotaDashboardIfNeeded;
-- (void)positionAgentStatus;
-- (void)showAgentStatusForRecord:(NSDictionary *)record;
-- (void)prunePendingApprovalRecords;
-- (void)toggleStatusBubbleFromMenu:(NSButton *)sender;
-- (void)refreshUsage:(id)sender;
-- (void)toggleSystemMetric:(NSButton *)sender;
-- (void)setUsageDisplayModeFromControl:(NSButton *)sender;
-- (void)applyCodexUsage:(NSDictionary *)codexUsage claudeUsage:(NSDictionary *)claudeUsage;
-- (void)switchPetToID:(NSString *)petID;
-- (BOOL)deletePetWithID:(NSString *)petID;
 @end

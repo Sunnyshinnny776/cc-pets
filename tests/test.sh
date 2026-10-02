@@ -291,16 +291,16 @@ if grep -q 'stringWithFormat:template' "${PET_SOURCES[@]}"; then
 fi
 # 碎碎念的闸门必须是"agent 在不在干活"，不能退回"状态卡在不在"——状态卡只要客户端
 # 活着就常驻，用它当闸门等于开着终端就永远不碎碎念（这个 bug 犯过一次）。
-if ! grep -q 'if (\[self agentBusyForSpeech\]) return;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+if ! grep -q 'if (\[self agentBusyForSpeech\]) return;' "${PET_SOURCES[@]}"; then
   print -u2 "considerIdleSpeech 必须用 agentBusyForSpeech 当闸门"
   exit 1
 fi
-if grep -q 'if (self.statusPanel.isVisible) return;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+if grep -q 'if (self.statusPanel.isVisible) return;' "${PET_SOURCES[@]}"; then
   print -u2 "碎碎念不能再以'状态卡可见'为由整段闭嘴"
   exit 1
 fi
 # 借走状态卡副行说完闲话必须还回去，否则副行会一直挂着闲话像卡死了。
-grep -q 'restoreStatusDetail' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'restoreStatusDetail' "${PET_SOURCES[@]}"
 # 频率四档要同时出现在档位表和右键菜单里，少一头就是"菜单里能选但没效果"。
 for freq in low normal high chatty; do
   if ! grep -q "\"${freq}\"" "${PROJECT_DIR}/Sources/CCPets/PetView.m"; then
@@ -308,7 +308,7 @@ for freq in low normal high chatty; do
     exit 1
   fi
 done
-grep -q 'PetSpeechRateChatty' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'PetSpeechRateChatty' "${PET_SOURCES[@]}"
 print "碎碎念闸门与频率档位测试通过"
 
 # 台词文件是纯文本不是 JSON：普通用户写不了 JSON，且少个逗号整个文件静默失效。
@@ -332,20 +332,20 @@ grep -q 'phrases.default.txt' "${PROJECT_DIR}/scripts/build.sh"
 # 台词编辑器必须是 app 内置的：交给系统编辑器就没有任何校验反馈，
 # 小节名拼错、句子超长、槽位写错全是静默失效。
 if grep -q 'openURL.*PetPhrasesFilePath\|PetPhrasesFilePath.*openURL' \
-    "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+    "${PET_SOURCES[@]}"; then
   print -u2 "台词不应再交给系统编辑器打开"
   exit 1
 fi
-grep -q 'PetPhrasesEditorController' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'PetPhrasesEditorController' "${PET_SOURCES[@]}"
 # 保存并关闭必须走同一条保存路径：保存失败/被取消时不能把窗口连同改动一起关掉。
 grep -q 'saveAndClose:' "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrasesEditor.m"
 # 标签被删时要先补回原位再校验，光报错会让用户在编辑器里找不到该补什么。
 grep -q 'PetPhraseTextWithRestoredTags' "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrasesEditor.m"
 # ⌘C/⌘V/⌘A/⌘Z 靠主菜单的 keyEquivalent 分发。这个 app 是 LSUIElement，不设主菜单的话
 # 台词编辑器里这些快捷键全部落空（犯过一次）。
-grep -q 'NSApp.mainMenu = mainMenu' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'NSApp.mainMenu = mainMenu' "${PET_SOURCES[@]}"
 for selector in undo: redo: cut: copy: paste: selectAll:; do
-  if ! grep -q "@selector(${selector})" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+  if ! grep -q "@selector(${selector})" "${PET_SOURCES[@]}"; then
     print -u2 "编辑菜单缺少 ${selector}，对应快捷键会没反应"
     exit 1
   fi
@@ -371,11 +371,11 @@ rm -rf "${IMPORT_PETS_TMP}"
 
 # 桌宠只扫自己的素材目录，不能再去拼 PetDex / Codex 的目录路径。
 # 只匹配路径常量（@".petdex/pets"），提示文案里的 ~/.petdex/pets/ 不算。
-if grep -qE '@"\.(petdex|codex)/pets' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+if grep -qE '@"\.(petdex|codex)/pets' "${PET_SOURCES[@]}"; then
   print -u2 "桌宠端仍在直接拼 ~/.petdex/pets 或 ~/.codex/pets 的路径"
   exit 1
 fi
-grep -q 'OwnPetsDirectory' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'OwnPetsDirectory' "${PET_SOURCES[@]}"
 print "桌宠只扫自身素材目录测试通过"
 
 PET_ALIAS_TMP="$(mktemp -d /tmp/cc-pets-alias-test.XXXXXX)"

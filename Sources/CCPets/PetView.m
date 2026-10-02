@@ -8,7 +8,7 @@
 #import "CCPetsGlassView.h"
 #import "MenuChoiceRow.h"
 
-// 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate.m，这里只读不写；
+// 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate+Speech.m，这里只读不写；
 // 单独 extern 而不 import 那个头文件，是因为它反过来 import 了 PetView.h。
 extern NSString *const PetSpeechFrequencyKey;
 
