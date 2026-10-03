@@ -1,6 +1,6 @@
 {
   "name": "cc-pets",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "A native macOS desktop pet for Codex CLI and Claude Code",
   "author": {
     "name": "Sunnyshiny",
@@ -63,7 +63,7 @@
     "version": "npm test",
     "postinstall": "./scripts/install-shell-integration.sh",
     "prepack": "npm test",
-    "prepublish:check": "npm whoami && ! npm view $npm_package_name@$npm_package_version version 2>/dev/null | grep -q . && npm publish --dry-run"
+    "prepublish:check": "npm whoami && if npm view $npm_package_name@$npm_package_version version 2>/dev/null | grep -q .; then echo \"error: $npm_package_name@$npm_package_version is already published; bump the version first\" >&2; exit 1; fi && npm publish --dry-run"
   },
   "publishConfig": {
     "access": "public"
