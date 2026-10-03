@@ -205,7 +205,7 @@ prompts, command text, file contents, or model output.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, notification, update, and exit menu |
+| Right-click | Pet, notification, Help (update check and About), and exit menu |
 
 The **Panel theme** submenu offers **Classic** and **Liquid Glass**. Classic is the
 default. Changes apply immediately to the quota panel, status card, and speech

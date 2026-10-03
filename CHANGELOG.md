@@ -13,7 +13,8 @@ Update prompts through the pet, `cc-pets doctor` and `cc-pets paths`, plus clean
 
 - Check npm for a newer version 5 seconds after launch, and again when a CLI reopens a running pet (at most once every 10 minutes); failed checks stay silent.
 - Announce a new version with a clickable speech bubble that shows up to three highlights from the matching GitHub Release. The bubble waits while an agent is busy, and with chatter on, idle speech now and then reminds you until you choose **Later**.
-- Added a glass "↑" badge on the pet and a **New version available** menu title as lasting entry points; the update dialog lists highlights and links to the full release notes, and **About CC Pets** uses the same dialog style.
+- Added a glass "↑" badge on the pet as a lasting entry point, and while a new version is available the right-click menu shows **Update to x.y.z…** at the top level; the update dialog lists highlights and links to the full release notes, and **About CC Pets** uses the same dialog style.
+- **Check for Updates…** and **About CC Pets** moved into a new **Help** submenu.
 
 ### CLI
 

@@ -305,6 +305,7 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 - (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSArray<NSString *> *highlights,
     BOOL highlightsTruncated, NSString *errorMessage))completion;
 - (void)checkForUpdates:(id)sender;
+- (void)showPendingUpdate:(id)sender;
 - (void)silentCheckForUpdate;
 - (void)rememberPendingUpdate:(NSString *)version highlights:(NSArray<NSString *> *)highlights
     truncated:(BOOL)truncated;

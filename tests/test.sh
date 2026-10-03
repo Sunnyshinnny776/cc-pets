@@ -214,6 +214,13 @@ CC_PETS_OPEN_PATH="${UPDATER_TMP}/bin/open" CC_PETS_RESTART_LOG="${UPDATER_TMP}/
   "${UPDATER_TMP}/Applications/CC Pets.app" --managed
 grep -Fq -- "-g ${UPDATER_TMP}/Applications/CC Pets.app --args --managed" "${UPDATER_TMP}/restart.log"
 grep -q '检查更新…' "${PET_SOURCES[@]}"
+# 检查更新与关于收在「帮助」子菜单里；有新版本时顶层临时多一项「更新到 x.y.z…」，
+# 由 AppDelegate 通过 pendingUpdateVersionRequested 告知（更新进行中返回 nil）。
+grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:@"帮助"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '[helpMenu addItemWithTitle:@"检查更新…"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '[helpMenu addItemWithTitle:@"关于 CC Pets"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '@"更新到 %@…"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq 'return weakSelf.updating ? nil : weakSelf.pendingUpdateVersion;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
 grep -q 'https://registry.npmjs.org/cc-pets/latest' "${PET_SOURCES[@]}"
 grep -Fq 'environment[@"PATH"] = [NSString stringWithFormat:@"%@:%@", nodeDirectory, existingPath]' \
   "${PET_SOURCES[@]}"

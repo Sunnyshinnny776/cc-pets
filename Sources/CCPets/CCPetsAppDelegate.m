@@ -193,6 +193,9 @@
     self.petView.petOptionsRequested = ^NSArray<NSDictionary *> *{
         return [weakSelf petOptions] ?: @[];
     };
+    self.petView.pendingUpdateVersionRequested = ^NSString *{
+        return weakSelf.updating ? nil : weakSelf.pendingUpdateVersion;
+    };
     self.petView.switchPetRequested = ^(NSString *petID) {
         [weakSelf switchPetToID:petID];
     };

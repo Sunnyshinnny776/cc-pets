@@ -30,6 +30,8 @@ extern NSString *const PetInteractionIntervalKey;
 @property(copy) void (^dragStateChanged)(BOOL dragging);
 @property(copy) void (^interactionPhraseRequested)(NSString *tag);
 @property(copy) NSArray<NSDictionary *> *(^petOptionsRequested)(void);
+// 有可安装的新版本时返回版本号，否则 nil。右键菜单据此决定要不要在顶层放「更新到 x.y.z…」。
+@property(copy) NSString *(^pendingUpdateVersionRequested)(void);
 @property(copy) void (^switchPetRequested)(NSString *petID);
 @property(copy) BOOL (^deletePetRequested)(NSString *petID);
 @property NSCache<NSString *, NSImage *> *petMenuPreviewCache;

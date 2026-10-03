@@ -395,14 +395,13 @@ static void TrimUpdateLog(NSString *path) {
     self.updateReminderSnoozed = YES;
     self.updateBubbleDeferred = NO;
 }
-// 菜单是 PetView 每次右键现建的，它拿不到 AppDelegate 的头文件；在这里按待更新状态改标题，
-// 气泡错过了也能从菜单进去。
+// 顶层「更新到 x.y.z…」：版本已知，直接打开更新弹窗，不再联网查一遍。
+- (void)showPendingUpdate:(id)sender {
+    [self showUpdateDialog];
+}
+// 正在下载安装时，「帮助 ▸ 检查更新…」置灰，免得用户以为点了没反应。
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
-    if (menuItem.action == @selector(checkForUpdates:)) {
-        menuItem.title = self.pendingUpdateVersion && !self.updating
-            ? [NSString stringWithFormat:@"发现新版本 %@…", self.pendingUpdateVersion]
-            : @"检查更新…";
-    }
+    if (menuItem.action == @selector(checkForUpdates:)) return !self.updating;
     return YES;
 }
 // 角标箭头与气泡文字同一套规则：清透玻璃上白色加投影，经典磨砂上深色。
