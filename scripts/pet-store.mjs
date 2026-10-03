@@ -51,8 +51,9 @@ const petsRoot = () => {
   if (override && override.length > 0) return path.resolve(untilde(override));
   return path.join(os.homedir(), ".cc-pets", "pets");
 };
+// 与 CC Bridge、cc-pets clean 一致：CC_PETS_HOME 可覆盖 ~/.cc-pets。
 const cachePath = (sourceName) =>
-  path.join(os.homedir(), ".cc-pets", "cache", `manifest-${sourceName}.json`);
+  path.join(process.env.CC_PETS_HOME || path.join(os.homedir(), ".cc-pets"), "cache", `manifest-${sourceName}.json`);
 // 每个源都可以单独用环境变量改清单地址，主要给测试和自建源的本地联调用。
 const manifestUrlFor = (sourceName) =>
   process.env[`CC_PETS_MANIFEST_URL_${sourceName.toUpperCase()}`] || SOURCES[sourceName].manifestUrl;

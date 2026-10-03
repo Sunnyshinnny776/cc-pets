@@ -402,7 +402,7 @@ cc-pets --status
 # 查看本机额度历史 JSON
 cc-pets --history
 
-# 清理可重建的临时状态、更新日志和构建缓存，保留历史、配置与偏好
+# 清理可重建的临时状态、更新日志、素材清单缓存和构建缓存，保留历史、配置与偏好
 cc-pets clean
 
 # 管理 ~/.cc-pets/pets 里的桌宠素材，详见「素材与版权」
@@ -428,7 +428,7 @@ cc-pets --help
 # 安全移除 Hooks、恢复 Claude status line，并清理 shell 集成
 cc-pets uninstall
 
-# 完整移除集成、应用和全部本地数据；执行前会再次确认
+# 完整移除集成、应用、应用数据和偏好；执行前会再次确认。~/.cc-pets 下的桌宠素材与台词会保留
 cc-pets uninstall --purge
 
 # 仅删除 ~/Applications 中的 macOS 应用（不会删除 npm 包或 Hooks）

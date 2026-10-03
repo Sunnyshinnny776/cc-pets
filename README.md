@@ -161,7 +161,7 @@ cc-pets bridge enable            # CC Bridge (experimental, off by default); see
 cc-pets bridge status            # Show CC Bridge state and online sessions.
 cc-pets bridge disable           # Remove CC Bridge integrations.
 cc-pets uninstall             # Remove integrations and restore the status line.
-cc-pets uninstall --purge     # Also remove the app and all local data after confirmation.
+cc-pets uninstall --purge     # Also remove the app, app data and preferences after confirmation; keeps assets and phrases in ~/.cc-pets.
 cc-pets uninstall-app         # Remove only ~/Applications/CC Pets.app.
 
 codex-with-pet                # Start the pet and enter Codex CLI.

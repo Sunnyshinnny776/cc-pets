@@ -16,7 +16,7 @@ print_usage() {
   cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）
   cc-pets install            安装或修复 shell / Claude Code / Codex 集成
   cc-pets uninstall          移除集成并恢复 status line
-  cc-pets uninstall --purge  同时删除 App 和全部本地数据（会先确认）
+  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）
   cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app
   cc-pets build              重新构建
   cc-pets clean              清理缓存（需先退出桌宠）

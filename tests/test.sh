@@ -1034,10 +1034,20 @@ print history > "${CLEAN_TMP}/Application Support/CC Pets/quota-history.json"
 print updater > "${CLEAN_TMP}/Application Support/CC Pets/updater.json"
 print log > "${CLEAN_TMP}/Application Support/CC Pets/update.log"
 print cache > "${CLEAN_TMP}/.build/clang-cache/module"
+# ~/.cc-pets 里只有素材清单缓存可清；素材和台词是用户数据，必须保留。
+mkdir -p "${CLEAN_TMP}/home/cache" "${CLEAN_TMP}/home/pets/boba"
+print manifest > "${CLEAN_TMP}/home/cache/manifest-petdex.json"
+print legacy > "${CLEAN_TMP}/home/cache/petdex-manifest.json"
+print sprite > "${CLEAN_TMP}/home/pets/boba/spritesheet.webp"
+print phrases > "${CLEAN_TMP}/home/speech.txt"
 CC_PETS_STATE_DIR="${CLEAN_TMP}/state" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${CLEAN_TMP}/Application Support/CC Pets" \
 CC_PETS_BUILD_CACHE_DIR="${CLEAN_TMP}/.build/clang-cache" \
+CC_PETS_HOME="${CLEAN_TMP}/home" \
   "${PROJECT_DIR}/.build/release/cc-pets" --clean >/dev/null
+[[ ! -e "${CLEAN_TMP}/home/cache" ]]
+[[ -e "${CLEAN_TMP}/home/pets/boba/spritesheet.webp" ]]
+[[ -e "${CLEAN_TMP}/home/speech.txt" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-codex-live-usage.json" ]]
@@ -1184,6 +1194,9 @@ print -r -- '<?xml version="1.0" encoding="UTF-8"?>
 print data > "${PURGE_TMP}/Application Support/CC Pets/quota-history.json"
 print event > "${PURGE_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson"
 print keep > "${PURGE_TMP}/keep"
+mkdir -p "${PURGE_TMP}/home/pets/boba"
+print sprite > "${PURGE_TMP}/home/pets/boba/spritesheet.webp"
+print phrases > "${PURGE_TMP}/home/speech.txt"
 print 'export KEEP_ME=1' > "${PURGE_TMP}/zdot/.zshrc"
 if CODEX_HOME="${PURGE_TMP}/codex" CLAUDE_CONFIG_DIR="${PURGE_TMP}/claude" \
     ZDOTDIR="${PURGE_TMP}/zdot" CC_PETS_SKIP_APP_STOP=1 \
@@ -1199,11 +1212,15 @@ CC_PETS_APPLICATIONS_DIR="${PURGE_TMP}/Applications" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${PURGE_TMP}/Application Support/CC Pets" \
 CC_PETS_BUILD_CACHE_DIR="${PURGE_TMP}/.build/clang-cache" \
 CC_PETS_PREFERENCES_DOMAIN="com.universewang.cc-pets.tests" \
+CC_PETS_HOME="${PURGE_TMP}/home" \
   "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh" --purge --yes >/dev/null
 [[ ! -e "${PURGE_TMP}/Application Support/CC Pets" ]]
 [[ ! -e "${PURGE_TMP}/Applications/CC Pets.app" ]]
 [[ ! -e "${PURGE_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson" ]]
 [[ -e "${PURGE_TMP}/keep" ]]
+# 帮助与确认文案承诺保留 ~/.cc-pets 的素材与台词。
+[[ -e "${PURGE_TMP}/home/pets/boba/spritesheet.webp" ]]
+[[ -e "${PURGE_TMP}/home/speech.txt" ]]
 print "带确认的完整卸载边界测试通过"
 
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"

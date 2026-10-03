@@ -18,10 +18,10 @@ done
 
 if (( PURGE && ! ASSUME_YES )); then
   if [[ ! -t 0 ]]; then
-    print -u2 "完整卸载会删除应用、额度历史、更新配置、日志和偏好。非交互环境请显式添加 --yes。"
+    print -u2 "完整卸载会删除应用、额度历史、更新配置、日志和偏好（保留 ~/.cc-pets 的素材与台词）。非交互环境请显式添加 --yes。"
     exit 2
   fi
-  print -u2 "完整卸载会永久删除 CC Pets 应用及全部本地数据，是否继续？[y/N] "
+  print -u2 "完整卸载会永久删除 CC Pets 应用、额度历史、更新配置、日志和偏好；~/.cc-pets 下的桌宠素材与台词会保留。是否继续？[y/N] "
   if ! read -r reply || [[ "${reply:l}" != "y" && "${reply:l}" != "yes" ]]; then
     print "已取消完整卸载。"
     exit 0
@@ -61,7 +61,7 @@ if (( PURGE )); then
   fi
   "${PET_BIN}" --purge-data
   CC_PETS_SKIP_APP_STOP=1 "${PROJECT_DIR}/scripts/uninstall-app.sh"
-  print "完整卸载完成；npm 包本身如仍存在，可继续执行 npm uninstall -g cc-pets。"
+  print "完整卸载完成；桌宠素材与台词保留在 ~/.cc-pets，不再需要可手动删除。npm 包本身如仍存在，可继续执行 npm uninstall -g cc-pets。"
   exit 0
 fi
 
