@@ -8,7 +8,9 @@ import {
   describeSession, identifySelf, liveSessions, receiptSummary, resolveTarget, sendIdleNotices,
   sendMessage, formatEnvelope
 } from "./core.mjs";
-import { install, uninstall } from "./install.mjs";
+import { describeCodexQueue, install, uninstall } from "./install.mjs";
+import { probeCodexQueue } from "./process.mjs";
+import { detectCodexCLI } from "../detect-cli.mjs";
 import { DEFAULT_OPTIONS, currentOptions, describeOptions, mergeOptionFlags, normalizeOptions } from "./options.mjs";
 import { fileURLToPath } from "node:url";
 import { activeReservations, describeReservation } from "./reservations.mjs";
@@ -127,7 +129,12 @@ const commands = {
 
   async status() {
     console.log(`CC Bridge：${isBridgeEnabled() ? "已开启" : "未开启"}`);
-    if (isBridgeEnabled()) for (const line of describeOptions(currentOptions())) console.log(`  ${line}`);
+    if (isBridgeEnabled()) {
+      for (const line of describeOptions(currentOptions())) console.log(`  ${line}`);
+      if (currentOptions().wake && detectCodexCLI()) {
+        console.log(`  ${describeCodexQueue(probeCodexQueue()) ?? "Codex 支持 codex queue，可自动唤醒。"}`);
+      }
+    }
     console.log(`状态目录：${bridgeDirectory()}`);
     printSessions();
     const reservations = activeReservations();
