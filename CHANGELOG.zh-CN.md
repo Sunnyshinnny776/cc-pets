@@ -4,6 +4,27 @@
 
 本项目遵循语义化版本号。版本号以 `package.json` 为唯一来源。
 
+## [2.1.2] - 2026-10-03
+
+桌宠提示新版本，新增 `cc-pets doctor` 与 `cc-pets paths`，以及清理相关修复。
+
+### 更新
+
+- 启动 5 秒后到 npm 检查新版本，CLI 再次唤起已运行的桌宠时也会检查（最多每 10 分钟一次）；检查失败不打扰。
+- 发现新版本时桌宠弹出可点击的气泡，附上对应 GitHub Release 中最多三条要点。Agent 忙碌时气泡会等待；开启碎碎念时，空闲台词会不时提醒，直到选择「稍后」。
+- 桌宠上新增玻璃「↑」角标、右键菜单显示「发现新版本」标题，作为常驻入口；更新对话框列出要点并可打开完整说明，「关于 CC Pets」改用同样的对话框样式。
+
+### 命令行
+
+- 新增 `cc-pets doctor`：只读检查安装状态，包括 Node.js、npm 包 / 原生程序 / 已安装 App 的版本是否一致、Claude Code 与 Codex Hooks（含包被移动后仍指向旧位置的 Hooks）、Claude status line、shell shim 与 `PATH` 顺序、真实 CLI、自动更新配置和 CC Bridge。每个问题都给出修复命令；home 目录显示为 `~`，输出可直接贴进 issue。
+- 新增 `cc-pets paths [--json]`：列出偏好、桌宠素材、台词、缓存与运行时状态的存放位置和大小，并注明 `clean` 与 `--purge` 各自会删除哪些。
+- `cc-pets clean` 现在也会清理 `~/.cc-pets/cache` 中的素材清单缓存。
+- `cc-pets uninstall --purge` 一直会保留 `~/.cc-pets` 中的桌宠素材与台词；帮助、确认提示和 README 现已如实说明，不再写"删除全部本地数据"。
+
+### CC Bridge
+
+- `cc-pets bridge enable`、`cc-pets bridge status` 与 `cc-pets doctor` 会检测当前 Codex 是否支持 `codex queue`。不支持时 CC Bridge 仍可开启，发给 Codex 的消息先进信箱；升级 Codex 后即可自动唤醒，无需重新开启。
+
 ## [2.1.1] - 2026-09-30
 
 功能版本：原生 Liquid Glass 面板主题与多终端跳转，以及额度修复。
