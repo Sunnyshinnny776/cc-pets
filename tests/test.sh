@@ -1223,6 +1223,93 @@ CC_PETS_HOME="${PURGE_TMP}/home" \
 [[ -e "${PURGE_TMP}/home/speech.txt" ]]
 print "带确认的完整卸载边界测试通过"
 
+# ---- cc-pets doctor / paths：只读诊断 ----
+DOCTOR_TMP="$(mktemp -d /tmp/cc-pets-doctor-test.XXXXXX)"
+mkdir -p "${DOCTOR_TMP}/claude" "${DOCTOR_TMP}/codex" "${DOCTOR_TMP}/zdot" "${DOCTOR_TMP}/bin" \
+  "${DOCTOR_TMP}/state" "${DOCTOR_TMP}/support" "${DOCTOR_TMP}/home" "${DOCTOR_TMP}/Applications"
+print -r -- '#!/bin/sh
+exit 0' > "${DOCTOR_TMP}/bin/codex"
+cp "${DOCTOR_TMP}/bin/codex" "${DOCTOR_TMP}/bin/claude"
+chmod +x "${DOCTOR_TMP}/bin/codex" "${DOCTOR_TMP}/bin/claude"
+doctor_env() {
+  env CC_PETS_STATE_DIR="${DOCTOR_TMP}/state" \
+    CC_PETS_APPLICATION_SUPPORT_DIR="${DOCTOR_TMP}/support" \
+    CC_PETS_HOME="${DOCTOR_TMP}/home" \
+    CC_PETS_PETS_DIR="${DOCTOR_TMP}/home/pets" \
+    CC_PETS_SHIM_DIR="${DOCTOR_TMP}/shims" \
+    CC_PETS_APPLICATIONS_DIR="${DOCTOR_TMP}/Applications" \
+    CC_PETS_PREFERENCES_DOMAIN="com.universewang.cc-pets.tests" \
+    CLAUDE_CONFIG_DIR="${DOCTOR_TMP}/claude" CODEX_HOME="${DOCTOR_TMP}/codex" \
+    ZDOTDIR="${DOCTOR_TMP}/zdot" \
+    CODEX_REAL_BIN="${DOCTOR_TMP}/bin/codex" CLAUDE_REAL_BIN="${DOCTOR_TMP}/bin/claude" \
+    "$@"
+}
+
+# paths --json：路径来自原生 --paths，环境变量覆盖生效，不存在的条目 bytes 为 null。
+doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" paths --json > "${DOCTOR_TMP}/paths.json"
+node -e '
+  const document = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const items = Object.fromEntries(document.groups.flatMap((group) => group.items).map((item) => [item.label, item]));
+  const root = process.argv[2];
+  if (items["应用数据目录"].path !== `${root}/support`) process.exit(1);
+  if (items["桌宠素材"].path !== `${root}/home/pets`) process.exit(2);
+  if (items["素材清单缓存"].path !== `${root}/home/cache`) process.exit(3);
+  if (items["Claude Code 配置"].path !== `${root}/claude/settings.json`) process.exit(4);
+  if (items["额度历史"].bytes !== null) process.exit(5);
+  if (items["应用数据目录"].bytes !== 0) process.exit(6);
+' "${DOCTOR_TMP}/paths.json" "${DOCTOR_TMP}"
+doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" paths | grep -q "用户内容（clean 与 --purge 都保留）"
+
+# 什么都没装：Hooks 缺失算错误，退出码 1，并给出修复命令。
+if doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/empty.txt"; then
+  print -u2 "未安装集成时 doctor 应以非零退出"
+  exit 1
+fi
+grep -q "❌ Claude Code Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
+grep -q "❌ Codex Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
+grep -q "→ cc-pets install" "${DOCTOR_TMP}/empty.txt"
+
+# 装好 Hooks、status line 与 shim 后全部通过；doctor 不得修改任何配置。
+doctor_env node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+doctor_env node "${PROJECT_DIR}/scripts/install-codex-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+mkdir -p "${DOCTOR_TMP}/shims"
+ln -s "${PROJECT_DIR}/bin/codex-with-pet" "${DOCTOR_TMP}/shims/codex"
+ln -s "${PROJECT_DIR}/bin/claude-with-pet" "${DOCTOR_TMP}/shims/claude"
+print -r -- '# >>> cc-pets-shims >>>
+# <<< cc-pets-shims <<<' > "${DOCTOR_TMP}/zdot/.zshrc"
+DOCTOR_SNAPSHOT="$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex/hooks.json" | shasum)"
+doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
+  node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ Claude Code Hooks 已安装（14 个事件）" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ Codex Hooks 已安装（8 个事件）" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ Claude status line 已接入额度采集" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ shim 完整" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ PATH 中 shim 目录排在最前" "${DOCTOR_TMP}/installed.txt"
+! grep -q "❌" "${DOCTOR_TMP}/installed.txt"
+[[ "$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex/hooks.json" | shasum)" == "${DOCTOR_SNAPSHOT}" ]]
+
+# 包被挪走后 Hooks 指向旧位置：报警告而不是"已安装"。
+node -e '
+  const fs = require("fs");
+  const file = process.argv[1];
+  const config = JSON.parse(fs.readFileSync(file, "utf8"));
+  config.hooks.Stop[0].hooks[0].command = "CC_PETS_CODEX_AGENT_HOOK=1 '"'"'/moved/away/.build/release/cc-pets'"'"' --hook";
+  fs.writeFileSync(file, JSON.stringify(config));
+' "${DOCTOR_TMP}/codex/hooks.json"
+doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
+  node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/stale.txt"
+grep -q "⚠️  Codex Hooks 中有 1 条指向其他位置的 cc-pets" "${DOCTOR_TMP}/stale.txt"
+
+# 当前终端还没加载 shim：提示 source 而不是报错。
+doctor_env PATH="/usr/bin:/bin" \
+  "$(command -v node)" "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/no-path.txt"
+grep -q "当前终端的 PATH 里没有 shim 目录" "${DOCTOR_TMP}/no-path.txt"
+
+# 走 bin/cc-pets 入口，并出现在帮助里。
+doctor_env "${PROJECT_DIR}/bin/cc-pets" paths --json | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
+"${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets doctor"
+print "doctor 与 paths 只读诊断测试通过"
+
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"
 mkdir -p "${FOREIGN_APP_TMP}/Applications/CC Pets.app/Contents"
 print -r -- '<?xml version="1.0" encoding="UTF-8"?>

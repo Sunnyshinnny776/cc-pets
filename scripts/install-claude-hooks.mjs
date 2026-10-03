@@ -5,6 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectClaudeCLI } from "./detect-cli.mjs";
+import {
+  CLAUDE_HOOK, CREATED_STATUS_LINE_MARKER, LEGACY_CLAUDE_HOOK, LEGACY_STATUS_LINE_MARKER,
+  STATUS_LINE_END_MARKER, STATUS_LINE_MARKER, STATUS_LINE_START_MARKER,
+  isManagedHookCommand, isManagedStatusLine
+} from "./integration-markers.mjs";
 
 const binary = process.argv[2];
 if (!binary) {
@@ -23,24 +28,13 @@ if (!detectClaudeCLI()) {
 
 const claudeHome = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
 const settingsPath = path.join(claudeHome, "settings.json");
-const marker = "CC_PETS_CLAUDE_AGENT_HOOK=1";
-const statusLineMarker = "CC_PETS_CLAUDE_STATUS_LINE=1";
-const managedHookSignatures = [
-  { marker, executable: "cc-pets" },
-  { marker: "CLAUDE_PET_AGENT_HOOK=1", executable: "codex-pet" }
-];
-const managedStatusLineMarkers = [statusLineMarker, "CLAUDE_PET_STATUS_LINE=1"];
-const statusLineStartMarker = "# >>> cc-pets-statusline >>>";
-const statusLineEndMarker = "# <<< cc-pets-statusline <<<";
-const createdStatusLineMarker = "# CC Pets created this status line script";
-const isManagedHookCommand = (value, signature) =>
-  typeof value === "string" &&
-  value.startsWith(`${signature.marker} `) &&
-  value.endsWith(`/.build/release/${signature.executable}' --hook`);
-const isManagedStatusLine = (value, candidateMarker) =>
-  typeof value === "string" &&
-  value.startsWith(`${candidateMarker} `) &&
-  /\/bin\/claude-statusline-with-pet' '[A-Za-z0-9+/=]*'$/.test(value);
+const marker = CLAUDE_HOOK.marker;
+const statusLineMarker = STATUS_LINE_MARKER;
+const managedHookSignatures = [CLAUDE_HOOK, LEGACY_CLAUDE_HOOK];
+const managedStatusLineMarkers = [STATUS_LINE_MARKER, LEGACY_STATUS_LINE_MARKER];
+const statusLineStartMarker = STATUS_LINE_START_MARKER;
+const statusLineEndMarker = STATUS_LINE_END_MARKER;
+const createdStatusLineMarker = CREATED_STATUS_LINE_MARKER;
 const shellQuote = (value) => `'${value.replaceAll("'", `'\\''`)}'`;
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const statusLineBlockPattern = new RegExp(

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { detectCodexCLI } from "./detect-cli.mjs";
+import { CODEX_HOOK, LEGACY_CODEX_HOOK, isManagedHookCommand } from "./integration-markers.mjs";
 
 const binary = process.argv[2];
 if (!binary) {
@@ -22,15 +23,8 @@ if (!detectCodexCLI()) {
 
 const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const hooksPath = path.join(codexHome, "hooks.json");
-const marker = "CC_PETS_CODEX_AGENT_HOOK=1";
-const managedSignatures = [
-  { marker, executable: "cc-pets" },
-  { marker: "CODEX_PET_AGENT_HOOK=1", executable: "codex-pet" }
-];
-const isManagedHookCommand = (value, signature) =>
-  typeof value === "string" &&
-  value.startsWith(`${signature.marker} `) &&
-  value.endsWith(`/.build/release/${signature.executable}' --hook`);
+const marker = CODEX_HOOK.marker;
+const managedSignatures = [CODEX_HOOK, LEGACY_CODEX_HOOK];
 const shellQuote = (value) => `'${value.replaceAll("'", `'\\''`)}'`;
 const command = `${marker} ${shellQuote(path.resolve(binary))} --hook`;
 const events = [

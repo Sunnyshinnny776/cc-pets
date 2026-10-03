@@ -149,6 +149,8 @@ cc-pets --version             # Print the installed version.
 cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
+cc-pets doctor                # Check the installation and integrations, with fixes.
+cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
 cc-pets pet add boba          # Install an asset into CC Pets' own directory.

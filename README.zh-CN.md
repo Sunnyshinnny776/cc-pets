@@ -405,6 +405,12 @@ cc-pets --history
 # 清理可重建的临时状态、更新日志、素材清单缓存和构建缓存，保留历史、配置与偏好
 cc-pets clean
 
+# 检查安装、Hooks、status line、shim 与 CC Bridge 是否正常，并给出修复建议；输出已脱敏，可直接贴进 issue
+cc-pets doctor
+
+# 列出偏好、桌宠素材、台词、缓存与运行时状态的存放位置和大小（--json 输出机器可读格式）
+cc-pets paths
+
 # 管理 ~/.cc-pets/pets 里的桌宠素材，详见「素材与版权」
 cc-pets pet search otter
 cc-pets pet add boba

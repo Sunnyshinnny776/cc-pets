@@ -178,3 +178,26 @@ int CleanCCPetsData(BOOL purge) {
         (unsigned long)removed);
     return EXIT_SUCCESS;
 }
+
+// 路径全部取自运行时真正使用的函数，Node 侧的 doctor 只负责展示，不再自己拼一套。
+NSDictionary<NSString *, id> *CCPetsDataPaths(void) {
+    NSString *domain = NSProcessInfo.processInfo.environment[@"CC_PETS_PREFERENCES_DOMAIN"];
+    if (domain.length == 0) domain = PreferencesDomain;
+    NSString *preferences = [[[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences"]
+        stringByAppendingPathComponent:domain] stringByAppendingPathExtension:@"plist"];
+    return @{
+        @"running": @(RuntimeIsActive()),
+        @"preferences": preferences,
+        @"applicationSupport": ApplicationSupportDirectory(),
+        @"quotaHistory": QuotaHistoryPath(),
+        @"stateDirectory": PetStateDirectory(),
+        @"agentEvents": AgentEventPath(),
+        @"claudeUsage": ClaudeUsagePath(),
+        @"codexLiveUsage": CodexLiveUsagePath(),
+        @"codexLaunches": CodexLaunchRegistryPath(),
+        @"runtimeLock": RuntimeLockPath(),
+        @"clients": ClientStateDirectory(),
+        @"pets": OwnPetsDirectory(),
+        @"petStoreCache": PetStoreCacheDirectory(),
+    };
+}
