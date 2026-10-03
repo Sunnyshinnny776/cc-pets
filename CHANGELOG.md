@@ -5,6 +5,27 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
+## [2.1.2] - 2026-10-03
+
+Update prompts through the pet, `cc-pets doctor` and `cc-pets paths`, plus cleanup fixes.
+
+### Updates
+
+- Check npm for a newer version 5 seconds after launch, and again when a CLI reopens a running pet (at most once every 10 minutes); failed checks stay silent.
+- Announce a new version with a clickable speech bubble that shows up to three highlights from the matching GitHub Release. The bubble waits while an agent is busy, and with chatter on, idle speech now and then reminds you until you choose **Later**.
+- Added a glass "↑" badge on the pet and a **New version available** menu title as lasting entry points; the update dialog lists highlights and links to the full release notes, and **About CC Pets** uses the same dialog style.
+
+### CLI
+
+- Added `cc-pets doctor`, a read-only check of the installation: Node.js, matching versions of the npm package, native binary and installed app, Claude Code and Codex hooks (including hooks that still point to a moved package), the Claude status line, shell shims and `PATH` order, the real CLI binaries, the updater config, and CC Bridge. Each problem comes with a fix, and the output shows the home directory as `~` so it can be pasted into an issue.
+- Added `cc-pets paths [--json]`, which lists where settings, pet assets, phrases, caches and runtime state live, how large each is, and what `clean` and `--purge` remove.
+- `cc-pets clean` now also removes the pet store manifest cache in `~/.cc-pets/cache`.
+- `cc-pets uninstall --purge` keeps your pet assets and phrases in `~/.cc-pets`, as it always did; the help text, confirmation prompt and README now say so instead of promising to remove all local data.
+
+### CC Bridge
+
+- `cc-pets bridge enable`, `cc-pets bridge status` and `cc-pets doctor` check whether the installed Codex supports `codex queue`. Without it, CC Bridge still turns on and messages to Codex wait in its inbox; upgrading Codex enables wake-up without re-enabling CC Bridge.
+
 ## [2.1.1] - 2026-09-30
 
 Feature release: the native Liquid Glass panel theme and multi-terminal jump-back, plus quota fixes.
