@@ -214,6 +214,13 @@ CC_PETS_OPEN_PATH="${UPDATER_TMP}/bin/open" CC_PETS_RESTART_LOG="${UPDATER_TMP}/
   "${UPDATER_TMP}/Applications/CC Pets.app" --managed
 grep -Fq -- "-g ${UPDATER_TMP}/Applications/CC Pets.app --args --managed" "${UPDATER_TMP}/restart.log"
 grep -q '检查更新…' "${PET_SOURCES[@]}"
+# 检查更新与关于收在「帮助」子菜单里；有新版本时顶层临时多一项「更新到 x.y.z…」，
+# 由 AppDelegate 通过 pendingUpdateVersionRequested 告知（更新进行中返回 nil）。
+grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:@"帮助"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '[helpMenu addItemWithTitle:@"检查更新…"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '[helpMenu addItemWithTitle:@"关于 CC Pets"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '@"更新到 %@…"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq 'return weakSelf.updating ? nil : weakSelf.pendingUpdateVersion;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
 grep -q 'https://registry.npmjs.org/cc-pets/latest' "${PET_SOURCES[@]}"
 grep -Fq 'environment[@"PATH"] = [NSString stringWithFormat:@"%@:%@", nodeDirectory, existingPath]' \
   "${PET_SOURCES[@]}"
@@ -291,16 +298,16 @@ if grep -q 'stringWithFormat:template' "${PET_SOURCES[@]}"; then
 fi
 # 碎碎念的闸门必须是"agent 在不在干活"，不能退回"状态卡在不在"——状态卡只要客户端
 # 活着就常驻，用它当闸门等于开着终端就永远不碎碎念（这个 bug 犯过一次）。
-if ! grep -q 'if (\[self agentBusyForSpeech\]) return;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+if ! grep -q 'if (\[self agentBusyForSpeech\]) return;' "${PET_SOURCES[@]}"; then
   print -u2 "considerIdleSpeech 必须用 agentBusyForSpeech 当闸门"
   exit 1
 fi
-if grep -q 'if (self.statusPanel.isVisible) return;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+if grep -q 'if (self.statusPanel.isVisible) return;' "${PET_SOURCES[@]}"; then
   print -u2 "碎碎念不能再以'状态卡可见'为由整段闭嘴"
   exit 1
 fi
 # 借走状态卡副行说完闲话必须还回去，否则副行会一直挂着闲话像卡死了。
-grep -q 'restoreStatusDetail' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'restoreStatusDetail' "${PET_SOURCES[@]}"
 # 频率四档要同时出现在档位表和右键菜单里，少一头就是"菜单里能选但没效果"。
 for freq in low normal high chatty; do
   if ! grep -q "\"${freq}\"" "${PROJECT_DIR}/Sources/CCPets/PetView.m"; then
@@ -308,7 +315,7 @@ for freq in low normal high chatty; do
     exit 1
   fi
 done
-grep -q 'PetSpeechRateChatty' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'PetSpeechRateChatty' "${PET_SOURCES[@]}"
 print "碎碎念闸门与频率档位测试通过"
 
 # 台词文件是纯文本不是 JSON：普通用户写不了 JSON，且少个逗号整个文件静默失效。
@@ -332,20 +339,20 @@ grep -q 'phrases.default.txt' "${PROJECT_DIR}/scripts/build.sh"
 # 台词编辑器必须是 app 内置的：交给系统编辑器就没有任何校验反馈，
 # 小节名拼错、句子超长、槽位写错全是静默失效。
 if grep -q 'openURL.*PetPhrasesFilePath\|PetPhrasesFilePath.*openURL' \
-    "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+    "${PET_SOURCES[@]}"; then
   print -u2 "台词不应再交给系统编辑器打开"
   exit 1
 fi
-grep -q 'PetPhrasesEditorController' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'PetPhrasesEditorController' "${PET_SOURCES[@]}"
 # 保存并关闭必须走同一条保存路径：保存失败/被取消时不能把窗口连同改动一起关掉。
 grep -q 'saveAndClose:' "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrasesEditor.m"
 # 标签被删时要先补回原位再校验，光报错会让用户在编辑器里找不到该补什么。
 grep -q 'PetPhraseTextWithRestoredTags' "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrasesEditor.m"
 # ⌘C/⌘V/⌘A/⌘Z 靠主菜单的 keyEquivalent 分发。这个 app 是 LSUIElement，不设主菜单的话
 # 台词编辑器里这些快捷键全部落空（犯过一次）。
-grep -q 'NSApp.mainMenu = mainMenu' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'NSApp.mainMenu = mainMenu' "${PET_SOURCES[@]}"
 for selector in undo: redo: cut: copy: paste: selectAll:; do
-  if ! grep -q "@selector(${selector})" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+  if ! grep -q "@selector(${selector})" "${PET_SOURCES[@]}"; then
     print -u2 "编辑菜单缺少 ${selector}，对应快捷键会没反应"
     exit 1
   fi
@@ -371,11 +378,11 @@ rm -rf "${IMPORT_PETS_TMP}"
 
 # 桌宠只扫自己的素材目录，不能再去拼 PetDex / Codex 的目录路径。
 # 只匹配路径常量（@".petdex/pets"），提示文案里的 ~/.petdex/pets/ 不算。
-if grep -qE '@"\.(petdex|codex)/pets' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"; then
+if grep -qE '@"\.(petdex|codex)/pets' "${PET_SOURCES[@]}"; then
   print -u2 "桌宠端仍在直接拼 ~/.petdex/pets 或 ~/.codex/pets 的路径"
   exit 1
 fi
-grep -q 'OwnPetsDirectory' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -q 'OwnPetsDirectory' "${PET_SOURCES[@]}"
 print "桌宠只扫自身素材目录测试通过"
 
 PET_ALIAS_TMP="$(mktemp -d /tmp/cc-pets-alias-test.XXXXXX)"
@@ -1034,10 +1041,20 @@ print history > "${CLEAN_TMP}/Application Support/CC Pets/quota-history.json"
 print updater > "${CLEAN_TMP}/Application Support/CC Pets/updater.json"
 print log > "${CLEAN_TMP}/Application Support/CC Pets/update.log"
 print cache > "${CLEAN_TMP}/.build/clang-cache/module"
+# ~/.cc-pets 里只有素材清单缓存可清；素材和台词是用户数据，必须保留。
+mkdir -p "${CLEAN_TMP}/home/cache" "${CLEAN_TMP}/home/pets/boba"
+print manifest > "${CLEAN_TMP}/home/cache/manifest-petdex.json"
+print legacy > "${CLEAN_TMP}/home/cache/petdex-manifest.json"
+print sprite > "${CLEAN_TMP}/home/pets/boba/spritesheet.webp"
+print phrases > "${CLEAN_TMP}/home/speech.txt"
 CC_PETS_STATE_DIR="${CLEAN_TMP}/state" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${CLEAN_TMP}/Application Support/CC Pets" \
 CC_PETS_BUILD_CACHE_DIR="${CLEAN_TMP}/.build/clang-cache" \
+CC_PETS_HOME="${CLEAN_TMP}/home" \
   "${PROJECT_DIR}/.build/release/cc-pets" --clean >/dev/null
+[[ ! -e "${CLEAN_TMP}/home/cache" ]]
+[[ -e "${CLEAN_TMP}/home/pets/boba/spritesheet.webp" ]]
+[[ -e "${CLEAN_TMP}/home/speech.txt" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-claude-usage.json" ]]
 [[ ! -e "${CLEAN_TMP}/state/cc-pets-$(id -u)-codex-live-usage.json" ]]
@@ -1184,6 +1201,9 @@ print -r -- '<?xml version="1.0" encoding="UTF-8"?>
 print data > "${PURGE_TMP}/Application Support/CC Pets/quota-history.json"
 print event > "${PURGE_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson"
 print keep > "${PURGE_TMP}/keep"
+mkdir -p "${PURGE_TMP}/home/pets/boba"
+print sprite > "${PURGE_TMP}/home/pets/boba/spritesheet.webp"
+print phrases > "${PURGE_TMP}/home/speech.txt"
 print 'export KEEP_ME=1' > "${PURGE_TMP}/zdot/.zshrc"
 if CODEX_HOME="${PURGE_TMP}/codex" CLAUDE_CONFIG_DIR="${PURGE_TMP}/claude" \
     ZDOTDIR="${PURGE_TMP}/zdot" CC_PETS_SKIP_APP_STOP=1 \
@@ -1199,12 +1219,103 @@ CC_PETS_APPLICATIONS_DIR="${PURGE_TMP}/Applications" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${PURGE_TMP}/Application Support/CC Pets" \
 CC_PETS_BUILD_CACHE_DIR="${PURGE_TMP}/.build/clang-cache" \
 CC_PETS_PREFERENCES_DOMAIN="com.universewang.cc-pets.tests" \
+CC_PETS_HOME="${PURGE_TMP}/home" \
   "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh" --purge --yes >/dev/null
 [[ ! -e "${PURGE_TMP}/Application Support/CC Pets" ]]
 [[ ! -e "${PURGE_TMP}/Applications/CC Pets.app" ]]
 [[ ! -e "${PURGE_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson" ]]
 [[ -e "${PURGE_TMP}/keep" ]]
+# 帮助与确认文案承诺保留 ~/.cc-pets 的素材与台词。
+[[ -e "${PURGE_TMP}/home/pets/boba/spritesheet.webp" ]]
+[[ -e "${PURGE_TMP}/home/speech.txt" ]]
 print "带确认的完整卸载边界测试通过"
+
+# ---- cc-pets doctor / paths：只读诊断 ----
+DOCTOR_TMP="$(mktemp -d /tmp/cc-pets-doctor-test.XXXXXX)"
+mkdir -p "${DOCTOR_TMP}/claude" "${DOCTOR_TMP}/codex" "${DOCTOR_TMP}/zdot" "${DOCTOR_TMP}/bin" \
+  "${DOCTOR_TMP}/state" "${DOCTOR_TMP}/support" "${DOCTOR_TMP}/home" "${DOCTOR_TMP}/Applications"
+print -r -- '#!/bin/sh
+exit 0' > "${DOCTOR_TMP}/bin/codex"
+cp "${DOCTOR_TMP}/bin/codex" "${DOCTOR_TMP}/bin/claude"
+chmod +x "${DOCTOR_TMP}/bin/codex" "${DOCTOR_TMP}/bin/claude"
+doctor_env() {
+  env CC_PETS_STATE_DIR="${DOCTOR_TMP}/state" \
+    CC_PETS_APPLICATION_SUPPORT_DIR="${DOCTOR_TMP}/support" \
+    CC_PETS_HOME="${DOCTOR_TMP}/home" \
+    CC_PETS_PETS_DIR="${DOCTOR_TMP}/home/pets" \
+    CC_PETS_SHIM_DIR="${DOCTOR_TMP}/shims" \
+    CC_PETS_APPLICATIONS_DIR="${DOCTOR_TMP}/Applications" \
+    CC_PETS_PREFERENCES_DOMAIN="com.universewang.cc-pets.tests" \
+    CLAUDE_CONFIG_DIR="${DOCTOR_TMP}/claude" CODEX_HOME="${DOCTOR_TMP}/codex" \
+    ZDOTDIR="${DOCTOR_TMP}/zdot" \
+    CODEX_REAL_BIN="${DOCTOR_TMP}/bin/codex" CLAUDE_REAL_BIN="${DOCTOR_TMP}/bin/claude" \
+    "$@"
+}
+
+# paths --json：路径来自原生 --paths，环境变量覆盖生效，不存在的条目 bytes 为 null。
+doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" paths --json > "${DOCTOR_TMP}/paths.json"
+node -e '
+  const document = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const items = Object.fromEntries(document.groups.flatMap((group) => group.items).map((item) => [item.label, item]));
+  const root = process.argv[2];
+  if (items["应用数据目录"].path !== `${root}/support`) process.exit(1);
+  if (items["桌宠素材"].path !== `${root}/home/pets`) process.exit(2);
+  if (items["素材清单缓存"].path !== `${root}/home/cache`) process.exit(3);
+  if (items["Claude Code 配置"].path !== `${root}/claude/settings.json`) process.exit(4);
+  if (items["额度历史"].bytes !== null) process.exit(5);
+  if (items["应用数据目录"].bytes !== 0) process.exit(6);
+' "${DOCTOR_TMP}/paths.json" "${DOCTOR_TMP}"
+doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" paths | grep -q "用户内容（clean 与 --purge 都保留）"
+
+# 什么都没装：Hooks 缺失算错误，退出码 1，并给出修复命令。
+if doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/empty.txt"; then
+  print -u2 "未安装集成时 doctor 应以非零退出"
+  exit 1
+fi
+grep -q "❌ Claude Code Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
+grep -q "❌ Codex Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
+grep -q "→ cc-pets install" "${DOCTOR_TMP}/empty.txt"
+
+# 装好 Hooks、status line 与 shim 后全部通过；doctor 不得修改任何配置。
+doctor_env node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+doctor_env node "${PROJECT_DIR}/scripts/install-codex-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+mkdir -p "${DOCTOR_TMP}/shims"
+ln -s "${PROJECT_DIR}/bin/codex-with-pet" "${DOCTOR_TMP}/shims/codex"
+ln -s "${PROJECT_DIR}/bin/claude-with-pet" "${DOCTOR_TMP}/shims/claude"
+print -r -- '# >>> cc-pets-shims >>>
+# <<< cc-pets-shims <<<' > "${DOCTOR_TMP}/zdot/.zshrc"
+DOCTOR_SNAPSHOT="$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex/hooks.json" | shasum)"
+doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
+  node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ Claude Code Hooks 已安装（14 个事件）" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ Codex Hooks 已安装（8 个事件）" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ Claude status line 已接入额度采集" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ shim 完整" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ PATH 中 shim 目录排在最前" "${DOCTOR_TMP}/installed.txt"
+! grep -q "❌" "${DOCTOR_TMP}/installed.txt"
+[[ "$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex/hooks.json" | shasum)" == "${DOCTOR_SNAPSHOT}" ]]
+
+# 包被挪走后 Hooks 指向旧位置：报警告而不是"已安装"。
+node -e '
+  const fs = require("fs");
+  const file = process.argv[1];
+  const config = JSON.parse(fs.readFileSync(file, "utf8"));
+  config.hooks.Stop[0].hooks[0].command = "CC_PETS_CODEX_AGENT_HOOK=1 '"'"'/moved/away/.build/release/cc-pets'"'"' --hook";
+  fs.writeFileSync(file, JSON.stringify(config));
+' "${DOCTOR_TMP}/codex/hooks.json"
+doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
+  node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/stale.txt"
+grep -q "⚠️  Codex Hooks 中有 1 条指向其他位置的 cc-pets" "${DOCTOR_TMP}/stale.txt"
+
+# 当前终端还没加载 shim：提示 source 而不是报错。
+doctor_env PATH="/usr/bin:/bin" \
+  "$(command -v node)" "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/no-path.txt"
+grep -q "当前终端的 PATH 里没有 shim 目录" "${DOCTOR_TMP}/no-path.txt"
+
+# 走 bin/cc-pets 入口，并出现在帮助里。
+doctor_env "${PROJECT_DIR}/bin/cc-pets" paths --json | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
+"${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets doctor"
+print "doctor 与 paths 只读诊断测试通过"
 
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"
 mkdir -p "${FOREIGN_APP_TMP}/Applications/CC Pets.app/Contents"
@@ -1392,8 +1503,7 @@ print -r -- "${HISTORY_OUTPUT}" | node -e '
 '
 grep -Fq '15 * 60' "${PET_SOURCES[@]}"
 grep -Fq '7 * 24 * 60 * 60' "${PET_SOURCES[@]}"
-grep -q 'CCPetsQuotaHistoryEnabled' "${PET_SOURCES[@]}"
-print "本地额度历史格式、采样间隔与默认开关测试通过"
+print "本地额度历史格式与采样间隔测试通过"
 
 # 受限期间官方 rate_limits 仍会返回窗口百分比。一律丢掉的话，长期受限的 provider
 # 在 7 天里攒不下一个历史点，趋势曲线只剩"当前"这一个点、画不出线。两个用例各用
@@ -1768,6 +1878,16 @@ grep -q 'UpdateFailureIsTransient' "${PET_SOURCES[@]}"
 grep -q 'UpdateRetryDelay' "${PET_SOURCES[@]}"
 grep -q 'update-retry-cache' "${PET_SOURCES[@]}"
 print "自动更新暂时性故障重试测试通过"
+
+RELEASE_NOTES_TMP="$(mktemp -d /tmp/cc-pets-release-notes-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
+  "${PROJECT_DIR}/tests/release-notes-harness.m" \
+  -o "${RELEASE_NOTES_TMP}/release-notes-test"
+"${RELEASE_NOTES_TMP}/release-notes-test"
+print "更新说明解析测试通过"
 
 # CC Bridge 自带隔离（临时状态目录、假 claude / codex 进程、假 codex queue），
 # 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。

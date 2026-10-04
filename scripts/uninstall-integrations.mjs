@@ -3,55 +3,27 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  CLAUDE_HOOK, CODEX_HOOK, CREATED_STATUS_LINE_MARKER, LEGACY_CLAUDE_HOOK, LEGACY_CODEX_HOOK,
+  LEGACY_STATUS_LINE_MARKER, SHIM_END_MARKER, SHIM_START_MARKER, STATUS_LINE_END_MARKER,
+  STATUS_LINE_MARKER, STATUS_LINE_START_MARKER, isManagedHookCommand, isManagedStatusLine,
+  resolveStatusLineScript
+} from "./integration-markers.mjs";
 
 const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const claudeHome = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
 const preparingInstall = process.argv[2] === "--prepare-install";
 const shellRC = process.argv[preparingInstall ? 3 : 2];
 
-const currentCodexHook = { marker: "CC_PETS_CODEX_AGENT_HOOK=1", executable: "cc-pets" };
-const legacyCodexHook = { marker: "CODEX_PET_AGENT_HOOK=1", executable: "codex-pet" };
-const currentClaudeHook = { marker: "CC_PETS_CLAUDE_AGENT_HOOK=1", executable: "cc-pets" };
-const legacyClaudeHook = { marker: "CLAUDE_PET_AGENT_HOOK=1", executable: "codex-pet" };
-const currentStatusLineMarker = "CC_PETS_CLAUDE_STATUS_LINE=1";
-const legacyStatusLineMarker = "CLAUDE_PET_STATUS_LINE=1";
-const statusLineStartMarker = "# >>> cc-pets-statusline >>>";
-const statusLineEndMarker = "# <<< cc-pets-statusline <<<";
-const createdStatusLineMarker = "# CC Pets created this status line script";
-
-function isManagedHookCommand(value, signature) {
-  return typeof value === "string" &&
-    value.startsWith(`${signature.marker} `) &&
-    value.endsWith(`/.build/release/${signature.executable}' --hook`);
-}
-
-function isManagedStatusLine(value, marker) {
-  return typeof value === "string" &&
-    value.startsWith(`${marker} `) &&
-    /\/bin\/claude-statusline-with-pet' '[A-Za-z0-9+/=]*'$/.test(value);
-}
-
-// 与 install-claude-hooks.mjs 保持一致：`bash ~/x.sh` 这类带解释器前缀的命令同样指向一个
-// 被就地注入过的脚本，卸载时也要能解析出来，否则 prelude 会残留在脚本里。
-const interpreterPattern =
-  /^(?:\/usr\/bin\/env\s+)?(?:[^\s'"]*\/)?(?:ba|z|k|da)?sh((?:\s+-[A-Za-z]+)*)\s+(.+)$/s;
-
-function unquote(value) {
-  const quoted = value.match(/^(['"])(.*)\1$/s);
-  return quoted ? quoted[2] : value;
-}
-
-function resolveStatusLineScript(value) {
-  if (typeof value !== "string") return null;
-  let candidate = unquote(value.trim());
-  const interpreted = candidate.match(interpreterPattern);
-  if (interpreted && !/-[A-Za-z]*c(?=\s|$)/.test(interpreted[1])) {
-    candidate = unquote(interpreted[2].trim());
-  }
-  if (candidate.startsWith("~/")) candidate = path.join(os.homedir(), candidate.slice(2));
-  if (!path.isAbsolute(candidate) || /[\s;&|<>`$()]/.test(candidate)) return null;
-  return path.resolve(candidate);
-}
+const currentCodexHook = CODEX_HOOK;
+const legacyCodexHook = LEGACY_CODEX_HOOK;
+const currentClaudeHook = CLAUDE_HOOK;
+const legacyClaudeHook = LEGACY_CLAUDE_HOOK;
+const currentStatusLineMarker = STATUS_LINE_MARKER;
+const legacyStatusLineMarker = LEGACY_STATUS_LINE_MARKER;
+const statusLineStartMarker = STATUS_LINE_START_MARKER;
+const statusLineEndMarker = STATUS_LINE_END_MARKER;
+const createdStatusLineMarker = CREATED_STATUS_LINE_MARKER;
 
 function removeStatusLinePrelude(scriptPath) {
   if (!scriptPath || !fs.existsSync(scriptPath)) return { changed: false, created: false };
@@ -175,7 +147,7 @@ if (shellRC && fs.existsSync(shellRC)) {
   // cc-pets-codex / cc-pets-claude 是 alias 时代的段落。alias 区分大小写，挡不住
   // Claude / CODEX 这类写法，已被 cc-pets-shims 的 PATH shim 取代；安装前的
   // --prepare-install 会走到这里，顺带把老段落迁移掉。
-  let updated = removeMarkedBlock(original, "# >>> cc-pets-shims >>>", "# <<< cc-pets-shims <<<");
+  let updated = removeMarkedBlock(original, SHIM_START_MARKER, SHIM_END_MARKER);
   updated = removeMarkedBlock(updated, "# >>> cc-pets-codex >>>", "# <<< cc-pets-codex <<<");
   updated = removeMarkedBlock(updated, "# >>> cc-pets-claude >>>", "# <<< cc-pets-claude <<<");
   updated = removeMarkedBlock(updated, "# >>> codex-pet >>>", "# <<< codex-pet <<<");

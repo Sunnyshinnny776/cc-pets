@@ -266,9 +266,6 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     CGFloat width = ceil(statusLine.size.width);
     [statusLine drawInRect:NSMakeRect(rightEdge - width, y, width + 1, 20)];
 }
-- (NSString *)formattedTokenCountForUsage:(NSDictionary *)usage key:(NSString *)key {
-    return [self formattedTokenCount:[self tokenTotals:usage key:key] ?: @{}];
-}
 - (NSString *)formattedTokenSplitForUsage:(NSDictionary *)usage key:(NSString *)key
     wantsOutput:(BOOL)wantsOutput {
     return [self formattedTokenSplit:[self tokenTotals:usage key:key] ?: @{}

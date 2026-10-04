@@ -47,6 +47,14 @@ for (const directory of ["state", "home", "claude", "codex", "bin", "fake"]) {
 // 假 codex：记录 queue 调用参数，按真实 CLI 的格式回显。
 const queueLog = path.join(root, "queue.log");
 fs.writeFileSync(env.CODEX_REAL_BIN, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "codex-cli 9.9.9"
+  exit 0
+fi
+if [ "$1" = "queue" ] && [ "$2" = "--help" ]; then
+  echo "Usage: codex queue [OPTIONS] --thread <THREAD> --message <TEXT>"
+  exit 0
+fi
 if [ "$1" = "queue" ]; then
   printf '%s\\0' "$@" >> '${queueLog}'
   printf '\\036' >> '${queueLog}'
@@ -664,6 +672,46 @@ function claimInboxQuietly() {
     nativeGroups[match[1]] = [...match[2].matchAll(/@"(\w+)"/g)].map((item) => item[1]);
   }
   assert.deepEqual(nativeGroups, TOOL_GROUPS, "CCPetsBridge.m 的分组必须与 options.mjs 的 TOOL_GROUPS 一致");
+}
+
+// 23. codex queue 能力探测：新版支持、旧版把 queue 当成交互参数打出总帮助、找不到可执行文件。
+{
+  const { probeCodexQueue } = await import("../scripts/bridge/process.mjs");
+  const { describeCodexQueue } = await import("../scripts/bridge/install.mjs");
+  const before = queueCalls().length;
+  const supported = probeCodexQueue(env.CODEX_REAL_BIN);
+  assert.equal(supported.status, "supported");
+  assert.equal(supported.version, "codex-cli 9.9.9");
+  assert.equal(describeCodexQueue(supported), null);
+  assert.equal(queueCalls().length, before, "探测不应产生 queue 投递");
+
+  const oldCodex = path.join(root, "bin/codex-old");
+  fs.writeFileSync(oldCodex, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "codex-cli 0.100.0"; exit 0; fi
+echo "Codex CLI"
+echo "If no subcommand is specified, options will be forwarded to the interactive CLI."
+exit 0
+`, { mode: 0o755 });
+  const unsupported = probeCodexQueue(oldCodex);
+  assert.equal(unsupported.status, "unsupported");
+  assert.match(describeCodexQueue(unsupported), /codex-cli 0\.100\.0.*不支持 codex queue/);
+
+  const missing = probeCodexQueue(path.join(root, "bin/no-such-codex"));
+  assert.equal(missing.status, "missing");
+  assert.match(describeCodexQueue(missing), /CODEX_REAL_BIN/);
+
+  // enable 时把不支持的情况写进报告；不支持也照样开启。
+  store.setBridgeEnabled(false);
+  // 探测只在注册 MCP 时跑，所以这里要放开 CC_BRIDGE_SKIP_MCP；claude 换成假的，绝不能碰到真实 CLI。
+  const fakeClaude = path.join(root, "bin/claude-noop");
+  fs.writeFileSync(fakeClaude, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const enabled = runCli(["enable"], {
+    extraEnv: { CODEX_REAL_BIN: oldCodex, CLAUDE_REAL_BIN: fakeClaude, CC_BRIDGE_SKIP_MCP: "0" }
+  });
+  assert.equal(enabled.status, 0, enabled.stderr);
+  assert.match(enabled.stdout, /不支持 codex queue/);
+  assert.equal(store.isBridgeEnabled(), true);
+  runCli(["disable"], { extraEnv: { CODEX_REAL_BIN: oldCodex, CLAUDE_REAL_BIN: fakeClaude } });
 }
 
 console.log("bridge-harness: all passed");

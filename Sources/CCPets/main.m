@@ -2,6 +2,7 @@
 #import "CCPetsAppDelegate.h"
 #import "CCPetsEvents.h"
 #import "CCPetsPaths.h"
+#import "CCPetsPhrases.h"
 #import "CCPetsPreviews.h"
 #import "CCPetsQuotaHistory.h"
 #import "CCPetsUsage.h"
@@ -48,6 +49,18 @@ int main(int argc, const char *argv[]) {
         if (argc > 1 && strcmp(argv[1], "--codex-launch") == 0) return RegisterCodexLaunch();
         if (argc > 1 && strcmp(argv[1], "--clean") == 0) return CleanCCPetsData(NO);
         if (argc > 1 && strcmp(argv[1], "--purge-data") == 0) return CleanCCPetsData(YES);
+        if (argc > 1 && strcmp(argv[1], "--paths") == 0) {
+            NSMutableDictionary *paths = [CCPetsDataPaths() mutableCopy];
+            paths[@"phrases"] = PetPhrasesFilePath();
+            paths[@"petPhrases"] = PetPhrasesPetDirectory();
+            NSData *json = [NSJSONSerialization dataWithJSONObject:paths
+                options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys | NSJSONWritingWithoutEscapingSlashes
+                error:nil];
+            if (!json) return EXIT_FAILURE;
+            fwrite(json.bytes, 1, json.length, stdout);
+            fputc('\n', stdout);
+            return EXIT_SUCCESS;
+        }
         if (argc > 1 && strcmp(argv[1], "--history") == 0) {
             NSData *json = [NSJSONSerialization dataWithJSONObject:QuotaHistoryDocument()
                 options:NSJSONWritingPrettyPrinted error:nil];

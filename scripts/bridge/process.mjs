@@ -127,3 +127,25 @@ export const resolveRealExecutable = (name, realBinVariable) => {
   }
   return null;
 };
+
+// `codex queue` 是较新的 Codex 才有的子命令。旧版本把不认识的子命令当成交互式启动参数，
+// `--help` 打出的是总帮助而不是报错，所以按帮助里有没有 --thread / --message 判断。
+// 结果只用于提前提示：投递时 queue 失败本来就会退回信箱（core.mjs 的 deliver），
+// 探测失败（超时、找不到 codex）一律算 unknown，不能因此拒绝开启 CC Bridge。
+export const probeCodexQueue = (executable = resolveRealExecutable("codex", "CODEX_REAL_BIN")) => {
+  if (!executable || !fs.existsSync(executable)) return { status: "missing", executable: executable ?? null, version: null };
+  const run = (args) => {
+    try {
+      return execFileSync(executable, args,
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000 });
+    } catch (error) {
+      if (error.code === "ETIMEDOUT" || error.code === "ENOENT" || error.code === "EACCES") return null;
+      return `${error.stdout || ""}${error.stderr || ""}`;
+    }
+  };
+  const version = (run(["--version"]) || "").trim().split("\n")[0] || null;
+  const help = run(["queue", "--help"]);
+  if (help === null) return { status: "unknown", executable, version };
+  const supported = help.includes("--thread") && help.includes("--message");
+  return { status: supported ? "supported" : "unsupported", executable, version };
+};

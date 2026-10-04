@@ -30,7 +30,6 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 @property NSTimeInterval lastFullDiscovery;
 - (NSDictionary *)refresh;
 - (NSDictionary *)refreshWithFullDiscovery;
-- (NSDictionary *)refreshForSessionURL:(NSURL *)url;
 // 一批 FSEvents 里可能有多个会话文件同时变更（并发会话）。谁的额度采样更晚要读过才知道，
 // 不能取遍历到的最后一个，详见实现处注释。
 - (NSDictionary *)refreshForSessionURLs:(NSArray<NSURL *> *)urls;

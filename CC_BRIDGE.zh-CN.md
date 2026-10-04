@@ -167,6 +167,10 @@ Claude Code 的 watcher 在会话启动和每轮结束时挂上，每次最多�
 如果 Claude 会话在这段空窗期里一直空闲，消息会留在信箱，等用户下次输入时一并带入；
 那一轮进行中新到的消息，在该轮结束时投递。
 
+自动唤醒 Codex 需要支持 `codex queue` 子命令的 Codex 版本。`cc-pets bridge enable`、
+`cc-pets bridge status` 与 `cc-pets doctor` 会检测当前版本；不支持时 CC Bridge 仍可使用，
+发给 Codex 的消息会先进信箱，由对方调用 `check_inbox` 或在下次输入时带入。
+
 发送方只会收到"已送达队列 / 已放入信箱 / 无法投递"这类回执。送达不代表对方已读，也不代表对方同意。
 
 ## 桌宠里的显示

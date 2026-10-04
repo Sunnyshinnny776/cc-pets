@@ -188,6 +188,11 @@ The Claude Code watcher arms at session start and at the end of every turn, and 
 inbox and are included with the user's next prompt; messages that arrive during that turn are
 delivered when it ends.
 
+Waking Codex requires a Codex version with the `codex queue` subcommand. `cc-pets bridge enable`,
+`cc-pets bridge status`, and `cc-pets doctor` check the installed version. Without it, CC Bridge
+still works: messages to Codex wait in its inbox until it calls `check_inbox` or the user's next
+prompt brings them in.
+
 Senders get receipts such as "queued", "in inbox", or "undeliverable". Delivery does not mean
 the recipient has read or agreed to anything.
 

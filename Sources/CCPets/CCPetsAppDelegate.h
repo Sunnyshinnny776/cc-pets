@@ -92,6 +92,19 @@
 @property BOOL agentEventReaderInitialized;
 @property BOOL checkingForUpdate;
 @property BOOL updating;
+@property(copy) NSString *pendingUpdateVersion;
+@property(copy) NSArray<NSString *> *pendingUpdateHighlights;
+@property BOOL pendingUpdateHighlightsTruncated;
+@property NSTimeInterval lastSilentUpdateCheckAt;
+@property BOOL updateBubbleVisible;
+@property BOOL updateBubbleDeferred;
+@property BOOL updateBubbleSuppressedStatus;
+@property BOOL updateReminderSnoozed;
+@property NSButton *updateBadgeButton;
+@property NSView *updateBadgeView;
+@property CCPetsGlassView *updateBadgeGlass;
+@property NSImageView *updateBadgeArrow;
+@property NSButton *speechClickButton;
 @property NSTask *updateTask;
 @property NSTimer *usageTimer;
 // 上一次全量聚合的时刻：面板由悬停触发，短时间内反复进出热区不必每次重算。
@@ -99,18 +112,4 @@
 @property NSTimer *quotaClockTimer;
 @property NSTimer *systemMetricsTimer;
 @property CCPetsSystemMonitor *systemMonitor;
-- (void)showQuotaDashboard;
-- (void)positionQuotaDashboard;
-- (void)scheduleQuotaDashboardHide;
-- (void)hideQuotaDashboardIfNeeded;
-- (void)positionAgentStatus;
-- (void)showAgentStatusForRecord:(NSDictionary *)record;
-- (void)prunePendingApprovalRecords;
-- (void)toggleStatusBubbleFromMenu:(NSButton *)sender;
-- (void)refreshUsage:(id)sender;
-- (void)toggleSystemMetric:(NSButton *)sender;
-- (void)setUsageDisplayModeFromControl:(NSButton *)sender;
-- (void)applyCodexUsage:(NSDictionary *)codexUsage claudeUsage:(NSDictionary *)claudeUsage;
-- (void)switchPetToID:(NSString *)petID;
-- (BOOL)deletePetWithID:(NSString *)petID;
 @end

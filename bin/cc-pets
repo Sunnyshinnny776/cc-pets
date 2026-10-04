@@ -16,10 +16,12 @@ print_usage() {
   cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）
   cc-pets install            安装或修复 shell / Claude Code / Codex 集成
   cc-pets uninstall          移除集成并恢复 status line
-  cc-pets uninstall --purge  同时删除 App 和全部本地数据（会先确认）
+  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）
   cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app
   cc-pets build              重新构建
   cc-pets clean              清理缓存（需先退出桌宠）
+  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议
+  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小
   cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help
   cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help
   cc-pets --status           输出 Codex 当前额度
@@ -49,6 +51,10 @@ fi
 if [[ "${1:-}" == "bridge" ]]; then
   shift
   exec node "${PROJECT_DIR}/scripts/bridge/cli.mjs" "$@"
+fi
+
+if [[ "${1:-}" == "doctor" || "${1:-}" == "paths" ]]; then
+  exec node "${PROJECT_DIR}/scripts/doctor.mjs" "$@"
 fi
 
 if [[ "${1:-}" == "uninstall" ]]; then

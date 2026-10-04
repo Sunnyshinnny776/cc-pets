@@ -1625,9 +1625,6 @@ static const NSUInteger MaximumPinnedSessions = 8;
     NSString *prefix = [sessionsPath stringByAppendingString:@"/"];
     return [url.path.stringByResolvingSymlinksInPath hasPrefix:prefix];
 }
-- (NSDictionary *)refreshForSessionURL:(NSURL *)url {
-    return [self refreshForSessionURLs:url ? @[url] : @[]];
-}
 // 并发会话下一批事件里会有多个会话文件同时变更，而"文件更晚被写"和"额度采样更晚"是两回事：
 // 会话拿到 rate_limits 之后还会继续追加别的行。取遍历到的最后一个就会切到采样偏旧的会话，
 // 面板上的百分比于是在两个会话之间来回跳。这里读各自的尾巴，按 sampledAt 挑，与

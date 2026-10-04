@@ -8,7 +8,7 @@
 #import "CCPetsGlassView.h"
 #import "MenuChoiceRow.h"
 
-// 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate.m，这里只读不写；
+// 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate+Speech.m，这里只读不写；
 // 单独 extern 而不 import 那个头文件，是因为它反过来 import 了 PetView.h。
 extern NSString *const PetSpeechFrequencyKey;
 
@@ -1750,10 +1750,22 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         action:@selector(editPhrasesFile:) keyEquivalent:@""];
     editPhrases.target = NSApp.delegate;
     speechItem.submenu = speechMenu;
-    NSMenuItem *aboutItem = [menu addItemWithTitle:@"关于 CC Pets" action:@selector(showAboutPanel:) keyEquivalent:@""];
-    aboutItem.target = NSApp.delegate;
-    NSMenuItem *updateItem = [menu addItemWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
+    // 检查更新和关于收进「帮助」；有新版本时在顶层临时多一项「更新到 x.y.z…」，一步就能更新，
+    // 不必展开子菜单。气泡和角标错过了，这里仍是醒目的入口。
+    NSString *pendingVersion = self.pendingUpdateVersionRequested ? self.pendingUpdateVersionRequested() : nil;
+    if (pendingVersion.length > 0) {
+        NSMenuItem *installItem = [menu addItemWithTitle:
+            [NSString stringWithFormat:@"更新到 %@…", pendingVersion]
+            action:@selector(showPendingUpdate:) keyEquivalent:@""];
+        installItem.target = NSApp.delegate;
+    }
+    NSMenuItem *helpItem = [menu addItemWithTitle:@"帮助" action:nil keyEquivalent:@""];
+    NSMenu *helpMenu = [NSMenu new];
+    NSMenuItem *updateItem = [helpMenu addItemWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
     updateItem.target = NSApp.delegate;
+    NSMenuItem *aboutItem = [helpMenu addItemWithTitle:@"关于 CC Pets" action:@selector(showAboutPanel:) keyEquivalent:@""];
+    aboutItem.target = NSApp.delegate;
+    helpItem.submenu = helpMenu;
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *quitItem = [menu addItemWithTitle:@"退出桌宠" action:@selector(terminate:) keyEquivalent:@"q"];
     quitItem.target = NSApp;

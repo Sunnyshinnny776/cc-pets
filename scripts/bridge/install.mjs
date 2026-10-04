@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectClaudeCLI, detectCodexCLI } from "../detect-cli.mjs";
 import { DEFAULT_OPTIONS, normalizeOptions } from "./options.mjs";
-import { resolveRealExecutable } from "./process.mjs";
+import { probeCodexQueue, resolveRealExecutable } from "./process.mjs";
 
 export const HOOK_MARKER = "CC_BRIDGE_HOOK=";
 export const MCP_NAME = "cc-bridge";
@@ -221,6 +221,23 @@ const setCodexApproval = (tools) => {
 
 // ---------------------------------------------------------------------------
 
+// 自动唤醒 Codex 依赖 `codex queue`。不支持时 CC Bridge 照样能用（消息进信箱），只是对方要
+// check_inbox 或等下次输入才收到，开启时就说清楚，免得用户以为"发了没反应"。
+export const describeCodexQueue = (probe) => {
+  const version = probe.version ? `（${probe.version}）` : "";
+  switch (probe.status) {
+    case "supported":
+      return null;
+    case "unsupported":
+      return `当前 Codex${version} 不支持 codex queue：发给 Codex 的消息无法自动唤醒对方，会先进信箱，` +
+        "由对方调用 check_inbox 或在下次输入时带入。升级 Codex 后即可自动唤醒，无需重新开启。";
+    case "missing":
+      return "未找到 codex 可执行文件，发给 Codex 的消息只能进信箱；可设置 CODEX_REAL_BIN 后执行 cc-pets bridge enable。";
+    default:
+      return "无法确认 Codex 是否支持 codex queue；投递失败时会自动退回信箱。";
+  }
+};
+
 // registerMcp=false 用于只改选项（桌宠开关、cc-pets bridge configure）：不必重跑 claude / codex mcp add。
 export const install = ({ options: rawOptions = DEFAULT_OPTIONS, registerMcp = process.env.CC_BRIDGE_SKIP_MCP !== "1" } = {}) => {
   const options = normalizeOptions(rawOptions);
@@ -256,6 +273,11 @@ export const install = ({ options: rawOptions = DEFAULT_OPTIONS, registerMcp = p
       report.push(ok
         ? `Codex MCP 已注册：${MCP_NAME}`
         : `Codex MCP 注册失败，请手动执行：codex ${codexMcpAddArgs().map(shellQuote).join(" ")}`);
+      // 只在 enable / refresh 时探测：configure 由桌宠菜单开关触发，不值得每次多拉起两次 codex。
+      if (options.wake) {
+        const queueNotice = describeCodexQueue(probeCodexQueue(codex));
+        if (queueNotice) report.push(queueNotice);
+      }
     }
     setCodexApproval(options.codexApprove);
     report.push(options.codexApprove.length > 0

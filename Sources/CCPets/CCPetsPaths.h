@@ -42,7 +42,6 @@ BOOL ClaudeCLIDetected(void);
 // 已存在的同名目录一律跳过，不覆盖。
 NSUInteger ImportCodexPets(void);
 
-extern NSString *const HistoryEnabledKey;
 extern NSString *const NotificationCompletionKey;
 extern NSString *const NotificationFailureKey;
 extern NSString *const NotificationApprovalKey;

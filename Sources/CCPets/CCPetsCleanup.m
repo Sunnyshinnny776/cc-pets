@@ -19,6 +19,14 @@ static NSString *ClientStateDirectory(void) {
     return [PetStateDirectory() stringByAppendingPathComponent:name];
 }
 
+// pet-store 的素材源清单缓存（~/.cc-pets/cache，可用 CC_PETS_HOME 覆盖）。过期会自动重拉，
+// 属于纯缓存；~/.cc-pets 下其余内容（素材、台词）是用户数据，clean 和 purge 都不碰。
+static NSString *PetStoreCacheDirectory(void) {
+    NSString *home = NSProcessInfo.processInfo.environment[@"CC_PETS_HOME"];
+    if (home.length == 0) home = [NSHomeDirectory() stringByAppendingPathComponent:@".cc-pets"];
+    return [home.stringByStandardizingPath stringByAppendingPathComponent:@"cache"];
+}
+
 static BOOL RemoveIfPresent(NSString *path) {
     if (path.length == 0 || ![NSFileManager.defaultManager fileExistsAtPath:path]) return NO;
     return [NSFileManager.defaultManager removeItemAtPath:path error:nil];
@@ -151,7 +159,7 @@ int CleanCCPetsData(BOOL purge) {
     NSUInteger removed = 0;
     if (RemoveClaudeUsageIfUnlocked()) removed += 1;
     for (NSString *path in @[AgentEventPath(), CodexLiveUsagePath(), CodexLaunchRegistryPath(), RuntimeLockPath(),
-                             ClientStateDirectory(), buildCache ?: @""]) {
+                             ClientStateDirectory(), PetStoreCacheDirectory(), buildCache ?: @""]) {
         if (RemoveIfPresent(path)) removed += 1;
     }
     // Token 摘要缓存也是纯缓存（丢了只是重新解析一遍会话文件），原先漏在清理之外，
@@ -169,4 +177,27 @@ int CleanCCPetsData(BOOL purge) {
     printf("%s完成，共移除 %lu 项。\n", purge ? "完整数据清理" : "缓存清理",
         (unsigned long)removed);
     return EXIT_SUCCESS;
+}
+
+// 路径全部取自运行时真正使用的函数，Node 侧的 doctor 只负责展示，不再自己拼一套。
+NSDictionary<NSString *, id> *CCPetsDataPaths(void) {
+    NSString *domain = NSProcessInfo.processInfo.environment[@"CC_PETS_PREFERENCES_DOMAIN"];
+    if (domain.length == 0) domain = PreferencesDomain;
+    NSString *preferences = [[[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences"]
+        stringByAppendingPathComponent:domain] stringByAppendingPathExtension:@"plist"];
+    return @{
+        @"running": @(RuntimeIsActive()),
+        @"preferences": preferences,
+        @"applicationSupport": ApplicationSupportDirectory(),
+        @"quotaHistory": QuotaHistoryPath(),
+        @"stateDirectory": PetStateDirectory(),
+        @"agentEvents": AgentEventPath(),
+        @"claudeUsage": ClaudeUsagePath(),
+        @"codexLiveUsage": CodexLiveUsagePath(),
+        @"codexLaunches": CodexLaunchRegistryPath(),
+        @"runtimeLock": RuntimeLockPath(),
+        @"clients": ClientStateDirectory(),
+        @"pets": OwnPetsDirectory(),
+        @"petStoreCache": PetStoreCacheDirectory(),
+    };
 }

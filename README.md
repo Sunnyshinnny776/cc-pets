@@ -149,6 +149,8 @@ cc-pets --version             # Print the installed version.
 cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
+cc-pets doctor                # Check the installation and integrations, with fixes.
+cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
 cc-pets pet add boba          # Install an asset into CC Pets' own directory.
@@ -161,7 +163,7 @@ cc-pets bridge enable            # CC Bridge (experimental, off by default); see
 cc-pets bridge status            # Show CC Bridge state and online sessions.
 cc-pets bridge disable           # Remove CC Bridge integrations.
 cc-pets uninstall             # Remove integrations and restore the status line.
-cc-pets uninstall --purge     # Also remove the app and all local data after confirmation.
+cc-pets uninstall --purge     # Also remove the app, app data and preferences after confirmation; keeps assets and phrases in ~/.cc-pets.
 cc-pets uninstall-app         # Remove only ~/Applications/CC Pets.app.
 
 codex-with-pet                # Start the pet and enter Codex CLI.
@@ -203,7 +205,7 @@ prompts, command text, file contents, or model output.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, notification, update, and exit menu |
+| Right-click | Pet, notification, Help (update check and About), and exit menu |
 
 The **Panel theme** submenu offers **Classic** and **Liquid Glass**. Classic is the
 default. Changes apply immediately to the quota panel, status card, and speech
