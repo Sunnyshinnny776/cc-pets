@@ -14,17 +14,23 @@ Codex App Server interface and Claude Code's official status line input.
 > The application UI and the screenshots below are currently in Simplified Chinese.
 > English UI localization and English screenshots are planned for a future release.
 
-## What's new in v2.1.1
+## What's new in v2.1.2
 
-- **Liquid Glass theme** — on macOS 26 and later, choose **Panel theme → Liquid Glass**
-  in the right-click menu. The quota panel, status card, speech bubble, session list and
-  menus switch to native system glass, with four **Glass dimming** levels from Clear (0%)
-  to Legible (45%). Classic stays the default.
-- **Multi-terminal jump-back** — click any agent status card, or pick one of up to eight
-  online sessions from the status icon, to return to the terminal that raised it.
-  Terminal.app and iTerm2 are selected precisely by TTY; VS Code, Cursor, Windsurf,
-  Antigravity, JetBrains IDEs, Warp, WezTerm and Ghostty are brought to the front.
-  Codex sessions that share one background app-server no longer jump to the wrong terminal.
+- **Update prompts from the pet** — CC Pets checks npm for a newer version shortly after
+  launch. When one is available, the pet shows a clickable speech bubble with up to three
+  highlights from the GitHub Release, and the bubble waits while an agent is busy. A glass
+  "↑" badge on the pet and an **Update to x.y.z…** item at the top of the right-click menu
+  open the update dialog. **Check for Updates…** and **About CC Pets** now live under a new
+  **Help** submenu.
+- **`cc-pets doctor`** — read-only checks of versions, Claude Code and Codex hooks, the
+  status line, shims and `PATH`, the updater and CC Bridge, with a fix for each problem.
+  The output shows your home directory as `~`, so you can paste it into an issue.
+- **`cc-pets paths`** — lists where settings, pet assets, phrases, caches and runtime
+  state live, how large each is, and what `clean` and `uninstall --purge` remove
+  (`--json` for machine-readable output).
+- **Fixes** — `cc-pets clean` also clears the pet store manifest cache, and CC Bridge now
+  tells you when the installed Codex lacks `codex queue`, in which case messages to Codex
+  wait in its inbox.
 
 See the [changelog](./CHANGELOG.md) for the full list.
 
@@ -51,6 +57,7 @@ See the [changelog](./CHANGELOG.md) for the full list.
 - Lists up to eight recent online Agent terminal sessions from the status card icon.
 - Badges the status icon with the number of sessions waiting for approval and pins those sessions to the top of the list.
 - Speaks up when an Agent sits in approval or thinking longer than its threshold.
+- Announces new versions through the pet with release highlights and updates from the right-click menu.
 - Supports optional local quota history and macOS notifications.
 - Supports third-party CLI agents through a provider event protocol.
 - Includes editable global and per-pet speech.
@@ -346,6 +353,7 @@ external assets.
 - Local quota history is disabled by default and retains seven days when enabled.
 - Status cards and notifications show only provider, state, and redacted tool category.
 - CC Pets contains no telemetry and uploads no conversations, quotas, credentials, or usage statistics.
+- On launch, and when a CLI reopens the running pet, CC Pets asks the npm registry for the latest version (at most once every 10 minutes per run); only when a newer version exists does it read that version's release notes from the GitHub API. These requests carry no account or usage data.
 - Exiting the pet or running `cc-pets uninstall` leaves no background daemon running.
 - [CC Bridge](./CC_BRIDGE.md) is off by default. When enabled, messages between sessions are stored
   in the current user's temporary directory (owner-only, 24-hour expiry); it is the only feature

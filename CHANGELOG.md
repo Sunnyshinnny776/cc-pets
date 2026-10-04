@@ -5,7 +5,7 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
-## [2.1.2] - 2026-10-03
+## [2.1.2] - 2026-10-04
 
 Update prompts through the pet, `cc-pets doctor` and `cc-pets paths`, plus cleanup fixes.
 

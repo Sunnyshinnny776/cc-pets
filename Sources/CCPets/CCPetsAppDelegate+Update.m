@@ -429,7 +429,7 @@ static void TrimUpdateLog(NSString *path) {
         return;
     }
     self.updateBubbleDeferred = NO;
-    [self showUpdateBubbleWithText:[NSString stringWithFormat:@"CC Pets %@ 版本来啦，点我更新",
+    [self showUpdateBubbleWithText:[NSString stringWithFormat:@"CC Pets 发布新版本 v%@ 啦，点击更新",
         self.pendingUpdateVersion] dwell:UpdateBubbleDwell];
 }
 // 碎碎念时机里的更新提醒，几句轮换，免得每次都是同一句。
