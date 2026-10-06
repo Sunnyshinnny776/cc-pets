@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { detectClaudeCLI, detectCodexCLI } from "../detect-cli.mjs";
 import { DEFAULT_OPTIONS, normalizeOptions } from "./options.mjs";
 import { probeCodexQueue, resolveRealExecutable } from "./process.mjs";
+import { t } from "../i18n.mjs";
 
 export const HOOK_MARKER = "CC_BRIDGE_HOOK=";
 export const MCP_NAME = "cc-bridge";
@@ -44,7 +45,7 @@ const readJsonConfig = (file) => {
   if (!fs.existsSync(file)) return {};
   const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`${file} 不是 JSON 对象`);
+    throw new Error(t("{file} isn't a JSON object", { file }));
   }
   return parsed;
 };
@@ -195,7 +196,7 @@ const codexMcpAddArgs = () => [
 
 const codexApprovalBlock = (tools) => [
   TOML_START,
-  "# 由 cc-pets bridge enable / configure 写入；cc-pets bridge disable 会移除。",
+  t("# Written by cc-pets bridge enable / configure; cc-pets bridge disable removes it."),
   ...tools.flatMap((tool) => [
     `[mcp_servers.${MCP_NAME}.tools.${tool}]`,
     'approval_mode = "approve"',
@@ -224,17 +225,17 @@ const setCodexApproval = (tools) => {
 // 自动唤醒 Codex 依赖 `codex queue`。不支持时 CC Bridge 照样能用（消息进信箱），只是对方要
 // check_inbox 或等下次输入才收到，开启时就说清楚，免得用户以为"发了没反应"。
 export const describeCodexQueue = (probe) => {
-  const version = probe.version ? `（${probe.version}）` : "";
+  const version = probe.version ? t(" ({version})", { version: probe.version }) : "";
   switch (probe.status) {
     case "supported":
       return null;
     case "unsupported":
-      return `当前 Codex${version} 不支持 codex queue：发给 Codex 的消息无法自动唤醒对方，会先进信箱，` +
-        "由对方调用 check_inbox 或在下次输入时带入。升级 Codex 后即可自动唤醒，无需重新开启。";
+      return t("This Codex{version} doesn't support codex queue, so messages to Codex can't wake it; they go to its inbox ", { version }) +
+        t("and are picked up via check_inbox or with the next input. Upgrading Codex enables wake-up without re-enabling CC Bridge.");
     case "missing":
-      return "未找到 codex 可执行文件，发给 Codex 的消息只能进信箱；可设置 CODEX_REAL_BIN 后执行 cc-pets bridge enable。";
+      return t("codex executable not found, so messages to Codex can only go to its inbox; set CODEX_REAL_BIN and run cc-pets bridge enable.");
     default:
-      return "无法确认 Codex 是否支持 codex queue；投递失败时会自动退回信箱。";
+      return t("Couldn't tell whether Codex supports codex queue; failed deliveries fall back to the inbox.");
   }
 };
 
@@ -244,10 +245,10 @@ export const install = ({ options: rawOptions = DEFAULT_OPTIONS, registerMcp = p
   const report = [];
   if (detectClaudeCLI()) {
     updateJsonHooks(path.join(claudeHome(), "settings.json"), claudeHookPlan(options), options.claudeAllow);
-    report.push(`Claude Code hooks 已写入 ${path.join(claudeHome(), "settings.json")}`);
+    report.push(t("Claude Code hooks written to {path}", { path: path.join(claudeHome(), "settings.json") }));
     report.push(options.claudeAllow.length > 0
-      ? `Claude Code 中以下工具免确认：${options.claudeAllow.join(", ")}`
-      : "Claude Code 中 cc-bridge 的工具按你的权限设置询问。");
+      ? t("Claude Code allows these tools without asking: {claudeAllow}", { claudeAllow: options.claudeAllow.join(", ") })
+      : t("In Claude Code, cc-bridge tools follow your permission settings."));
     if (registerMcp) {
       const claude = resolveRealExecutable("claude", "CLAUDE_REAL_BIN");
       for (const name of [MCP_NAME, ...LEGACY_MCP_NAMES]) {
@@ -255,24 +256,24 @@ export const install = ({ options: rawOptions = DEFAULT_OPTIONS, registerMcp = p
       }
       const ok = claude && runQuietly(claude, claudeMcpAddArgs());
       report.push(ok
-        ? `Claude Code MCP 已注册：${MCP_NAME}（首次调用时 Claude 会按你的权限设置询问是否允许）`
-        : `Claude Code MCP 注册失败，请手动执行：claude ${claudeMcpAddArgs().map(shellQuote).join(" ")}`);
+        ? t("Claude Code MCP registered: {MCP_NAME} (on first use, Claude asks according to your permission settings)", { MCP_NAME })
+        : t("Claude Code MCP registration failed. Run manually: claude {shellQuote}", { shellQuote: claudeMcpAddArgs().map(shellQuote).join(" ") }));
     }
   } else {
-    report.push("未检测到 Claude Code CLI，跳过。");
+    report.push(t("Claude Code CLI not detected, skipped."));
   }
 
   if (detectCodexCLI()) {
     fs.mkdirSync(codexHome(), { recursive: true });
     updateJsonHooks(path.join(codexHome(), "hooks.json"), codexHookPlan(options));
-    report.push(`Codex hooks 已写入 ${path.join(codexHome(), "hooks.json")}——下次启动 Codex 后请执行 /hooks 并信任 cc-pets bridge 的 hooks。`);
+    report.push(t("Codex hooks written to {path}. Next time you start Codex, run /hooks and trust the cc-pets bridge hooks.", { path: path.join(codexHome(), "hooks.json") }));
     if (registerMcp) {
       const codex = resolveRealExecutable("codex", "CODEX_REAL_BIN");
       for (const name of [MCP_NAME, ...LEGACY_MCP_NAMES]) runQuietly(codex || "codex", ["mcp", "remove", name]);
       const ok = codex && runQuietly(codex, codexMcpAddArgs());
       report.push(ok
-        ? `Codex MCP 已注册：${MCP_NAME}`
-        : `Codex MCP 注册失败，请手动执行：codex ${codexMcpAddArgs().map(shellQuote).join(" ")}`);
+        ? t("Codex MCP registered: {MCP_NAME}", { MCP_NAME })
+        : t("Codex MCP registration failed. Run manually: codex {shellQuote}", { shellQuote: codexMcpAddArgs().map(shellQuote).join(" ") }));
       // 只在 enable / refresh 时探测：configure 由桌宠菜单开关触发，不值得每次多拉起两次 codex。
       if (options.wake) {
         const queueNotice = describeCodexQueue(probeCodexQueue(codex));
@@ -281,10 +282,10 @@ export const install = ({ options: rawOptions = DEFAULT_OPTIONS, registerMcp = p
     }
     setCodexApproval(options.codexApprove);
     report.push(options.codexApprove.length > 0
-      ? `Codex 中以下工具免审批：${options.codexApprove.join(", ")}（需重启 Codex 会话生效）`
-      : "Codex 中 cc-bridge 的工具保持默认审批（approval_policy=never 时调用会失败，可用 --codex-approve 放开）。");
+      ? t("Codex auto-approves these tools: {codexApprove} (restart Codex sessions to apply)", { codexApprove: options.codexApprove.join(", ") })
+      : t("cc-bridge tools keep Codex's default approvals (calls fail under approval_policy=never; allow them with --codex-approve)."));
   } else {
-    report.push("未检测到 Codex CLI，跳过。");
+    report.push(t("Codex CLI not detected, skipped."));
   }
   return report;
 };
@@ -292,18 +293,18 @@ export const install = ({ options: rawOptions = DEFAULT_OPTIONS, registerMcp = p
 export const uninstall = ({ unregisterMcp = process.env.CC_BRIDGE_SKIP_MCP !== "1" } = {}) => {
   const report = [];
   if (removeJsonHooks(path.join(claudeHome(), "settings.json"), { claudeAllow: true })) {
-    report.push("已移除 Claude Code 中的 cc-bridge hooks 与工具放行规则。");
+    report.push(t("Removed the cc-bridge hooks and tool permissions from Claude Code."));
   }
-  if (removeJsonHooks(path.join(codexHome(), "hooks.json"))) report.push("已移除 Codex 中的 cc-bridge hooks。");
+  if (removeJsonHooks(path.join(codexHome(), "hooks.json"))) report.push(t("Removed the cc-bridge hooks from Codex."));
   if (fs.existsSync(path.join(codexHome(), "config.toml"))) setCodexApproval([]);
   if (unregisterMcp) {
     const claude = resolveRealExecutable("claude", "CLAUDE_REAL_BIN");
     for (const name of [MCP_NAME, ...LEGACY_MCP_NAMES]) {
-      if (claude && runQuietly(claude, ["mcp", "remove", "--scope", "user", name])) report.push(`已移除 Claude Code MCP：${name}。`);
+      if (claude && runQuietly(claude, ["mcp", "remove", "--scope", "user", name])) report.push(t("Removed Claude Code MCP: {name}.", { name }));
     }
     const codex = resolveRealExecutable("codex", "CODEX_REAL_BIN");
     for (const name of [MCP_NAME, ...LEGACY_MCP_NAMES]) {
-      if (codex && runQuietly(codex, ["mcp", "remove", name])) report.push(`已移除 Codex MCP：${name}。`);
+      if (codex && runQuietly(codex, ["mcp", "remove", name])) report.push(t("Removed Codex MCP: {name}.", { name }));
     }
   }
   return report;

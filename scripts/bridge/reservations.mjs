@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describeSession, liveSessions } from "./core.mjs";
 import { bridgeSubdirectory, readJson, writeJsonAtomic } from "./store.mjs";
+import { t } from "../i18n.mjs";
 
 export const DEFAULT_TTL_MINUTES = 30;
 export const MAX_TTL_MINUTES = 8 * 60;
@@ -147,24 +148,24 @@ export const releaseSessionReservations = (sessionId) => {
 const minutesLeft = (reservation, now = Date.now()) => Math.max(1, Math.round((reservation.expiresAt - now) / 60000));
 
 export const describeReservation = (reservation, now = Date.now()) =>
-  `${reservation.pattern}  ·  ${describeSession(reservation.holder)}  ·  剩余 ${minutesLeft(reservation, now)} 分钟` +
+  t("{pattern}  ·  {holder}  ·  {minutes} min left", { pattern: reservation.pattern, holder: describeSession(reservation.holder), minutes: minutesLeft(reservation, now) }) +
   (reservation.reason ? `  ·  ${reservation.reason}` : "");
 
 // ---------------------------------------------------------------------------
 
 export const reserveFiles = ({ self, paths, reason = "", ttlMinutes = DEFAULT_TTL_MINUTES, now = Date.now() }) => {
   const list = Array.isArray(paths) ? paths : [paths];
-  if (list.length === 0 || list.length > MAX_PATTERNS) return { error: `一次最多预留 ${MAX_PATTERNS} 个路径，至少 1 个。` };
+  if (list.length === 0 || list.length > MAX_PATTERNS) return { error: t("Reserve between 1 and {MAX_PATTERNS} paths at a time.", { MAX_PATTERNS }) };
   const ttl = Number(ttlMinutes);
   if (!Number.isFinite(ttl) || ttl < 1 || ttl > MAX_TTL_MINUTES) {
-    return { error: `ttl_minutes 需在 1 到 ${MAX_TTL_MINUTES} 之间。` };
+    return { error: t("ttl_minutes must be between 1 and {MAX_TTL_MINUTES}.", { MAX_TTL_MINUTES }) };
   }
   const root = repoRoot(self.cwd);
-  if (!root) return { error: "无法确定当前会话所在的仓库目录。" };
+  if (!root) return { error: t("Can't determine the repository directory of the current session.") };
   const patterns = [];
   for (const raw of list) {
     const pattern = normalizePattern(root, self.cwd, raw);
-    if (!pattern) return { error: `路径 ${raw} 无效，或不在当前仓库 ${root} 内。` };
+    if (!pattern) return { error: t("Path {raw} is invalid or not inside the current repository {root}.", { raw, root }) };
     if (!patterns.includes(pattern)) patterns.push(pattern);
   }
   const note = String(reason ?? "").trim().slice(0, MAX_REASON_LENGTH);

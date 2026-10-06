@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { t } from "../i18n.mjs";
 
 export const MESSAGE_BODY_LIMIT = 16 * 1024;
 export const MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -103,9 +104,9 @@ const ensureDirectory = (directory) => {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const status = fs.lstatSync(directory);
   if (!status.isDirectory() || status.isSymbolicLink()) {
-    throw new Error(`${directory} 不是普通目录`);
+    throw new Error(t("{directory} isn't a regular directory", { directory }));
   }
-  if (status.uid !== uid()) throw new Error(`${directory} 不属于当前用户`);
+  if (status.uid !== uid()) throw new Error(t("{directory} isn't owned by the current user", { directory }));
   if ((status.mode & 0o077) !== 0) fs.chmodSync(directory, 0o700);
   return directory;
 };
@@ -246,13 +247,13 @@ export const upsertSession = ({
 // 会话内改名：名字被其他在线会话占用时直接报错，由调用方换一个，不自动追加序号。
 export const renameSession = (sessionId, requestedName, liveSessions) => {
   const record = readSession(sessionId);
-  if (!record) return { error: "当前会话尚未注册。" };
+  if (!record) return { error: t("This session isn't registered yet.") };
   const name = normalizeSessionName(requestedName);
   if (!name) {
-    return { error: "名字只能包含小写字母、数字和 . _ -，以字母或数字开头，最长 40 个字符。" };
+    return { error: t("Names may only contain lowercase letters, digits and . _ -, must start with a letter or digit, and be at most 40 characters.") };
   }
   const holder = nameTakenBy(name, record.session, liveSessions);
-  if (holder) return { error: `名字 ${name} 已被 ${holder.name} [${holder.ref}] 使用，请换一个。` };
+  if (holder) return { error: t("The name {name} is taken by {holder} [{ref}]; pick another.", { name, holder: holder.name, ref: holder.ref }) };
   const previous = record.name;
   record.name = name;
   record.updatedAt = Date.now();
@@ -295,18 +296,18 @@ export const checkSendLimits = (fromSession, toSession, now = Date.now()) => {
     (entry.from?.session === fromSession && entry.to?.session === toSession) ||
     (entry.from?.session === toSession && entry.to?.session === fromSession));
   if (pair.length >= PAIR_LIMIT_COUNT) {
-    return `这两个会话 10 分钟内已往来 ${pair.length} 条消息，疑似互相自动回复形成循环，已暂停发送。请让用户确认后再继续。`;
+    return t("These two sessions exchanged {length} messages in 10 minutes, which looks like an auto-reply loop, so sending is paused. Ask the user before continuing.", { length: pair.length });
   }
   const sent = recent.filter((entry) => entry.from?.session === fromSession);
   if (sent.length >= SENDER_LIMIT_COUNT) {
-    return `当前会话 10 分钟内已发送 ${sent.length} 条消息，超过上限，已暂停发送。`;
+    return t("This session sent {length} messages in 10 minutes, over the limit, so sending is paused.", { length: sent.length });
   }
   return null;
 };
 
 export const enqueueInbox = (message) => {
   const target = safeSessionId(message.to?.session);
-  if (!target) throw new Error("目标会话 id 无效");
+  if (!target) throw new Error(t("invalid target session id"));
   writeJsonAtomic(path.join(inboxDirectory(target), `${message.id}.json`), message);
 };
 
@@ -352,7 +353,7 @@ export const abandonInbox = (sessionId) => {
     const file = path.join(inbox, name);
     const message = readJson(file);
     fs.rmSync(file, { force: true });
-    if (message) updateReceipt(message.id, { status: "undeliverable", reason: "目标会话已结束" });
+    if (message) updateReceipt(message.id, { status: "undeliverable", reason: t("the target session has ended") });
   }
 };
 

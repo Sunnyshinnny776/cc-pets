@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
+source "${PROJECT_DIR}/scripts/i18n.zsh"
 SHELL_RC="${ZDOTDIR:-${HOME}}/.zshrc"
 PET_BIN="${PROJECT_DIR}/.build/release/cc-pets"
 PET_APP_EXECUTABLE="${PROJECT_DIR}/.build/release/CC Pets.app/Contents/MacOS/cc-pets"
@@ -18,12 +19,12 @@ done
 
 if (( PURGE && ! ASSUME_YES )); then
   if [[ ! -t 0 ]]; then
-    print -u2 "完整卸载会删除应用、额度历史、更新配置、日志和偏好（保留 ~/.cc-pets 的素材与台词）。非交互环境请显式添加 --yes。"
+    print -u2 "$(cc_pets_t "A full uninstall removes the app, quota history, updater config, logs and preferences (keeping pets and lines in ~/.cc-pets). Add --yes when running non-interactively.")"
     exit 2
   fi
-  print -u2 "完整卸载会永久删除 CC Pets 应用、额度历史、更新配置、日志和偏好；~/.cc-pets 下的桌宠素材与台词会保留。是否继续？[y/N] "
+  print -u2 "$(cc_pets_t "A full uninstall permanently removes the CC Pets app, quota history, updater config, logs and preferences; pets and lines in ~/.cc-pets are kept. Continue? [y/N] ")"
   if ! read -r reply || [[ "${reply:l}" != "y" && "${reply:l}" != "yes" ]]; then
-    print "已取消完整卸载。"
+    print "$(cc_pets_t "Full uninstall canceled.")"
     exit 0
   fi
 fi
@@ -46,7 +47,7 @@ if [[ "${CC_PETS_SKIP_APP_STOP:-0}" != "1" ]]; then
       sleep 0.1
     done
     if (( running != 0 )); then
-      print -u2 "完整卸载失败：CC Pets 未能退出，尚未删除集成或本地数据。"
+      print -u2 "$(cc_pets_t "Full uninstall failed: CC Pets didn't quit, so no integrations or local data were removed.")"
       exit 1
     fi
   fi
@@ -56,13 +57,13 @@ node "${PROJECT_DIR}/scripts/uninstall-integrations.mjs" "${SHELL_RC}"
 
 if (( PURGE )); then
   if [[ ! -x "${PET_BIN}" ]]; then
-    print -u2 "完整卸载失败：找不到 ${PET_BIN}，本地数据尚未删除。"
+    print -u2 "$(cc_pets_t "Full uninstall failed: {petBin} not found, so local data wasn't removed." petBin="${PET_BIN}")"
     exit 1
   fi
   "${PET_BIN}" --purge-data
   CC_PETS_SKIP_APP_STOP=1 "${PROJECT_DIR}/scripts/uninstall-app.sh"
-  print "完整卸载完成；桌宠素材与台词保留在 ~/.cc-pets，不再需要可手动删除。npm 包本身如仍存在，可继续执行 npm uninstall -g cc-pets。"
+  print "$(cc_pets_t "Full uninstall done. Pets and lines remain in ~/.cc-pets; delete them manually if you no longer need them. If the npm package is still installed, run npm uninstall -g cc-pets.")"
   exit 0
 fi
 
-print "卸载集成完成。执行 source ${(q)SHELL_RC} 更新当前终端；如需删除 npm 包，再执行 npm uninstall -g cc-pets。"
+print "$(cc_pets_t "Integrations removed. Run source {shellRc} to update this terminal; to remove the npm package, run npm uninstall -g cc-pets." shellRc="${(q)SHELL_RC}")"

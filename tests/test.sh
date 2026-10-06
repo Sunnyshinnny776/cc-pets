@@ -35,6 +35,11 @@ trap cleanup_test_temp_dirs EXIT
 # 撞上就会莫名其妙失败。标记由 CC_PETS_TEST_MARK 注入，测试起的每个子进程都带着它，
 # 漏设 CC_PETS_STATE_DIR 的用例照样会被抓到。
 export CC_PETS_TEST_MARK="test-$$"
+# 界面语言固定为中文：断言都按中文写，不能随开发机的系统语言变。
+# 源码里是英文原文，中文要查 Resources/zh-Hans.lproj 的表；harness 是单独编译的、没有
+# app bundle，所以统一指过去。英文输出由下面的多语言测试单独覆盖。
+export CC_PETS_LANGUAGE=zh-Hans
+export CC_PETS_LOCALIZATION_DIR="${PROJECT_DIR}/Resources"
 
 # 额度快照的 resets_at 必须落在当前窗口里（见 CCPetsUsage.m 的 QuotaWindowLooksCurrent），
 # 写死的时间戳一旦成为过去就会被合理地拒收，用例会在某天突然全红。统一按运行时刻算。
@@ -123,8 +128,8 @@ for source_file in "${PROJECT_DIR}"/Sources/CCPets/*.m(N) "${PROJECT_DIR}"/Sourc
 done
 # 构建期资源同理：build.sh 会从 Resources/ 拷贝，漏进 files 白名单的话本地构建照样绿，
 # 用户 npm install 时才在 cp 那一步炸掉。files 是逐个文件列的，新加资源极易漏。
-for resource_file in "${PROJECT_DIR}"/Resources/*(N.); do
-  relative="Resources/${resource_file:t}"
+for resource_file in "${PROJECT_DIR}"/Resources/*(N.) "${PROJECT_DIR}"/Resources/*.lproj/*(N.); do
+  relative="${resource_file#${PROJECT_DIR}/}"
   if ! print -r -- "${PACK_LIST}" | grep -Fq "\"${relative}\""; then
     print -u2 "发布包缺少资源 ${relative}；检查 package.json 的 files 字段"
     exit 1
@@ -213,13 +218,13 @@ CC_PETS_OPEN_PATH="${UPDATER_TMP}/bin/open" CC_PETS_RESTART_LOG="${UPDATER_TMP}/
   "${PROJECT_DIR}/.build/release/cc-pets" --restart-after-pid "${EXITED_PID}" \
   "${UPDATER_TMP}/Applications/CC Pets.app" --managed
 grep -Fq -- "-g ${UPDATER_TMP}/Applications/CC Pets.app --args --managed" "${UPDATER_TMP}/restart.log"
-grep -q '检查更新…' "${PET_SOURCES[@]}"
+grep -q 'Check for Updates…' "${PET_SOURCES[@]}"
 # 检查更新与关于收在「帮助」子菜单里；有新版本时顶层临时多一项「更新到 x.y.z…」，
 # 由 AppDelegate 通过 pendingUpdateVersionRequested 告知（更新进行中返回 nil）。
-grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:@"帮助"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -Fq '[helpMenu addItemWithTitle:@"检查更新…"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -Fq '[helpMenu addItemWithTitle:@"关于 CC Pets"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -Fq '@"更新到 %@…"' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:L(@"Help")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '[helpMenu addItemWithTitle:L(@"Check for Updates…")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq '[helpMenu addItemWithTitle:L(@"About CC Pets")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -Fq 'L(@"Update to %@…")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
 grep -Fq 'return weakSelf.updating ? nil : weakSelf.pendingUpdateVersion;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
 grep -q 'https://registry.npmjs.org/cc-pets/latest' "${PET_SOURCES[@]}"
 grep -Fq 'environment[@"PATH"] = [NSString stringWithFormat:@"%@:%@", nodeDirectory, existingPath]' \
@@ -284,11 +289,12 @@ PHRASES_TMP="$(mktemp -d /tmp/cc-pets-phrases-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" -framework Foundation \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrases.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/phrases-harness.m" \
   -o "${PHRASES_TMP}/phrases-test"
 CC_PETS_PHRASES_FILE="${PHRASES_TMP}/speech.txt" \
   CC_PETS_PHRASES_PET_DIR="${PHRASES_TMP}/speech" \
-  CC_PETS_PHRASES_DEFAULT_FILE="${PROJECT_DIR}/Resources/phrases.default.txt" \
+  CC_PETS_PHRASES_DEFAULT_FILE="${PROJECT_DIR}/Resources/phrases.default.zh-Hans.txt" \
   "${PHRASES_TMP}/phrases-test"
 rm -rf "${PHRASES_TMP}"
 # 用户词条永远是数据，不是格式串。这条守着别让人图省事改成 stringWithFormat:。
@@ -326,16 +332,17 @@ if grep -q 'phrases.json' "${PET_SOURCES[@]}"; then
 fi
 # 默认词库是打包的文本文件，不是代码里的字典。两份词库同时存在于运行期就必然要回答
 # "以谁为准"，而那正是 merge/replace 让用户看不懂的根源。
-if [[ ! -f "${PROJECT_DIR}/Resources/phrases.default.txt" ]]; then
-  print -u2 "缺少默认词库 Resources/phrases.default.txt"
+# 源语言（英文）那份是兜底：哪种语言没配默认台词都会退到它。
+if [[ ! -f "${PROJECT_DIR}/Resources/phrases.default.en.txt" ]]; then
+  print -u2 "缺少默认词库 Resources/phrases.default.en.txt"
   exit 1
 fi
 if grep -q 'BuiltinPhrases' "${PET_SOURCES[@]}"; then
-  print -u2 "代码里不应再有内置词库，默认台词只能来自 Resources/phrases.default.txt"
+  print -u2 "代码里不应再有内置词库，默认台词只能来自 Resources/phrases.default.<语言>.txt"
   exit 1
 fi
 # 默认词库必须随 app 一起打包，否则用户装完一句话都不会说。
-grep -q 'phrases.default.txt' "${PROJECT_DIR}/scripts/build.sh"
+grep -q 'phrases.default\*.txt' "${PROJECT_DIR}/scripts/build.sh"
 # 台词编辑器必须是 app 内置的：交给系统编辑器就没有任何校验反馈，
 # 小节名拼错、句子超长、槽位写错全是静默失效。
 if grep -q 'openURL.*PetPhrasesFilePath\|PetPhrasesFilePath.*openURL' \
@@ -668,7 +675,7 @@ if ! grep -q 'intersectSet:valid' "${PET_SOURCES[@]}"; then
   print -u2 "卡住提醒的去重集合没有回收失效键，会随会话数无限增长"
   exit 1
 fi
-grep -q '响应超时' "${PET_SOURCES[@]}"
+grep -q 'L(@"Stalled")' "${PET_SOURCES[@]}"
 print "Agent 卡住检测与提醒测试通过"
 
 print -n '{"hook_event_name":"PostToolUseFailure","tool_name":"Bash"}' | \
@@ -1177,6 +1184,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" -framework Foundation \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsCleanup.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/cleanup-harness.m" \
   -o "${STALE_TMP}/cleanup-test"
 CC_PETS_STATE_DIR="${STALE_TMP}" \
@@ -1552,6 +1560,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Cocoa \
   "${PROJECT_DIR}/Sources/CCPets/QuotaDashboardView.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \
   -o "${QUOTA_ONLINE_TMP}/quota-online-test"
 "${QUOTA_ONLINE_TMP}/quota-online-test"
@@ -1840,6 +1849,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsEvents.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/agent-status-harness.m" \
   -o "${AGENT_STATUS_TMP}/agent-status-test"
 "${AGENT_STATUS_TMP}/agent-status-test"
@@ -1857,6 +1867,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsEvents.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/terminal-focus-harness.m" \
   -o "${TERMINAL_FOCUS_TMP}/terminal-focus-test"
 "${TERMINAL_FOCUS_TMP}/terminal-focus-test"
@@ -1869,6 +1880,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/update-retry-harness.m" \
   -o "${UPDATE_RETRY_TMP}/update-retry-test"
 "${UPDATE_RETRY_TMP}/update-retry-test"
@@ -1884,10 +1896,68 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/release-notes-harness.m" \
   -o "${RELEASE_NOTES_TMP}/release-notes-test"
 "${RELEASE_NOTES_TMP}/release-notes-test"
 print "更新说明解析测试通过"
+
+# 多语言。源码里的英文原文就是各语言表的 key，改了原文忘了改表，那种语言就会漏出英文。
+node "${PROJECT_DIR}/scripts/check-l10n.mjs"
+L10N_TMP="$(mktemp -d /tmp/cc-pets-l10n-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrases.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
+  "${PROJECT_DIR}/tests/l10n-harness.m" \
+  -o "${L10N_TMP}/l10n-test"
+CC_PETS_LANGUAGE=zh-Hans "${L10N_TMP}/l10n-test" "${PROJECT_DIR}/Resources" zh-Hans
+CC_PETS_LANGUAGE=en "${L10N_TMP}/l10n-test" "${PROJECT_DIR}/Resources" en
+# 新增语言只加文件：放一张假的 ja 表进去，不改任何代码，App 就要能发现、能查、能显示名字。
+mkdir -p "${L10N_TMP}/res/ja.lproj"
+cp -R "${PROJECT_DIR}/Resources/zh-Hans.lproj" "${L10N_TMP}/res/"
+print -r -- '"Language Name" = "日本語";
+"Release Notes Section" = "日本語";
+"Quit CC Pets" = "終了";' > "${L10N_TMP}/res/ja.lproj/Localizable.strings"
+CC_PETS_LANGUAGE=ja_JP.UTF-8 CC_PETS_LOCALIZATION_DIR="${L10N_TMP}/res" \
+  "${L10N_TMP}/l10n-test" "${PROJECT_DIR}/Resources" added-language
+# Node 端：环境变量优先，其次是桌宠写下的 ~/.cc-pets/language，两种语言都要能出来。
+mkdir -p "${L10N_TMP}/home"
+print zh-Hans > "${L10N_TMP}/home/language"
+[[ "$(cd "${PROJECT_DIR}" && CC_PETS_LANGUAGE= CC_PETS_HOME="${L10N_TMP}/home" LANG=en_US.UTF-8 \
+  node --input-type=module -e 'import { t } from "./scripts/i18n.mjs"; console.log(t("No sessions online."))')" == "没有在线会话。" ]]
+print en > "${L10N_TMP}/home/language"
+[[ "$(cd "${PROJECT_DIR}" && CC_PETS_LANGUAGE= CC_PETS_HOME="${L10N_TMP}/home" LANG=zh_CN.UTF-8 \
+  node --input-type=module -e 'import { t } from "./scripts/i18n.mjs"; console.log(t("{name} hooks not installed", { name: "Codex" }))')" == "Codex hooks not installed" ]]
+# Node 的语言匹配规则与 App 一致：完整标识或前缀优先，再只比主语言。
+(cd "${PROJECT_DIR}" && node --input-type=module -e '
+  import { matchLanguage } from "./scripts/i18n.mjs";
+  const supported = ["en", "ja", "zh-Hans"];
+  const cases = [["zh_CN.UTF-8", "zh-Hans"], ["zh-Hans-CN", "zh-Hans"], ["zh-Hant-TW", "zh-Hans"],
+    ["ja_JP", "ja"], ["fr_FR", ""], ["C", ""]];
+  for (const [input, expected] of cases) {
+    if (matchLanguage(input, supported) !== expected) throw new Error(`${input} → ${matchLanguage(input, supported)}`);
+  }')
+CC_PETS_LANGUAGE=en "${PROJECT_DIR}/bin/cc-pets" --help | grep -q '^Usage: cc-pets'
+CC_PETS_LANGUAGE=zh-Hans "${PROJECT_DIR}/bin/cc-pets" --help | grep -q '^用法：cc-pets'
+# zsh 脚本走同一张表：英文在 zsh 里直接替换占位符，其他语言交给 node。
+[[ "$(CC_PETS_LANGUAGE=en zsh -c "source '${PROJECT_DIR}/scripts/i18n.zsh'; cc_pets_t 'App removed: {targetApp}' targetApp=/x")" == "App removed: /x" ]]
+[[ "$(CC_PETS_LANGUAGE=zh_CN.UTF-8 zsh -c "source '${PROJECT_DIR}/scripts/i18n.zsh'; cc_pets_t 'App removed: {targetApp}' targetApp=/x")" == "已删除应用: /x" ]]
+CC_PETS_LANGUAGE=en node "${PROJECT_DIR}/scripts/bridge/cli.mjs" --help 2>&1 | grep -q 'Usage: cc-pets bridge'
+# 语言菜单是"跟随系统"加上自动发现的语言，不能退回写死的列表；菜单项还得真的接到设置上。
+grep -q 'CCPetsLanguageSystem' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -q 'for (NSString \*language in CCPetsSupportedLanguages())' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
+grep -q 'setLanguagePreferenceFromMenu:' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"
+[[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/zh-Hans.lproj/Localizable.strings" ]]
+[[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.en.txt" ]]
+[[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.zh-Hans.txt" ]]
+# Info.plist 的 CFBundleLocalizations 由 build.sh 按 .lproj 生成。
+/usr/libexec/PlistBuddy -c 'Print :CFBundleLocalizations' \
+  "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Info.plist" | grep -q 'zh-Hans'
+rm -rf "${L10N_TMP}"
+print "多语言测试通过"
 
 # CC Bridge 自带隔离（临时状态目录、假 claude / codex 进程、假 codex queue），
 # 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。

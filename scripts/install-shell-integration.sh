@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
+source "${PROJECT_DIR}/scripts/i18n.zsh"
 LAUNCHER="${PROJECT_DIR}/bin/codex-with-pet"
 CLAUDE_LAUNCHER="${PROJECT_DIR}/bin/claude-with-pet"
 SHELL_RC="${ZDOTDIR:-${HOME}}/.zshrc"
@@ -15,7 +16,7 @@ if [[ -z "${NODE_EXECUTABLE}" || ! -x "${NODE_EXECUTABLE}" ]]; then
   NODE_EXECUTABLE="$(command -v node || true)"
 fi
 if [[ -z "${NODE_EXECUTABLE}" || ! -x "${NODE_EXECUTABLE}" ]]; then
-  print -u2 "安装失败：找不到可执行的 Node.js。"
+  print -u2 "$(cc_pets_t "Install failed: no executable Node.js found.")"
   exit 1
 fi
 export PATH="${NODE_EXECUTABLE:h}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
@@ -29,7 +30,7 @@ export PATH="${NODE_EXECUTABLE:h}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 "${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/configure-updater.mjs"
 # CC Bridge 默认关闭；用户开启过的话，包路径可能随升级变化，按原选项重写一遍集成。
 "${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/bridge/cli.mjs" refresh || \
-  print -u2 "CC Bridge 集成刷新失败，可稍后执行 cc-pets bridge enable 重试。"
+  print -u2 "$(cc_pets_t "Failed to refresh the CC Bridge integration; retry later with cc-pets bridge enable.")"
 
 PET_APP="${PROJECT_DIR}/.build/release/CC Pets.app"
 PET_APP_EXECUTABLE="${PET_APP}/Contents/MacOS/cc-pets"
@@ -53,7 +54,7 @@ if (( PET_WAS_RUNNING )); then
     sleep 0.1
   done
   open -g "${INSTALLED_PET_APP}" --args --managed
-  print "已重启正在运行的桌宠，使新版本立即生效。"
+  print "$(cc_pets_t "Restarted the running pet so the new version takes effect now.")"
 fi
 
 # 早期版本用 alias 接管 codex / claude。alias 名区分大小写，而 macOS 文件系统默认不区分：
@@ -77,5 +78,5 @@ if ! grep -Fq "${SHIM_START_MARKER}" "${SHELL_RC}" 2>/dev/null; then
   } >> "${SHELL_RC}"
 fi
 
-print "安装完成。CC Pets 已加入 ${(q)INSTALLED_PET_APP}；执行 source ${(q)SHELL_RC}，之后运行 codex 或 claude（含 Codex / Claude 等任意大小写写法）会自动启动桌宠。"
-print "首次启动后执行 /hooks，信任 CC Pets Hooks 以启用 Agent 工作动画。"
+print "$(cc_pets_t "Installed. CC Pets was added to {installedPetApp}. Run source {shellRc}; after that, running codex or claude (in any capitalization) starts the pet automatically." installedPetApp="${(q)INSTALLED_PET_APP}" shellRc="${(q)SHELL_RC}")"
+print "$(cc_pets_t "After the first launch, run /hooks and trust the CC Pets hooks to enable Agent animations.")"

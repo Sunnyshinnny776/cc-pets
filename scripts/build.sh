@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
+source "${PROJECT_DIR}/scripts/i18n.zsh"
 BUILD_DIR="${PROJECT_DIR}/.build/release"
 CACHE_DIR="${PROJECT_DIR}/.build/clang-cache"
 APP_DIR="${BUILD_DIR}/CC Pets.app"
@@ -22,7 +23,7 @@ fi
 
 SOURCES=("${PROJECT_DIR}"/Sources/CCPets/*.m(N))
 if (( ${#SOURCES[@]} == 0 )); then
-  print -u2 "构建失败：Sources/CCPets 下没有找到任何 .m 源文件。"
+  print -u2 "$(cc_pets_t "Build failed: no .m source files found in Sources/CCPets.")"
   exit 1
 fi
 
@@ -54,13 +55,31 @@ fi
 # 默认台词。代码里不再留内置词库，这个文件就是默认台词的唯一来源，
 # 首次启动时被拷到 ~/.cc-pets/phrases.txt。
 # 裸二进制旁边也放一份：直接跑 .build/release/cc-pets 时没有 app bundle。
-cp "${PROJECT_DIR}/Resources/phrases.default.txt" "${APP_RESOURCES_DIR}/phrases.default.txt"
-cp "${PROJECT_DIR}/Resources/phrases.default.txt" "${BUILD_DIR}/phrases.default.txt"
+# 每种界面语言一份：phrases.default.<语言>.txt。加语言只加文件，这里按通配符全拷。
+for PHRASES_FILE in "${PROJECT_DIR}"/Resources/phrases.default*.txt(N); do
+  cp "${PHRASES_FILE}" "${APP_RESOURCES_DIR}/${PHRASES_FILE:t}"
+  cp "${PHRASES_FILE}" "${BUILD_DIR}/${PHRASES_FILE:t}"
+done
+# 界面文案（各语言的 Localizable.strings，英文是源码原文不需要表）和 Info.plist 的本地化
+# （各语言的 InfoPlist.strings）。有哪些 .lproj 就支持哪些语言，app 运行时同样按目录发现。
+# 裸二进制旁边同样放一份，CCPetsL10n.m 会去可执行文件旁边找。
+for LPROJ_DIR in "${PROJECT_DIR}"/Resources/*.lproj(N/); do
+  rm -rf "${APP_RESOURCES_DIR}/${LPROJ_DIR:t}" "${BUILD_DIR}/${LPROJ_DIR:t}"
+  cp -R "${LPROJ_DIR}" "${APP_RESOURCES_DIR}/${LPROJ_DIR:t}"
+  cp -R "${LPROJ_DIR}" "${BUILD_DIR}/${LPROJ_DIR:t}"
+done
 cp "${BUILD_DIR}/cc-pets" "${APP_MACOS_DIR}/cc-pets"
 cp "${PROJECT_DIR}/Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "${PROJECT_DIR}/Resources/AppIcon.icns" "${APP_RESOURCES_DIR}/AppIcon.icns"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${PACKAGE_VERSION}" "${APP_DIR}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${PACKAGE_VERSION}" "${APP_DIR}/Contents/Info.plist"
+# 支持的语言按 Resources 下的 .lproj 目录生成，加语言不用改 Info.plist 模板。
+/usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations array" "${APP_DIR}/Contents/Info.plist"
+LOCALIZATIONS=(en "${PROJECT_DIR}"/Resources/*.lproj(N/:t:r))
+for LOCALIZATION in ${(u)LOCALIZATIONS}; do
+  /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations: string ${LOCALIZATION}" \
+    "${APP_DIR}/Contents/Info.plist"
+done
 /usr/bin/codesign --force --sign - "${APP_DIR}" >/dev/null
-print "构建完成: ${BUILD_DIR}/cc-pets"
-print "应用完成: ${APP_DIR}"
+print "$(cc_pets_t "Built: {buildDir}/cc-pets" buildDir="${BUILD_DIR}")"
+print "$(cc_pets_t "App bundle ready: {appDir}" appDir="${APP_DIR}")"

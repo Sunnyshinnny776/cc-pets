@@ -76,9 +76,10 @@ static void TrimUpdateLog(NSString *path) {
     BOOL npmCliExists = npmCliPath.isAbsolutePath &&
         [NSFileManager.defaultManager isReadableFileAtPath:npmCliPath];
     if (!nodeExecutable || !npmCliExists) {
-        [self showAlertWithTitle:@"无法自动更新"
-            message:@"没有找到安装 CC Pets 时使用的 Node.js/npm。请先手动执行一次：\n\n"
-                    "npm install -g cc-pets@latest --allow-scripts=cc-pets"];
+        [self showAlertWithTitle:L(@"Can't Update Automatically")
+            message:L(@"The Node.js/npm used to install CC Pets wasn't found. Run this once manually:\n"
+        "\n"
+        "npm install -g cc-pets@latest --allow-scripts=cc-pets")];
         return;
     }
 
@@ -87,7 +88,7 @@ static void TrimUpdateLog(NSString *path) {
     [NSFileManager.defaultManager createDirectoryAtPath:supportDirectory
         withIntermediateDirectories:YES attributes:nil error:&directoryError];
     if (directoryError) {
-        [self showAlertWithTitle:@"无法自动更新" message:directoryError.localizedDescription];
+        [self showAlertWithTitle:L(@"Can't Update Automatically") message:directoryError.localizedDescription];
         return;
     }
     NSString *logPath = [supportDirectory stringByAppendingPathComponent:@"update.log"];
@@ -95,7 +96,7 @@ static void TrimUpdateLog(NSString *path) {
     chmod(logPath.fileSystemRepresentation, S_IRUSR | S_IWUSR);
     NSFileHandle *logHandle = [NSFileHandle fileHandleForWritingAtPath:logPath];
     if (!logHandle) {
-        [self showAlertWithTitle:@"无法自动更新" message:@"无法创建更新日志。"];
+        [self showAlertWithTitle:L(@"Can't Update Automatically") message:L(@"Couldn't create the update log.")];
         return;
     }
 
@@ -142,8 +143,8 @@ static void TrimUpdateLog(NSString *path) {
                 strongSelf.updating = NO;
                 [strongSelf refreshUpdateBadge];
                 if ([strongSelf restartAfterUpdateToVersion:version configuration:configuration]) return;
-                [strongSelf showAlertWithTitle:@"更新完成"
-                    message:@"CC Pets 已更新，但没有找到可自动启动的新版应用，请手动重新启动一次。"];
+                [strongSelf showAlertWithTitle:L(@"Update Complete")
+                    message:L(@"CC Pets was updated, but the new app couldn't be relaunched automatically. Please restart it manually.")];
                 return;
             }
             // 暂时性故障（典型是刚发布的版本报 ETARGET）自动重试一次再说，
@@ -160,11 +161,11 @@ static void TrimUpdateLog(NSString *path) {
             [strongSelf refreshUpdateBadge];
             [NSApp activateIgnoringOtherApps:YES];
             NSAlert *alert = [NSAlert new];
-            alert.messageText = @"更新失败";
+            alert.messageText = L(@"Update Failed");
             alert.informativeText = [NSString stringWithFormat:
-                @"旧版本仍可继续使用。错误详情已写入：\n%@", logPath];
-            [alert addButtonWithTitle:@"打开日志"];
-            [alert addButtonWithTitle:@"关闭"];
+                L(@"You can keep using the current version. Details were written to:\n%@"), logPath];
+            [alert addButtonWithTitle:L(@"Open Log")];
+            [alert addButtonWithTitle:L(@"Close")];
             if ([alert runModal] == NSAlertFirstButtonReturn) {
                 [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:logPath]];
             }
@@ -176,13 +177,13 @@ static void TrimUpdateLog(NSString *path) {
         [self refreshUpdateBadge];
         self.updateTask = nil;
         [logHandle closeFile];
-        [self showAlertWithTitle:@"无法启动更新" message:launchError.localizedDescription];
+        [self showAlertWithTitle:L(@"Can't Start Update") message:launchError.localizedDescription];
         return;
     }
     // 重试是静默的：第一次已经弹过"正在更新"，再弹一次只会让人以为出了两回事。
     if (attempt == 0) {
-        [self showAlertWithTitle:@"正在更新"
-            message:[NSString stringWithFormat:@"正在下载并安装 CC Pets %@。完成后桌宠会自动重启。", version]];
+        [self showAlertWithTitle:L(@"Updating")
+            message:[NSString stringWithFormat:L(@"Downloading and installing CC Pets %@. The pet will restart when it's done."), version]];
     }
 }
 // 关于弹窗与检查更新同用 NSAlert，保持样式一致；版本号用构建时注入的 CC_PETS_VERSION（与检查更新
@@ -192,9 +193,9 @@ static void TrimUpdateLog(NSString *path) {
     NSAlert *alert = [NSAlert new];
     alert.messageText = @"CC Pets";
     alert.informativeText = [NSString stringWithFormat:
-        @"当前版本：%@\n\nClaude Code / Codex CLI 的多功能桌面宠物。", @CC_PETS_VERSION];
-    [alert addButtonWithTitle:@"好"];
-    [alert addButtonWithTitle:@"访问主页"];
+        L(@"Version %@\n\nA desktop pet for Claude Code and Codex CLI."), @CC_PETS_VERSION];
+    [alert addButtonWithTitle:L(@"OK")];
+    [alert addButtonWithTitle:L(@"Visit Homepage")];
     if ([alert runModal] == NSAlertSecondButtonReturn) {
         [NSWorkspace.sharedWorkspace openURL:
             [NSURL URLWithString:[@"https://github.com/" stringByAppendingString:CCPetsRepositorySlug]]];
@@ -219,7 +220,7 @@ static void TrimUpdateLog(NSString *path) {
         BOOL valid = NO;
         NSComparisonResult comparison = CompareStableVersions(@CC_PETS_VERSION, latestVersion, &valid);
         if (error || httpResponse.statusCode != 200 || !valid) {
-            NSString *message = error.localizedDescription ?: @"npm Registry 返回了无效的版本信息，请稍后重试。";
+            NSString *message = error.localizedDescription ?: L(@"The npm registry returned invalid version info. Please try again later.");
             dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, nil, NO, message); });
             return;
         }
@@ -242,8 +243,8 @@ static void TrimUpdateLog(NSString *path) {
             NSString *body = [release isKindOfClass:NSDictionary.class] &&
                 [release[@"body"] isKindOfClass:NSString.class] ? release[@"body"] : nil;
             BOOL truncated = NO;
-            NSArray<NSString *> *highlights = ReleaseNoteHighlights(body,
-                UpdateHighlightLimit, UpdateHighlightMaxLength, &truncated);
+            NSArray<NSString *> *highlights = ReleaseNoteHighlightsForLanguage(body,
+                CCPetsCurrentLanguage(), UpdateHighlightLimit, UpdateHighlightMaxLength, &truncated);
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(latestVersion, highlights, truncated, nil);
             });
@@ -262,14 +263,14 @@ static void TrimUpdateLog(NSString *path) {
         if (!strongSelf) return;
         strongSelf.checkingForUpdate = NO;
         if (errorMessage) {
-            [strongSelf showAlertWithTitle:@"检查更新失败" message:errorMessage];
+            [strongSelf showAlertWithTitle:L(@"Update Check Failed") message:errorMessage];
             return;
         }
         BOOL valid = NO;
         if (CompareStableVersions(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
             [strongSelf clearPendingUpdate];
-            [strongSelf showAlertWithTitle:@"已是最新版本"
-                message:[NSString stringWithFormat:@"当前版本：%@", @CC_PETS_VERSION]];
+            [strongSelf showAlertWithTitle:L(@"You're Up to Date")
+                message:[NSString stringWithFormat:L(@"Version %@"), @CC_PETS_VERSION]];
             return;
         }
         [strongSelf rememberPendingUpdate:version highlights:highlights truncated:truncated];
@@ -317,7 +318,7 @@ static void TrimUpdateLog(NSString *path) {
     BOOL show = self.pendingUpdateVersion.length > 0 && !self.updating;
     self.updateBadgeView.hidden = !show;
     self.updateBadgeButton.toolTip = show
-        ? [NSString stringWithFormat:@"发现新版本 %@，点击查看", self.pendingUpdateVersion] : nil;
+        ? [NSString stringWithFormat:L(@"Version %@ is available. Click to view."), self.pendingUpdateVersion] : nil;
 }
 - (void)clearPendingUpdate {
     self.pendingUpdateVersion = nil;
@@ -343,7 +344,7 @@ static void TrimUpdateLog(NSString *path) {
     NSMutableParagraphStyle *headerStyle = [NSMutableParagraphStyle new];
     headerStyle.paragraphSpacing = 6;
 
-    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] initWithString:@"更新内容\n"
+    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] initWithString:L(@"What's New\n")
         attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightSemibold],
                      NSForegroundColorAttributeName: NSColor.labelColor,
                      NSParagraphStyleAttributeName: headerStyle}];
@@ -358,7 +359,7 @@ static void TrimUpdateLog(NSString *path) {
             attributes:itemAttributes]];
     }];
     if (self.pendingUpdateHighlightsTruncated) {
-        [text appendAttributedString:[[NSAttributedString alloc] initWithString:@"还有更多更新，完整说明见 GitHub Release"
+        [text appendAttributedString:[[NSAttributedString alloc] initWithString:L(@"More changes in the full GitHub release notes")
             attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
                          NSForegroundColorAttributeName: NSColor.tertiaryLabelColor,
                          NSParagraphStyleAttributeName: itemStyle}]];
@@ -376,12 +377,12 @@ static void TrimUpdateLog(NSString *path) {
     if (self.updateBubbleVisible) [self hideSpeechBubble];
     [NSApp activateIgnoringOtherApps:YES];
     NSAlert *alert = [NSAlert new];
-    alert.messageText = [NSString stringWithFormat:@"发现新版本 %@", version];
-    alert.informativeText = [NSString stringWithFormat:@"当前版本 %@", @CC_PETS_VERSION];
+    alert.messageText = [NSString stringWithFormat:L(@"CC Pets %@ Is Available"), version];
+    alert.informativeText = [NSString stringWithFormat:L(@"You have %@"), @CC_PETS_VERSION];
     alert.accessoryView = [self updateHighlightsAccessoryView];
-    [alert addButtonWithTitle:@"立即更新"];
-    [alert addButtonWithTitle:@"稍后"];
-    if (self.pendingUpdateHighlights.count > 0) [alert addButtonWithTitle:@"完整说明"];
+    [alert addButtonWithTitle:L(@"Update Now")];
+    [alert addButtonWithTitle:L(@"Later")];
+    if (self.pendingUpdateHighlights.count > 0) [alert addButtonWithTitle:L(@"Release Notes")];
     NSModalResponse response = [alert runModal];
     if (response == NSAlertFirstButtonReturn) {
         [self startUpdateToVersion:version];
@@ -429,15 +430,15 @@ static void TrimUpdateLog(NSString *path) {
         return;
     }
     self.updateBubbleDeferred = NO;
-    [self showUpdateBubbleWithText:[NSString stringWithFormat:@"CC Pets 发布新版本 v%@ 啦，点击更新",
+    [self showUpdateBubbleWithText:[NSString stringWithFormat:L(@"CC Pets v%@ is out! Click to update"),
         self.pendingUpdateVersion] dwell:UpdateBubbleDwell];
 }
 // 碎碎念时机里的更新提醒，几句轮换，免得每次都是同一句。
 - (NSString *)updateReminderText {
     NSArray<NSString *> *lines = @[
-        @"新版本 {version} 还在等你哦，点我更新",
-        @"{version} 已经发布啦，点我看看更新了啥",
-        @"要不要升级到 {version}？点我",
+        L(@"{version} is still waiting. Click me!"),
+        L(@"{version} is out. See what's new!"),
+        L(@"Upgrade to {version}? Click me"),
     ];
     return [lines[arc4random_uniform((uint32_t)lines.count)]
         stringByReplacingOccurrencesOfString:@"{version}" withString:self.pendingUpdateVersion];

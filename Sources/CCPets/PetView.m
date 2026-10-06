@@ -1,4 +1,5 @@
 #import "PetView.h"
+#import "CCPetsL10n.h"
 #import <QuartzCore/QuartzCore.h>
 #import "MenuToggleSwitch.h"
 #import "MenuHintView.h"
@@ -22,6 +23,8 @@ static const CGFloat PetDragThreshold = 3.0;
 // 菜单里自绘行的宽度：主菜单要撑满 menu.minimumWidth，子菜单按自身内容收窄，
 // 三个子菜单（用量展示模式 / 系统通知 / 系统状态）用同一个宽度，看起来才是一套。
 static const CGFloat PetMenuRowWidth = 194.0;
+// 两者都只是下限：译文长短差得多（"等待审批" 对 "Awaiting approval"），开关行会按自己的
+// 标题撑宽，菜单再把同一子菜单里的行统一拉到最宽那一行。
 static const CGFloat PetSubmenuRowWidth = 134.0;
 // 与“系统通知”里文案到开关的间距共用，素材名称到删除按钮也保持一致。
 static const CGFloat PetMenuControlGap = 8.0;
@@ -1162,7 +1165,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     button.bordered = confirming;
     button.title = @"";
     button.attributedTitle = confirming
-        ? [[NSAttributedString alloc] initWithString:@"确认" attributes:@{
+        ? [[NSAttributedString alloc] initWithString:L(@"Confirm") attributes:@{
             NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
             NSForegroundColorAttributeName: NSColor.systemRedColor,
         }]
@@ -1172,7 +1175,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     button.contentTintColor = nil;
     button.bezelStyle = NSBezelStyleRounded;
     button.hasDestructiveAction = YES;
-    button.toolTip = confirming ? @"再次点击确认删除" : @"删除素材";
+    button.toolTip = confirming ? L(@"Click again to delete") : L(@"Delete pet");
     [button setAccessibilityLabel:button.toolTip];
 }
 - (void)resetPendingDeleteButton {
@@ -1235,7 +1238,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     BOOL deletable = [petID hasPrefix:@"external:"];
 
     NSFont *font = [NSFont menuFontOfSize:13];
-    CGFloat nameWidth = ceil([@"桌宠素材名..." sizeWithAttributes:@{NSFontAttributeName: font}].width);
+    CGFloat nameWidth = ceil([L(@"Pet sprite name...") sizeWithAttributes:@{NSFontAttributeName: font}].width);
     NSString *displayName = [self displayNameForPetName:name font:font maxWidth:nameWidth];
     const CGFloat checkWidth = 14;
     const CGFloat leadingInset = 6;
@@ -1276,7 +1279,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     selectButton.action = @selector(selectPetFromButton:);
     selectButton.focusRingType = NSFocusRingTypeNone;
     selectButton.toolTip = name;
-    [selectButton setAccessibilityLabel:[NSString stringWithFormat:@"切换到桌宠 %@", name]];
+    [selectButton setAccessibilityLabel:[NSString stringWithFormat:L(@"Switch to %@"), name]];
     [row addSubview:selectButton];
 
     NSButton *deleteButton = [[NSButton alloc] initWithFrame:NSMakeRect(deleteX, 3, deleteWidth, 22)];
@@ -1288,7 +1291,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     deleteButton.enabled = deletable && !selected;
     deleteButton.hidden = !deleteButton.enabled;
     [self configureDeleteButton:deleteButton confirming:NO];
-    deleteButton.toolTip = [NSString stringWithFormat:@"删除素材 %@", name];
+    deleteButton.toolTip = [NSString stringWithFormat:L(@"Delete %@"), name];
     [deleteButton setAccessibilityLabel:deleteButton.toolTip];
     [row addSubview:deleteButton];
 
@@ -1424,7 +1427,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     [self.petMenuPreviewPanel orderOut:nil];
 }
 // 主菜单的行要撑满 menu.minimumWidth；子菜单只有自己这几项，撑到 194 会让短标题和开关
-// 之间空出一大段。宽度交给调用方定，行内布局按同一套边距（左 12 / 右 8）算。
+// 之间空出一大段。调用方给的是最小宽度，标题放不下时按标题撑宽；行设成可横向拉伸、
+// 开关贴右，菜单会把同一子菜单里的行统一拉到最宽那一行。行内边距左 12 / 右 8。
 - (NSMenuItem *)addPersistentSwitchToMenu:(NSMenu *)menu
     title:(NSString *)title
     checked:(BOOL)checked
@@ -1434,12 +1438,16 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     const CGFloat toggleWidth = 36;
     const CGFloat trailingInset = PetMenuControlGap;
     const CGFloat leadingInset = 12;
+    NSTextField *label = [NSTextField labelWithString:title];
+    label.font = [NSFont menuFontOfSize:13];
+    width = MAX(width, ceil(label.intrinsicContentSize.width) + leadingInset + trailingInset * 2 +
+        toggleWidth);
     CGFloat toggleX = width - trailingInset - toggleWidth;
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
     NSView *row = [[MenuHintRowView alloc] initWithFrame:NSMakeRect(0, 0, width, 28)];
-    NSTextField *label = [NSTextField labelWithString:title];
+    row.autoresizingMask = NSViewWidthSizable;
     label.frame = NSMakeRect(leadingInset, 5, toggleX - leadingInset - trailingInset, 18);
-    label.font = [NSFont menuFontOfSize:13];
+    label.autoresizingMask = NSViewWidthSizable;
     label.textColor = NSColor.labelColor;
     label.lineBreakMode = NSLineBreakByTruncatingTail;
     [row addSubview:label];
@@ -1449,6 +1457,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     toggle.action = action;
     toggle.state = checked ? NSControlStateValueOn : NSControlStateValueOff;
     toggle.tag = tag;
+    toggle.autoresizingMask = NSViewMinXMargin;
     [toggle setAccessibilityLabel:title];
     [row addSubview:toggle];
     item.view = row;
@@ -1473,7 +1482,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     control.state = [[NSUserDefaults.standardUserDefaults stringForKey:preferenceKey]
         isEqualToString:@"api"] ? NSControlStateValueOn : NSControlStateValueOff;
     control.tag = tag;
-    [control setAccessibilityLabel:[provider stringByAppendingString:@"用量展示模式"]];
+    [control setAccessibilityLabel:[NSString stringWithFormat:L(@"%@ usage display"), provider]];
     [row addSubview:control];
     item.view = row;
     [menu addItem:item];
@@ -1501,9 +1510,9 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     bridgeMenu.delegate = self;
     bridgeItem.submenu = bridgeMenu;
     BOOL enabled = CCBridgeEnabled();
-    [self addBridgeSwitchToMenu:bridgeMenu title:@"启用" checked:enabled
+    [self addBridgeSwitchToMenu:bridgeMenu title:L(@"Enable") checked:enabled
         action:@selector(toggleBridgeEnabled:) tag:0
-        toolTip:@"让本机 Claude Code / Codex 会话互相发消息、唤醒对方、预留文件"];
+        toolTip:L(@"Let local Claude Code / Codex sessions message and wake each other and reserve files")];
     if (!enabled) return;
 
     // 状态放在"启用"行的第二行，省掉底部单独的状态行和分隔线。开关上移与标题对齐，
@@ -1511,41 +1520,42 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     NSDictionary *sessions = CCBridgeSessions();
     NSUInteger reservations = CCBridgeActiveReservationCount([NSSet setWithArray:sessions.allKeys]);
     MenuHintRowView *enableRow = (MenuHintRowView *)bridgeMenu.itemArray.lastObject.view;
-    enableRow.hint = [enableRow.hint stringByAppendingString:@"\n下方为在线会话数 · 有效的文件预留数"];
+    enableRow.hint = [enableRow.hint stringByAppendingString:L(@"\nBelow: online sessions · active file reservations")];
     const CGFloat statusHeight = 14;
     [enableRow setFrameSize:NSMakeSize(NSWidth(enableRow.frame), NSHeight(enableRow.frame) + statusHeight)];
     for (NSView *subview in enableRow.subviews) {
         [subview setFrameOrigin:NSMakePoint(NSMinX(subview.frame), NSMinY(subview.frame) + statusHeight - 2)];
     }
-    NSTextField *status = [NSTextField labelWithString:[NSString stringWithFormat:@"%lu 会话 · %lu 预留",
+    NSTextField *status = [NSTextField labelWithString:[NSString stringWithFormat:L(@"%lu sessions · %lu reserved"),
         (unsigned long)sessions.count, (unsigned long)reservations]];
     status.frame = NSMakeRect(12, 4, NSWidth(enableRow.frame) - 12 - PetMenuControlGap, statusHeight);
     status.font = [NSFont menuFontOfSize:11];
     status.textColor = NSColor.secondaryLabelColor;
     status.lineBreakMode = NSLineBreakByTruncatingTail;
+    status.autoresizingMask = NSViewWidthSizable;
     [enableRow addSubview:status];
 
     [bridgeMenu addItem:NSMenuItem.separatorItem];
     NSDictionary *options = CCBridgeOptions();
-    [self addBridgeSwitchToMenu:bridgeMenu title:@"自动唤醒" checked:[options[@"wake"] boolValue]
+    [self addBridgeSwitchToMenu:bridgeMenu title:L(@"Auto-wake") checked:[options[@"wake"] boolValue]
         action:@selector(toggleBridgeWake:) tag:0
-        toolTip:@"自动唤醒空闲会话。关闭后消息只进信箱，等对方下次收到你的输入时带入，可省 token；Codex 需重启会话生效"];
-    [self addBridgeSwitchToMenu:bridgeMenu title:@"编辑拦截" checked:[options[@"editGuard"] boolValue]
+        toolTip:L(@"Wake idle sessions automatically. When off, messages wait in the inbox until that session's next input, which saves tokens. Codex needs a session restart")];
+    [self addBridgeSwitchToMenu:bridgeMenu title:L(@"Edit guard") checked:[options[@"editGuard"] boolValue]
         action:@selector(toggleBridgeEditGuard:) tag:0
-        toolTip:@"编辑他人预留的文件时先暂停一次并说明原因，重试即放行；Codex 需重启会话生效"];
+        toolTip:L(@"Pause once with an explanation when editing a file another session reserved; retrying goes through. Codex needs a session restart")];
 
-    NSMenuItem *approvalItem = [bridgeMenu addItemWithTitle:@"免审批" action:nil keyEquivalent:@""];
-    approvalItem.representedObject = @"每组同时作用于 Codex 免审批与 Claude 免确认；Codex 需重启会话生效";
+    NSMenuItem *approvalItem = [bridgeMenu addItemWithTitle:L(@"Auto-approve") action:nil keyEquivalent:@""];
+    approvalItem.representedObject = L(@"Each group applies to both Codex approvals and Claude permissions. Codex needs a session restart");
     NSMenu *approvalMenu = [NSMenu new];
     NSArray<NSDictionary *> *groups = @[
-        @{@"title": @"查看类", @"group": @"view", @"tag": @1,
-          @"tip": @"列出会话、查看预留、读取信箱免审批；只读，放开没有风险"},
-        @{@"title": @"发消息", @"group": @"send", @"tag": @2,
-          @"tip": @"开启后，Agent 可以不经确认给其他会话发消息"},
-        @{@"title": @"文件预留", @"group": @"reserve", @"tag": @3,
-          @"tip": @"预留 / 释放文件免审批"},
-        @{@"title": @"改会话名", @"group": @"name", @"tag": @4,
-          @"tip": @"修改当前会话在 CC Bridge 中的名字免审批"}
+        @{@"title": L(@"Read"), @"group": @"view", @"tag": @1,
+          @"tip": L(@"Listing sessions, viewing reservations and reading the inbox. Read-only and safe")},
+        @{@"title": L(@"Send"), @"group": @"send", @"tag": @2,
+          @"tip": L(@"When on, Agents can message other sessions without asking")},
+        @{@"title": L(@"Reserve"), @"group": @"reserve", @"tag": @3,
+          @"tip": L(@"Reserving and releasing files")},
+        @{@"title": L(@"Rename"), @"group": @"name", @"tag": @4,
+          @"tip": L(@"Renaming the current session in CC Bridge")}
     ];
     NSSet *codex = [NSSet setWithArray:options[@"codexApprove"]];
     NSSet *claude = [NSSet setWithArray:options[@"claudeAllow"]];
@@ -1557,24 +1567,24 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     }
     approvalItem.submenu = approvalMenu;
 
-    NSMenuItem *alertItem = [bridgeMenu addItemWithTitle:@"桌宠提醒" action:nil keyEquivalent:@""];
-    alertItem.representedObject = @"只影响桌宠，不改 Claude Code / Codex 的配置";
+    NSMenuItem *alertItem = [bridgeMenu addItemWithTitle:L(@"Pet alerts") action:nil keyEquivalent:@""];
+    alertItem.representedObject = L(@"Only affects the pet, not Claude Code / Codex settings");
     NSMenu *alertMenu = [NSMenu new];
-    [self addBridgeSwitchToMenu:alertMenu title:@"消息角标"
+    [self addBridgeSwitchToMenu:alertMenu title:L(@"Badge")
         checked:[NSUserDefaults.standardUserDefaults boolForKey:BridgeBadgeEnabledKey]
         action:@selector(toggleBridgeBadge:) tag:0
-        toolTip:@"状态图标右下角：蓝色为新送达，橙色为信箱积压"];
-    [self addBridgeSwitchToMenu:alertMenu title:@"新消息通知"
+        toolTip:L(@"Bottom-right of the status icon: blue for new deliveries, orange for a backed-up inbox")];
+    [self addBridgeSwitchToMenu:alertMenu title:L(@"Notify")
         checked:[NSUserDefaults.standardUserDefaults boolForKey:BridgeNotificationKey]
         action:@selector(toggleBridgeNotification:) tag:0
-        toolTip:@"会话之间有消息送达时发一条系统通知（只含谁发给谁，不含正文）"];
+        toolTip:L(@"Send a notification when a message is delivered between sessions (sender and recipient only, no content)")];
     alertItem.submenu = alertMenu;
 }
 - (void)rightMouseDown:(NSEvent *)event {
     NSArray<NSDictionary *> *availablePets = self.petOptionsRequested ? self.petOptionsRequested() : @[];
     NSMenu *menu = [NSMenu new];
     menu.minimumWidth = 194.0;
-    NSMenuItem *switchItem = [menu addItemWithTitle:@"管理桌宠" action:nil keyEquivalent:@""];
+    NSMenuItem *switchItem = [menu addItemWithTitle:L(@"Pets") action:nil keyEquivalent:@""];
     NSMenu *switchMenu = [NSMenu new];
     switchMenu.delegate = self;
     for (NSDictionary *pet in availablePets) {
@@ -1584,47 +1594,47 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     switchItem.submenu = switchMenu;
     [menu addItem:NSMenuItem.separatorItem];
     [self addPersistentSwitchToMenu:menu
-        title:@"显示消息气泡"
+        title:L(@"Show Status Card")
         checked:[NSUserDefaults.standardUserDefaults boolForKey:StatusBubbleExpandedKey]
         action:@selector(toggleStatusBubbleFromMenu:)
         width:PetMenuRowWidth
         tag:0];
     [self addPersistentSwitchToMenu:menu
-        title:@"导入 Codex 素材"
+        title:L(@"Import Codex Pets")
         checked:[NSUserDefaults.standardUserDefaults boolForKey:ImportCodexPetsKey]
         action:@selector(toggleImportCodexPets:)
         width:PetMenuRowWidth
         tag:0];
-    NSMenuItem *usageModeItem = [menu addItemWithTitle:@"用量展示模式" action:nil keyEquivalent:@""];
+    NSMenuItem *usageModeItem = [menu addItemWithTitle:L(@"Usage Display") action:nil keyEquivalent:@""];
     NSMenu *usageModeMenu = [NSMenu new];
     [self addUsageModeControlToMenu:usageModeMenu provider:@"Codex"
         preferenceKey:CodexUsageDisplayModeKey tag:1];
     [self addUsageModeControlToMenu:usageModeMenu provider:@"Claude"
         preferenceKey:ClaudeUsageDisplayModeKey tag:2];
     usageModeItem.submenu = usageModeMenu;
-    NSMenuItem *themeItem = [menu addItemWithTitle:@"面板主题" action:nil keyEquivalent:@""];
-    NSMenu *themeMenu = [[NSMenu alloc] initWithTitle:@"面板主题"];
+    NSMenuItem *themeItem = [menu addItemWithTitle:L(@"Panel Theme") action:nil keyEquivalent:@""];
+    NSMenu *themeMenu = [[NSMenu alloc] initWithTitle:L(@"Panel Theme")];
     // 两组都用自绘单选行：点了立即生效且菜单不收起，方便连着对比主题和压暗档位。
     NSString *selectedTheme = CCPetsPanelTheme();
     for (NSArray<NSString *> *option in @[
-        @[@"经典", @"classic"], @[@"Liquid Glass", @"liquid"]]) {
+        @[L(@"Classic"), @"classic"], @[@"Liquid Glass", @"liquid"]]) {
         NSMenuItem *item = [MenuChoiceRowView addToMenu:themeMenu title:option[0] group:@"theme"
             representedObject:option[1] checked:[selectedTheme isEqualToString:option[1]]
             target:NSApp.delegate action:@selector(setPanelTheme:) width:PetSubmenuRowWidth];
         if ([option[1] isEqualToString:@"liquid"] && !CCPetsLiquidGlassAvailable()) {
             ((MenuChoiceRowView *)item.view).enabled = NO;
-            [item.view setAccessibilityHelp:@"需要 macOS 26 及以上"];
+            [item.view setAccessibilityHelp:L(@"Requires macOS 26 or later")];
         }
     }
     // 压暗作用于额度面板、状态卡和说话气泡的原生玻璃；经典主题下没有这层，置灰。切主题时当场联动。
     [themeMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *dimHeader = [themeMenu addItemWithTitle:@"玻璃压暗" action:nil keyEquivalent:@""];
+    NSMenuItem *dimHeader = [themeMenu addItemWithTitle:L(@"Glass Dimming") action:nil keyEquivalent:@""];
     dimHeader.enabled = NO;
     BOOL (^dimApplies)(void) = ^BOOL {
         return [CCPetsPanelTheme() isEqualToString:@"liquid"] && CCPetsLiquidGlassAvailable();
     };
     NSDictionary<NSNumber *, NSString *> *dimTitles = @{
-        @0: @"通透（0%）", @15: @"轻度（15%）", @25: @"标准（25%）", @45: @"清晰（45%）"};
+        @0: L(@"Clear (0%)"), @15: L(@"Light (15%)"), @25: L(@"Standard (25%)"), @45: L(@"Legible (45%)")};
     NSInteger selectedDim = CCPetsGlassDimLevel();
     for (NSNumber *level in CCPetsGlassDimLevels()) {
         NSMenuItem *item = [MenuChoiceRowView addToMenu:themeMenu title:dimTitles[level] group:@"dim"
@@ -1636,13 +1646,13 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         row.enabled = dimApplies();
     }
     themeItem.submenu = themeMenu;
-    NSMenuItem *notificationItem = [menu addItemWithTitle:@"系统通知" action:nil keyEquivalent:@""];
+    NSMenuItem *notificationItem = [menu addItemWithTitle:L(@"Notifications") action:nil keyEquivalent:@""];
     NSMenu *notificationMenu = [NSMenu new];
     NSArray<NSDictionary *> *notificationOptions = @[
-        @{@"title": @"任务完成", @"key": NotificationCompletionKey, @"tag": @1},
-        @{@"title": @"任务失败", @"key": NotificationFailureKey, @"tag": @2},
-        @{@"title": @"等待审批", @"key": NotificationApprovalKey, @"tag": @3},
-        @{@"title": @"响应超时", @"key": NotificationStallKey, @"tag": @4}
+        @{@"title": L(@"Task done"), @"key": NotificationCompletionKey, @"tag": @1},
+        @{@"title": L(@"Task failed"), @"key": NotificationFailureKey, @"tag": @2},
+        @{@"title": L(@"Awaiting approval"), @"key": NotificationApprovalKey, @"tag": @3},
+        @{@"title": L(@"Stalled"), @"key": NotificationStallKey, @"tag": @4}
     ];
     for (NSDictionary *option in notificationOptions) {
         [self addPersistentSwitchToMenu:notificationMenu
@@ -1654,24 +1664,24 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     }
     notificationItem.submenu = notificationMenu;
     [self addBridgeMenuToMenu:menu];
-    NSMenuItem *interactionItem = [menu addItemWithTitle:@"连击互动" action:nil keyEquivalent:@""];
+    NSMenuItem *interactionItem = [menu addItemWithTitle:L(@"Click Reactions") action:nil keyEquivalent:@""];
     NSMenu *interactionMenu = [NSMenu new];
     [self addPersistentSwitchToMenu:interactionMenu
-        title:@"启用互动"
+        title:L(@"Enable reactions")
         checked:[NSUserDefaults.standardUserDefaults boolForKey:PetInteractionEnabledKey]
         action:@selector(togglePetInteraction:)
         width:PetSubmenuRowWidth
         tag:1];
     NSArray<NSDictionary *> *interactionGroups = @[
-        @{@"title": @"桃心触发", @"key": PetInteractionHeartThresholdKey,
+        @{@"title": L(@"Hearts After"), @"key": PetInteractionHeartThresholdKey,
           @"action": NSStringFromSelector(@selector(setPetInteractionHeartThreshold:)),
-          @"values": @[@3, @5, @7], @"suffix": @" 次"},
-        @{@"title": @"烦躁触发", @"key": PetInteractionAnnoyedThresholdKey,
+          @"values": @[@3, @5, @7], @"suffix": L(@" clicks")},
+        @{@"title": L(@"Annoyed After"), @"key": PetInteractionAnnoyedThresholdKey,
           @"action": NSStringFromSelector(@selector(setPetInteractionAnnoyedThreshold:)),
-          @"values": @[@10, @12, @15], @"suffix": @" 次"},
-        @{@"title": @"连击间隔", @"key": PetInteractionIntervalKey,
+          @"values": @[@10, @12, @15], @"suffix": L(@" clicks")},
+        @{@"title": L(@"Click Window"), @"key": PetInteractionIntervalKey,
           @"action": NSStringFromSelector(@selector(setPetInteractionInterval:)),
-          @"values": @[@0.8, @1.2, @1.8], @"suffix": @" 秒"},
+          @"values": @[@0.8, @1.2, @1.8], @"suffix": L(@" s")},
     ];
     for (NSDictionary *group in interactionGroups) {
         NSMenuItem *groupItem = [interactionMenu addItemWithTitle:group[@"title"]
@@ -1693,16 +1703,16 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         groupItem.submenu = options;
     }
     [interactionMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *editInteractionPhrases = [interactionMenu addItemWithTitle:@"编辑互动配文…"
+    NSMenuItem *editInteractionPhrases = [interactionMenu addItemWithTitle:L(@"Edit Reaction Lines…")
         action:@selector(editPhrasesFile:) keyEquivalent:@""];
     editInteractionPhrases.target = NSApp.delegate;
     interactionItem.submenu = interactionMenu;
-    NSMenuItem *systemStatusItem = [menu addItemWithTitle:@"系统状态" action:nil keyEquivalent:@""];
+    NSMenuItem *systemStatusItem = [menu addItemWithTitle:L(@"System Status") action:nil keyEquivalent:@""];
     NSMenu *systemStatusMenu = [NSMenu new];
     NSArray<NSDictionary *> *systemStatusOptions = @[
-        @{@"title": @"CPU 占用", @"key": SystemCPUEnabledKey, @"tag": @1},
-        @{@"title": @"CPU 温度", @"key": SystemTemperatureEnabledKey, @"tag": @2},
-        @{@"title": @"内存占用", @"key": SystemMemoryEnabledKey, @"tag": @3}
+        @{@"title": L(@"CPU usage"), @"key": SystemCPUEnabledKey, @"tag": @1},
+        @{@"title": L(@"CPU temp"), @"key": SystemTemperatureEnabledKey, @"tag": @2},
+        @{@"title": L(@"Memory"), @"key": SystemMemoryEnabledKey, @"tag": @3}
     ];
     for (NSDictionary *option in systemStatusOptions) {
         [self addPersistentSwitchToMenu:systemStatusMenu
@@ -1713,11 +1723,11 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
             tag:[option[@"tag"] integerValue]];
     }
     systemStatusItem.submenu = systemStatusMenu;
-    NSMenuItem *speechItem = [menu addItemWithTitle:@"碎碎念" action:nil keyEquivalent:@""];
+    NSMenuItem *speechItem = [menu addItemWithTitle:L(@"Chatter") action:nil keyEquivalent:@""];
     NSMenu *speechMenu = [NSMenu new];
     id speechValue = [NSUserDefaults.standardUserDefaults objectForKey:@"CCPetsSpeechEnabled"];
     [self addPersistentSwitchToMenu:speechMenu
-        title:@"启用碎碎念"
+        title:L(@"Enable chatter")
         checked:speechValue == nil ? YES : [speechValue boolValue]
         action:@selector(toggleSpeech:)
         width:PetSubmenuRowWidth
@@ -1725,15 +1735,15 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     // 频率是四道闸的组合，单调任何一道都不会真的变频繁，所以只给一个档位。
     // 用系统的打勾单选行，不用自绘开关：这几项互斥，开关会看起来像四个独立选项。
     [speechMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *frequencyHeader = [speechMenu addItemWithTitle:@"频率" action:nil keyEquivalent:@""];
+    NSMenuItem *frequencyHeader = [speechMenu addItemWithTitle:L(@"Frequency") action:nil keyEquivalent:@""];
     frequencyHeader.enabled = NO;
     NSString *frequency = [NSUserDefaults.standardUserDefaults
         stringForKey:PetSpeechFrequencyKey] ?: @"normal";
     NSArray<NSDictionary *> *frequencyOptions = @[
-        @{@"title": @"很少", @"value": @"low"},
-        @{@"title": @"正常", @"value": @"normal"},
-        @{@"title": @"较多", @"value": @"high"},
-        @{@"title": @"话痨", @"value": @"chatty"},
+        @{@"title": L(@"Rarely"), @"value": @"low"},
+        @{@"title": L(@"Normal"), @"value": @"normal"},
+        @{@"title": L(@"Often"), @"value": @"high"},
+        @{@"title": L(@"Chatty"), @"value": @"chatty"},
     ];
     for (NSDictionary *option in frequencyOptions) {
         NSMenuItem *item = [speechMenu addItemWithTitle:option[@"title"]
@@ -1746,7 +1756,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     }
     [speechMenu addItem:NSMenuItem.separatorItem];
     // 没有这个入口，九成用户不会知道台词可以自己改。
-    NSMenuItem *editPhrases = [speechMenu addItemWithTitle:@"编辑台词…"
+    NSMenuItem *editPhrases = [speechMenu addItemWithTitle:L(@"Edit Lines…")
         action:@selector(editPhrasesFile:) keyEquivalent:@""];
     editPhrases.target = NSApp.delegate;
     speechItem.submenu = speechMenu;
@@ -1755,19 +1765,38 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     NSString *pendingVersion = self.pendingUpdateVersionRequested ? self.pendingUpdateVersionRequested() : nil;
     if (pendingVersion.length > 0) {
         NSMenuItem *installItem = [menu addItemWithTitle:
-            [NSString stringWithFormat:@"更新到 %@…", pendingVersion]
+            [NSString stringWithFormat:L(@"Update to %@…"), pendingVersion]
             action:@selector(showPendingUpdate:) keyEquivalent:@""];
         installItem.target = NSApp.delegate;
     }
-    NSMenuItem *helpItem = [menu addItemWithTitle:@"帮助" action:nil keyEquivalent:@""];
+    // 语言名用各自的写法，不跟着界面语言翻译：切错了语言的人也要认得出回去的那一项。
+    NSMenuItem *languageItem = [menu addItemWithTitle:L(@"Language") action:nil keyEquivalent:@""];
+    NSMenu *languageMenu = [NSMenu new];
+    NSString *languagePreference = CCPetsLanguagePreference();
+    NSMutableArray<NSArray<NSString *> *> *languageOptions =
+        [NSMutableArray arrayWithObject:@[L(@"System Default"), CCPetsLanguageSystem]];
+    // 有哪些语言由打包进来的 .lproj 决定，加一种语言不用改这里。
+    for (NSString *language in CCPetsSupportedLanguages()) {
+        [languageOptions addObject:@[CCPetsLanguageDisplayName(language), language]];
+    }
+    for (NSArray<NSString *> *option in languageOptions) {
+        NSMenuItem *item = [languageMenu addItemWithTitle:option[0]
+            action:@selector(setLanguagePreferenceFromMenu:) keyEquivalent:@""];
+        item.target = NSApp.delegate;
+        item.representedObject = option[1];
+        item.state = [languagePreference isEqualToString:option[1]] ?
+            NSControlStateValueOn : NSControlStateValueOff;
+    }
+    languageItem.submenu = languageMenu;
+    NSMenuItem *helpItem = [menu addItemWithTitle:L(@"Help") action:nil keyEquivalent:@""];
     NSMenu *helpMenu = [NSMenu new];
-    NSMenuItem *updateItem = [helpMenu addItemWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
+    NSMenuItem *updateItem = [helpMenu addItemWithTitle:L(@"Check for Updates…") action:@selector(checkForUpdates:) keyEquivalent:@""];
     updateItem.target = NSApp.delegate;
-    NSMenuItem *aboutItem = [helpMenu addItemWithTitle:@"关于 CC Pets" action:@selector(showAboutPanel:) keyEquivalent:@""];
+    NSMenuItem *aboutItem = [helpMenu addItemWithTitle:L(@"About CC Pets") action:@selector(showAboutPanel:) keyEquivalent:@""];
     aboutItem.target = NSApp.delegate;
     helpItem.submenu = helpMenu;
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *quitItem = [menu addItemWithTitle:@"退出桌宠" action:@selector(terminate:) keyEquivalent:@"q"];
+    NSMenuItem *quitItem = [menu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"];
     quitItem.target = NSApp;
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];
     [MenuHint cancel];

@@ -22,44 +22,44 @@
     if ([event isEqualToString:@"PermissionRequest"] &&
         ![state isEqualToString:@"auto_review"] &&
         [defaults boolForKey:NotificationApprovalKey]) {
-        [self sendNotificationWithTitle:@"等待审批"
-            body:[NSString stringWithFormat:@"%@ 正在等待操作。", provider]];
+        [self sendNotificationWithTitle:L(@"Awaiting approval")
+            body:[NSString stringWithFormat:L(@"%@ is waiting for you."), provider]];
     } else if ([event isEqualToString:@"StopFailure"] &&
                [defaults boolForKey:NotificationFailureKey]) {
-        [self sendNotificationWithTitle:@"任务失败"
-            body:[NSString stringWithFormat:@"%@ 的任务执行失败。", provider]];
+        [self sendNotificationWithTitle:L(@"Task failed")
+            body:[NSString stringWithFormat:L(@"%@'s task failed."), provider]];
     } else if (([event isEqualToString:@"Stop"] || [event isEqualToString:@"SessionEnd"]) &&
                [defaults boolForKey:NotificationCompletionKey]) {
-        [self sendNotificationWithTitle:@"任务完成"
-            body:[NSString stringWithFormat:@"%@ 已完成当前任务。", provider]];
+        [self sendNotificationWithTitle:L(@"Task done")
+            body:[NSString stringWithFormat:L(@"%@ finished the current task."), provider]];
     }
 }
 - (NSString *)statusTextForState:(NSString *)state tool:(NSString *)tool {
-    if ([state isEqualToString:@"starting"]) return @"正在启动";
-    if ([state isEqualToString:@"idle"]) return @"待机中";
-    if ([state isEqualToString:@"thinking"]) return @"正在思考";
-    if ([state isEqualToString:@"auto_review"]) return @"自动审批中";
-    if ([state isEqualToString:@"approval"]) return @"等待审批";
-    if ([state isEqualToString:@"subagent"]) return @"子 Agent 工作中";
-    if ([state isEqualToString:@"tool_completed"]) return @"操作已完成";
-    if ([state isEqualToString:@"tool_failed"]) return @"工具执行失败";
-    if ([state isEqualToString:@"completed"]) return @"任务已完成";
-    if ([state isEqualToString:@"failed"]) return @"任务失败";
-    if ([state isEqualToString:@"notification"]) return @"需要关注";
+    if ([state isEqualToString:@"starting"]) return L(@"Starting");
+    if ([state isEqualToString:@"idle"]) return L(@"Idle");
+    if ([state isEqualToString:@"thinking"]) return L(@"Thinking");
+    if ([state isEqualToString:@"auto_review"]) return L(@"Auto-reviewing");
+    if ([state isEqualToString:@"approval"]) return L(@"Awaiting approval");
+    if ([state isEqualToString:@"subagent"]) return L(@"Subagent working");
+    if ([state isEqualToString:@"tool_completed"]) return L(@"Step done");
+    if ([state isEqualToString:@"tool_failed"]) return L(@"Tool failed");
+    if ([state isEqualToString:@"completed"]) return L(@"Task completed");
+    if ([state isEqualToString:@"failed"]) return L(@"Task failed");
+    if ([state isEqualToString:@"notification"]) return L(@"Needs attention");
     if ([state isEqualToString:@"tool"]) {
         NSString *lower = tool.lowercaseString;
         if ([lower containsString:@"bash"] || [lower containsString:@"exec"] ||
-            [lower containsString:@"shell"] || [lower containsString:@"terminal"]) return @"正在执行命令";
+            [lower containsString:@"shell"] || [lower containsString:@"terminal"]) return L(@"Running a command");
         if ([lower containsString:@"patch"] || [lower containsString:@"edit"] ||
-            [lower containsString:@"write"]) return @"正在编辑文件";
+            [lower containsString:@"write"]) return L(@"Editing files");
         if ([lower containsString:@"read"] || [lower containsString:@"search"] ||
             [lower containsString:@"find"] || [lower containsString:@"grep"] ||
             [lower containsString:@"glob"] || [lower containsString:@"web"] ||
-            [lower hasPrefix:@"mcp__"]) return @"正在查找资料";
-        if ([lower containsString:@"task"] || [lower containsString:@"agent"]) return @"子 Agent 工作中";
-        return @"正在使用工具";
+            [lower hasPrefix:@"mcp__"]) return L(@"Looking things up");
+        if ([lower containsString:@"task"] || [lower containsString:@"agent"]) return L(@"Subagent working");
+        return L(@"Using a tool");
     }
-    return @"正在工作";
+    return L(@"Working");
 }
 // 状态卡副行的正文。每个 hook 状态都由宠物来讲，标题仍然给事实。
 //
@@ -434,8 +434,8 @@
         if (shouldNotify) {
             NSInteger minutes = (NSInteger)((now - timestamp) / 60.0);
             [self sendNotificationWithTitle:
-                [state isEqualToString:@"approval"] ? @"审批仍在等待" : @"Agent 长时间无响应"
-                body:[NSString stringWithFormat:@"%@ 已%@ %ld 分钟。",
+                [state isEqualToString:@"approval"] ? L(@"Approval still pending") : L(@"Agent unresponsive")
+                body:[NSString stringWithFormat:L(@"%1$@: %2$@ for %3$ld min."),
                     provider, [self statusTextForState:state tool:record[@"tool"]], (long)minutes]];
         }
         // 多个会话同时卡住时只把最旧的那条顶到气泡上：它等得最久。
@@ -529,7 +529,7 @@
     NSArray<NSDictionary *> *deliveries = self.bridgeRecentDeliveries ?: @[];
     NSDictionary<NSString *, NSNumber *> *pending = self.bridgePendingCounts ?: @{};
     if (records.count == 0 && deliveries.count == 0 && pending.count == 0) return;
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"最近 Agent 会话"];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:L(@"Recent Agent Sessions")];
     if (deliveries.count > 0 || pending.count > 0) {
         [self addBridgeItemsToMenu:menu deliveries:deliveries pending:pending];
         [menu addItem:NSMenuItem.separatorItem];
@@ -541,7 +541,7 @@
         [self popUpAgentSessionsMenu:menu from:sender];
         return;
     }
-    NSMenuItem *heading = [menu addItemWithTitle:@"最近 Agent 会话" action:nil keyEquivalent:@""];
+    NSMenuItem *heading = [menu addItemWithTitle:L(@"Recent Agent Sessions") action:nil keyEquivalent:@""];
     heading.enabled = NO;
     [menu addItem:NSMenuItem.separatorItem];
     BOOL separatedApprovals = NO;
@@ -562,7 +562,7 @@
         // 开启 CC Bridge 时带上会话名：用户和 Agent 之间就是用这个名字互相指代的。
         NSDictionary *bridge = [self bridgeSessionEntryForRecord:record];
         NSString *bridgeName = bridge.count > 0
-            ? [NSString stringWithFormat:@"（%@）", bridge[@"name"]] : @"";
+            ? [NSString stringWithFormat:L(@" (%@)"), bridge[@"name"]] : @"";
         NSUInteger waiting = [pending[[self bridgeSessionIdForRecord:record] ?: @""] unsignedIntegerValue];
         NSString *title = [NSString stringWithFormat:@"%@%@%@ · %@ · %@ · %@%@",
             approval ? @"⚠️ " : @"",

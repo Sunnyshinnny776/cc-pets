@@ -9,6 +9,7 @@ import {
   STATUS_LINE_MARKER, STATUS_LINE_START_MARKER, isManagedHookCommand, isManagedStatusLine,
   resolveStatusLineScript
 } from "./integration-markers.mjs";
+import { t } from "./i18n.mjs";
 
 const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const claudeHome = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
@@ -85,7 +86,7 @@ function updateJSON(filePath, updater) {
   try {
     config = JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch (error) {
-    console.error(`无法解析 ${filePath}，未做修改: ${error.message}`);
+    console.error(t("Can't parse {filePath}, left unchanged: {message}", { filePath, message: error.message }));
     process.exitCode = 1;
     return false;
   }
@@ -194,11 +195,11 @@ if (!preparingInstall) {
   bridgeStore.setBridgeEnabled(false);
 }
 
-const action = preparingInstall ? "已迁移" : "已移除";
-if (codexChanged) console.log(`${action} ${codexHooksPath} 中的 CC Pets Hooks。`);
-if (claudeChanged) console.log(`${action} ${claudeSettingsPath} 中的 CC Pets Hooks，并恢复原 status line。`);
-if (shellChanged) console.log(`${action} ${shellRC} 中的 CC Pets shell 集成。`);
-if (shimChanged) console.log(`${action} ${shimDirectory} 中的 codex / claude shim。`);
+const action = preparingInstall ? t("Migrated") : t("Removed");
+if (codexChanged) console.log(t("{action} the CC Pets hooks in {codexHooksPath}.", { action, codexHooksPath }));
+if (claudeChanged) console.log(t("{action} the CC Pets hooks in {claudeSettingsPath} and restored the original status line.", { action, claudeSettingsPath }));
+if (shellChanged) console.log(t("{action} the CC Pets shell integration in {shellRC}.", { action, shellRC }));
+if (shimChanged) console.log(t("{action} the codex / claude shims in {shimDirectory}.", { action, shimDirectory }));
 if (!codexChanged && !claudeChanged && !shellChanged && !shimChanged && !preparingInstall) {
-  console.log("未发现需要移除的 CC Pets 集成。 ");
+  console.log(t("No CC Pets integrations to remove. "));
 }

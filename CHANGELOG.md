@@ -5,6 +5,15 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
+## [Unreleased]
+
+### Language
+
+- The app is now available in English and Simplified Chinese. A new **Language** submenu offers **System Default**, **English** and **简体中文**; System Default follows macOS's preferred languages and falls back to English.
+- `cc-pets` commands, hooks and CC Bridge messages follow the same choice through `~/.cc-pets/language`; `CC_PETS_LANGUAGE` overrides it per command.
+- Added English default lines. An unedited `~/.cc-pets/speech.txt` switches with the language; lines without Chinese, Japanese or Korean text may now be up to 40 characters.
+- The update dialog shows the highlights from the release notes section matching the UI language.
+
 ## [2.1.2] - 2026-10-04
 
 Update prompts through the pet, `cc-pets doctor` and `cc-pets paths`, plus cleanup fixes.

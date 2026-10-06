@@ -1,3 +1,4 @@
+#import "CCPetsL10n.h"
 #import <Cocoa/Cocoa.h>
 #import "CCPetsAppDelegate.h"
 #import "CCPetsEvents.h"
@@ -109,7 +110,8 @@ int main(int argc, const char *argv[]) {
                 if (strcmp(argv[index], launchFlags[flag]) == 0) known = YES;
             }
             if (known) continue;
-            fprintf(stderr, "未知参数：%s\n运行 cc-pets --help 查看用法。\n", argv[index]);
+            fprintf(stderr, "%s\n", [NSString stringWithFormat:L(@"Unknown argument: %@\nRun cc-pets --help for usage."),
+                @(argv[index])].UTF8String);
             return 2;
         }
 

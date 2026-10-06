@@ -1,5 +1,6 @@
 #!/bin/zsh
 set -eu
+source "${0:A:h}/i18n.zsh"
 
 APPLICATIONS_DIR="${CC_PETS_APPLICATIONS_DIR:-${HOME}/Applications}"
 TARGET_APP="${APPLICATIONS_DIR}/CC Pets.app"
@@ -9,7 +10,7 @@ if [[ -e "${TARGET_APP}" ]]; then
   BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
     "${TARGET_APP}/Contents/Info.plist" 2>/dev/null || true)"
   if [[ "${BUNDLE_ID}" != "com.universewang.cc-pets" ]]; then
-    print -u2 "拒绝删除：${TARGET_APP} 不是 CC Pets 应用（Bundle ID 不匹配）。"
+    print -u2 "$(cc_pets_t "Refusing to delete: {targetApp} isn't the CC Pets app (bundle ID mismatch)." targetApp="${TARGET_APP}")"
     exit 2
   fi
 fi
@@ -20,7 +21,7 @@ fi
 
 if [[ -e "${TARGET_APP}" ]]; then
   rm -rf "${TARGET_APP}"
-  print "已删除应用: ${TARGET_APP}"
+  print "$(cc_pets_t "App removed: {targetApp}" targetApp="${TARGET_APP}")"
 else
-  print "未安装应用: ${TARGET_APP}"
+  print "$(cc_pets_t "App not installed: {targetApp}" targetApp="${TARGET_APP}")"
 fi

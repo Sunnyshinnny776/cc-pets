@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
+source "${PROJECT_DIR}/scripts/i18n.zsh"
 SOURCE_APP="${PROJECT_DIR}/.build/release/CC Pets.app"
 APPLICATIONS_DIR="${CC_PETS_APPLICATIONS_DIR:-${HOME}/Applications}"
 TARGET_APP="${APPLICATIONS_DIR}/CC Pets.app"
@@ -29,8 +30,8 @@ if ! mv "${STAGING_APP}" "${TARGET_APP}"; then
   if [[ -e "${BACKUP_APP}" ]]; then
     mv "${BACKUP_APP}" "${TARGET_APP}"
   fi
-  print -u2 "安装 CC Pets.app 失败，已保留原应用。"
+  print -u2 "$(cc_pets_t "Failed to install CC Pets.app; the existing app was kept.")"
   exit 1
 fi
 
-print "应用已安装: ${TARGET_APP}"
+print "$(cc_pets_t "App installed: {targetApp}" targetApp="${TARGET_APP}")"

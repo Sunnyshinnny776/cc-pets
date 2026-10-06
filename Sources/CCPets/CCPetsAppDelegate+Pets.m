@@ -122,13 +122,11 @@
 
         [NSApp activateIgnoringOtherApps:YES];
         NSAlert *alert = [NSAlert new];
-        alert.messageText = @"没有找到桌宠素材";
-        alert.informativeText = @"用 `cc-pets pet add <名称>` 下载素材，或把 PNG / WebP 精灵图放入 "
-            @"~/.cc-pets/pets/<名称>/。桌宠不会去读 ~/.petdex/pets/ 和 ~/.codex/pets/；"
-            @"要用 Codex 的素材，请在右键菜单打开“导入 Codex 素材”。完成后点击“重新扫描”。";
-        [alert addButtonWithTitle:@"重新扫描"];
-        [alert addButtonWithTitle:@"打开素材目录"];
-        [alert addButtonWithTitle:@"退出"];
+        alert.messageText = L(@"No Pet Sprites Found");
+        alert.informativeText = L(@"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex pets” in the right-click menu. Then click “Rescan”.");
+        [alert addButtonWithTitle:L(@"Rescan")];
+        [alert addButtonWithTitle:L(@"Open Pets Folder")];
+        [alert addButtonWithTitle:L(@"Quit")];
         NSModalResponse response = [alert runModal];
         if (response == NSAlertSecondButtonReturn) {
             NSString *directory = OwnPetsDirectory();
@@ -168,8 +166,8 @@
 
     NSError *error = nil;
     if (![NSFileManager.defaultManager removeItemAtPath:directory error:&error]) {
-        [self showAlertWithTitle:@"无法删除素材"
-            message:error.localizedDescription ?: @"素材目录删除失败。"];
+        [self showAlertWithTitle:L(@"Can't Delete Pet")
+            message:error.localizedDescription ?: L(@"Failed to delete the pet folder.")];
         return NO;
     }
 

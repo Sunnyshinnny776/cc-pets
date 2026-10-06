@@ -21,6 +21,7 @@ import { HOOK_MARKER, describeCodexQueue } from "./bridge/install.mjs";
 import { currentOptions } from "./bridge/options.mjs";
 import { probeCodexQueue, resolveRealExecutable } from "./bridge/process.mjs";
 import { bridgeDirectory, bridgeHomeDirectory, isBridgeEnabled } from "./bridge/store.mjs";
+import { t } from "./i18n.mjs";
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const petBinary = path.join(projectDir, ".build/release/cc-pets");
@@ -69,7 +70,7 @@ const sizeOf = (target) => {
 };
 
 const formatSize = (bytes) => {
-  if (bytes === null) return "不存在";
+  if (bytes === null) return t("missing");
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -94,51 +95,51 @@ const pathGroups = (native) => {
   const ccPetsHome = bridgeHomeDirectory();
   const groups = [
     {
-      title: "设置（--purge 会删除）",
-      items: native ? [["偏好设置", native.preferences]] : []
+      title: t("Settings (removed by --purge)"),
+      items: native ? [[t("Preferences"), native.preferences]] : []
     },
     {
-      title: "用户内容（clean 与 --purge 都保留）",
+      title: t("Your content (kept by both clean and --purge)"),
       items: [
         ...(native ? [
-          ["桌宠素材", native.pets],
-          ["通用台词", native.phrases],
-          ["宠物专属台词", native.petPhrases]
+          [t("Pet sprites"), native.pets],
+          [t("Shared lines"), native.phrases],
+          [t("Per-pet lines"), native.petPhrases]
         ] : []),
-        ["CC Bridge 开关", path.join(ccPetsHome, "bridge-enabled")],
+        [t("CC Bridge switch"), path.join(ccPetsHome, "bridge-enabled")],
         ["codex / claude shim", shimDirectory]
       ]
     },
     {
-      title: "应用数据（--purge 会删除；clean 只清其中的 Token 缓存与更新日志）",
+      title: t("App data (removed by --purge; clean only clears the token cache and update log)"),
       items: native ? [
-        ["应用数据目录", native.applicationSupport],
-        ["额度历史", native.quotaHistory],
-        ["自动更新配置", path.join(native.applicationSupport, "updater.json")]
+        [t("App data directory"), native.applicationSupport],
+        [t("Quota history"), native.quotaHistory],
+        [t("Auto-update config"), path.join(native.applicationSupport, "updater.json")]
       ] : []
     },
     {
-      title: "缓存与运行时状态（clean 会清理，丢失不影响使用）",
+      title: t("Caches and runtime state (cleared by clean; safe to lose)"),
       items: [
         ...(native ? [
-          ["素材清单缓存", native.petStoreCache],
-          ["Agent 事件流", native.agentEvents],
-          ["Claude 额度快照", native.claudeUsage],
-          ["Codex 实时额度", native.codexLiveUsage],
-          ["Codex 启动记录", native.codexLaunches],
-          ["在线客户端记录", native.clients]
+          [t("Pet store manifest cache"), native.petStoreCache],
+          [t("Agent event stream"), native.agentEvents],
+          [t("Claude quota snapshot"), native.claudeUsage],
+          [t("Codex live quota"), native.codexLiveUsage],
+          [t("Codex launch records"), native.codexLaunches],
+          [t("Online client records"), native.clients]
         ] : []),
-        ["CC Bridge 状态目录", bridgeDirectory()]
+        [t("CC Bridge state directory"), bridgeDirectory()]
       ]
     },
     {
-      title: "程序与集成",
+      title: t("Program and integrations"),
       items: [
-        ["npm 包", projectDir],
-        ["已安装的 App", installedApp],
-        ["Claude Code 配置", path.join(claudeHome, "settings.json")],
+        [t("npm package"), projectDir],
+        [t("Installed app"), installedApp],
+        [t("Claude Code settings"), path.join(claudeHome, "settings.json")],
         ["Codex Hooks", path.join(codexHome, "hooks.json")],
-        ["Shell 配置", shellRC]
+        [t("Shell config"), shellRC]
       ]
     }
   ];
@@ -161,7 +162,8 @@ const printPaths = (asJson) => {
     return 0;
   }
   if (!native) {
-    console.log("⚠️  原生程序未构建或无法运行，桌宠自身的数据路径无法确定；执行 cc-pets install 后重试。\n");
+    console.log(t(`⚠️  The native binary isn't built or can't run, so the pet's own data paths are unknown; run cc-pets install and try again.
+`));
   }
   const width = Math.max(...groups.flatMap((group) => group.items.map(([label]) => displayWidth(label))));
   groups.forEach((group, index) => {
@@ -208,24 +210,32 @@ const hookChecks = (name, configFile, signature, legacySignature) => {
   const hooks = inspectHooks(configFile, signature, legacySignature);
   if (hooks.error) {
     return {
-      results: [{ level: "fail", title: `${name} 配置无法解析：${tilde(configFile)}`, fix: "修正该 JSON 文件后执行 cc-pets install" }],
+      results: [{ level: "fail", title: t("Can't parse {name} config: {configFile}", { name, configFile: tilde(configFile) }), fix: t("Fix that JSON file, then run cc-pets install") }],
       bridgeHooks: 0
     };
   }
   const results = [];
   if (hooks.total === 0) {
-    results.push({ level: "fail", title: `${name} Hooks 未安装`, fix: "cc-pets install" });
+    results.push({ level: "fail", title: t("{name} hooks not installed", { name }), fix: "cc-pets install" });
   } else if (hooks.stale > 0) {
     results.push({
       level: "warn",
-      title: `${name} Hooks 中有 ${hooks.stale} 条指向其他位置的 cc-pets（包被移动或重装过）`,
+      title: hooks.stale !== 1
+        ? t("{stale} {name} hooks point to cc-pets elsewhere (the package was moved or reinstalled)", { name, stale: hooks.stale })
+        : t("{stale} {name} hook points to cc-pets elsewhere (the package was moved or reinstalled)", { name, stale: hooks.stale }),
       fix: "cc-pets install"
     });
   } else {
-    results.push({ level: "ok", title: `${name} Hooks 已安装（${hooks.total} 个事件）` });
+    results.push({ level: "ok", title: t("{name} hooks installed ({total} events)", { name, total: hooks.total }) });
   }
   if (hooks.legacy > 0) {
-    results.push({ level: "warn", title: `${name} 配置里残留 ${hooks.legacy} 条旧版 codex-pet Hooks`, fix: "cc-pets install" });
+    results.push({
+      level: "warn",
+      title: hooks.legacy !== 1
+        ? t("{name} config still has {legacy} old codex-pet hooks", { name, legacy: hooks.legacy })
+        : t("{name} config still has {legacy} old codex-pet hook", { name, legacy: hooks.legacy }),
+      fix: "cc-pets install"
+    });
   }
   return { results, bridgeHooks: hooks.bridge };
 };
@@ -234,7 +244,7 @@ const statusLineCheck = () => {
   const { value } = readJson(path.join(claudeHome, "settings.json"));
   const command = typeof value?.statusLine?.command === "string" ? value.statusLine.command : "";
   if (isManagedStatusLine(command, STATUS_LINE_MARKER)) {
-    return { level: "ok", title: "Claude status line 已通过包装器接入额度采集" };
+    return { level: "ok", title: t("Claude status line feeds quota data through the wrapper") };
   }
   const script = resolveStatusLineScript(command);
   let content = "";
@@ -245,12 +255,12 @@ const statusLineCheck = () => {
   }
   if (content.includes(STATUS_LINE_START_MARKER)) {
     return content.includes(`'${petBinary}'`)
-      ? { level: "ok", title: `Claude status line 已接入额度采集（${tilde(script)}）` }
-      : { level: "warn", title: "Claude status line 里的额度采集指向其他位置的 cc-pets", fix: "cc-pets install" };
+      ? { level: "ok", title: t("Claude status line feeds quota data ({script})", { script: tilde(script) }) }
+      : { level: "warn", title: t("The quota hook in the Claude status line points to cc-pets elsewhere"), fix: "cc-pets install" };
   }
   return {
     level: "warn",
-    title: command ? "Claude status line 未接入额度采集，桌宠拿不到 Claude 额度百分比" : "未配置 Claude status line，桌宠拿不到 Claude 额度百分比",
+    title: command ? t("Claude status line doesn't feed quota data, so the pet can't show Claude quota %") : t("No Claude status line configured, so the pet can't show Claude quota %"),
     fix: "cc-pets install"
   };
 };
@@ -264,8 +274,8 @@ const shimChecks = () => {
     rc = "";
   }
   results.push(rc.includes(SHIM_START_MARKER)
-    ? { level: "ok", title: `${tilde(shellRC)} 已加入 shim 目录` }
-    : { level: "fail", title: `${tilde(shellRC)} 中没有 CC Pets 的 shim 配置`, fix: "cc-pets install" });
+    ? { level: "ok", title: t("{shellRC} adds the shim directory", { shellRC: tilde(shellRC) }) }
+    : { level: "fail", title: t("{shellRC} has no CC Pets shim setup", { shellRC: tilde(shellRC) }), fix: "cc-pets install" });
 
   const broken = [];
   for (const name of ["codex", "claude"]) {
@@ -274,27 +284,27 @@ const shimChecks = () => {
     try {
       link = fs.readlinkSync(shim);
     } catch {
-      broken.push(`${name}（缺失）`);
+      broken.push(t("{name} (missing)", { name }));
       continue;
     }
-    if (!fs.existsSync(path.resolve(shimDirectory, link))) broken.push(`${name}（指向的文件不存在）`);
+    if (!fs.existsSync(path.resolve(shimDirectory, link))) broken.push(t("{name} (target doesn't exist)", { name }));
   }
   results.push(broken.length === 0
-    ? { level: "ok", title: `shim 完整：${tilde(shimDirectory)}` }
-    : { level: "warn", title: `shim 异常：${broken.join("、")}`, fix: "cc-pets install" });
+    ? { level: "ok", title: t("Shims complete: {shimDirectory}", { shimDirectory: tilde(shimDirectory) }) }
+    : { level: "warn", title: t("Shim problems: {broken}", { broken: broken.join(t(", ")) }), fix: "cc-pets install" });
 
   const entries = (process.env.PATH || "").split(path.delimiter).filter(Boolean).map((entry) => path.resolve(entry));
   const index = entries.indexOf(shimDirectory);
   if (index < 0) {
-    results.push({ level: "warn", title: "当前终端的 PATH 里没有 shim 目录，直接敲 codex / claude 不会拉起桌宠", fix: `source ${tilde(shellRC)}，或新开一个终端` });
+    results.push({ level: "warn", title: t("This terminal's PATH lacks the shim directory, so typing codex / claude won't start the pet"), fix: t("source {shellRC}, or open a new terminal", { shellRC: tilde(shellRC) }) });
   } else if (index > 0) {
     const shadowing = entries.slice(0, index).find((entry) =>
       ["codex", "claude"].some((name) => fs.existsSync(path.join(entry, name))));
     results.push(shadowing
-      ? { level: "warn", title: `PATH 中 ${tilde(shadowing)} 排在 shim 目录之前，会绕过桌宠`, fix: `source ${tilde(shellRC)}，或新开一个终端` }
-      : { level: "ok", title: "PATH 中 shim 目录优先于真实的 codex / claude" });
+      ? { level: "warn", title: t("{shadowing} comes before the shim directory in PATH and bypasses the pet", { shadowing: tilde(shadowing) }), fix: t("source {shellRC}, or open a new terminal", { shellRC: tilde(shellRC) }) }
+      : { level: "ok", title: t("The shim directory comes before the real codex / claude in PATH") });
   } else {
-    results.push({ level: "ok", title: "PATH 中 shim 目录排在最前" });
+    results.push({ level: "ok", title: t("The shim directory is first in PATH") });
   }
   return results;
 };
@@ -302,8 +312,8 @@ const shimChecks = () => {
 const realBinaryCheck = (name, variable) => {
   const real = resolveRealExecutable(name, variable);
   return real && fs.existsSync(real)
-    ? { level: "ok", title: `找到真实的 ${name}：${tilde(real)}` }
-    : { level: "warn", title: `PATH 中找不到真实的 ${name}，shim 无法转发`, fix: `export ${variable}=/absolute/path/to/${name}` };
+    ? { level: "ok", title: t("Found the real {name}: {real}", { name, real: tilde(real) }) }
+    : { level: "warn", title: t("The real {name} isn't in PATH, so the shim can't forward to it", { name }), fix: `export ${variable}=/absolute/path/to/${name}` };
 };
 
 const updaterCheck = (native) => {
@@ -311,19 +321,19 @@ const updaterCheck = (native) => {
   const file = path.join(native.applicationSupport, "updater.json");
   const { value, error } = readJson(file);
   if (error) {
-    return { level: "warn", title: "自动更新未配置，应用内无法一键更新", fix: "npm install -g cc-pets@latest --allow-scripts=cc-pets" };
+    return { level: "warn", title: t("Auto-update isn't configured, so in-app updates won't work"), fix: "npm install -g cc-pets@latest --allow-scripts=cc-pets" };
   }
   const missing = ["nodePath", "npmCliPath"].filter((key) => !value?.[key] || !fs.existsSync(value[key]));
   return missing.length === 0
-    ? { level: "ok", title: "自动更新配置有效" }
-    : { level: "warn", title: `自动更新记录的 ${missing.join("、")} 已不存在（换过 Node 版本？）`, fix: "npm install -g cc-pets@latest --allow-scripts=cc-pets" };
+    ? { level: "ok", title: t("Auto-update config is valid") }
+    : { level: "warn", title: t("The {missing} recorded for auto-update no longer exist (changed Node versions?)", { missing: missing.join(t(", ")) }), fix: "npm install -g cc-pets@latest --allow-scripts=cc-pets" };
 };
 
 const formatAge = (milliseconds) => {
   const minutes = Math.round(milliseconds / 60_000);
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 60) return t("{minutes} min ago", { minutes });
   const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours} 小时前` : `${Math.round(hours / 24)} 天前`;
+  return hours < 48 ? t("{hours} h ago", { hours }) : t("{days} days ago", { days: Math.round(hours / 24) });
 };
 
 const runDoctor = () => {
@@ -336,29 +346,29 @@ const runDoctor = () => {
   const program = [
     nodeMajor >= 18
       ? { level: "ok", title: `Node.js ${process.versions.node}` }
-      : { level: "fail", title: `Node.js ${process.versions.node} 过旧，需要 18 或更高版本` },
-    { level: "info", title: `npm 包 ${packageVersion}：${tilde(projectDir)}` }
+      : { level: "fail", title: t("Node.js {node} is too old; 18 or later is required", { node: process.versions.node }) },
+    { level: "info", title: t("npm package {packageVersion}: {projectDir}", { packageVersion, projectDir: tilde(projectDir) }) }
   ];
   const binaryVersion = fs.existsSync(petBinary) ? (run(petBinary, ["--version"]) || "").trim().replace(/^cc-pets\s+/, "") : null;
   if (!binaryVersion) {
-    program.push({ level: "fail", title: "原生程序未构建或无法运行", fix: "cc-pets install" });
+    program.push({ level: "fail", title: t("Native binary isn't built or can't run"), fix: "cc-pets install" });
   } else if (binaryVersion !== packageVersion) {
-    program.push({ level: "warn", title: `原生程序版本 ${binaryVersion} 与 npm 包 ${packageVersion} 不一致`, fix: "cc-pets install" });
+    program.push({ level: "warn", title: t("Native binary {binaryVersion} doesn't match npm package {packageVersion}", { binaryVersion, packageVersion }), fix: "cc-pets install" });
   } else {
-    program.push({ level: "ok", title: `原生程序 ${binaryVersion}` });
+    program.push({ level: "ok", title: t("Native binary {binaryVersion}", { binaryVersion }) });
   }
   const appVersion = versionOfApp(installedApp);
   if (!appVersion) {
-    program.push({ level: "warn", title: `未找到已安装的 App：${tilde(installedApp)}`, fix: "cc-pets install" });
+    program.push({ level: "warn", title: t("Installed app not found: {installedApp}", { installedApp: tilde(installedApp) }), fix: "cc-pets install" });
   } else if (appVersion !== packageVersion) {
-    program.push({ level: "warn", title: `已安装的 App 版本 ${appVersion} 与 npm 包 ${packageVersion} 不一致`, fix: "cc-pets install" });
+    program.push({ level: "warn", title: t("Installed app {appVersion} doesn't match npm package {packageVersion}", { appVersion, packageVersion }), fix: "cc-pets install" });
   } else {
-    program.push({ level: "ok", title: `已安装的 App ${appVersion}` });
+    program.push({ level: "ok", title: t("Installed app {appVersion}", { appVersion }) });
   }
-  if (native) program.push({ level: "info", title: native.running ? "桌宠正在运行" : "桌宠未运行" });
+  if (native) program.push({ level: "info", title: native.running ? t("The pet is running") : t("The pet isn't running") });
   const updater = updaterCheck(native);
   if (updater) program.push(updater);
-  sections.push({ title: "程序", results: program });
+  sections.push({ title: t("Program"), results: program });
 
   let claudeBridgeHooks = 0;
   if (claudeDetected) {
@@ -373,12 +383,12 @@ const runDoctor = () => {
         modified = null;
       }
       claude.push(modified
-        ? { level: "info", title: `Claude 额度快照更新于 ${formatAge(Date.now() - modified)}` }
-        : { level: "info", title: "暂无 Claude 额度快照（Claude Code 首次收到 API 响应后生成）" });
+        ? { level: "info", title: t("Claude quota snapshot updated {age}", { age: formatAge(Date.now() - modified) }) }
+        : { level: "info", title: t("No Claude quota snapshot yet (created after Claude Code's first API response)") });
     }
     sections.push({ title: "Claude Code", results: claude });
   } else {
-    sections.push({ title: "Claude Code", results: [{ level: "info", title: "未检测到 Claude Code CLI，跳过" }] });
+    sections.push({ title: "Claude Code", results: [{ level: "info", title: t("Claude Code CLI not detected, skipped") }] });
   }
 
   let codexBridgeHooks = 0;
@@ -389,15 +399,15 @@ const runDoctor = () => {
       title: "Codex",
       results: [
         ...results,
-        { level: "info", title: "Codex 需要在 /hooks 中信任 CC Pets Hooks 后才会触发（无法自动检测）" }
+        { level: "info", title: t("Codex only runs CC Pets hooks after you trust them in /hooks (can't be checked automatically)") }
       ]
     });
   } else {
-    sections.push({ title: "Codex", results: [{ level: "info", title: "未检测到 Codex CLI，跳过" }] });
+    sections.push({ title: "Codex", results: [{ level: "info", title: t("Codex CLI not detected, skipped") }] });
   }
 
   sections.push({
-    title: "Shell 集成",
+    title: t("Shell integration"),
     results: [
       ...shimChecks(),
       ...(codexDetected ? [realBinaryCheck("codex", "CODEX_REAL_BIN")] : []),
@@ -406,29 +416,29 @@ const runDoctor = () => {
   });
 
   if (!isBridgeEnabled()) {
-    sections.push({ title: "CC Bridge", results: [{ level: "info", title: "未开启（可选功能，cc-pets bridge enable 开启）" }] });
+    sections.push({ title: "CC Bridge", results: [{ level: "info", title: t("Off (optional; turn on with cc-pets bridge enable)") }] });
   } else {
-    const bridge = [{ level: "ok", title: "已开启" }];
+    const bridge = [{ level: "ok", title: t("Enabled") }];
     if (claudeDetected) {
       bridge.push(claudeBridgeHooks > 0
-        ? { level: "ok", title: "Claude Code 中的 CC Bridge Hooks 已安装" }
-        : { level: "warn", title: "Claude Code 中缺少 CC Bridge Hooks", fix: "cc-pets bridge enable" });
+        ? { level: "ok", title: t("CC Bridge hooks installed in Claude Code") }
+        : { level: "warn", title: t("CC Bridge hooks missing in Claude Code"), fix: "cc-pets bridge enable" });
     }
     if (codexDetected) {
       bridge.push(codexBridgeHooks > 0
-        ? { level: "ok", title: "Codex 中的 CC Bridge Hooks 已安装" }
-        : { level: "warn", title: "Codex 中缺少 CC Bridge Hooks", fix: "cc-pets bridge enable" });
+        ? { level: "ok", title: t("CC Bridge hooks installed in Codex") }
+        : { level: "warn", title: t("CC Bridge hooks missing in Codex"), fix: "cc-pets bridge enable" });
       if (currentOptions().wake) {
         const notice = describeCodexQueue(probeCodexQueue());
         bridge.push(notice
           ? { level: "warn", title: notice }
-          : { level: "ok", title: "Codex 支持 codex queue，可自动唤醒" });
+          : { level: "ok", title: t("Codex supports codex queue, so it can be woken automatically") });
       }
     }
     sections.push({ title: "CC Bridge", results: bridge });
   }
 
-  console.log(`CC Pets 诊断（npm 包 ${packageVersion}，${os.platform()} ${os.release()}）`);
+  console.log(t("CC Pets diagnostics (npm package {packageVersion}, {platform} {release})", { packageVersion, platform: os.platform(), release: os.release() }));
   const counts = { ok: 0, warn: 0, fail: 0, info: 0 };
   for (const section of sections) {
     console.log(`\n${section.title}`);
@@ -438,8 +448,12 @@ const runDoctor = () => {
       if (result.fix) console.log(`     → ${result.fix}`);
     }
   }
-  console.log(`\n结果：${counts.ok} 项正常，${counts.warn} 项警告，${counts.fail} 项错误。`);
-  if (counts.fail + counts.warn > 0) console.log("多数问题执行 cc-pets install 即可修复；数据位置见 cc-pets paths。");
+  const warnings = counts.warn !== 1
+    ? t("{count} warnings", { count: counts.warn }) : t("{count} warning", { count: counts.warn });
+  const errors = counts.fail !== 1
+    ? t("{count} errors", { count: counts.fail }) : t("{count} error", { count: counts.fail });
+  console.log(t("\nResult: {ok} OK, {warnings}, {errors}.", { ok: counts.ok, warnings, errors }));
+  if (counts.fail + counts.warn > 0) console.log(t("Most problems are fixed by cc-pets install; see cc-pets paths for data locations."));
   return counts.fail > 0 ? 1 : 0;
 };
 
@@ -451,6 +465,6 @@ if (command === "paths") {
 } else if (command === "doctor") {
   process.exitCode = runDoctor();
 } else {
-  console.error("用法: doctor.mjs paths [--json] | doctor");
+  console.error(t("Usage: doctor.mjs paths [--json] | doctor"));
   process.exitCode = 2;
 }

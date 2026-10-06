@@ -1,4 +1,5 @@
 #import "CCPetsPhrases.h"
+#import "CCPetsL10n.h"
 
 NSString *const PetPhraseTagDone = @"done";
 NSString *const PetPhraseTagFail = @"fail";
@@ -27,6 +28,26 @@ NSString *const PetPhraseTagStateFailed = @"state_failed";
 NSString *const PetPhraseTagStateNotification = @"state_notification";
 
 const NSUInteger PetPhraseMaxLength = 30;
+const NSUInteger PetPhraseMaxLatinLength = 40;
+
+// 气泡最宽 300pt、13pt 字号：汉字一个顶一个字宽，30 个刚好；英文字母大约半个字宽，
+// 同样宽度能放 40 个上下。按"有没有中日韩字符"二选一，不做逐字加权——加权之后用户
+// 没法对着报错数出自己超了多少。
+NSUInteger PetPhraseMaxLengthForText(NSString *text) {
+    static NSCharacterSet *wide;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableCharacterSet *set = [NSMutableCharacterSet new];
+        [set addCharactersInRange:NSMakeRange(0x1100, 0x0100)];  // 谚文字母
+        [set addCharactersInRange:NSMakeRange(0x2E80, 0xA4D0 - 0x2E80)]; // 中日韩部首到彝文
+        [set addCharactersInRange:NSMakeRange(0xAC00, 0xD7A4 - 0xAC00)]; // 谚文音节
+        [set addCharactersInRange:NSMakeRange(0xF900, 0x0200)];  // 兼容汉字
+        [set addCharactersInRange:NSMakeRange(0xFF00, 0x0061)];  // 全角 ASCII
+        wide = set;
+    });
+    return [text rangeOfCharacterFromSet:wide].location == NSNotFound
+        ? PetPhraseMaxLatinLength : PetPhraseMaxLength;
+}
 // 最近说过的这么多条不再重复。模板库不大，靠这个把主观重复感压下去。
 static const NSUInteger PetPhraseRecentMemory = 12;
 
@@ -118,16 +139,49 @@ NSString *PetPhrasesCurrentPetFilePath(void) {
     return PetPhrasesFilePathForPetID(PetPhrasesCurrentPet);
 }
 
-NSString *PetPhrasesDefaultFilePath(void) {
-    NSString *override = NSProcessInfo.processInfo.environment[@"CC_PETS_PHRASES_DEFAULT_FILE"];
-    if (override.length > 0) return override.stringByStandardizingPath;
-    NSString *bundled = [NSBundle.mainBundle pathForResource:@"phrases.default"
-        ofType:@"txt"];
+// 每种界面语言一份默认词库：phrases.default.<语言>.txt（zh-Hans、en…）。找不到返回 nil。
+static NSString *PetPhrasesBundledDefaultPath(NSString *language) {
+    NSString *name = [@"phrases.default." stringByAppendingString:language];
+    NSString *bundled = [NSBundle.mainBundle pathForResource:name ofType:@"txt"];
     if (bundled.length > 0) return bundled;
     // 直接跑 .build/release/cc-pets（没有 app bundle）时退到可执行文件旁边，
     // 否则开发期跑起来一句台词都没有，会被误当成解析出了问题。
     NSString *executable = NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent;
-    return [executable stringByAppendingPathComponent:@"phrases.default.txt"];
+    NSString *path = [executable stringByAppendingPathComponent:
+        [name stringByAppendingPathExtension:@"txt"]];
+    return [NSFileManager.defaultManager fileExistsAtPath:path] ? path : nil;
+}
+
+// 当前语言没有默认台词（翻译只做了界面）时退回源语言那份。
+NSString *PetPhrasesDefaultFilePath(void) {
+    NSString *override = NSProcessInfo.processInfo.environment[@"CC_PETS_PHRASES_DEFAULT_FILE"];
+    if (override.length > 0) return override.stringByStandardizingPath;
+    NSString *path = PetPhrasesBundledDefaultPath(CCPetsCurrentLanguage()) ?:
+        PetPhrasesBundledDefaultPath(CCPetsSourceLanguage);
+    if (path.length > 0) return path;
+    NSString *executable = NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent;
+    return [executable stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"phrases.default.%@.txt", CCPetsSourceLanguage]];
+}
+
+BOOL PetPhrasesAdoptLanguageDefaults(void) {
+    // 测试指定了默认词库时只有那一份，没有"另一种语言"可比。
+    if (NSProcessInfo.processInfo.environment[@"CC_PETS_PHRASES_DEFAULT_FILE"].length > 0) return NO;
+    NSString *path = PetPhrasesFilePath();
+    NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    NSString *currentPath = PetPhrasesDefaultFilePath();
+    NSString *currentText = [NSString stringWithContentsOfFile:currentPath
+        encoding:NSUTF8StringEncoding error:nil];
+    if (text.length == 0 || currentText.length == 0 || [text isEqualToString:currentText]) return NO;
+    for (NSString *language in CCPetsSupportedLanguages()) {
+        NSString *otherPath = PetPhrasesBundledDefaultPath(language);
+        if (otherPath.length == 0 || [otherPath isEqualToString:currentPath]) continue;
+        NSString *otherText = [NSString stringWithContentsOfFile:otherPath
+            encoding:NSUTF8StringEncoding error:nil];
+        if (![text isEqualToString:otherText]) continue;
+        return [currentText writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+    return NO;
 }
 
 BOOL PetPhrasesEnsureFileExists(void) {
@@ -178,20 +232,20 @@ NSString *PetPhraseTagDescription(NSString *tag) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         map = @{
-            PetPhraseTagIdle: @"闲着没事", PetPhraseTagDone: @"任务完成",
-            PetPhraseTagFail: @"连续失败", PetPhraseTagWake: @"隔了很久又开工",
-            PetPhraseTagLateNight: @"深夜还在干", PetPhraseTagLongSession: @"连续工作很久",
-            PetPhraseTagQuotaLow: @"额度告急",
-            PetPhraseTagClickHeart: @"连续点击后开心",
-            PetPhraseTagClickAnnoyed: @"连续点击过多后烦躁",
-            PetPhraseTagStateStarting: @"正在启动", PetPhraseTagStateIdle: @"待机中",
-            PetPhraseTagStateThinking: @"正在思考", PetPhraseTagStateTool: @"正在用工具",
-            PetPhraseTagStateToolBash: @"正在执行命令", PetPhraseTagStateToolEdit: @"正在编辑文件",
-            PetPhraseTagStateToolRead: @"正在查找资料", PetPhraseTagStateToolDone: @"单步操作完成",
-            PetPhraseTagStateToolFailed: @"工具执行失败", PetPhraseTagStateSubagent: @"子 Agent 工作中",
-            PetPhraseTagStateApproval: @"等待审批", PetPhraseTagStateAutoReview: @"自动审批中",
-            PetPhraseTagStateCompleted: @"任务已完成", PetPhraseTagStateFailed: @"任务失败",
-            PetPhraseTagStateNotification: @"需要关注",
+            PetPhraseTagIdle: L(@"idle"), PetPhraseTagDone: L(@"Task done"),
+            PetPhraseTagFail: L(@"repeated failures"), PetPhraseTagWake: L(@"back after a long break"),
+            PetPhraseTagLateNight: L(@"working late at night"), PetPhraseTagLongSession: L(@"long session"),
+            PetPhraseTagQuotaLow: L(@"quota running low"),
+            PetPhraseTagClickHeart: L(@"happy after a few clicks"),
+            PetPhraseTagClickAnnoyed: L(@"annoyed after too many clicks"),
+            PetPhraseTagStateStarting: L(@"Starting"), PetPhraseTagStateIdle: L(@"Idle"),
+            PetPhraseTagStateThinking: L(@"Thinking"), PetPhraseTagStateTool: L(@"using a tool"),
+            PetPhraseTagStateToolBash: L(@"Running a command"), PetPhraseTagStateToolEdit: L(@"Editing files"),
+            PetPhraseTagStateToolRead: L(@"Looking things up"), PetPhraseTagStateToolDone: L(@"step done"),
+            PetPhraseTagStateToolFailed: L(@"Tool failed"), PetPhraseTagStateSubagent: L(@"Subagent working"),
+            PetPhraseTagStateApproval: L(@"Awaiting approval"), PetPhraseTagStateAutoReview: L(@"Auto-reviewing"),
+            PetPhraseTagStateCompleted: L(@"Task completed"), PetPhraseTagStateFailed: L(@"Task failed"),
+            PetPhraseTagStateNotification: L(@"Needs attention"),
         };
     });
     return map[tag] ?: tag;
@@ -241,8 +295,8 @@ static void FlushOrphans(void (^onDrop)(NSInteger line, NSString *reason),
     NSInteger *start, NSInteger *count) {
     if (*count == 0) return;
     if (onDrop) {
-        onDrop(*start, *count == 1 ? @"这一句不在任何 [情境] 下面，不会生效" :
-            [NSString stringWithFormat:@"这里有 %ld 句不在任何 [情境] 下面，都不会生效",
+        onDrop(*start, *count == 1 ? L(@"This line isn't under any [tag] and won't be used") :
+            [NSString stringWithFormat:L(@"%ld lines here aren't under any [tag] and won't be used"),
                 (long)*count]);
     }
     *count = 0;
@@ -277,7 +331,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ParsePhrasesText(NSStrin
                 current = nil;
                 insideUnknownSection = YES;
                 if (onDrop) onDrop(lineNumber,
-                    [NSString stringWithFormat:@"没有 [%@] 这个情境，下面的台词都不会生效", tag]);
+                    [NSString stringWithFormat:L(@"There's no [%@] tag; the lines below won't be used"), tag]);
                 continue;
             }
             insideUnknownSection = NO;
@@ -293,10 +347,11 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ParsePhrasesText(NSStrin
             }
             continue;
         }
-        if (line.length > PetPhraseMaxLength) {
+        NSUInteger maxLength = PetPhraseMaxLengthForText(line);
+        if (line.length > maxLength) {
             if (onDrop) onDrop(lineNumber, [NSString stringWithFormat:
-                @"这句 %lu 个字，超过 %lu 字上限", (unsigned long)line.length,
-                (unsigned long)PetPhraseMaxLength]);
+                L(@"This line has %lu characters, over the %lu limit"), (unsigned long)line.length,
+                (unsigned long)maxLength]);
             continue;
         }
         [groups[current] addObject:line];
@@ -413,7 +468,7 @@ static NSArray<NSString *> *CandidatesForTag(NSString *tag) {
         // 解析时已逐行校验过，这里再挡一道，防止将来换了来源出岔子。
         if (![entry isKindOfClass:NSString.class]) continue;
         NSString *text = entry;
-        if (text.length == 0 || text.length > PetPhraseMaxLength) continue;
+        if (text.length == 0 || text.length > PetPhraseMaxLengthForText(text)) continue;
         [result addObject:text];
     }
     return result;
@@ -634,7 +689,7 @@ static NSArray<PetPhraseIssue *> *ValidateText(NSString *text, BOOL forPet) {
             NSString *name = [line substringWithRange:[match rangeAtIndex:1]];
             if ([slots containsObject:name]) continue;
             [issues addObject:MakeIssue((NSInteger)index + 1, PetPhraseIssueLevelWarning,
-                [NSString stringWithFormat:@"{%@} 不是可用的数据名，这句永远不会出现", name])];
+                [NSString stringWithFormat:L(@"{%@} isn't a known placeholder; this line will never be said"), name])];
         }
     }
 
@@ -652,17 +707,17 @@ static NSArray<PetPhraseIssue *> *ValidateText(NSString *text, BOOL forPet) {
         NSArray *entries = groups[tag];
         if (entries == nil) {
             [issues addObject:MakeIssue(0, PetPhraseIssueLevelError, [NSString stringWithFormat:
-                @"少了 [%@]（%@）这一行，标签不能删——加回来即可，下面不写台词也行",
+                L(@"The [%1$@] (%2$@) line is missing. Tags can't be deleted; add it back (it can stay empty)"),
                 tag, PetPhraseTagDescription(tag)])];
             continue;
         }
         if (entries.count > 0) continue;
         if ([stateTags containsObject:tag]) {
             [issues addObject:MakeIssue(0, PetPhraseIssueLevelError, [NSString stringWithFormat:
-                @"[%@]（%@）至少要留一句", tag, PetPhraseTagDescription(tag)])];
+                L(@"[%1$@] (%2$@) needs at least one line"), tag, PetPhraseTagDescription(tag)])];
         } else {
             [issues addObject:MakeIssue(0, PetPhraseIssueLevelWarning, [NSString stringWithFormat:
-                @"[%@]（%@）是空的，这个情境桌宠不会主动开口", tag, PetPhraseTagDescription(tag)])];
+                L(@"[%1$@] (%2$@) is empty; the pet will stay quiet here"), tag, PetPhraseTagDescription(tag)])];
         }
     }
 

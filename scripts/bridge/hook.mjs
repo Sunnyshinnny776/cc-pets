@@ -18,6 +18,7 @@ import {
   abandonInbox, claimInbox, hasIdleSubscriptions, isBridgeEnabled, pruneReceipts, readSession, removeSession,
   safeSessionId, updateReceipt, upsertSession
 } from "./store.mjs";
+import { t } from "../i18n.mjs";
 
 const cliPath = fileURLToPath(new URL("./cli.mjs", import.meta.url));
 
@@ -61,19 +62,19 @@ const checkReservations = (payload, sessionId) => {
     .filter((hit) => !isAcknowledged(hit.reservation, sessionId));
   if (pending.length === 0) return null;
   for (const hit of pending) acknowledgeReservation(hit.reservation.id, sessionId);
-  const lines = pending.map((hit) => `- ${hit.file}：${describeReservation(hit.reservation)}`);
+  const lines = pending.map((hit) => t("- {file}: {hit}", { file: hit.file, hit: describeReservation(hit.reservation) }));
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
       permissionDecisionReason: [
-        "[cc-bridge 文件预留] 这次编辑先暂停一次：以下文件已被本机另一个 Agent 会话预留。",
+        t("[cc-bridge file reservation] This edit is paused once: the files below are reserved by another Agent session on this machine."),
         ...lines,
-        "这不是权限拒绝，而是一次性提醒：如果这次修改是用户明确要求的，直接重试同一操作即可放行，" +
-          "之后不会再因这处预留拦你；否则请先用 send_message 与对方协调，或改做其他部分。",
+        t("This isn't a permission denial, just a one-time heads-up: if the user explicitly asked for this change, retry the same action and it will go through, ") +
+          t("and this reservation won't stop you again. Otherwise, coordinate with that session via send_message first, or work on something else."),
         // 实测 Codex 重试放行后只回复"已创建"，用户不知道自己改的是别人正在改的区域。
-        "如果重试放行，请在给用户的回复里说明：这些文件正被上面的会话预留（写明会话名和原因），" +
-          "以便用户判断是否需要与对方协调。"
+        t("If you retry, tell the user in your reply that these files are reserved by the session above (include its name and reason), ") +
+          t("so they can decide whether to coordinate.")
       ].join("\n")
     }
   };

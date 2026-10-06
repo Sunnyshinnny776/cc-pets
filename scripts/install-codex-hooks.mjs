@@ -5,10 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { detectCodexCLI } from "./detect-cli.mjs";
 import { CODEX_HOOK, LEGACY_CODEX_HOOK, isManagedHookCommand } from "./integration-markers.mjs";
+import { t } from "./i18n.mjs";
 
 const binary = process.argv[2];
 if (!binary) {
-  console.error("用法: install-codex-hooks.mjs /absolute/path/to/cc-pets");
+  console.error(t("Usage: install-codex-hooks.mjs /absolute/path/to/cc-pets"));
   process.exit(2);
 }
 
@@ -16,8 +17,8 @@ if (!binary) {
 // 这里非零退出会把后面的 Claude Hooks、更新器、shim 和 .zshrc 全部带停，
 // 用户会拿到一个装了一半的状态。
 if (!detectCodexCLI()) {
-  console.log("未检测到 Codex CLI，跳过 Codex Hooks 安装。");
-  console.log("之后安装了 Codex，执行 cc-pets install 即可补装。");
+  console.log(t("Codex CLI not detected; skipping Codex hooks."));
+  console.log(t("If you install Codex later, run cc-pets install to set it up."));
   process.exit(0);
 }
 
@@ -44,7 +45,7 @@ if (fs.existsSync(hooksPath)) {
   try {
     config = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
   } catch (error) {
-    console.error(`无法解析 ${hooksPath}: ${error.message}`);
+    console.error(t("Can't parse {hooksPath}: {message}", { hooksPath, message: error.message }));
     process.exit(1);
   }
 }
@@ -73,5 +74,5 @@ const temporaryPath = `${hooksPath}.cc-pets.tmp`;
 fs.writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 fs.renameSync(temporaryPath, hooksPath);
 fs.chmodSync(hooksPath, 0o600);
-console.log(`Codex Agent Hooks 已安装到 ${hooksPath}`);
-console.log("下次启动 Codex 后，请执行 /hooks 并信任 CC Pets Hooks。");
+console.log(t("Codex agent hooks installed in {hooksPath}", { hooksPath }));
+console.log(t("Next time you start Codex, run /hooks and trust the CC Pets hooks."));

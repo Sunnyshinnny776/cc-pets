@@ -1,4 +1,5 @@
 #import "CCPetsPreviews.h"
+#import "CCPetsL10n.h"
 #import "QuotaDashboardView.h"
 #import "MenuToggleSwitch.h"
 #import "CCPetsUsage.h"
@@ -123,12 +124,12 @@ int RenderAgentStatusCard(NSString *path) {
     glass.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.48].CGColor;
     [root addSubview:glass];
 
-    NSTextField *title = [NSTextField labelWithString:@"Codex · 任务已完成"];
+    NSTextField *title = [NSTextField labelWithString:L(@"Codex · Task completed")];
     title.frame = NSMakeRect(20, 30, glassSize.width - 80, 18);
     title.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
     title.textColor = [NSColor colorWithWhite:0.10 alpha:0.96];
     [glass addSubview:title];
-    NSTextField *detail = [NSTextField labelWithString:@"当前任务已经完成。"];
+    NSTextField *detail = [NSTextField labelWithString:L(@"The current task is done.")];
     detail.frame = NSMakeRect(20, 12, glassSize.width - 80, 17);
     detail.font = [NSFont systemFontOfSize:12 weight:NSFontWeightRegular];
     detail.textColor = [NSColor colorWithWhite:0.34 alpha:0.88];
@@ -143,7 +144,7 @@ int RenderAgentStatusCard(NSString *path) {
     NSColor *green = [NSColor colorWithRed:0.18 green:0.68 blue:0.35 alpha:1];
     icon.layer.backgroundColor = [green colorWithAlphaComponent:0.28].CGColor;
     NSImage *image = [NSImage imageWithSystemSymbolName:@"checkmark"
-        accessibilityDescription:@"任务已完成"];
+        accessibilityDescription:L(@"Task completed")];
     icon.image = [image imageWithSymbolConfiguration:
         [NSImageSymbolConfiguration configurationWithPointSize:15 weight:NSFontWeightBold]];
     icon.contentTintColor = [green blendedColorWithFraction:0.18
@@ -173,8 +174,8 @@ int RenderMenuSwitches(NSString *path) {
     view.wantsLayer = YES;
     view.layer.backgroundColor = [NSColor colorWithWhite:0.86 alpha:1].CGColor;
     NSArray<NSDictionary *> *rows = @[
-        @{@"title": @"任务完成", @"state": @YES, @"y": @40},
-        @{@"title": @"任务失败", @"state": @NO, @"y": @10}
+        @{@"title": L(@"Task done"), @"state": @YES, @"y": @40},
+        @{@"title": L(@"Task failed"), @"state": @NO, @"y": @10}
     ];
     for (NSDictionary *row in rows) {
         CGFloat y = [row[@"y"] doubleValue];
@@ -213,7 +214,7 @@ int RenderPetSheet(NSString *path, NSString *sheetPath, NSInteger rowCount) {
     if (rowCount <= 0) rowCount = 9;
     NSImage *sheet = LoadPetSpriteImage(sheetPath, NSMakeSize(140, 150), rowCount);
     if (!sheet) {
-        fprintf(stderr, "无法装载素材: %s\n", sheetPath.UTF8String);
+        fprintf(stderr, "%s\n", [NSString stringWithFormat:L(@"Can't load the sprite: %@"), sheetPath].UTF8String);
         return EXIT_FAILURE;
     }
 

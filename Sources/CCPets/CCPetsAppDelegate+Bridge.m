@@ -9,8 +9,8 @@
     successMessage:(NSString *)successMessage {
     NSDictionary<NSString *, NSString *> *locator = CCBridgeCLILocator();
     if (!locator) {
-        [self showAlertWithTitle:@"无法修改 CC Bridge 设置"
-            message:@"没有找到 cc-pets 的命令行程序。请在终端执行一次 cc-pets install 后重试。"];
+        [self showAlertWithTitle:L(@"Can't Change CC Bridge Settings")
+            message:L(@"The cc-pets command-line tool wasn't found. Run cc-pets install in a terminal, then try again.")];
         [self syncBridgeSwitch:sender];
         return;
     }
@@ -49,15 +49,15 @@
             }
             [strongSelf syncBridgeSwitch:sender];
             NSString *detail = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-            [strongSelf showAlertWithTitle:@"CC Bridge 设置失败"
-                message:detail.length > 0 ? detail : @"命令执行失败。"];
+            [strongSelf showAlertWithTitle:L(@"CC Bridge Setup Failed")
+                message:detail.length > 0 ? detail : L(@"The command failed.")];
         });
     };
     NSError *error = nil;
     if (![task launchAndReturnError:&error]) {
         self.bridgeCommandRunning = NO;
         [self syncBridgeSwitch:sender];
-        [self showAlertWithTitle:@"CC Bridge 设置失败" message:error.localizedDescription];
+        [self showAlertWithTitle:L(@"CC Bridge Setup Failed") message:error.localizedDescription];
     }
 }
 // 与其他菜单开关一致：目标状态按"实际存储的状态取反"算，不信任开关视图自己翻转后的 state——
@@ -92,8 +92,8 @@
     BOOL enable = [self targetBridgeStateForSwitch:sender];
     [self runBridgeCommand:@[enable ? @"enable" : @"disable"] sender:sender
         successMessage:enable
-            ? @"已开启。已在运行的 Codex 会话需重启并在 /hooks 中信任；Claude 会话重启后才有 cc-bridge 工具。"
-            : @"已关闭，相关 hooks 与 MCP 注册已移除。"];
+            ? L(@"Enabled. Running Codex sessions need a restart and must be trusted in /hooks; Claude sessions get the cc-bridge tools after a restart.")
+            : L(@"Disabled. The related hooks and MCP registrations were removed.")];
 }
 // 一个分组同时作用于 Codex 免审批与 Claude 免确认：菜单上只有一组开关，两边保持一致。
 - (void)toggleBridgeApproval:(NSButton *)sender {
@@ -141,8 +141,8 @@
             [defaults setBool:granted forKey:BridgeNotificationKey];
             sender.state = granted ? NSControlStateValueOn : NSControlStateValueOff;
             if (!granted) {
-                [self showAlertWithTitle:@"无法启用系统通知" message:error.localizedDescription ?:
-                    @"请在“系统设置 → 通知 → CC Pets”中允许通知后重试。"];
+                [self showAlertWithTitle:L(@"Can't Enable Notifications") message:error.localizedDescription ?:
+                    L(@"Allow notifications in System Settings → Notifications → CC Pets, then try again.")];
             }
         });
     }];
@@ -196,9 +196,9 @@
     NSDictionary *latest = fresh.firstObject;
     NSString *body = fresh.count == 1
         ? [NSString stringWithFormat:@"%@ → %@", latest[@"from"], latest[@"to"]]
-        : [NSString stringWithFormat:@"%@ → %@ 等 %lu 条", latest[@"from"], latest[@"to"],
+        : [NSString stringWithFormat:L(@"%1$@ → %2$@ and %3$lu more"), latest[@"from"], latest[@"to"],
             (unsigned long)fresh.count];
-    [self sendNotificationWithTitle:@"CC Bridge 新消息" body:body];
+    [self sendNotificationWithTitle:L(@"New CC Bridge Message") body:body];
 }
 // 蓝色 = 有新的跨会话消息送达；橙色 = 有消息卡在某个会话的信箱里（那个 Claude 会话长时间空闲、
 // 唤醒 watcher 已退出，要等用户在那个终端开口才会送进去），需要用户过去看一眼。
@@ -269,11 +269,13 @@
 }
 - (void)addBridgeItemsToMenu:(NSMenu *)menu deliveries:(NSArray<NSDictionary *> *)deliveries
     pending:(NSDictionary<NSString *, NSNumber *> *)pending {
-    NSMenuItem *heading = [menu addItemWithTitle:@"CC Bridge 消息" action:nil keyEquivalent:@""];
+    NSMenuItem *heading = [menu addItemWithTitle:L(@"CC Bridge Messages") action:nil keyEquivalent:@""];
     heading.enabled = NO;
     [pending enumerateKeysAndObjectsUsingBlock:^(NSString *session, NSNumber *count, BOOL *stop) {
         NSString *name = self.bridgeSessions[session][@"name"] ?: session;
-        NSString *title = [NSString stringWithFormat:@"📬 %@ 有 %lu 条消息待投递（去那个终端说句话即可送达）",
+        NSString *title = [NSString stringWithFormat:count.unsignedLongValue != 1
+            ? L(@"📬 %1$@ has %2$lu undelivered messages (say anything in that terminal to deliver)")
+            : L(@"📬 %1$@ has %2$lu undelivered message (say anything in that terminal to deliver)"),
             name, count.unsignedLongValue];
         NSMenuItem *item = [menu addItemWithTitle:title action:@selector(focusBridgeSession:) keyEquivalent:@""];
         item.target = self;
@@ -291,7 +293,7 @@
         NSMenuItem *item = [menu addItemWithTitle:title action:@selector(focusBridgeSession:) keyEquivalent:@""];
         item.target = self;
         item.representedObject = delivery[@"toSession"];
-        item.toolTip = [NSString stringWithFormat:@"跳到 %@ 所在的终端", delivery[@"to"]];
+        item.toolTip = [NSString stringWithFormat:L(@"Jump to %@'s terminal"), delivery[@"to"]];
     }
 }
 @end

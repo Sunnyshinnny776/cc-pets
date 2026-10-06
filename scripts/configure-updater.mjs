@@ -3,12 +3,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { t } from "./i18n.mjs";
 
 const nodeCandidate = process.env.npm_node_execpath || process.execPath;
 const npmCandidate = process.env.npm_execpath;
 
 if (!nodeCandidate || !npmCandidate) {
-  console.warn("未记录自动更新配置：npm 没有提供 node/npm-cli 路径。");
+  console.warn(t("Auto-update config not saved: npm didn't provide the node/npm-cli paths."));
   process.exit(0);
 }
 
@@ -18,12 +19,12 @@ try {
   nodePath = fs.realpathSync(nodeCandidate);
   npmCliPath = fs.realpathSync(npmCandidate);
 } catch {
-  console.warn("未记录自动更新配置：node/npm-cli 路径不存在。");
+  console.warn(t("Auto-update config not saved: the node/npm-cli paths don't exist."));
   process.exit(0);
 }
 
 if (!path.isAbsolute(nodePath) || !path.isAbsolute(npmCliPath)) {
-  console.warn("未记录自动更新配置：node/npm-cli 路径不是绝对路径。");
+  console.warn(t("Auto-update config not saved: the node/npm-cli paths aren't absolute."));
   process.exit(0);
 }
 
