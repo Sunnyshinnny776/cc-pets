@@ -35,7 +35,7 @@
     "Resources/Info.plist",
     "Resources/AppIcon.icns",
     "Resources/phrases.default.*.txt",
-    "Resources/*.lproj",
+    "Resources/*.lproj/*",
     "Sources/CCPets",
     "README.md",
     "README.zh-CN.md",
