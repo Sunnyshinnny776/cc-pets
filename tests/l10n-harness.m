@@ -101,7 +101,7 @@ int main(int argc, const char *argv[]) {
             ok &= Check([ReleaseNoteHighlightsForLanguage(bilingual, @"zh-Hans", 3, 40, &truncated)
                 isEqualToArray:@[@"中文一"]], @"中文界面只取简体中文段");
             ok &= Check([ReleaseNoteHighlightsForLanguage(@"- only item\n", @"en", 3, 40, &truncated)
-                isEqualToArray:@[@"only item"]], @"没有分段时取全文");
+                isEqualToArray:@[]], @"没有 English 段落时不读取全文");
         }
 
         if (!ok) return 1;

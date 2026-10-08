@@ -77,7 +77,7 @@
 "What's New\n" = "更新内容\n";
 "More changes in the full GitHub release notes" = "还有更多更新，完整说明见 GitHub Release";
 "CC Pets %@ Is Available" = "发现新版本 %@";
-"You have %@" = "当前版本 %@";
+"Current version %@" = "当前版本 %@";
 "Update Now" = "立即更新";
 "Later" = "稍后";
 "Release Notes" = "完整说明";
@@ -276,9 +276,9 @@
 "Steady" = "平稳";
 "Quota is holding steady" = "当前额度余量平稳";
 "Watch" = "需关注";
-"Keep an eye on your quota" = "建议关注额度余量";
+"Watch usage" = "关注用量";
 "At risk" = "高风险";
-"Quota is running low" = "当前额度余量较低";
+"Quota low" = "额度偏低";
 "Runs out early" = "预计重置前额度用尽";
 "Ease off a bit" = "建议减少高消耗任务";
 "Plenty to spare" = "按当前节奏额度充足";
@@ -300,9 +300,9 @@
 "Today %@" = "今日 %@";
 "Today --" = "今日 --";
 "%lu / %lu days recorded" = "本月已记录 %lu / %lu 天";
-"Official 5h window" = "官方 5 小时窗口";
+"5h window" = "官方 5 小时窗口";
 "Waiting for refresh" = "官方额度待刷新";
-"Official 7d window" = "官方 7 天窗口";
+"7d window" = "官方 7 天窗口";
 "Snapshot" = "快照";
 "Left" = "剩余";
 "Resets %@" = "重置时间 %@";

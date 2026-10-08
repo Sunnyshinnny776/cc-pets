@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.1.1：Liquid Glass 主题与多终端回跳">
+  <img src="docs/images/cover.png" alt="CC Pets v2.2.0：Liquid Glass 主题与多终端回跳">
 </p>
 
 # CC Pets
@@ -9,32 +9,29 @@
 一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
 并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
 
-## v2.1.2 新功能
+## v2.2.0 新功能
 
-- **桌宠提示新版本**：启动后不久自动到 npm 检查新版本。有新版本时，桌宠弹出可点击的气泡，附上
-  GitHub Release 中最多三条要点；Agent 忙碌时气泡会等待。桌宠上的玻璃「↑」角标和右键菜单顶层的
-  「更新到 x.y.z…」都能直接打开更新对话框。「检查更新…」与「关于 CC Pets」收进新的「帮助」子菜单。
-- **`cc-pets doctor`**：只读检查版本、Claude Code 与 Codex Hooks、status line、shim 与 `PATH`、
-  自动更新和 CC Bridge，每个问题都附修复命令；home 目录显示为 `~`，输出可直接贴进 issue。
-- **`cc-pets paths`**：列出偏好、桌宠素材、台词、缓存与运行时状态的位置和大小，并注明 `clean`
-  与 `uninstall --purge` 各自删除哪些（`--json` 输出机器可读格式）。
-- **修复**：`cc-pets clean` 会一并清理素材清单缓存；当前 Codex 不支持 `codex queue` 时，CC Bridge
-  会明确提示，发给 Codex 的消息先进信箱。
+- **首个英文版**：菜单、额度面板、状态卡、更新弹窗和 CLI 输出支持英语与简体中文。
+  右键「语言」可选择「English」「简体中文」或「跟随系统」。
+- **英文面板优化**：汇总标题加粗、标签与数字间距调整、窗口标题和风险提示精简，
+  底部说明清楚区分官方剩余额度与本机 Token 用量。
+- **按语言读取更新要点**：更新弹窗只读取 GitHub Release 中对应的 `English` 或
+  `简体中文` 段落；缺少对应段落时不展示要点，不会使用其他语言替代。
 
 完整改动见 [更新记录](./CHANGELOG.zh-CN.md)。
 
 ## 界面预览
 
-<p align="center">
-  <img src="docs/images/liquid-glass-panel.png" width="80%" alt="Liquid Glass 主题下的额度面板、说话气泡与桌宠">
-</p>
+简体中文：额度面板与右键菜单。
 
 <p align="center">
-  <img src="docs/images/liquid-glass-menu.png" width="80%" alt="右键菜单中的面板主题子菜单">
+  <img src="docs/images/liquid-glass-panel.png" width="45%" alt="Liquid Glass 主题下的中文额度面板">
+  <img src="docs/images/liquid-glass-menu.png" width="45%" alt="中文右键菜单与面板主题子菜单">
 </p>
 
 ## 功能
 
+- App 与 CLI 支持英语和简体中文，界面语言可即时切换
 - macOS 26 及以上可在经典与原生 Liquid Glass 两种面板主题之间切换
 - 随 Codex CLI 或 Claude Code CLI 自动启动，无需打开对应桌面版
 - 多个 Codex/Claude CLI 共用一个桌宠，最后一个 CLI 退出后桌宠自动关闭

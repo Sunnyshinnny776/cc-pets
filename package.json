@@ -1,6 +1,6 @@
 {
   "name": "cc-pets",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "A native macOS desktop pet for Codex CLI and Claude Code",
   "author": {
     "name": "Sunnyshiny",

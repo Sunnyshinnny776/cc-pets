@@ -378,7 +378,7 @@ static void TrimUpdateLog(NSString *path) {
     [NSApp activateIgnoringOtherApps:YES];
     NSAlert *alert = [NSAlert new];
     alert.messageText = [NSString stringWithFormat:L(@"CC Pets %@ Is Available"), version];
-    alert.informativeText = [NSString stringWithFormat:L(@"You have %@"), @CC_PETS_VERSION];
+    alert.informativeText = [NSString stringWithFormat:L(@"Current version %@"), @CC_PETS_VERSION];
     alert.accessoryView = [self updateHighlightsAccessoryView];
     [alert addButtonWithTitle:L(@"Update Now")];
     [alert addButtonWithTitle:L(@"Later")];

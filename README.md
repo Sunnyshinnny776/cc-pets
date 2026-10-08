@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.1.1: Liquid Glass theme and multi-terminal jump-back">
+  <img src="docs/images/cover.png" alt="CC Pets v2.2.0: Liquid Glass theme and multi-terminal jump-back">
 </p>
 
 # CC Pets
@@ -12,40 +12,32 @@ or Claude Code CLI starts. It reads five-hour and weekly quota data from the off
 Codex App Server interface and Claude Code's official status line input.
 
 > The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
-> The screenshots below still show the Simplified Chinese UI.
 
-## What's new in v2.1.2
+## What's new in v2.2.0
 
-- **Update prompts from the pet** — CC Pets checks npm for a newer version shortly after
-  launch. When one is available, the pet shows a clickable speech bubble with up to three
-  highlights from the GitHub Release, and the bubble waits while an agent is busy. A glass
-  "↑" badge on the pet and an **Update to x.y.z…** item at the top of the right-click menu
-  open the update dialog. **Check for Updates…** and **About CC Pets** now live under a new
-  **Help** submenu.
-- **`cc-pets doctor`** — read-only checks of versions, Claude Code and Codex hooks, the
-  status line, shims and `PATH`, the updater and CC Bridge, with a fix for each problem.
-  The output shows your home directory as `~`, so you can paste it into an issue.
-- **`cc-pets paths`** — lists where settings, pet assets, phrases, caches and runtime
-  state live, how large each is, and what `clean` and `uninstall --purge` remove
-  (`--json` for machine-readable output).
-- **Fixes** — `cc-pets clean` also clears the pet store manifest cache, and CC Bridge now
-  tells you when the installed Codex lacks `codex queue`, in which case messages to Codex
-  wait in its inbox.
+- **First English release** — menus, quota panels, status cards, update dialogs, and CLI
+  output now support English and Simplified Chinese. Choose **Language → English**,
+  **简体中文**, or **System Default** in the right-click menu.
+- **English panel polish** — stronger summary headings, clearer spacing, shorter window
+  titles and risk messages, and a compact explanation of quota and token totals.
+- **Language-specific release highlights** — update dialogs read only the matching
+  `English` or `简体中文` section of GitHub Release notes. A missing section leaves the
+  highlights empty; content from another language is not substituted.
 
 See the [changelog](./CHANGELOG.md) for the full list.
 
 ## Screenshots
 
-<p align="center">
-  <img src="docs/images/liquid-glass-panel.png" width="80%" alt="Quota panel, speech bubble and pet in the Liquid Glass theme, current Simplified Chinese UI">
-</p>
+English — v2.2.0 quota panel and Language menu:
 
 <p align="center">
-  <img src="docs/images/liquid-glass-menu.png" width="80%" alt="Right-click menu with the Panel theme submenu, current Simplified Chinese UI">
+  <img src="docs/images/liquid-glass-panel.en.png" width="45%" alt="English Agent Usage panel in v2.2.0 with quota, tokens, trends, and system status">
+  <img src="docs/images/liquid-glass-menu.en.png" width="45%" alt="English right-click menu with English selected in the Language submenu">
 </p>
 
 ## Features
 
+- Supports English and Simplified Chinese in the app and CLI, with live UI language switching.
 - Offers Classic and native Liquid Glass panel themes on macOS 26 and later.
 - Starts with Codex CLI or Claude Code CLI and closes after the last managed CLI exits.
 - Shares one pet across multiple simultaneous Codex and Claude sessions.

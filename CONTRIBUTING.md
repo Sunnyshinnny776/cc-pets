@@ -13,6 +13,17 @@ Thank you for contributing to CC Pets. Before submitting a change:
 For a substantial feature, open a GitHub Issue before sending a Pull Request so the
 scope can be agreed on first.
 
+## Branch and release policy
+
+Develop, test, and prepare preview releases on `publish`. Preview releases must be
+marked as GitHub prereleases and use a prerelease version such as `2.2.0-rc.1`.
+Install preview builds explicitly; the automatic updater accepts stable versions only.
+`main` is reserved for stable releases, including the stable GitHub Release and tag.
+Complete implementation, documentation, screenshots, and validation on `publish`
+before submitting to `main`; repeat integration checks there before a stable release.
+The current release candidate is **v2.2.0**, the first English-language release.
+See [release status](docs/release-status.md) for validation and handoff details.
+
 ## Localization
 
 UI text is written in English in the source, and that text is the key into every
@@ -46,6 +57,15 @@ Adding a language only adds files; no code changes are needed. For a language `x
 `node scripts/check-l10n.mjs --missing xx` lists the keys still to translate. The app
 discovers languages from the `.lproj` directories, `build.sh` writes
 `CFBundleLocalizations` from them, and `package.json` already includes them by pattern.
+
+### GitHub Release notes
+
+Every GitHub Release body must keep each language in its own section. Use the exact
+headings `## English` and `## 简体中文`, followed by that language's top-level bullet
+highlights. The updater reads only the section whose heading exactly matches the
+current UI language; it never falls back to the full body or another language. If the
+matching section is missing, the update dialog shows no highlights and does not guess
+from other text. Keep the English and Simplified Chinese bullets semantically aligned.
 
 ## Asset requirements
 

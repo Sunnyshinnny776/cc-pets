@@ -13,8 +13,9 @@ int RestartAfterPID(pid_t pid, NSString *appPath, BOOL managed);
 BOOL UpdateFailureIsTransient(NSString *log);
 
 // 从 GitHub Release 描述里摘出更新要点，给更新弹窗用。Release 是多语言的：
-// 有当前语言的标题段（英文是「English」，其他语言见各自表里的 "Release Notes Section"）
-// 就只看那一段，没有对应段落时看全文。只取列表项，去掉 Markdown 标记，代码块整段跳过。
+// 只读取标题完全匹配当前语言的段落（英文是「English」，其他语言见各自表里的
+// "Release Notes Section"）；没有对应段落时返回空数组，绝不读取全文。只取列表项，
+// 去掉 Markdown 标记，代码块整段跳过。
 // 每条超过 maxLength 个字符截断加「…」；超过 limit 条时只返回前 limit 条并把 *truncated 置 YES。
 // 没有列表项返回空数组——没写说明就不展示，不去猜正文。
 // language 是 CCPetsSupportedLanguages() 里的某一种（见 CCPetsL10n.h）。

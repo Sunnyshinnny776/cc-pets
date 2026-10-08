@@ -78,7 +78,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 }
 - (NSRect)logicalSummaryRect {
     return NSMakeRect(20, [self logicalHeight] - QuotaHeaderHeight - QuotaSummaryHeight,
-        QuotaLogicalWidth - 40, QuotaSummaryHeight);
+        QuotaLogicalWidth - 40, QuotaSummaryHeight + 1 / QuotaScale);
 }
 // 刷新时间挪去了右上角，这一版块整宽留给两个统计格，各占一半。
 - (NSRect)logicalSummaryCellRectAtIndex:(NSUInteger)index {
@@ -320,18 +320,20 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     style.lineBreakMode = NSLineBreakByTruncatingTail;
     attributes[NSParagraphStyleAttributeName] = style;
     NSFont *font = attributes[NSFontAttributeName];
-    CGFloat diameter = 9;
-    // drawInRect: 从矩形顶部开始排版，圆点对齐到首行小写字母的中线。
-    CGFloat baselineMid = NSMaxY(rect) - font.ascender + font.xHeight / 2.0;
-    [NSGraphicsContext saveGraphicsState];
-    [[NSShadow new] set];
-    [dotColor setFill];
-    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMinX(rect), baselineMid - diameter / 2.0,
-        diameter, diameter)] fill];
-    [NSGraphicsContext restoreGraphicsState];
     NSRect textRect = rect;
-    textRect.origin.x += diameter + 6;
-    textRect.size.width -= diameter + 6;
+    if (dotColor) {
+        CGFloat diameter = 9;
+        // drawInRect: 从矩形顶部开始排版，圆点对齐到首行小写字母的中线。
+        CGFloat baselineMid = NSMaxY(rect) - font.ascender + font.xHeight / 2.0;
+        [NSGraphicsContext saveGraphicsState];
+        [[NSShadow new] set];
+        [dotColor setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMinX(rect), baselineMid - diameter / 2.0,
+            diameter, diameter)] fill];
+        [NSGraphicsContext restoreGraphicsState];
+        textRect.origin.x += diameter + 6;
+        textRect.size.width -= diameter + 6;
+    }
     [text drawInRect:textRect withAttributes:[self attributes:attributes fittingText:text
         inWidth:NSWidth(textRect)]];
 }
@@ -351,9 +353,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     }
     return fitted;
 }
-// 风险提示：原生玻璃下是圆点 + 白字；经典主题照旧画彩色字。
+// 风险提示只保留文字，和 Max / Now 使用同一条左边界。
 - (void)drawTip:(NSString *)text inRect:(NSRect)rect color:(NSColor *)color {
-    [self drawText:text inRect:rect size:11 weight:NSFontWeightMedium color:color dotColor:color];
+    if (text.length == 0) return;
+    [self drawText:text inRect:rect size:11 weight:NSFontWeightMedium color:color dotColor:nil];
 }
 - (void)fillLiquidScrim:(NSBezierPath *)path {
     [NSGraphicsContext saveGraphicsState];
@@ -541,10 +544,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 四个档位从轻到重排成阶梯，后面的仲裁只在这上面挪档位，不再各写一套 label/tip/color。
     double remaining = 100.0 - currentUsed.doubleValue;
     NSArray<NSArray *> *ladder = @[
-        @[L(@"Plenty"), L(@"Plenty of quota left"), NSColor.systemGreenColor],
-        @[L(@"Steady"), L(@"Quota is holding steady"), providerColor],
-        @[L(@"Watch"), L(@"Keep an eye on your quota"), NSColor.systemOrangeColor],
-        @[L(@"At risk"), L(@"Quota is running low"), NSColor.systemRedColor]
+        @[L(@"Plenty"), CCPetsLanguageIsSource() ? @"" : L(@"Plenty of quota left"), NSColor.systemGreenColor],
+        @[L(@"Steady"), CCPetsLanguageIsSource() ? @"" : L(@"Quota is holding steady"), providerColor],
+        @[L(@"Watch"), L(@"Watch usage"), NSColor.systemOrangeColor],
+        @[L(@"At risk"), L(@"Quota low"), NSColor.systemRedColor]
     ];
     NSUInteger baseRank = remaining >= 70 ? 0
         : (remaining >= 40 ? 1 : (remaining >= 15 ? 2 : 3));
@@ -777,10 +780,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 层级：官方剩余额度是订阅限额的权威值，占主位；本机 Token 是参考量，降一级并用
     // 强调色区分；重置时间最小。反过来会让最抢眼的数字恰好是最不该照着做决定的那个。
     NSArray<NSDictionary *> *windows = @[
-        @{@"x": @(NSMinX(card) + 214), @"title": L(@"Official 5h window"), @"quota": five ?: @{},
+        @{@"x": @(NSMinX(card) + 214), @"title": L(@"5h window"), @"quota": five ?: @{},
           @"tokens": fiveTokens ?: @{}, @"used": fiveUsed ?: NSNull.null,
           @"rolling": L(@"Waiting for refresh")},
-        @{@"x": @(NSMinX(card) + 394), @"title": L(@"Official 7d window"), @"quota": week ?: @{},
+        @{@"x": @(NSMinX(card) + 394), @"title": L(@"7d window"), @"quota": week ?: @{},
           @"tokens": weekTokens ?: @{}, @"used": weekUsed ?: NSNull.null,
           @"rolling": L(@"Waiting for refresh")}
     ];
@@ -871,13 +874,14 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         ? [NSString stringWithFormat:L(@"Max %.0f%%"), peak] : L(@"Max --");
     NSString *currentText = currentUsed
         ? [NSString stringWithFormat:L(@"Now %.0f%%"), currentUsed.doubleValue] : L(@"Now --");
-    [peakText drawInRect:NSMakeRect(trendX, NSMinY(card) + 42, 72, 16)
+    [peakText drawInRect:NSMakeRect(trendX, NSMinY(card) + 42 - 2 / QuotaScale, 72, 16)
         withAttributes:[self textAttributesWithSize:10 color:secondary weight:NSFontWeightRegular]];
-    [currentText drawInRect:NSMakeRect(trendX + 66, NSMinY(card) + 42, 69, 16)
+    [currentText drawInRect:NSMakeRect(trendX + 66, NSMinY(card) + 42 - 2 / QuotaScale, 69, 16)
         withAttributes:[self rightAlignedTextAttributesWithSize:10 color:secondary
             weight:NSFontWeightRegular]];
     // 与左边两列的"已用 Token"同一条基线（+22），也和 API 卡的脚注行对齐。
-    [self drawTip:paceTip inRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18) color:tipColor];
+    [self drawTip:paceTip inRect:NSMakeRect(trendX, NSMinY(card) + 22 - 2 / QuotaScale,
+        145, 18) color:tipColor];
 }
 - (void)drawRect:(NSRect)dirtyRect {
     [NSGraphicsContext saveGraphicsState];
@@ -947,15 +951,19 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSColor *agentColor = self.agentStatusColor;
     [@"Agent Usage" drawInRect:NSMakeRect(28, height - 65, 260, 42)
         withAttributes:[self textAttributesWithSize:30 color:primary weight:NSFontWeightBold]];
-    [L(@"Live status") drawInRect:NSMakeRect(30, height - 94, self.usesLiquidGlass ? 142 : 130, 22)
-        withAttributes:[self textAttributesWithSize:14 color:secondary weight:NSFontWeightRegular]];
+    NSDictionary *liveStatusAttributes = [self textAttributesWithSize:14 color:secondary
+        weight:NSFontWeightRegular];
+    NSString *liveStatusText = L(@"Live status");
+    [liveStatusText drawInRect:NSMakeRect(30, height - 94, self.usesLiquidGlass ? 142 : 130, 22)
+        withAttributes:liveStatusAttributes];
+    CGFloat agentIndicatorX = 30 + [liveStatusText sizeWithAttributes:liveStatusAttributes].width + 12;
     [agentColor setFill];
-    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(174, height - 88, 9, 9)] fill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(agentIndicatorX, height - 88, 9, 9)] fill];
     NSString *agentText = self.activeAgentCount > 0
         ? [NSString stringWithFormat:self.activeAgentCount != 1 ? L(@"%ld Agents online")
             : L(@"%ld Agent online"), (long)self.activeAgentCount]
         : L(@"No Agents online");
-    [agentText drawInRect:NSMakeRect(190, height - 95, 160, 22)
+    [agentText drawInRect:NSMakeRect(agentIndicatorX + 16, height - 95, 160, 22)
         withAttributes:[self textAttributesWithSize:14 color:agentColor weight:NSFontWeightMedium]];
     [self drawSystemMetricsEndingAtX:QuotaLogicalWidth - 28 y:height - 95];
 
@@ -1011,7 +1019,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         ? L(@"ⓘ  The pet and system status still work; quota cards only show for detected CLIs")
         : (hasAPICard
             ? L(@"ⓘ  API usage = local session stats (input includes cache reads/writes); compared with the same point last month")
-            : (self.usesLiquidGlass
+            : (self.usesLiquidGlass || CCPetsLanguageIsSource()
                 ? L(@"ⓘ  % = official quota left; tokens = local usage (incl. cache reads/writes)")
                 : L(@"ⓘ  % = share of official plan quota left; tokens = locally counted usage (input incl. cache reads/writes). They measure different things")));
     // 最后一块的底边距面板底 QuotaFooterHeight：脚注与其留约 8pt，底部留白 16pt，
@@ -1080,6 +1088,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         NSFont *headerFont = [self fontWithSize:11 weight:NSFontWeightRegular];
         NSDictionary *headerAttributes = @{NSFontAttributeName: headerFont,
             NSForegroundColorAttributeName: [self textColor:secondary]};
+        NSDictionary *titleAttributes = @{NSFontAttributeName:
+            [self fontWithSize:11 weight:NSFontWeightBold],
+            NSForegroundColorAttributeName: [self textColor:secondary]};
         NSImage *headerIcon = [NSImage imageWithSystemSymbolName:cell[@"headerSymbol"]
             accessibilityDescription:cell[@"label"]];
         NSImageSymbolConfiguration *headerIconConfiguration =
@@ -1099,7 +1110,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         [header appendAttributedString:[[NSAttributedString alloc]
             initWithString:@"  " attributes:headerAttributes]];
         [header appendAttributedString:[[NSAttributedString alloc]
-            initWithString:cell[@"label"] attributes:headerAttributes]];
+            initWithString:cell[@"label"] attributes:titleAttributes]];
         [header drawInRect:NSMakeRect(x + 24, NSMinY(summary) + 89,
             NSWidth([self logicalSummaryCellRectAtIndex:index]) - 48, 18)];
         for (NSDictionary *row in rows) {
@@ -1108,6 +1119,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             CGFloat iconY = NSMinY(summary) + [row[@"iconY"] doubleValue];
             CGFloat nameY = NSMinY(summary) + [row[@"nameY"] doubleValue];
             CGFloat labelY = NSMinY(summary) + [row[@"labelY"] doubleValue];
+            if (CCPetsLanguageIsSource()) labelY += 2 / QuotaScale;
             CGFloat valueY = NSMinY(summary) + [row[@"valueY"] doubleValue];
             // 这是图标字形不是文字，原生玻璃下也保留颜色：它负责标出这一行是哪一家。
             [cell[@"icon"] drawInRect:NSMakeRect(x + 20, iconY, 42, 42)

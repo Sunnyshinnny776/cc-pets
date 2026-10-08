@@ -109,10 +109,11 @@ NSArray<NSString *> *ReleaseNoteHighlightsForLanguage(NSString *body, NSString *
     NSArray<NSString *> *lines = [[body stringByReplacingOccurrencesOfString:@"\r" withString:@""]
         componentsSeparatedByString:@"\n"];
 
-    // 有当前语言的段落就只取这一段：从它的标题开始，到下一个同级或更高级标题为止。
+    // 只取标题完全匹配当前语言的段落：从标题开始，到下一个同级或更高级标题为止。
     // 段落标题来自各语言表里的 "Release Notes Section"，见 CCPetsL10n.h。
     NSArray<NSString *> *sectionTitles = CCPetsReleaseNotesSectionTitles(language);
     NSRange section = NSMakeRange(0, lines.count);
+    BOOL sectionFound = NO;
     for (NSUInteger index = 0; index < lines.count; index++) {
         NSString *line = [lines[index] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
         if (![line hasPrefix:@"#"]) continue;
@@ -130,8 +131,11 @@ NSArray<NSString *> *ReleaseNoteHighlightsForLanguage(NSString *body, NSString *
             if (nextLevel <= level) { end = next; break; }
         }
         section = NSMakeRange(index + 1, end - index - 1);
+        sectionFound = YES;
         break;
     }
+    // Release 必须明确写出当前语言段落；缺失时不读取全文，避免把其他语言展示给用户。
+    if (!sectionFound) return @[];
 
     static NSRegularExpression *bullet;
     static dispatch_once_t once;
