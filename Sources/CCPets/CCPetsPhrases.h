@@ -80,7 +80,7 @@ void PetPhrasesSetCurrentPetID(NSString *petID);
 NSString *PetPhrasesCurrentPetID(void);
 // 当前宠物的专属词库路径。还没设过宠物时返回 nil。
 NSString *PetPhrasesCurrentPetFilePath(void);
-// 默认词库路径：app bundle 里的 phrases.default.txt。
+// 默认词库路径：app bundle 里当前语言的 phrases.default.<语言>.txt，没有就用英文那份。
 // 可用 CC_PETS_PHRASES_DEFAULT_FILE 覆盖（测试用）。
 NSString *PetPhrasesDefaultFilePath(void);
 // 用户词库不存在就从默认词库拷一份出来。返回是否可用。
@@ -89,6 +89,9 @@ NSString *PetPhrasesDefaultFilePath(void);
 // 这一刻出现一次，之后运行时只认用户文件。两份词库同时存在于运行期就必然要回答
 // "以谁为准"，那正是 merge/replace 那套让人看不懂的根源。
 BOOL PetPhrasesEnsureFileExists(void);
+// 用户词库和"另一种语言"的默认词库一字不差（也就是从没改过）时，换成当前语言的默认词库。
+// 改过一个字都不动：那是用户自己的台词，语言切换不该替他做主。返回是否替换了。
+BOOL PetPhrasesAdoptLanguageDefaults(void);
 // 给升级用户补一次新加入的连击互动小节；已有小节（包括用户主动留空）绝不覆盖。
 BOOL PetPhrasesEnsureInteractionSections(void);
 
@@ -104,7 +107,10 @@ NSArray<NSString *> *PetPhraseSlotNames(void);
 
 // 单条模板的长度上限（字符）。超了直接丢弃——气泡布局撑不下，
 // 与其截断出半句话不如不说。
+// 含中日韩字符的句子按 PetPhraseMaxLength，纯拉丁文字的按 PetPhraseMaxLatinLength。
 extern const NSUInteger PetPhraseMaxLength;
+extern const NSUInteger PetPhraseMaxLatinLength;
+NSUInteger PetPhraseMaxLengthForText(NSString *text);
 
 // 校验结果的一条。
 typedef NS_ENUM(NSInteger, PetPhraseIssueLevel) {

@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { t } from "./i18n.mjs";
 
 // 一个源的完整定义就是这几项。以后接自建 registry 时在这里加一行即可，
 // 命令、目录结构和桌宠端都不用动。
@@ -40,7 +41,7 @@ const USER_AGENT = (() => {
 })();
 
 // 不能 add、只会出现在已装素材里的来源。桌宠的"导入 Codex 素材"开关会写 source: "codex"。
-const LOCAL_SOURCE_LABELS = { codex: "Codex（导入）" };
+const LOCAL_SOURCE_LABELS = { codex: t("Codex (imported)") };
 const DEFAULT_SOURCE = process.env.CC_PETS_SOURCE || "petdex";
 const SIDECAR_NAME = ".source.json";
 const MANIFEST_TTL_MS = 6 * 60 * 60 * 1000;
@@ -86,7 +87,7 @@ function parseSpec(spec) {
   const source = spec.slice(0, separator);
   const slug = spec.slice(separator + 1);
   if (!SOURCES[source]) {
-    fail(`未知的素材源 "${source}"。可用的源: ${Object.keys(SOURCES).join(", ")}`);
+    fail(t('Unknown pet source "{source}". Available sources: {SOURCES}', { source, SOURCES: Object.keys(SOURCES).join(", ") }));
   }
   return { source, slug };
 }
@@ -108,9 +109,9 @@ async function fetchManifest(sourceName, { refresh }) {
     redirect: "follow",
     headers: { "User-Agent": USER_AGENT }
   });
-  if (!response.ok) fail(`拉取 ${SOURCES[sourceName].label} 素材清单失败: HTTP ${response.status}`);
+  if (!response.ok) fail(t("Failed to fetch the {label} pet list: HTTP {status}", { label: SOURCES[sourceName].label, status: response.status }));
   const body = await response.json();
-  if (!Array.isArray(body?.pets)) fail(`${SOURCES[sourceName].label} 素材清单格式不符合预期`);
+  if (!Array.isArray(body?.pets)) fail(t("The {label} pet list has an unexpected format", { label: SOURCES[sourceName].label }));
   fs.mkdirSync(path.dirname(cache), { recursive: true });
   fs.writeFileSync(cache, JSON.stringify(body));
   return body.pets;
@@ -121,15 +122,15 @@ async function download(url, source) {
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`非法的素材地址: ${url}`);
+    throw new Error(t("Invalid pet URL: {url}", { url }));
   }
   if (parsed.protocol !== "https:" || !source.assetHosts.includes(parsed.hostname)) {
-    throw new Error(`不受信任的素材来源: ${parsed.hostname || url}`);
+    throw new Error(t("Untrusted pet source: {url}", { url: parsed.hostname || url }));
   }
   const response = await fetch(parsed, {
     headers: { Referer: source.referer, "User-Agent": USER_AGENT }
   });
-  if (!response.ok) throw new Error(`下载失败 ${parsed.pathname} -> HTTP ${response.status}`);
+  if (!response.ok) throw new Error(t("Download failed {pathname} -> HTTP {status}", { pathname: parsed.pathname, status: response.status }));
   return Buffer.from(await response.arrayBuffer());
 }
 
@@ -147,16 +148,16 @@ function assertInstallable(directory, sourceName, localName) {
   if (!fs.existsSync(directory)) return;
   const sidecar = readSidecar(directory);
   if (sidecar?.source === sourceName) return;
-  const owner = sidecar ? `来自 ${sidecar.source}` : "不是 cc-pets pet 装的（没有来源记录）";
+  const owner = sidecar ? t("came from {source}", { source: sidecar.source }) : t("wasn't installed by cc-pets pet (no source record)");
   throw new Error(
-    `${localName} 已存在且${owner}。换个名字装: ` +
+    t("{localName} already exists and {owner}. Install it under another name: ", { localName, owner }) +
       `cc-pets pet add ${sourceName}:${localName} --as ${localName}-${sourceName}`
   );
 }
 
 async function installPet(pet, sourceName, localName) {
   const source = SOURCES[sourceName];
-  if (!isSafeSlug(pet.slug)) throw new Error(`素材名不合法: ${pet.slug}`);
+  if (!isSafeSlug(pet.slug)) throw new Error(t("Invalid pet name: {slug}", { slug: pet.slug }));
   const directory = path.join(petsRoot(), localName);
   assertInstallable(directory, sourceName, localName);
 
@@ -201,16 +202,16 @@ async function commandAdd(args) {
   const refresh = args.includes("--refresh");
   const asIndex = args.indexOf("--as");
   const alias = asIndex === -1 ? null : args[asIndex + 1];
-  if (asIndex !== -1 && (!alias || alias.startsWith("--"))) fail("--as 后面要跟一个名字。");
-  if (alias && !isSafeLocalName(alias)) fail(`--as 的名字不合法: ${alias}`);
+  if (asIndex !== -1 && (!alias || alias.startsWith("--"))) fail(t("--as needs a name after it."));
+  if (alias && !isSafeLocalName(alias)) fail(t("Invalid --as name: {alias}", { alias }));
 
   // asIndex 为 -1 时 asIndex + 1 是 0，会把第一个位置参数当成 --as 的取值吃掉。
   const aliasValueIndex = asIndex === -1 ? -1 : asIndex + 1;
   const positional = args.filter(
     (value, index) => !value.startsWith("--") && index !== aliasValueIndex);
   const specs = [...new Set(positional)];
-  if (specs.length === 0) fail(`用法: ${cyan("cc-pets pet add [源:]<名称> [名称...] [--as <本地名>]")}`);
-  if (alias && specs.length > 1) fail("--as 一次只能给一个素材改名。");
+  if (specs.length === 0) fail(t("Usage: {cyan}", { cyan: cyan(t("cc-pets pet add [source:]<name> [name...] [--as <local-name>]")) }));
+  if (alias && specs.length > 1) fail(t("--as can only rename one pet at a time."));
 
   // 按源分组，同一个源只拉一次清单。
   const wanted = specs.map(parseSpec);
@@ -229,7 +230,7 @@ async function commandAdd(args) {
       const pet = index.get(slug);
       if (!pet) {
         failed += 1;
-        console.error(`${red("×")} ${sourceName}:${slug}: 清单里没有这个素材`);
+        console.error(t("{red} {sourceName}:{slug}: not in the pet list", { red: red("×"), sourceName, slug }));
         continue;
       }
       const localName = alias ?? slug;
@@ -246,8 +247,8 @@ async function commandAdd(args) {
   }
 
   if (installed > 0) {
-    console.log(dim(`素材目录: ${petsRoot()}`));
-    console.log(dim("桌宠菜单里点“重新扫描”或重启桌宠即可看到新素材。"));
+    console.log(dim(t("Pets directory: {petsRoot}", { petsRoot: petsRoot() })));
+    console.log(dim(t("Click “Rescan” in the pet menu or restart the pet to see new pets.")));
   }
   if (failed > 0) process.exit(1);
 }
@@ -267,23 +268,23 @@ async function commandSearch(args) {
     ? pets
     : pets.filter((pet) =>
         `${pet.slug} ${pet.displayName ?? ""} ${pet.submittedBy ?? ""}`.toLowerCase().includes(keyword));
-  if (matched.length === 0) fail(`${SOURCES[sourceName].label} 上没有匹配 "${keyword}" 的素材。`);
+  if (matched.length === 0) fail(t('No pets on {label} match "{keyword}".', { label: SOURCES[sourceName].label, keyword }));
   const shown = matched.slice(0, 60);
   for (const pet of shown) {
     const author = pet.submittedBy ? dim(` by ${pet.submittedBy}`) : "";
     console.log(`  ${cyan(pet.slug)}  ${pet.displayName ?? ""}${author}`);
   }
   if (matched.length > shown.length) {
-    console.log(dim(`  … 共 ${matched.length} 个结果，只显示前 ${shown.length} 个。`));
+    console.log(dim(t("  … {length} results, showing the first {shown}.", { length: matched.length, shown: shown.length })));
   }
-  console.log(dim(`装上其中一个: cc-pets pet add ${sourceName}:${shown[0].slug}`));
+  console.log(dim(t("Install one: cc-pets pet add {sourceName}:{slug}", { sourceName, slug: shown[0].slug })));
 }
 
 function commandList() {
   const pets = installedPets();
   if (pets.length === 0) {
-    console.log(dim(`${petsRoot()} 里还没有素材。`));
-    console.log(dim("试试: cc-pets pet add boba"));
+    console.log(dim(t("No pets in {petsRoot} yet.", { petsRoot: petsRoot() })));
+    console.log(dim(t("Try: cc-pets pet add boba")));
     return;
   }
   const groups = new Map();
@@ -300,7 +301,7 @@ function commandList() {
   });
   for (const key of keys) {
     const label = key === "__unknown__"
-      ? "本地素材（无来源记录）"
+      ? t("Local pets (no source record)")
       : SOURCES[key]?.label ?? LOCAL_SOURCE_LABELS[key] ?? key;
     console.log(`  ${label}`);
     for (const pet of groups.get(key)) {
@@ -309,38 +310,38 @@ function commandList() {
       console.log(`    ${cyan(pet.name)}${origin}`);
     }
   }
-  console.log(dim(`共 ${pets.length} 个，位于 ${petsRoot()}`));
+  console.log(dim(t("{length} in total, in {petsRoot}", { length: pets.length, petsRoot: petsRoot() })));
 }
 
 function commandRemove(args) {
   const names = args.filter((value) => !value.startsWith("--"));
-  if (names.length === 0) fail(`用法: ${cyan("cc-pets pet remove <名称> [名称...]")}`);
+  if (names.length === 0) fail(t("Usage: {cyan}", { cyan: cyan(t("cc-pets pet remove <name> [name...]")) }));
   const root = petsRoot();
   let removed = 0;
   for (const name of names) {
     if (!isSafeLocalName(name)) {
-      console.error(`${red("×")} ${name}: 名称不合法`);
+      console.error(t("{red} {name}: invalid name", { red: red("×"), name }));
       continue;
     }
     const directory = path.join(root, name);
     if (!fs.existsSync(directory)) {
-      console.error(`${red("×")} ${name}: 没有安装`);
+      console.error(t("{red} {name}: not installed", { red: red("×"), name }));
       continue;
     }
     const sidecar = readSidecar(directory);
     fs.rmSync(directory, { recursive: true, force: true });
     removed += 1;
-    console.log(`${green("✓")} 已删除 ${name}${sidecar ? dim(` (来自 ${sidecar.source})`) : ""}`);
+    console.log(t("{green} Removed {name}{source}", { green: green("✓"), name, source: sidecar ? dim(t(" (from {source})", { source: sidecar.source })) : "" }));
   }
   if (removed < names.length) process.exit(1);
 }
 
 function commandSource() {
   for (const [name, source] of Object.entries(SOURCES)) {
-    const marker = name === DEFAULT_SOURCE ? green(" (默认)") : "";
+    const marker = name === DEFAULT_SOURCE ? green(t(" (default)")) : "";
     console.log(`  ${cyan(name)}${marker}  ${source.label} ${dim(source.homepage)}`);
   }
-  console.log(dim("用 CC_PETS_SOURCE 换默认源，或在名称前加 `源:` 前缀。"));
+  console.log(dim(t("Change the default source with CC_PETS_SOURCE, or prefix a name with `source:`.")));
 }
 
 function commandDir() {
@@ -352,31 +353,31 @@ function commandDir() {
 function usage() {
   console.log([
     "",
-    `  ${cyan("cc-pets pet")} — 把素材装进 cc-pets 自己的目录`,
+    t("  {cyan} — install pets into cc-pets' own directory", { cyan: cyan("cc-pets pet") }),
     "",
-    `    ${cyan("add")} [源:]<名称>...   下载素材到 ${dim(petsRoot())}`,
-    `    ${cyan("search")} [源:][关键词] 搜索可用素材（不带关键词就列全部）`,
-    `    ${cyan("list")}                列出已安装的素材，按来源分组`,
-    `    ${cyan("remove")} <名称>...    删除已安装的素材`,
-    `    ${cyan("source")}              列出可用的素材源`,
-    `    ${cyan("dir")}                 打印素材目录路径`,
+    t("    {cyan} [source:]<name>...     download pets to {petsRoot}", { cyan: cyan("add"), petsRoot: dim(petsRoot()) }),
+    t("    {cyan} [source:][keyword]  search pets (no keyword lists all)", { cyan: cyan("search") }),
+    t("    {cyan}                       list installed pets, grouped by source", { cyan: cyan("list") }),
+    t("    {cyan} <name>...           remove installed pets", { cyan: cyan("remove") }),
+    t("    {cyan}                     list available sources", { cyan: cyan("source") }),
+    t("    {cyan}                        print the pets directory", { cyan: cyan("dir") }),
     "",
-    `  ${dim("名称可以带源前缀（petdex:boba）；不带就用默认源 " + DEFAULT_SOURCE + "。")}`,
-    `  ${dim("--as <本地名> 换个目录名安装，支持中文，用来避开同名素材的冲突。")}`,
-    `  ${dim("--refresh 强制刷新素材清单缓存（默认缓存 6 小时）。")}`,
-    `  ${dim("CC_PETS_PETS_DIR 换素材目录，CC_PETS_SOURCE 换默认源。")}`,
+    `  ${dim(t("Names can have a source prefix (petdex:boba); otherwise the default source is used: ") + DEFAULT_SOURCE + t("."))}`,
+    `  ${dim(t("--as <local-name> installs under another directory name (any language) to avoid name clashes."))}`,
+    `  ${dim(t("--refresh forces a refresh of the pet list cache (cached for 6 hours by default)."))}`,
+    `  ${dim(t("CC_PETS_PETS_DIR changes the pets directory; CC_PETS_SOURCE changes the default source."))}`,
     "",
     `  ${dim("$")} cc-pets pet search otter`,
     `  ${dim("$")} cc-pets pet add boba`,
     `  ${dim("$")} cc-pets pet add petdex:boba --as boba-petdex`,
-    `  ${dim("$")} cc-pets pet add boba --as 波霸`,
+    t("  {dim} cc-pets pet add boba --as bubble-tea", { dim: dim("$") }),
     ""
   ].join("\n"));
 }
 
 const [command, ...args] = process.argv.slice(2);
 if (!SOURCES[DEFAULT_SOURCE]) {
-  fail(`CC_PETS_SOURCE 指向未知的源 "${DEFAULT_SOURCE}"。可用的源: ${Object.keys(SOURCES).join(", ")}`);
+  fail(t('CC_PETS_SOURCE points to an unknown source "{DEFAULT_SOURCE}". Available sources: {SOURCES}', { DEFAULT_SOURCE, SOURCES: Object.keys(SOURCES).join(", ") }));
 }
 switch (command) {
   case "add":
@@ -408,7 +409,7 @@ switch (command) {
     usage();
     break;
   default:
-    console.error(red(`未知子命令: ${command}`));
+    console.error(red(t("Unknown subcommand: {command}", { command })));
     usage();
     process.exit(2);
 }

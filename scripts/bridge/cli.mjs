@@ -18,32 +18,33 @@ import {
   bridgeDirectory, claimInbox, isBridgeEnabled, listReceipts, pendingCount, migrateLegacyFlag, readBridgeOptions, readSession, renameSession,
   setBridgeEnabled, takeIdleSubscriptions, updateReceipt, writeCliLocator
 } from "./store.mjs";
+import { t } from "../i18n.mjs";
 
 const recordCliLocation = () => writeCliLocator(fileURLToPath(import.meta.url));
 
-const USAGE = `用法: cc-pets bridge <命令>
+const USAGE = t(`Usage: cc-pets bridge <command>
 
-  enable [选项]          开启 CC Bridge：写入 Claude Code / Codex hooks 并注册 MCP
-  configure [选项]       已开启时只修改选项（不重新注册 MCP）
-  disable                关闭并移除所有 CC Bridge 集成
-  status                 查看开关状态与在线会话
-  list                   列出在线会话
-  send <to> <消息…>      以当前会话身份发送（需在 Agent 会话内执行，或用 --from 指定）
-  name <新名字>          修改当前会话的名字（需在 Agent 会话内执行，或用 --from 指定）
-  inbox                  读取当前会话信箱（调试用）
+  enable [options]       Turn on CC Bridge: write Claude Code / Codex hooks and register MCP
+  configure [options]    Change options while enabled (doesn't re-register MCP)
+  disable                Turn off and remove all CC Bridge integrations
+  status                 Show whether it's on and which sessions are online
+  list                   List online sessions
+  send <to> <message…>   Send as the current session (run inside an Agent session, or use --from)
+  name <new-name>        Rename the current session (run inside an Agent session, or use --from)
+  inbox                  Read the current session's inbox (for debugging)
 
-选项（没给的保持原值）：
-  --approve=<列表>       Codex 与 Claude 同时免审批
-  --codex-approve=<列表> 只设 Codex 免审批
-  --claude-allow=<列表>  只设 Claude 免确认
-                         列表可写分组 view, send, reserve, name，或具体工具名；传空值表示清空
-  --wake=on|off          自动唤醒空闲会话（关闭可省 token，消息等对方下次收到用户输入时带入）
-  --edit-guard=on|off    编辑他人预留的文件时暂停一次
+Options (anything omitted keeps its current value):
+  --approve=<list>       Auto-approve in both Codex and Claude
+  --codex-approve=<list> Auto-approve in Codex only
+  --claude-allow=<list>  Allow without asking in Claude only
+                         Use groups view, send, reserve, name, or tool names; pass an empty value to clear
+  --wake=on|off          Wake idle sessions automatically (off saves tokens; messages arrive with the next user input)
+  --edit-guard=on|off    Pause once when editing a file another session reserved
 
-启动时指定会话名：CC_BRIDGE_NAME=frontend claude（或 codex）
+Name a session at launch: CC_BRIDGE_NAME=frontend claude (or codex)
 
-CC Bridge 让本机的 Claude Code 与 Codex 终端会话互相发现、发消息、唤醒对方。
-消息正文会保存在本机临时目录（仅当前用户可读），默认关闭。`;
+CC Bridge lets local Claude Code and Codex terminal sessions find, message and wake each other.
+Message bodies are stored in a local temp directory readable only by you. Off by default.`);
 
 const parseFlag = (args, name) => {
   const prefix = `--${name}=`;
@@ -65,11 +66,11 @@ const readOptionFlags = (args) => ({
 const printSessions = () => {
   const sessions = liveSessions();
   if (sessions.length === 0) {
-    console.log("没有在线会话。");
+    console.log(t("No sessions online."));
     return;
   }
   for (const session of sessions) {
-    console.log(`${describeSession(session)}  ${session.provider}  ${session.status || "-"}  pid=${session.pid ?? "-"}  ${session.tty || "-"}  ${session.cwd || "-"}  待投递=${pendingCount(session.session)}`);
+    console.log(`${describeSession(session)}  ${session.provider}  ${session.status || "-"}  pid=${session.pid ?? "-"}  ${session.tty || "-"}  ${session.cwd || "-"}  ${t("pending")}=${pendingCount(session.session)}`);
   }
 };
 
@@ -81,7 +82,7 @@ const selfOrFrom = (args) => {
     return resolved.session;
   }
   const self = identifySelf();
-  if (!self) throw new Error("无法识别当前会话；在普通终端里调试请用 --from <会话名>。");
+  if (!self) throw new Error(t("Can't identify the current session; when debugging in a plain terminal, use --from <session-name>."));
   return self;
 };
 
@@ -91,16 +92,16 @@ const commands = {
     for (const line of install({ options })) console.log(line);
     setBridgeEnabled(true, options);
     recordCliLocation();
-    console.log("CC Bridge 已开启。");
-    console.log("- 已在运行的 Claude Code 会话会热加载 hooks、立即开始收消息，但要重启后才有 cc-bridge 工具（期间可用 cc-pets bridge send 回复）。");
-    console.log("- 已在运行的 Codex 会话需要重启，并在 /hooks 中信任 cc-pets bridge 的 hooks。");
+    console.log(t("CC Bridge is on."));
+    console.log(t("- Running Claude Code sessions hot-reload the hooks and start receiving messages right away, but only get the cc-bridge tools after a restart (until then, reply with cc-pets bridge send)."));
+    console.log(t("- Running Codex sessions need a restart, then trust the cc-pets bridge hooks in /hooks."));
     return 0;
   },
 
   // 只改选项：重写 hooks、Codex 审批块、Claude 放行规则，不重跑 claude / codex mcp add，
   // 所以很快。桌宠菜单的开关走这条路。
   async configure(args) {
-    if (!isBridgeEnabled()) throw new Error("CC Bridge 未开启，请先执行 cc-pets bridge enable。");
+    if (!isBridgeEnabled()) throw new Error(t("CC Bridge is off. Run cc-pets bridge enable first."));
     const options = mergeOptionFlags(currentOptions(), readOptionFlags(args));
     install({ options, registerMcp: false });
     setBridgeEnabled(true, options);
@@ -123,31 +124,31 @@ const commands = {
   async disable() {
     for (const line of uninstall()) console.log(line);
     setBridgeEnabled(false);
-    console.log("CC Bridge 已关闭。");
+    console.log(t("CC Bridge is off."));
     return 0;
   },
 
   async status() {
-    console.log(`CC Bridge：${isBridgeEnabled() ? "已开启" : "未开启"}`);
+    console.log(t("CC Bridge: {state}", { state: isBridgeEnabled() ? t("Enabled") : t("Disabled") }));
     if (isBridgeEnabled()) {
       for (const line of describeOptions(currentOptions())) console.log(`  ${line}`);
       if (currentOptions().wake && detectCodexCLI()) {
-        console.log(`  ${describeCodexQueue(probeCodexQueue()) ?? "Codex 支持 codex queue，可自动唤醒。"}`);
+        console.log(`  ${describeCodexQueue(probeCodexQueue()) ?? t("Codex supports codex queue, so it can be woken automatically.")}`);
       }
     }
-    console.log(`状态目录：${bridgeDirectory()}`);
+    console.log(t("State directory: {bridgeDirectory}", { bridgeDirectory: bridgeDirectory() }));
     printSessions();
     const reservations = activeReservations();
     if (reservations.length > 0) {
-      console.log("\n文件预留：");
+      console.log(t("\nFile reservations:"));
       for (const reservation of reservations) console.log(`  ${reservation.root}  ${describeReservation(reservation)}`);
     }
     const receipts = listReceipts().sort((left, right) => right.createdAt - left.createdAt).slice(0, 5);
     if (receipts.length > 0) {
-      console.log("\n最近消息：");
+      console.log(t("\nRecent messages:"));
       for (const receipt of receipts) {
         const from = receipt.from.system ? "cc-pets" : receipt.from.name;
-        console.log(`  ${receipt.id}  ${from} → ${receipt.to.name}  ${receipt.status}${receipt.reason ? `（${receipt.reason}）` : ""}`);
+        console.log(`  ${receipt.id}  ${from} → ${receipt.to.name}  ${receipt.status}${receipt.reason ? t(" ({reason})", { reason: receipt.reason }) : ""}`);
       }
     }
     return 0;
@@ -161,7 +162,7 @@ const commands = {
   async send(args) {
     const from = selfOrFrom(args);
     const [to, ...words] = args;
-    if (!to || words.length === 0) throw new Error("用法: cc-pets bridge send <to> <消息…>");
+    if (!to || words.length === 0) throw new Error(t("Usage: cc-pets bridge send <to> <message…>"));
     const target = resolveTarget(to, liveSessions());
     if (target.error) throw new Error(target.error);
     const result = await sendMessage({ from, to: target.session, body: words.join(" ") });
@@ -172,10 +173,10 @@ const commands = {
 
   async name(args) {
     const self = selfOrFrom(args);
-    if (!args[0]) throw new Error("用法: cc-pets bridge name <新名字>");
+    if (!args[0]) throw new Error(t("Usage: cc-pets bridge name <new-name>"));
     const result = renameSession(self.session, args[0], liveSessions());
     if (result.error) throw new Error(result.error);
-    console.log(`已从 ${result.previous} 改名为 ${describeSession(result.session)}。`);
+    console.log(t("Renamed {previous} to {session}.", { previous: result.previous, session: describeSession(result.session) }));
     return 0;
   },
 
@@ -185,7 +186,7 @@ const commands = {
     for (const message of messages) {
       updateReceipt(message.id, { status: "delivered", transport: { kind: "check-inbox" } });
     }
-    console.log(messages.length > 0 ? messages.map(formatEnvelope).join("\n\n") : "信箱里没有新消息。");
+    console.log(messages.length > 0 ? messages.map(formatEnvelope).join("\n\n") : t("No new messages in the inbox."));
     return 0;
   },
 
@@ -222,7 +223,7 @@ const run = async () => {
   // 集成子命令（hook / watch / mcp）跑在对方 CLI 的关键路径上，不做迁移这类文件操作。
   if (!["hook", "watch", "mcp", "notify-idle"].includes(command)) migrateLegacyFlag();
   if (!handler) {
-    console.error(`未知命令：${command}\n\n${USAGE}`);
+    console.error(t("Unknown command: {command}\n\n{USAGE}", { command, USAGE }));
     return 2;
   }
   try {

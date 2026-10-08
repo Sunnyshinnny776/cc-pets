@@ -11,8 +11,8 @@ desktop app. Launch CC Pets directly, or let it appear automatically when Codex 
 or Claude Code CLI starts. It reads five-hour and weekly quota data from the official
 Codex App Server interface and Claude Code's official status line input.
 
-> The application UI and the screenshots below are currently in Simplified Chinese.
-> English UI localization and English screenshots are planned for a future release.
+> The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
+> The screenshots below still show the Simplified Chinese UI.
 
 ## What's new in v2.1.2
 
@@ -223,6 +223,18 @@ panel, status card, and speech bubble: Clear (0%), Light (15%), Standard (25%,
 default), or Legible (45%). Lower levels
 look more transparent; higher levels keep text readable over light backgrounds.
 
+### Language
+
+The **Language** submenu offers **System Default** plus every bundled language,
+currently **English** and **简体中文**. System Default follows the first supported
+entry in macOS's preferred languages and falls back to English. Menus and panels switch right away; system
+buttons in dialogs follow after the next launch. The choice is written to
+`~/.cc-pets/language`, so `cc-pets` commands, hooks, and CC Bridge messages use the
+same language; set `CC_PETS_LANGUAGE=en` or `zh-Hans` to override it for one
+command. If you never edited `~/.cc-pets/speech.txt`, it switches to the default
+lines of the new language; edited lines are left alone. To contribute another
+language, see [Adding a language](./CONTRIBUTING.md#adding-a-language).
+
 The pet switcher scans only built-in assets and `~/.cc-pets/pets/`. It does not
 scan `~/.petdex/pets/` or `~/.codex/pets/`. To use assets installed by Codex,
 enable **Import Codex pets** in the app's right-click menu; CC Pets copies valid
@@ -276,7 +288,8 @@ days, and records at most once every 15 minutes.
 The pet's speech comes from `~/.cc-pets/speech.txt`. Open **Speech → Edit lines…**
 in the right-click menu to edit, validate, preview, or restore it. Lines are grouped
 under stable situation tags such as `[idle]`, `[done]`, and `[state_thinking]`.
-Each spoken line is limited to 30 characters in the current UI.
+Each line is limited to 30 characters if it contains Chinese, Japanese, or Korean
+text, and to 40 characters otherwise.
 
 Supported live placeholders are `{quota5h}`, `{resetTime}`, `{toolName}`,
 `{sessionMin}`, `{failCount}`, and `{hour}`. A line is skipped if one of its values

@@ -1,4 +1,5 @@
 #import "MenuToggleSwitch.h"
+#import "CCPetsL10n.h"
 
 @implementation MenuToggleSwitch
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -62,7 +63,7 @@
 
 - (void)setState:(NSControlStateValue)value {
     [super setState:value];
-    [self setAccessibilityValue:value == NSControlStateValueOn ? @"用量" : @"订阅"];
+    [self setAccessibilityValue:value == NSControlStateValueOn ? L(@"API") : L(@"Plan")];
     self.needsDisplay = YES;
 }
 
@@ -80,7 +81,7 @@
     pillPath.lineWidth = 0.8;
     [pillPath stroke];
 
-    NSString *title = usesAPI ? @"用量" : @"订阅";
+    NSString *title = usesAPI ? L(@"API") : L(@"Plan");
     NSDictionary<NSAttributedStringKey, id> *attributes = @{
         NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightSemibold],
         NSForegroundColorAttributeName: NSColor.whiteColor,

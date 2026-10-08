@@ -1,3 +1,4 @@
+#import "CCPetsL10n.h"
 #import "CCPetsVersion.h"
 #import <signal.h>
 #import <unistd.h>
@@ -41,7 +42,7 @@ int RestartAfterPID(pid_t pid, NSString *appPath, BOOL managed) {
         usleep(100000);
     }
     if (pid > 1 && (kill(pid, 0) == 0 || errno == EPERM)) {
-        fprintf(stderr, "等待旧版 CC Pets 退出超时。\n");
+        fprintf(stderr, "%s\n", L(@"Timed out waiting for the old CC Pets to quit.").UTF8String);
         return EXIT_FAILURE;
     }
 
@@ -54,7 +55,8 @@ int RestartAfterPID(pid_t pid, NSString *appPath, BOOL managed) {
     task.arguments = arguments;
     NSError *error = nil;
     if (![task launchAndReturnError:&error]) {
-        fprintf(stderr, "无法重新启动 CC Pets: %s\n", error.localizedDescription.UTF8String);
+        fprintf(stderr, "%s\n", [NSString stringWithFormat:L(@"Couldn't restart CC Pets: %@"),
+            error.localizedDescription].UTF8String);
         return EXIT_FAILURE;
     }
     [task waitUntilExit];
@@ -100,14 +102,16 @@ static NSString *StripReleaseNoteMarkdown(NSString *text) {
     return [result stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
 }
 
-NSArray<NSString *> *ReleaseNoteHighlights(NSString *body, NSUInteger limit, NSUInteger maxLength,
-    BOOL *truncated) {
+NSArray<NSString *> *ReleaseNoteHighlightsForLanguage(NSString *body, NSString *language,
+    NSUInteger limit, NSUInteger maxLength, BOOL *truncated) {
     if (truncated) *truncated = NO;
     if (![body isKindOfClass:NSString.class] || body.length == 0 || limit == 0) return @[];
     NSArray<NSString *> *lines = [[body stringByReplacingOccurrencesOfString:@"\r" withString:@""]
         componentsSeparatedByString:@"\n"];
 
-    // 有「简体中文」段就只取这一段：从它的标题开始，到下一个同级或更高级标题为止。
+    // 有当前语言的段落就只取这一段：从它的标题开始，到下一个同级或更高级标题为止。
+    // 段落标题来自各语言表里的 "Release Notes Section"，见 CCPetsL10n.h。
+    NSArray<NSString *> *sectionTitles = CCPetsReleaseNotesSectionTitles(language);
     NSRange section = NSMakeRange(0, lines.count);
     for (NSUInteger index = 0; index < lines.count; index++) {
         NSString *line = [lines[index] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
@@ -116,7 +120,7 @@ NSArray<NSString *> *ReleaseNoteHighlights(NSString *body, NSUInteger limit, NSU
         while (level < line.length && [line characterAtIndex:level] == '#') level++;
         NSString *title = [[line substringFromIndex:level]
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-        if (![title isEqualToString:@"简体中文"] && ![title isEqualToString:@"中文"]) continue;
+        if (![sectionTitles containsObject:title]) continue;
         NSUInteger end = lines.count;
         for (NSUInteger next = index + 1; next < lines.count; next++) {
             NSString *candidate = lines[next];

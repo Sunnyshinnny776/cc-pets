@@ -7,6 +7,7 @@
 //   editGuard     编辑他人预留的文件时暂停一次（首次拦截、重试放行）
 
 import { isBridgeEnabled, readBridgeOptions } from "./store.mjs";
+import { t } from "../i18n.mjs";
 
 // 桌宠菜单按用途分组，而不是暴露 7 个工具名。
 export const TOOL_GROUPS = {
@@ -51,7 +52,7 @@ export const parseToolList = (text, flag) => {
     }
   }
   if (unknown.length > 0) {
-    throw new Error(`${flag} 只接受分组 ${Object.keys(TOOL_GROUPS).join(", ")} 或工具 ${ALL_TOOLS.join(", ")}，收到：${unknown.join(", ")}`);
+    throw new Error(t("{flag} only accepts groups {TOOL_GROUPS} or tools {ALL_TOOLS}, got: {unknown}", { flag, TOOL_GROUPS: Object.keys(TOOL_GROUPS).join(", "), ALL_TOOLS: ALL_TOOLS.join(", "), unknown: unknown.join(", ") }));
   }
   return uniqueTools(tools);
 };
@@ -60,7 +61,7 @@ export const parseSwitch = (text, flag) => {
   const value = String(text ?? "").trim().toLowerCase();
   if (["on", "true", "1", "yes"].includes(value)) return true;
   if (["off", "false", "0", "no"].includes(value)) return false;
-  throw new Error(`${flag} 只接受 on / off，收到：${text}`);
+  throw new Error(t("{flag} only accepts on / off, got: {text}", { flag, text }));
 };
 
 // 在 base 之上叠加命令行里给出的选项；没给的保持原值。
@@ -79,8 +80,8 @@ export const mergeOptionFlags = (base, flags) => {
 };
 
 export const describeOptions = (options) => [
-  `Codex 免审批：${options.codexApprove.length > 0 ? options.codexApprove.join(", ") : "无"}`,
-  `Claude 免确认：${options.claudeAllow.length > 0 ? options.claudeAllow.join(", ") : "无"}`,
-  `自动唤醒空闲会话：${options.wake ? "开" : "关"}`,
-  `编辑前预留拦截：${options.editGuard ? "开" : "关"}`
+  t("Codex auto-approve: {codexApprove}", { codexApprove: options.codexApprove.length > 0 ? options.codexApprove.join(", ") : t("none") }),
+  t("Claude allow without asking: {claudeAllow}", { claudeAllow: options.claudeAllow.length > 0 ? options.claudeAllow.join(", ") : t("none") }),
+  t("Wake idle sessions: {wake}", { wake: options.wake ? t("on") : t("off") }),
+  t("Pause edits on reserved files: {editGuard}", { editGuard: options.editGuard ? t("on") : t("off") })
 ];

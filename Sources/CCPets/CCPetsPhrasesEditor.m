@@ -1,4 +1,5 @@
 #import "CCPetsPhrasesEditor.h"
+#import "CCPetsL10n.h"
 #import "CCPetsPhrases.h"
 
 static void (^PetPhrasesSpeakHandler)(NSString *);
@@ -56,7 +57,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                   NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered defer:NO];
-    window.title = @"桌宠台词";
+    window.title = L(@"Pet Lines");
     window.releasedWhenClosed = NO;
     window.minSize = NSMakeSize(460, 400);
     [window center];
@@ -101,37 +102,37 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     NSPopUpButton *picker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     picker.translatesAutoresizingMaskIntoConstraints = NO;
     for (NSString *tag in PetPhraseAllTags()) {
-        [picker addItemWithTitle:[NSString stringWithFormat:@"%@（%@）",
+        [picker addItemWithTitle:[NSString stringWithFormat:L(@"%1$@ (%2$@)"),
             PetPhraseTagDescription(tag), tag]];
         picker.lastItem.representedObject = tag;
     }
     self.tagPicker = picker;
 
-    NSButton *speak = [NSButton buttonWithTitle:@"试说一句" target:self
+    NSButton *speak = [NSButton buttonWithTitle:L(@"Try a Line") target:self
         action:@selector(speakSample:)];
     speak.translatesAutoresizingMaskIntoConstraints = NO;
 
-    NSButton *save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
+    NSButton *save = [NSButton buttonWithTitle:L(@"Save") target:self action:@selector(save:)];
     // ⌘S 而不是回车：这是个多行文本编辑器，回车要用来换行。
     save.keyEquivalent = @"s";
     save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
     save.translatesAutoresizingMaskIntoConstraints = NO;
     self.saveButton = save;
 
-    NSButton *saveAndClose = [NSButton buttonWithTitle:@"保存并关闭" target:self
+    NSButton *saveAndClose = [NSButton buttonWithTitle:L(@"Save & Close") target:self
         action:@selector(saveAndClose:)];
     saveAndClose.keyEquivalent = @"\r";
     saveAndClose.translatesAutoresizingMaskIntoConstraints = NO;
     self.saveAndCloseButton = saveAndClose;
 
-    NSButton *revert = [NSButton buttonWithTitle:@"恢复默认台词…" target:self
+    NSButton *revert = [NSButton buttonWithTitle:L(@"Restore Defaults…") target:self
         action:@selector(revertToDefault:)];
     revert.translatesAutoresizingMaskIntoConstraints = NO;
     self.revertButton = revert;
 
     // 两段式而不是下拉菜单：一共就两个去处，而且"我现在改的是哪一份"必须一眼可见——
     // 藏进下拉里的话，用户很容易把只想给一只宠物写的台词存进通用词库。
-    NSSegmentedControl *scope = [NSSegmentedControl segmentedControlWithLabels:@[@"通用", @"当前宠物"]
+    NSSegmentedControl *scope = [NSSegmentedControl segmentedControlWithLabels:@[L(@"Shared"), L(@"This Pet")]
         trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(scopeChanged:)];
     scope.translatesAutoresizingMaskIntoConstraints = NO;
     scope.selectedSegment = 0;
@@ -140,7 +141,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     // 专属页初次打开是空白的——空白在语义上是对的（全部回落到通用），但一个空白文本框
     // 不告诉任何人该往里写什么。这个按钮就是那个起点：把默认台词整份填进来，
     // 用户在上面改字、删掉不想接管的小节即可。
-    NSButton *fill = [NSButton buttonWithTitle:@"填入默认模板" target:self
+    NSButton *fill = [NSButton buttonWithTitle:L(@"Insert Template") target:self
         action:@selector(fillFromDefault:)];
     fill.translatesAutoresizingMaskIntoConstraints = NO;
     fill.hidden = YES;
@@ -206,8 +207,8 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     NSString *petID = PetPhrasesCurrentPetID();
     BOOL hasPet = petID.length > 0;
     [self.scopeControl setLabel:hasPet ?
-        [NSString stringWithFormat:@"当前宠物 · %@", [self displayNameForPetID:petID]] :
-        @"当前宠物" forSegment:1];
+        [NSString stringWithFormat:L(@"This Pet · %@"), [self displayNameForPetID:petID]] :
+        L(@"This Pet") forSegment:1];
     [self.scopeControl setEnabled:hasPet forSegment:1];
 
     // 宠物变了（或没了）而这一页正停在专属范围上：跟着走，但别把用户没存的东西冲掉。
@@ -226,7 +227,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
 
 - (void)syncRevertButtonTitle {
     // 专属词库没有"默认"这一说，它的默认状态就是空文件（全部回落到通用）。
-    self.revertButton.title = self.petScope ? @"清空这一页…" : @"恢复默认台词…";
+    self.revertButton.title = self.petScope ? L(@"Clear Page…") : L(@"Restore Defaults…");
     // 通用页不需要这个按钮：它本来就是从默认台词拷出来的，不存在空白无从下手的问题，
     // 想拿回默认内容有"恢复默认台词…"。
     self.fillButton.hidden = !self.petScope;
@@ -256,10 +257,10 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
 
 - (BOOL)confirmDiscardChanges {
     NSAlert *alert = [NSAlert new];
-    alert.messageText = @"这一页还没保存";
-    alert.informativeText = @"切换之后，没保存的改动会丢掉。";
-    [alert addButtonWithTitle:@"丢弃改动"];
-    [alert addButtonWithTitle:@"留在这一页"];
+    alert.messageText = L(@"This Page Isn't Saved");
+    alert.informativeText = L(@"Unsaved changes will be lost if you switch.");
+    [alert addButtonWithTitle:L(@"Discard Changes")];
+    [alert addButtonWithTitle:L(@"Stay")];
     return [alert runModal] == NSAlertFirstButtonReturn;
 }
 
@@ -278,8 +279,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
         error:nil][NSFileModificationDate];
     if (self.petScope && text.length == 0) {
         [self showStatus:[NSString stringWithFormat:
-            @"%@ · 还是空的，这只宠物现在说的全是通用台词。"
-            "只写想改的小节即可，或点右上角「填入默认模板」看看能写些什么。", path]
+            L(@"%@ · Still empty, so this pet uses the shared lines. Only write the sections you want to change, or click “Insert Template” at the top right to see what's possible."), path]
             warning:NO];
         return;
     }
@@ -337,7 +337,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
 
     NSString *path = [self currentFilePath];
     if (path.length == 0) {
-        [self showStatus:@"没有选中的宠物，无法保存专属台词。" warning:YES];
+        [self showStatus:L(@"No pet is selected, so pet-specific lines can't be saved.") warning:YES];
         return NO;
     }
     NSError *error = nil;
@@ -347,8 +347,8 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent
         withIntermediateDirectories:YES attributes:nil error:nil];
     if (![normalized writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
-        [self showStatus:[NSString stringWithFormat:@"保存失败：%@",
-            error.localizedDescription ?: @"未知原因"] warning:YES];
+        [self showStatus:[NSString stringWithFormat:L(@"Save failed: %@"),
+            error.localizedDescription ?: L(@"unknown error")] warning:YES];
         return NO;
     }
     self.loadedStamp = [NSFileManager.defaultManager attributesOfItemAtPath:path
@@ -357,11 +357,12 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
 
     if (issues.count > 0) {
         [self presentIssues:issues blocking:NO restored:nil];
-        [self showStatus:[NSString stringWithFormat:@"已保存，有 %lu 处提示",
+        [self showStatus:[NSString stringWithFormat:issues.count != 1
+            ? L(@"Saved, with %lu notices") : L(@"Saved, with %lu notice"),
             (unsigned long)issues.count] warning:YES];
         return YES;
     }
-    [self showStatus:@"已保存，立刻生效。" warning:NO];
+    [self showStatus:L(@"Saved. Takes effect now.") warning:NO];
     return YES;
 }
 
@@ -372,12 +373,11 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     if (!current || !self.loadedStamp || [current isEqualToDate:self.loadedStamp]) return YES;
 
     NSAlert *alert = [NSAlert new];
-    alert.messageText = @"文件在外部被改过";
-    alert.informativeText = @"打开编辑器之后，台词文件被别的程序修改了。"
-        "继续保存会覆盖掉那些改动。";
-    [alert addButtonWithTitle:@"覆盖"];
-    [alert addButtonWithTitle:@"取消"];
-    [alert addButtonWithTitle:@"重新载入"];
+    alert.messageText = L(@"File Changed on Disk");
+    alert.informativeText = L(@"Another app changed the lines file after the editor opened it. Saving will overwrite those changes.");
+    [alert addButtonWithTitle:L(@"Overwrite")];
+    [alert addButtonWithTitle:L(@"Cancel")];
+    [alert addButtonWithTitle:L(@"Reload")];
     NSModalResponse response = [alert runModal];
     if (response == NSAlertSecondButtonReturn) return NO;
     if (response == NSAlertThirdButtonReturn) {
@@ -394,41 +394,41 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     if (restored.count > 0) {
         NSMutableArray<NSString *> *names = [NSMutableArray array];
         for (NSString *tag in restored) {
-            [names addObject:[NSString stringWithFormat:@"[%@]（%@）", tag,
+            [names addObject:[NSString stringWithFormat:L(@"[%1$@] (%2$@)"), tag,
                 PetPhraseTagDescription(tag)]];
         }
         [lines addObject:[NSString stringWithFormat:
-            @"标签不能删，已经帮你把 %@ 加回原位了（⌘Z 可撤销）。",
+            L(@"Tags can't be deleted, so %@ was put back in place (⌘Z to undo)."),
             [names componentsJoinedByString:@"、"]]];
-        if (blocking) [lines addObject:@"本次没有保存，请检查恢复位置后再保存一次。"];
+        if (blocking) [lines addObject:L(@"Nothing was saved. Check the restored tags, then save again.")];
         [lines addObject:@""];
     }
     for (PetPhraseIssue *issue in issues) {
-        NSString *prefix = issue.level == PetPhraseIssueLevelError ? @"必须改：" : @"提示：";
+        NSString *prefix = issue.level == PetPhraseIssueLevelError ? L(@"Must fix: ") : L(@"Note: ");
         NSString *where = issue.line > 0 ?
-            [NSString stringWithFormat:@"第 %ld 行 ", (long)issue.line] : @"";
+            [NSString stringWithFormat:L(@"Line %ld "), (long)issue.line] : @"";
         [lines addObject:[NSString stringWithFormat:@"%@%@%@", prefix, where, issue.message]];
         // 一屏放不下就没人看了，剩下的等改完这批再报。
         if (lines.count >= 12) {
-            [lines addObject:[NSString stringWithFormat:@"…另有 %lu 条",
+            [lines addObject:[NSString stringWithFormat:L(@"…and %lu more"),
                 (unsigned long)(issues.count - lines.count + 1)]];
             break;
         }
     }
     NSAlert *alert = [NSAlert new];
     if (blocking) {
-        alert.messageText = @"还不能保存";
+        alert.messageText = L(@"Can't Save Yet");
     } else {
-        alert.messageText = issues.count > 0 ? @"已保存，但有几处不会生效" : @"已保存";
+        alert.messageText = issues.count > 0 ? L(@"Saved, but Some Lines Won't Be Used") : L(@"Saved");
     }
     alert.informativeText = [lines componentsJoinedByString:@"\n"];
     alert.alertStyle = blocking ? NSAlertStyleWarning : NSAlertStyleInformational;
-    [alert addButtonWithTitle:@"好"];
+    [alert addButtonWithTitle:L(@"OK")];
     [alert runModal];
     if (blocking) {
         [self showStatus:restored.count > 0 ?
-            @"标签已恢复，本次未保存；请检查后再保存一次。" :
-            @"有必须改的地方，还没保存。" warning:YES];
+            L(@"Tags restored, nothing saved yet. Check and save again.") :
+            L(@"Some problems must be fixed before saving.") warning:YES];
     }
 }
 
@@ -448,12 +448,12 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     }
     NSString *text = PetPhraseForTagInText(tag, draft, [self sampleSlots]);
     if (text.length == 0) {
-        [self showStatus:[NSString stringWithFormat:@"[%@] 里没有能说的句子。", tag] warning:YES];
+        [self showStatus:[NSString stringWithFormat:L(@"[%@] has no usable lines."), tag] warning:YES];
         return;
     }
     if (PetPhrasesSpeakHandler) PetPhrasesSpeakHandler(text);
-    [self showStatus:[NSString stringWithFormat:@"试说：%@%@", text,
-        fellBack ? @"（这一节来自通用台词）" : @""] warning:NO];
+    [self showStatus:[NSString stringWithFormat:L(@"Trying: %1$@%2$@"), text,
+        fellBack ? L(@" (from the shared lines)") : @""] warning:NO];
 }
 
 // 预览用的假数据。用真实数据的话，没在跑 agent 时 {toolName} 之类全是空的，
@@ -484,14 +484,14 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     if (defaults.length == 0) return nil;
 
     NSString *petName = self.scopePetID.length > 0 ?
-        [self displayNameForPetID:self.scopePetID] : @"这只宠物";
+        [self displayNameForPetID:self.scopePetID] : L(@"this pet");
     NSMutableString *text = [NSMutableString stringWithFormat:
-        @"# ↓↓↓ %@ 的专属台词。下面整份都是注释行，未生效状态 ↓↓↓\n"
+        L(@"# ↓↓↓ Lines just for %1$@. Everything below is commented out and inactive ↓↓↓\n"
         "#\n"
-        "# 想让某个情境归 %@ 自己说：把对应标签取消注释后配置对应台词即可\n"
-        "# 开启标签但无台词配置则没有任何台词互动\n"
-        "# 未开启标签则会命中通用台词\n"
-        "\n", petName, petName];
+        "# To give %1$@ its own lines for a situation, uncomment that tag and write lines under it\n"
+        "# An uncommented tag with no lines keeps the pet quiet in that situation\n"
+        "# Tags left commented out fall back to the shared lines\n"
+        "\n"), petName];
 
     for (NSString *line in [defaults componentsSeparatedByString:@"\n"]) {
         // 已经是注释的行不再叠一层 #，双井号只是噪音。空行保持空行，
@@ -505,17 +505,16 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
 - (void)fillFromDefault:(id)sender {
     NSString *text = [self commentedDefaultText];
     if (text.length == 0) {
-        [self showStatus:@"找不到默认台词文件。" warning:YES];
+        [self showStatus:L(@"Default lines file not found.") warning:YES];
         return;
     }
     // 空白页直接填，不打断——那正是这个按钮存在的理由。已经写了东西才问一句。
     if ((self.textView.string ?: @"").length > 0) {
         NSAlert *alert = [NSAlert new];
-        alert.messageText = @"覆盖这一页？";
-        alert.informativeText = @"这一页现在的内容会被整份默认台词替换（全部是注释状态）。"
-            "还没保存，可以按 ⌘Z 撤销。";
-        [alert addButtonWithTitle:@"覆盖"];
-        [alert addButtonWithTitle:@"取消"];
+        alert.messageText = L(@"Overwrite This Page?");
+        alert.informativeText = L(@"This page will be replaced with the full default lines (all commented out). Nothing is saved yet; ⌘Z undoes it.");
+        [alert addButtonWithTitle:L(@"Overwrite")];
+        [alert addButtonWithTitle:L(@"Cancel")];
         if ([alert runModal] != NSAlertFirstButtonReturn) return;
     }
     // 走 shouldChangeTextInRange: 而不是直接设 string，这样这一步能被 ⌘Z 撤销。
@@ -523,8 +522,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     if (![self.textView shouldChangeTextInRange:all replacementString:text]) return;
     [self.textView.textStorage replaceCharactersInRange:all withString:text];
     [self.textView didChangeText];
-    [self showStatus:@"已填入默认台词，整份都是注释、还不生效。"
-        "把想改的那一节行首的 # 去掉，它才归这只宠物管。" warning:NO];
+    [self showStatus:L(@"Default lines inserted, all commented out and inactive. Remove the # in front of a section to make it this pet's own.") warning:NO];
 }
 
 #pragma mark - 恢复默认 / 清空
@@ -533,12 +531,12 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     NSAlert *alert = [NSAlert new];
     // 专属词库的"默认状态"就是空白：清空 = 这只宠物全部回落到通用台词。
     // 拿默认词库去填它是错的——那等于把 22 个小节全部标成"专属接管"，再也不会回落。
-    alert.messageText = self.petScope ? @"清空这只宠物的专属台词？" : @"恢复默认台词？";
+    alert.messageText = self.petScope ? L(@"Clear This Pet's Lines?") : L(@"Restore Default Lines?");
     alert.informativeText = self.petScope ?
-        @"清空之后，这只宠物说的全部回到通用台词。还没保存，可以按 ⌘Z 撤销。" :
-        @"编辑器里的内容会被默认台词替换。还没保存，可以按 ⌘Z 撤销。";
-    [alert addButtonWithTitle:self.petScope ? @"清空" : @"恢复"];
-    [alert addButtonWithTitle:@"取消"];
+        L(@"After clearing, this pet goes back to the shared lines. Nothing is saved yet; ⌘Z undoes it.") :
+        L(@"The editor content will be replaced with the default lines. Nothing is saved yet; ⌘Z undoes it.");
+    [alert addButtonWithTitle:self.petScope ? L(@"Clear") : L(@"Restore")];
+    [alert addButtonWithTitle:L(@"Cancel")];
     if ([alert runModal] != NSAlertFirstButtonReturn) return;
 
     NSString *text = @"";
@@ -546,7 +544,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
         text = [NSString stringWithContentsOfFile:PetPhrasesDefaultFilePath()
             encoding:NSUTF8StringEncoding error:nil];
         if (text.length == 0) {
-            [self showStatus:@"找不到默认台词文件。" warning:YES];
+            [self showStatus:L(@"Default lines file not found.") warning:YES];
             return;
         }
     }
@@ -555,8 +553,8 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     if (![self.textView shouldChangeTextInRange:all replacementString:text]) return;
     [self.textView.textStorage replaceCharactersInRange:all withString:text];
     [self.textView didChangeText];
-    [self showStatus:self.petScope ? @"已清空，按保存才会写进文件。" :
-        @"已填入默认台词，按保存才会写进文件。" warning:NO];
+    [self showStatus:self.petScope ? L(@"Cleared. Click Save to write it to the file.") :
+        L(@"Default lines inserted. Click Save to write them to the file.") warning:NO];
 }
 
 @end

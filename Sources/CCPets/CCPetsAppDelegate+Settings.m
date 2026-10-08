@@ -60,8 +60,8 @@
 - (void)showImportedCodexPetsAlert:(NSUInteger)imported {
     [NSApp activateIgnoringOtherApps:YES];
     NSAlert *alert = [NSAlert new];
-    alert.messageText = @"已导入 Codex 素材";
-    [alert addButtonWithTitle:@"好"];
+    alert.messageText = L(@"Codex Pets Imported");
+    [alert addButtonWithTitle:L(@"OK")];
     [alert runModal];
 }
 - (NSString *)notificationKeyForTag:(NSInteger)tag {
@@ -196,10 +196,31 @@
             } else {
                 sender.state = NSControlStateValueOff;
                 NSString *message = error.localizedDescription ?:
-                    @"请在“系统设置 → 通知 → CC Pets”中允许通知后重试。";
-                [self showAlertWithTitle:@"无法启用系统通知" message:message];
+                    L(@"Allow notifications in System Settings → Notifications → CC Pets, then try again.");
+                [self showAlertWithTitle:L(@"Can't Enable Notifications") message:message];
             }
         });
     }];
+}
+// 菜单每次右键现建，切换后下次打开就是新语言；这里只刷新常驻的界面。
+- (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender {
+    NSString *preference = [sender.representedObject isKindOfClass:NSString.class] ?
+        sender.representedObject : CCPetsLanguageSystem;
+    if ([preference isEqualToString:CCPetsLanguagePreference()]) return;
+    CCPetsSetLanguagePreference(preference);
+}
+- (void)languageDidChange:(NSNotification *)notification {
+    PetPhrasesAdoptLanguageDefaults();
+    NSApp.mainMenu = nil;
+    [self installEditMenu];
+    self.quotaView.needsDisplay = YES;
+    // 状态卡标题和副行都是按状态现算的，按最后的状态重排一遍。工具名没留，
+    // 工具态会暂时退成"正在使用工具"，下一条事件就会补回来。
+    if (self.hasAgentStatus && self.lastStatusState.length > 0) {
+        [self applyStatusPresentationForState:self.lastStatusState
+            provider:self.lastStatusProvider ?: @"Agent" tool:@""];
+    }
+    // 正在显示的碎碎念是旧语言的，收起即可，下一句自然是新语言。更新提示由更新逻辑自己重排。
+    if (!self.updateBubbleVisible) [self hideSpeechBubble];
 }
 @end

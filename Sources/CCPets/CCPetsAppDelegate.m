@@ -58,7 +58,7 @@
     NSAlert *alert = [NSAlert new];
     alert.messageText = title;
     alert.informativeText = message;
-    [alert addButtonWithTitle:@"好"];
+    [alert addButtonWithTitle:L(@"OK")];
     [alert runModal];
 }
 // 建一个只有"编辑"的主菜单。
@@ -76,19 +76,19 @@
 - (void)installEditMenu {
     if (NSApp.mainMenu) return;
     NSMenu *mainMenu = [NSMenu new];
-    NSMenuItem *editItem = [mainMenu addItemWithTitle:@"编辑" action:nil keyEquivalent:@""];
-    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"编辑"];
+    NSMenuItem *editItem = [mainMenu addItemWithTitle:L(@"Edit") action:nil keyEquivalent:@""];
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:L(@"Edit")];
 
     NSArray<NSArray *> *entries = @[
-        @[@"撤销", NSStringFromSelector(@selector(undo:)), @"z", @(NSEventModifierFlagCommand)],
-        @[@"重做", NSStringFromSelector(@selector(redo:)), @"z",
+        @[L(@"Undo"), NSStringFromSelector(@selector(undo:)), @"z", @(NSEventModifierFlagCommand)],
+        @[L(@"Redo"), NSStringFromSelector(@selector(redo:)), @"z",
           @(NSEventModifierFlagCommand | NSEventModifierFlagShift)],
         @[@"-", @"", @"", @0],
-        @[@"剪切", NSStringFromSelector(@selector(cut:)), @"x", @(NSEventModifierFlagCommand)],
-        @[@"拷贝", NSStringFromSelector(@selector(copy:)), @"c", @(NSEventModifierFlagCommand)],
-        @[@"粘贴", NSStringFromSelector(@selector(paste:)), @"v", @(NSEventModifierFlagCommand)],
-        @[@"删除", NSStringFromSelector(@selector(delete:)), @"", @0],
-        @[@"全选", NSStringFromSelector(@selector(selectAll:)), @"a", @(NSEventModifierFlagCommand)],
+        @[L(@"Cut"), NSStringFromSelector(@selector(cut:)), @"x", @(NSEventModifierFlagCommand)],
+        @[L(@"Copy"), NSStringFromSelector(@selector(copy:)), @"c", @(NSEventModifierFlagCommand)],
+        @[L(@"Paste"), NSStringFromSelector(@selector(paste:)), @"v", @(NSEventModifierFlagCommand)],
+        @[L(@"Delete"), NSStringFromSelector(@selector(delete:)), @"", @0],
+        @[L(@"Select All"), NSStringFromSelector(@selector(selectAll:)), @"a", @(NSEventModifierFlagCommand)],
     ];
     for (NSArray *entry in entries) {
         if ([entry[0] isEqualToString:@"-"]) {
@@ -108,6 +108,12 @@
     // 台词全在这个文件里，代码里没有第二份。首次启动先从默认词库拷一份出来，
     // 否则新装的桌宠一句话都不会说。
     PetPhrasesEnsureFileExists();
+    // 没改过的默认台词跟着界面语言走（例如英文系统上从旧版升级上来的用户）。
+    PetPhrasesAdoptLanguageDefaults();
+    // Node 端（cc-pets、hook、CC Bridge）读这个文件决定输出语言。
+    CCPetsWriteLanguageFile();
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(languageDidChange:)
+        name:CCPetsLanguageDidChangeNotification object:nil];
     if (![NSUserDefaults.standardUserDefaults boolForKey:PetInteractionPhrasesV1MigratedKey] &&
         PetPhrasesEnsureInteractionSections()) {
         [NSUserDefaults.standardUserDefaults setBool:YES
@@ -156,7 +162,7 @@
     NSImage *image = LoadPetSpriteImage(spritePath, NSMakeSize(140, 150),
         [selectedOption[@"spriteRowCount"] integerValue] ?: 9);
     if (!image) {
-        fprintf(stderr, "无法读取桌宠素材: %s\n", spritePath.UTF8String);
+        fprintf(stderr, "%s\n", [NSString stringWithFormat:L(@"Can't read the pet sprite: %@"), spritePath].UTF8String);
         [NSApp terminate:nil];
         return;
     }
@@ -234,7 +240,7 @@
     self.updateBadgeArrow = [[NSImageView alloc] initWithFrame:updateBadge.bounds];
     self.updateBadgeArrow.imageScaling = NSImageScaleNone;
     self.updateBadgeArrow.image = [[NSImage imageWithSystemSymbolName:@"arrow.up"
-        accessibilityDescription:@"有新版本"] imageWithSymbolConfiguration:
+        accessibilityDescription:L(@"Update available")] imageWithSymbolConfiguration:
         [NSImageSymbolConfiguration configurationWithPointSize:11 weight:NSFontWeightBold]];
     [updateBadge addSubview:self.updateBadgeArrow];
     CCPetsStatusClickButton *updateClick = [[CCPetsStatusClickButton alloc]
@@ -316,7 +322,7 @@
     self.statusIconButton.wantsLayer = YES;
     self.statusIconButton.layer.cornerRadius = 17;
     self.statusIconButton.layer.masksToBounds = YES;
-    self.statusIconButton.toolTip = @"查看最近 Agent 会话与 CC Bridge 消息";
+    self.statusIconButton.toolTip = L(@"Recent Agent sessions and CC Bridge messages");
     self.statusIconButton.target = self;
     self.statusIconButton.action = @selector(showAgentSessionsMenu:);
     [self.statusGlass.contentView addSubview:self.statusIconButton];
@@ -330,7 +336,7 @@
     statusClick.transparent = YES;
     statusClick.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     statusClick.title = @"";
-    statusClick.toolTip = @"返回触发此状态的 Agent 终端";
+    statusClick.toolTip = L(@"Go back to the Agent's terminal");
     statusClick.target = self;
     statusClick.action = @selector(focusLatestAgentTerminal:);
     self.statusClickButton = statusClick;

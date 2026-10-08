@@ -2,6 +2,7 @@
 // 共享常量、共用的小控件类，以及跨文件调用的方法声明。只给 AppDelegate 自己的实现文件 import。
 #import "CCPetsAppDelegate.h"
 #import "CCPetsPaths.h"
+#import "CCPetsL10n.h"
 #import "CCPetsVersion.h"
 #import "CCPetsEvents.h"
 #import "CCPetsQuotaHistory.h"
@@ -145,6 +146,8 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 - (void)setPetInteractionInterval:(NSMenuItem *)sender;
 - (void)setSpeechFrequency:(NSMenuItem *)sender;
 - (void)editPhrasesFile:(id)sender;
+- (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender;
+- (void)languageDidChange:(NSNotification *)notification;
 - (void)toggleNotification:(NSButton *)sender;
 @end
 

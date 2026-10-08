@@ -6,7 +6,7 @@
 
 static BOOL Expect(NSString *label, NSString *body, NSArray<NSString *> *expected, BOOL expectTruncated) {
     BOOL truncated = NO;
-    NSArray<NSString *> *actual = ReleaseNoteHighlights(body, 3, 20, &truncated);
+    NSArray<NSString *> *actual = ReleaseNoteHighlightsForLanguage(body, @"zh-Hans", 3, 20, &truncated);
     if ([actual isEqualToArray:expected] && truncated == expectTruncated) return YES;
     NSLog(@"%@: 得到 %@ truncated=%d，期望 %@ truncated=%d", label, actual, truncated,
         expected, expectTruncated);

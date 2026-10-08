@@ -1,4 +1,5 @@
 #import "QuotaDashboardView.h"
+#import "CCPetsL10n.h"
 
 const CGFloat QuotaLogicalWidth = 760;
 const CGFloat QuotaLogicalHeight = 590;
@@ -116,14 +117,14 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (NSDictionary *)comparisonForCurrent:(double)current previous:(double)previous
     color:(NSColor *)color {
     if (previous <= 0) {
-        return @{ @"text": current > 0 ? @"较上月同期 新增" : @"较上月同期 持平",
+        return @{ @"text": current > 0 ? L(@"vs last month: new") : L(@"vs last month: flat"),
             @"color": current > 0 ? color : self.secondaryColor };
     }
     double change = (current - previous) * 100.0 / previous;
     if (fabs(change) < 0.05) {
-        return @{ @"text": @"较上月同期 持平", @"color": self.secondaryColor };
+        return @{ @"text": L(@"vs last month: flat"), @"color": self.secondaryColor };
     }
-    return @{ @"text": [NSString stringWithFormat:@"较上月同期 %@%.1f%%",
+    return @{ @"text": [NSString stringWithFormat:L(@"vs last month %@%.1f%%"),
         change > 0 ? @"↑" : @"↓", fabs(change)], @"color": color };
 }
 // 输入取 total - output，而不是把几个 input_* 字段加起来：两家的包含关系是相反的。
@@ -177,8 +178,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 原生玻璃下字号更大，完整说明在单元格里放不下，只留起始日期。
     formatter.dateFormat = self.usesLiquidGlass ? @"M/d" : @"yyyy-MM-dd";
     NSString *date = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:start.doubleValue]];
-    return self.usesLiquidGlass ? [NSString stringWithFormat:@"近 7 天累计用量（%@ 起）", date]
-        : [NSString stringWithFormat:@"近 7 天累计用量（%@ 至今·滚动记录）", date];
+    return self.usesLiquidGlass ? [NSString stringWithFormat:L(@"Last 7 days (since %@)"), date]
+        : [NSString stringWithFormat:L(@"Last 7 days (since %@, rolling)"), date];
 }
 // 在线 = 这一家还有活着的客户端，和有没有额度数据无关：额度会一直缓存着，
 // 拿它当在线信号会恒亮。身份不明的老客户端无法归属到某一家，保守地都算在线。
@@ -276,12 +277,12 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return used ? @(fmax(0, fmin(100, used.doubleValue))) : nil;
 }
 - (NSString *)refreshAgeText {
-    if (self.lastUpdatedAt <= 0) return @"等待数据";
+    if (self.lastUpdatedAt <= 0) return L(@"Waiting for data");
     NSTimeInterval age = fmax(0, NSDate.date.timeIntervalSince1970 - self.lastUpdatedAt);
-    if (age < 5) return @"刚刚";
-    if (age < 60) return [NSString stringWithFormat:@"%.0f 秒前", age];
-    if (age < 3600) return [NSString stringWithFormat:@"%.0f 分钟前", floor(age / 60)];
-    return [NSString stringWithFormat:@"%.0f 小时前", floor(age / 3600)];
+    if (age < 5) return L(@"just now");
+    if (age < 60) return [NSString stringWithFormat:L(@"%.0fs ago"), age];
+    if (age < 3600) return [NSString stringWithFormat:L(@"%.0fm ago"), floor(age / 60)];
+    return [NSString stringWithFormat:L(@"%.0fh ago"), floor(age / 3600)];
 }
 // 原生玻璃下背景可以是任意壁纸，面板按 0.58 缩放后小字只有 6–7pt，细笔画很容易被
 // 背后的纹理吃掉。所以 liquid 模式统一收紧文字：小字放大一点、加粗一级；灰字不低于
@@ -304,7 +305,13 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (void)drawText:(NSString *)text inRect:(NSRect)rect size:(CGFloat)size
     weight:(NSFontWeight)weight color:(NSColor *)color dotColor:(NSColor *)dotColor {
     if (!self.usesLiquidGlass) {
-        [text drawInRect:rect withAttributes:[self textAttributesWithSize:size color:color weight:weight]];
+        NSMutableDictionary *attributes = [[self textAttributesWithSize:size color:color
+            weight:weight] mutableCopy];
+        NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
+        style.lineBreakMode = NSLineBreakByTruncatingTail;
+        attributes[NSParagraphStyleAttributeName] = style;
+        [text drawInRect:rect withAttributes:[self attributes:attributes fittingText:text
+            inWidth:NSWidth(rect)]];
         return;
     }
     NSMutableDictionary *attributes = [[self textAttributesWithSize:size color:color
@@ -325,7 +332,24 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSRect textRect = rect;
     textRect.origin.x += diameter + 6;
     textRect.size.width -= diameter + 6;
-    [text drawInRect:textRect withAttributes:attributes];
+    [text drawInRect:textRect withAttributes:[self attributes:attributes fittingText:text
+        inWidth:NSWidth(textRect)]];
+}
+// 译文长短差得多，固定宽度的格子迟早有放不下的语言。放不下时先把字号往下收，最多收 2pt
+// （liquid 下即从 14 收到 12）——比截成"…"好认；还放不下才交给截断。放得下就原样返回，
+// 中文和多数英文不受影响。
+- (NSDictionary *)attributes:(NSDictionary *)attributes fittingText:(NSString *)text
+    inWidth:(CGFloat)width {
+    NSFont *font = attributes[NSFontAttributeName];
+    if (!font || text.length == 0 || [text sizeWithAttributes:attributes].width <= width) {
+        return attributes;
+    }
+    NSMutableDictionary *fitted = [attributes mutableCopy];
+    for (CGFloat size = font.pointSize - 0.5; size >= font.pointSize - 2; size -= 0.5) {
+        fitted[NSFontAttributeName] = [NSFont fontWithDescriptor:font.fontDescriptor size:size];
+        if ([text sizeWithAttributes:fitted].width <= width) break;
+    }
+    return fitted;
 }
 // 风险提示：原生玻璃下是圆点 + 白字；经典主题照旧画彩色字。
 - (void)drawTip:(NSString *)text inRect:(NSRect)rect color:(NSColor *)color {
@@ -488,7 +512,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed
     color:(NSColor *)providerColor {
     if (!currentUsed) {
-        return @{@"label": @"数据不足", @"tip": @"等待官方额度数据",
+        return @{@"label": L(@"Not enough data"), @"tip": L(@"Waiting for data"),
                  @"color": self.secondaryColor};
     }
     NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class]
@@ -517,10 +541,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 四个档位从轻到重排成阶梯，后面的仲裁只在这上面挪档位，不再各写一套 label/tip/color。
     double remaining = 100.0 - currentUsed.doubleValue;
     NSArray<NSArray *> *ladder = @[
-        @[@"充足", @"当前额度余量充足", NSColor.systemGreenColor],
-        @[@"平稳", @"当前额度余量平稳", providerColor],
-        @[@"需关注", @"建议关注额度余量", NSColor.systemOrangeColor],
-        @[@"高风险", @"当前额度余量较低", NSColor.systemRedColor]
+        @[L(@"Plenty"), L(@"Plenty of quota left"), NSColor.systemGreenColor],
+        @[L(@"Steady"), L(@"Quota is holding steady"), providerColor],
+        @[L(@"Watch"), L(@"Keep an eye on your quota"), NSColor.systemOrangeColor],
+        @[L(@"At risk"), L(@"Quota is running low"), NSColor.systemRedColor]
     ];
     NSUInteger baseRank = remaining >= 70 ? 0
         : (remaining >= 40 ? 1 : (remaining >= 15 ? 2 : 3));
@@ -531,13 +555,13 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     if (!isnan(projectedRemaining)) {
         if (remaining <= 5 || projectedRemaining < 0) {
             projectedRank = 3;
-            projectedTip = @"预计重置前额度用尽";
+            projectedTip = L(@"Runs out early");
         } else if (projectedRemaining < 10) {
             projectedRank = 2;
-            projectedTip = @"建议减少高消耗任务";
+            projectedTip = L(@"Ease off a bit");
         } else if (projectedRemaining >= 30) {
             projectedRank = 0;
-            projectedTip = @"按当前节奏额度充足";
+            projectedTip = L(@"Plenty to spare");
         }
     }
 
@@ -555,7 +579,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 
     NSString *label = ladder[rank][0];
     NSString *tip = ladder[rank][1];
-    if (demotedByFact) tip = @"消耗偏快，注意节奏";
+    if (demotedByFact) tip = L(@"Burning fast");
     else if (projectedRank >= 0 && rank == (NSUInteger)projectedRank) tip = projectedTip;
     return @{@"label": label, @"tip": tip, @"color": ladder[rank][2]};
 }
@@ -627,8 +651,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         withAttributes:[self textAttributesWithSize:22 color:primary weight:NSFontWeightBold]];
     // 四态：额度被拒 → 额度受限（百分比仍是上次官方快照）；没有任何额度数据 → 等待数据；
     // 有数据但客户端已退出 → 离线；两者都有 → 在线。
-    NSString *statusText = (!apiMode && exhausted) ? @"额度受限"
-        : (!hasData ? @"等待数据" : (online ? @"● 在线" : @"离线"));
+    NSString *statusText = (!apiMode && exhausted) ? L(@"Rate limited")
+        : (!hasData ? L(@"Waiting for data") : (online ? L(@"● Online") : L(@"Offline")));
     NSColor *statusColor = (!apiMode && exhausted) ? NSColor.systemOrangeColor
         : (online && hasData ? NSColor.systemGreenColor : secondary);
     if (self.usesLiquidGlass) {
@@ -648,12 +672,12 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     if (apiMode) {
         CGFloat callX = NSMinX(card) + 214;
         CGFloat tokenX = NSMinX(card) + 394;
-        [@"本月调用" drawInRect:NSMakeRect(callX, NSMinY(card) + 114, 130, 20)
+        [L(@"Calls this month") drawInRect:NSMakeRect(callX, NSMinY(card) + 114, 130, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
-        [@"本月消耗" drawInRect:NSMakeRect(tokenX, NSMinY(card) + 114, 130, 20)
+        [L(@"Tokens this month") drawInRect:NSMakeRect(tokenX, NSMinY(card) + 114, 130, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
 
-        NSString *requests = [NSString stringWithFormat:@"%@ 次",
+        NSString *requests = [NSString stringWithFormat:L(@"%@ calls"),
             [self formattedRequestCount:monthTokens ?: @{}]];
         [requests drawInRect:NSMakeRect(callX, NSMinY(card) + 75, 150, 34)
             withAttributes:[self textAttributesWithSize:24 color:primary weight:NSFontWeightBold]];
@@ -667,20 +691,20 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         NSNumber *requestCount = [monthTokens[@"request_count"] isKindOfClass:NSNumber.class]
             ? monthTokens[@"request_count"] : nil;
         NSString *average = requestCount
-            ? [NSString stringWithFormat:@"日均 %@ 次",
+            ? [NSString stringWithFormat:L(@"%@/day avg"),
                 [NSNumberFormatter localizedStringFromNumber:
                     @(llround(requestCount.doubleValue / elapsedDays))
                     numberStyle:NSNumberFormatterDecimalStyle]]
-            : @"日均 --";
+            : L(@"--/day avg");
         [average drawInRect:NSMakeRect(callX, NSMinY(card) + 48, 150, 20)
             withAttributes:[self textAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
 
         // 这里不再重复"本月消耗"的合计：输入与输出各自的量级才是按量计费时要看的东西，
         // 合计随时可以由这两个数得到，而它原先占掉了最显眼的一行。
         NSArray<NSDictionary *> *splits = @[
-            @{@"label": @"输入", @"value": [self formattedTokenSplit:monthTokens ?: @{}
+            @{@"label": L(@"Input"), @"value": [self formattedTokenSplit:monthTokens ?: @{}
                 wantsOutput:NO], @"y": @(NSMinY(card) + 76)},
-            @{@"label": @"输出", @"value": [self formattedTokenSplit:monthTokens ?: @{}
+            @{@"label": L(@"Output"), @"value": [self formattedTokenSplit:monthTokens ?: @{}
                 wantsOutput:YES], @"y": @(NSMinY(card) + 48)}
         ];
         for (NSDictionary *split in splits) {
@@ -709,17 +733,17 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         CGFloat trendX = NSMinX(card) + 564;
         // 「按日 Token」跟在标题后面，与标题同一行：它是标题的限定语，单独占一行既浪费
         // 竖向空间，也把曲线和脚注挤得没法与左边两列对齐。
-        [@"本月趋势" drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
+        [L(@"Month") drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
         if (self.usesLiquidGlass) {
-            [self drawText:@"按日 Token" inRect:NSMakeRect(trendX + 62, NSMinY(card) + 114, 96, 20)
+            [self drawText:L(@"Daily tokens") inRect:NSMakeRect(trendX + 62, NSMinY(card) + 114, 96, 20)
                 size:11 weight:NSFontWeightSemibold color:color dotColor:color];
         } else {
             NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:color
                 weight:NSFontWeightSemibold];
             NSRect pill = NSMakeRect(trendX + 59, NSMinY(card) + 113, 76, 22);
             [self fillRoundedRect:pill radius:11 color:[color colorWithAlphaComponent:0.14]];
-            [@"按日 Token" drawInRect:NSInsetRect(pill, 9, 3) withAttributes:pillAttributes];
+            [L(@"Daily tokens") drawInRect:NSInsetRect(pill, 9, 3) withAttributes:pillAttributes];
         }
         NSRect curveRect = NSMakeRect(trendX, NSMinY(card) + 62, 135, 38);
         [self drawMonthlyTokenCurve:monthDaily inRect:curveRect color:color];
@@ -733,17 +757,17 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             todayTotals = totals;
         }
         NSString *peakText = recordedDays > 0
-            ? [NSString stringWithFormat:@"峰值 %@", [self formattedTokenValue:peak]] : @"峰值 --";
+            ? [NSString stringWithFormat:L(@"Peak %@"), [self formattedTokenValue:peak]] : L(@"Peak --");
         NSString *todayText = todayTotals
-            ? [NSString stringWithFormat:@"今日 %@",
-                [self formattedTokenValue:[todayTotals[@"total_tokens"] doubleValue]]] : @"今日 --";
+            ? [NSString stringWithFormat:L(@"Today %@"),
+                [self formattedTokenValue:[todayTotals[@"total_tokens"] doubleValue]]] : L(@"Today --");
         [peakText drawInRect:NSMakeRect(trendX, NSMinY(card) + 42, 74, 16)
             withAttributes:[self textAttributesWithSize:10 color:secondary weight:NSFontWeightRegular]];
         [todayText drawInRect:NSMakeRect(trendX + 61, NSMinY(card) + 42, 74, 16)
             withAttributes:[self rightAlignedTextAttributesWithSize:10 color:secondary
                 weight:NSFontWeightRegular]];
         // 与左边两列的"较上月同期"同一条基线（+22），三列脚注才在一条水平线上。
-        [[NSString stringWithFormat:@"本月已记录 %lu / %lu 天",
+        [[NSString stringWithFormat:L(@"%lu / %lu days recorded"),
             (unsigned long)recordedDays, (unsigned long)monthDaily.count]
             drawInRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18)
             withAttributes:[self textAttributesWithSize:11 color:color weight:NSFontWeightMedium]];
@@ -753,12 +777,12 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 层级：官方剩余额度是订阅限额的权威值，占主位；本机 Token 是参考量，降一级并用
     // 强调色区分；重置时间最小。反过来会让最抢眼的数字恰好是最不该照着做决定的那个。
     NSArray<NSDictionary *> *windows = @[
-        @{@"x": @(NSMinX(card) + 214), @"title": @"官方 5 小时窗口", @"quota": five ?: @{},
+        @{@"x": @(NSMinX(card) + 214), @"title": L(@"Official 5h window"), @"quota": five ?: @{},
           @"tokens": fiveTokens ?: @{}, @"used": fiveUsed ?: NSNull.null,
-          @"rolling": @"官方额度待刷新"},
-        @{@"x": @(NSMinX(card) + 394), @"title": @"官方 7 天窗口", @"quota": week ?: @{},
+          @"rolling": L(@"Waiting for refresh")},
+        @{@"x": @(NSMinX(card) + 394), @"title": L(@"Official 7d window"), @"quota": week ?: @{},
           @"tokens": weekTokens ?: @{}, @"used": weekUsed ?: NSNull.null,
-          @"rolling": @"官方额度待刷新"}
+          @"rolling": L(@"Waiting for refresh")}
     ];
     for (NSDictionary *window in windows) {
         CGFloat x = [window[@"x"] doubleValue];
@@ -777,7 +801,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             withAttributes:valueAttributes];
         // 没有数字可标时不给口径标签："-- 剩余"看起来像一个真实的 0 值，而实际上是
         // 官方快照待刷新。下方的状态文字会说明它为何不可用。
-        NSString *valueLabel = !used ? @"" : (exhausted ? @"快照" : @"剩余");
+        NSString *valueLabel = !used ? @"" : (exhausted ? L(@"Snapshot") : L(@"Left"));
         if (valueLabel.length > 0) {
             [valueLabel drawInRect:NSMakeRect(x + valueWidth + 7, NSMinY(card) + 78, 60, 20)
                 withAttributes:[self textAttributesWithSize:12 color:secondary
@@ -787,13 +811,13 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         // 说清楚这一行的口径，比留一个 `--` 让人以为是渲染坏了要好。
         NSString *resetValue = [self resetText:window[@"quota"]];
         NSString *reset = [resetValue isEqualToString:@"--"]
-            ? window[@"rolling"] : [NSString stringWithFormat:@"重置时间 %@", resetValue];
+            ? window[@"rolling"] : [NSString stringWithFormat:L(@"Resets %@"), resetValue];
         [reset drawInRect:NSMakeRect(x, NSMinY(card) + 46, 150, 18)
             withAttributes:[self textAttributesWithSize:11 color:secondary weight:NSFontWeightRegular]];
         // 原生玻璃下字更大、前面还有圆点，这一栏放不下"Token"一词；脚注里已说明
         // Token 即本机统计的已用量。
         NSString *tokenText = [NSString stringWithFormat:
-            self.usesLiquidGlass ? @"已用 %@" : @"已用 Token %@",
+            self.usesLiquidGlass ? L(@"Used %@") : L(@"Used tokens %@"),
             [self formattedTokenCount:window[@"tokens"]]];
         [self drawText:tokenText inRect:NSMakeRect(x, NSMinY(card) + 22, 150, 22) size:14
             weight:NSFontWeightSemibold color:color dotColor:color];
@@ -801,7 +825,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 
     CGFloat trendX = NSMinX(card) + 564;
     // 与 API 卡同一套骨架：标题行带 pill、中间曲线、脚注和左边两列齐平。
-    [@"使用趋势" drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
+    [L(@"Trend") drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
         withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
     NSArray<NSDictionary *> *history = [name isEqualToString:@"Codex"]
         ? self.codexHistory : self.claudeHistory;
@@ -813,7 +837,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 矛盾。所以只有 7 天窗口自己确实没有百分比时才退回"待刷新"。
     BOOL weekUnknown = exhausted && currentUsed == nil;
     NSDictionary *pace = weekUnknown
-        ? @{ @"label": @"待刷新", @"tip": @"等待官方额度刷新",
+        ? @{ @"label": L(@"Stale"), @"tip": L(@"Awaiting refresh"),
              @"color": NSColor.systemOrangeColor }
         : [self paceStatusForQuota:week currentUsed:currentUsed color:color];
     NSColor *paceColor = pace[@"color"];
@@ -822,7 +846,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSString *paceTip = pace[@"tip"];
     NSColor *tipColor = paceColor;
     if (exhausted && !weekUnknown) {
-        paceTip = @"官方额度受限，等待重置";
+        paceTip = L(@"Limited until reset");
         tipColor = NSColor.systemOrangeColor;
     }
     if (self.usesLiquidGlass) {
@@ -844,9 +868,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     double peak = 0;
     for (NSDictionary *point in points) peak = fmax(peak, [point[@"used"] doubleValue]);
     NSString *peakText = points.count > 0
-        ? [NSString stringWithFormat:@"最高 %.0f%%", peak] : @"最高 --";
+        ? [NSString stringWithFormat:L(@"Max %.0f%%"), peak] : L(@"Max --");
     NSString *currentText = currentUsed
-        ? [NSString stringWithFormat:@"当前 %.0f%%", currentUsed.doubleValue] : @"当前 --";
+        ? [NSString stringWithFormat:L(@"Now %.0f%%"), currentUsed.doubleValue] : L(@"Now --");
     [peakText drawInRect:NSMakeRect(trendX, NSMinY(card) + 42, 72, 16)
         withAttributes:[self textAttributesWithSize:10 color:secondary weight:NSFontWeightRegular]];
     [currentText drawInRect:NSMakeRect(trendX + 66, NSMinY(card) + 42, 69, 16)
@@ -923,20 +947,21 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSColor *agentColor = self.agentStatusColor;
     [@"Agent Usage" drawInRect:NSMakeRect(28, height - 65, 260, 42)
         withAttributes:[self textAttributesWithSize:30 color:primary weight:NSFontWeightBold]];
-    [@"实时状态与滚动用量" drawInRect:NSMakeRect(30, height - 94, self.usesLiquidGlass ? 142 : 130, 22)
+    [L(@"Live status") drawInRect:NSMakeRect(30, height - 94, self.usesLiquidGlass ? 142 : 130, 22)
         withAttributes:[self textAttributesWithSize:14 color:secondary weight:NSFontWeightRegular]];
     [agentColor setFill];
     [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(174, height - 88, 9, 9)] fill];
     NSString *agentText = self.activeAgentCount > 0
-        ? [NSString stringWithFormat:@"%ld 个 Agent 在线", (long)self.activeAgentCount]
-        : @"暂无 Agent 在线";
+        ? [NSString stringWithFormat:self.activeAgentCount != 1 ? L(@"%ld Agents online")
+            : L(@"%ld Agent online"), (long)self.activeAgentCount]
+        : L(@"No Agents online");
     [agentText drawInRect:NSMakeRect(190, height - 95, 160, 22)
         withAttributes:[self textAttributesWithSize:14 color:agentColor weight:NSFontWeightMedium]];
     [self drawSystemMetricsEndingAtX:QuotaLogicalWidth - 28 y:height - 95];
 
     // 用量由定时器自动刷新，面板不再提供手动刷新按钮；右上角只留上次刷新的时间，
     // 与下一行的系统指标右边对齐。放回汇总条里会挤掉一整格 Provider 数据。
-    [[NSString stringWithFormat:@"数据刷新 %@", [self refreshAgeText]]
+    [[NSString stringWithFormat:L(@"Updated %@"), [self refreshAgeText]]
         drawInRect:NSMakeRect(QuotaLogicalWidth - 28 - 200, height - 45, 200, 18)
         withAttributes:[self rightAlignedTextAttributesWithSize:11 color:secondary
             weight:NSFontWeightRegular]];
@@ -970,12 +995,12 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         // 解决的是另一件事——Agent 动画，以及 Claude 额度（statusline 是它唯一的来源）。
         // 把两者写成一句会让人以为不执行 install 卡片就不出现。
         CGFloat noticeTop = height - QuotaHeaderHeight;
-        [@"未检测到 Codex / Claude Code CLI" drawInRect:NSMakeRect(28, noticeTop - 30, 460, 26)
+        [L(@"No Codex / Claude Code CLI detected") drawInRect:NSMakeRect(28, noticeTop - 30, 460, 26)
             withAttributes:[self textAttributesWithSize:17 color:primary weight:NSFontWeightMedium]];
-        [@"安装 Codex 或 Claude Code 后，额度卡会自动出现"
+        [L(@"Quota cards appear once Codex or Claude Code is installed")
             drawInRect:NSMakeRect(28, noticeTop - 52, 560, 20)
             withAttributes:[self textAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
-        [@"重新执行 cc-pets install 可启用 Agent 动画与 Claude 额度采集"
+        [L(@"Run cc-pets install again to enable Agent animations and Claude quota tracking")
             drawInRect:NSMakeRect(28, noticeTop - 72, 560, 18)
             withAttributes:[self textAttributesWithSize:11
                 color:[NSColor colorWithWhite:0.52 alpha:1] weight:NSFontWeightRegular]];
@@ -983,12 +1008,12 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     BOOL hasAPICard = ([visibleProviders containsObject:@"Codex"] && self.codexShowsAPIUsage) ||
         ([visibleProviders containsObject:@"Claude"] && self.claudeShowsAPIUsage);
     NSString *footer = visibleProviders.count == 0
-        ? @"ⓘ  桌宠与系统状态不受影响；额度卡只在检测到对应 CLI 时显示"
+        ? L(@"ⓘ  The pet and system status still work; quota cards only show for detected CLIs")
         : (hasAPICard
-            ? @"ⓘ  API 用量 = 本机会话统计（输入含缓存读写）；环比按上月相同时间进度计算"
+            ? L(@"ⓘ  API usage = local session stats (input includes cache reads/writes); compared with the same point last month")
             : (self.usesLiquidGlass
-                ? @"ⓘ  百分比 = 官方额度剩余；Token = 本机统计已用量（含缓存读写）"
-                : @"ⓘ  百分比 = 官方订阅额度的剩余比例；Token = 本机统计的已用量（输入含缓存读写），两者口径不同"));
+                ? L(@"ⓘ  % = official quota left; tokens = local usage (incl. cache reads/writes)")
+                : L(@"ⓘ  % = share of official plan quota left; tokens = locally counted usage (input incl. cache reads/writes). They measure different things")));
     // 最后一块的底边距面板底 QuotaFooterHeight：脚注与其留约 8pt，底部留白 16pt，
     // 和顶部标题的留白大致对称。
     [footer drawInRect:NSMakeRect(28, 16, 650, 20)
@@ -1017,7 +1042,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 
     NSArray<NSDictionary *> *cells = @[
         @{@"icon": @"◔", @"headerSymbol": @"calendar", @"key": @"today",
-          @"label": @"今日用量"},
+          @"label": L(@"Today")},
         @{@"icon": @"◉", @"headerSymbol": @"calendar.badge.clock", @"key": @"recentWeek",
           @"label": [self recentWeekUsageLabel]}
     ];
@@ -1091,9 +1116,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             [row[@"name"] drawInRect:NSMakeRect(x + 66, nameY, 76, 22)
                 withAttributes:[self textAttributesWithSize:14 color:rowColor
                     weight:NSFontWeightMedium]];
-            [@"输入" drawInRect:NSMakeRect(inputX, labelY, 76, 16)
+            [L(@"Input") drawInRect:NSMakeRect(inputX, labelY, 76, 16)
                 withAttributes:headerAttributes];
-            [@"输出" drawInRect:NSMakeRect(outputX, labelY, 76, 16)
+            [L(@"Output") drawInRect:NSMakeRect(outputX, labelY, 76, 16)
                 withAttributes:headerAttributes];
             NSDictionary *valueAttributes = [self textAttributesWithSize:16 color:primary
                 weight:NSFontWeightBold];

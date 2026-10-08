@@ -13,6 +13,40 @@ Thank you for contributing to CC Pets. Before submitting a change:
 For a substantial feature, open a GitHub Issue before sending a Pull Request so the
 scope can be agreed on first.
 
+## Localization
+
+UI text is written in English in the source, and that text is the key into every
+other language's table:
+
+- Objective-C: wrap user-visible strings in `L(@"…")` (`Sources/CCPets/CCPetsL10n.h`).
+  Use `%1$@` / `%2$@` when a translation needs a different argument order.
+- Node.js: use `t("…", { name })` from `scripts/i18n.mjs` with `{name}` placeholders.
+- zsh: use `cc_pets_t "…" name="$value"` from `scripts/i18n.zsh`. The text must be a
+  literal; put variables in `{name}` placeholders, never directly in the text.
+
+When you add or change an English string, update its key in every table.
+`node scripts/check-l10n.mjs` (also part of `npm test`) reports missing, stale and
+mismatched-placeholder entries for each language.
+
+### Adding a language
+
+Adding a language only adds files; no code changes are needed. For a language `xx`
+(use the macOS identifier, such as `ja` or `zh-Hant`):
+
+1. `Resources/xx.lproj/Localizable.strings`: copy the `zh-Hans` table and translate
+   each value. Set the two metadata entries: `"Language Name"` (the name shown in the
+   **Language** menu, written in that language) and `"Release Notes Section"` (the
+   heading of that language's section in GitHub release notes; separate alternatives
+   with `|`).
+2. `Resources/xx.lproj/InfoPlist.strings`: translate `NSAppleEventsUsageDescription`.
+3. `scripts/locales/xx.json`: translate the CLI table, copied from `zh-Hans.json`.
+4. Optional: `Resources/phrases.default.xx.txt` with default pet lines, translated from
+   `phrases.default.en.txt`. Without it the pet falls back to the English lines.
+
+`node scripts/check-l10n.mjs --missing xx` lists the keys still to translate. The app
+discovers languages from the `.lproj` directories, `build.sh` writes
+`CFBundleLocalizations` from them, and `package.json` already includes them by pattern.
+
 ## Asset requirements
 
 - Use PNG or WebP with a transparent background.

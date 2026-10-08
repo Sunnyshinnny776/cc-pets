@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
+source "${PROJECT_DIR}/scripts/i18n.zsh"
 PET_BIN="${PROJECT_DIR}/.build/release/cc-pets"
 BUILD_APP="${PROJECT_DIR}/.build/release/CC Pets.app"
 INSTALLED_APP="${CC_PETS_APPLICATIONS_DIR:-${HOME}/Applications}/CC Pets.app"
@@ -26,7 +27,7 @@ if [[ -z "${REAL_CODEX}" ]]; then
   done
 fi
 if [[ -z "${REAL_CODEX}" || ! -x "${REAL_CODEX}" ]]; then
-  print -u2 "未找到可执行的 Codex CLI。请先安装 codex，或通过 CODEX_REAL_BIN 指定真实路径。"
+  print -u2 "$(cc_pets_t "No executable Codex CLI found. Install codex, or set CODEX_REAL_BIN to its real path.")"
   exit 127
 fi
 

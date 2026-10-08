@@ -1,3 +1,4 @@
+#import "CCPetsL10n.h"
 #import "CCPetsEvents.h"
 #import "CCPetsPaths.h"
 #import "CCPetsTerminalFocus.h"
@@ -210,7 +211,7 @@ int RecordProviderEvent(void) {
     if (![payload isKindOfClass:NSDictionary.class] ||
         ![payload[@"schemaVersion"] isKindOfClass:NSNumber.class] ||
         [payload[@"schemaVersion"] integerValue] != 1) {
-        fprintf(stderr, "provider-event 需要 schemaVersion 为 1 的 JSON 对象。\n");
+        fprintf(stderr, "%s\n", L(@"provider-event needs a JSON object with schemaVersion 1.").UTF8String);
         return 2;
     }
     NSString *provider = SanitizedShortString(payload[@"provider"], 32);
@@ -221,7 +222,7 @@ int RecordProviderEvent(void) {
         @"tool_completed", @"tool_failed", @"completed", @"failed", @"notification"
     ]];
     if (provider.length == 0 || ![states containsObject:state]) {
-        fprintf(stderr, "provider-event 的 provider 或 state 无效。\n");
+        fprintf(stderr, "%s\n", L(@"provider-event has an invalid provider or state.").UTF8String);
         return 2;
     }
     NSDictionary<NSString *, NSString *> *events = @{
@@ -247,7 +248,7 @@ int RecordProviderEvent(void) {
     NSDictionary *terminal = TerminalFocusTargetFromEnvironment();
     if (terminal.count > 0) record[@"terminal"] = terminal;
     if (!AppendAgentEventRecord(record)) {
-        fprintf(stderr, "无法写入 Provider 事件。\n");
+        fprintf(stderr, "%s\n", L(@"Couldn't write the provider event.").UTF8String);
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

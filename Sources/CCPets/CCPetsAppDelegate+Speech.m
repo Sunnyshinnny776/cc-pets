@@ -270,7 +270,7 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     if (![value isKindOfClass:NSString.class] || [value length] == 0) return;
     [defaults removeObjectForKey:@"CCPetsSpeechDebugTag"];
     NSString *text = PetPhraseForTag(value, [self speechSlots]);
-    if (text.length == 0) text = @"（这个标签取不到词条）";
+    if (text.length == 0) text = L(@"(No lines available for this tag)");
     [self presentSpeechText:text];
 }
 - (void)hideSpeechBubble {

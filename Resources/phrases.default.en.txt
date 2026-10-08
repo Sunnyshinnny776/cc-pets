@@ -1,0 +1,182 @@
+# Pet chatter. Changes take effect right after you save.
+# One line per sentence: edit, add or delete lines freely. `#` starts a comment.
+# Keep each line within 40 characters (30 if it contains Chinese/Japanese/Korean).
+# Each section can have many lines; an empty section keeps the pet quiet in that situation.
+# Live data you can put in a line (braces included):
+#   {quota5h}    5-hour quota left, e.g. 12%
+#   {resetTime}  when the quota refills, e.g. 18:30
+#   {sessionMin} minutes worked this session
+#   {failCount}  consecutive failures
+#   {toolName}   tool in use, e.g. Bash
+#   {hour}       current hour, e.g. 2
+# A line that uses data is skipped whenever that data isn't available.
+
+# ============ When it feels like talking ============
+
+[idle]                  # idle
+Just zoning out.
+I'm here!!!
+Call me anytime.
+Quiet day, huh?
+Just looking around.
+Wanna stretch a bit?
+Nothing to do, nothing to lose.
+Hmm…
+
+[done]                  # task done
+Done. Take a breather.
+That went smoothly.
+Another one down. Nice.
+Wrapped up, {toolName} behaved.
+Okay, what's next?
+Solid.
+All done. Drink some water.
+Clean run.
+Nailed it. I was watching.
+
+[fail]                  # repeated failures
+{failCount} fails in a row. Breathe.
+It's fine, try again.
+{toolName} is being flaky.
+Stuck? Let's look together.
+No rush, one step at a time.
+Red again… deep breath.
+Never seen this one before.
+Failures are data too.
+Maybe try another angle?
+
+[wake]                  # back after a long break
+You're back!
+Long time no see.
+Been waiting for you.
+Got work for us?
+Thought you weren't coming.
+I'm up, I'm up.
+Let's get to it.
+Yo.
+
+[late_night]            # working late at night
+It's {hour} o'clock already.
+Bedtime, maybe?
+Still coding at this hour…
+It can wait till tomorrow.
+It's late. Take care.
+Code at {hour} a.m. is suspect.
+Late-night code gets rewritten.
+I'm sleepy. You do you.
+
+[long_session]          # long session
+{sessionMin} minutes straight.
+Get up and walk a bit.
+{sessionMin} min. Rest your eyes.
+You've been sitting too long.
+How about a stretch?
+Time to hydrate.
+Five minutes off won't hurt.
+How's your back?
+
+[quota_low]             # quota running low
+Only {quota5h} quota left.
+Go easy on it.
+Almost out. Refills at {resetTime}.
+Wait for the refill?
+Quota's low. Easy now.
+{quota5h}… cutting it close.
+A few more runs and it's gone.
+{resetTime} is still a while.
+
+# ============ Status lines ============
+# What the pet says while the agent works. Keep at least one line in each.
+
+[state_starting]        # starting
+I'm up, almost ready.
+Putting my shoes on, one sec.
+Starting work.
+Getting up now.
+
+[state_idle]            # idle
+I'm ready. Go ahead.
+I'm here, ready to go.
+In position. Your call.
+I'm listening.
+
+[state_thinking]        # thinking
+Thinking. Give me a moment.
+Don't rush me, gears turning.
+Let me think this through.
+Shh, I'm thinking.
+
+[state_tool]            # using a tool (when unclear which)
+On it.
+Digging through the toolbox.
+Getting busy.
+
+[state_tool_bash]       # running a command
+Typing commands.
+Busy in the terminal.
+Leave this command to me.
+
+[state_tool_edit]       # editing files
+Editing a file. Steady hands.
+Pen to paper.
+Tidying up this file.
+
+[state_tool_read]       # looking things up
+Reading up.
+Looking for clues.
+Let me take a look…
+
+[state_tool_done]       # step done
+That step's done.
+One down.
+Holding steady.
+
+[state_tool_failed]     # tool failed
+I tripped on that step.
+The tool's acting up.
+I need another approach...
+
+[state_subagent]        # subagent working
+Called in a helper.
+Sent a buddy out.
+Delegated this one.
+
+[state_approval]        # awaiting approval
+Waiting for your OK.
+Stuck. Check the terminal.
+Your call on this one.
+Not touching it till you say so.
+
+[state_auto_review]     # auto-reviewing
+Running auto-checks.
+I'll review it, carry on.
+I'll check this round.
+
+[state_completed]       # task completed
+All done. Break time.
+Clocking out!
+Finished this round.
+That's a wrap.
+
+[state_failed]          # task failed
+I crashed. Check the terminal.
+Didn't work. Take a look.
+I fell flat this time.
+
+[state_notification]    # needs attention
+Got something to tell you.
+Look up here.
+Something came up.
+
+
+# ============ Click reactions ============
+
+[click_heart]           # happy after a few clicks
+Hehe, more pets please~
+Love it!
+Have a happy day~
+
+[click_annoyed]         # annoyed after too many clicks
+Okay, okay!
+Stop poking!
+I'm getting mad!

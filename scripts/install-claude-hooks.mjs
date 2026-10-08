@@ -10,10 +10,11 @@ import {
   STATUS_LINE_END_MARKER, STATUS_LINE_MARKER, STATUS_LINE_START_MARKER,
   isManagedHookCommand, isManagedStatusLine
 } from "./integration-markers.mjs";
+import { t } from "./i18n.mjs";
 
 const binary = process.argv[2];
 if (!binary) {
-  console.error("用法: install-claude-hooks.mjs /absolute/path/to/cc-pets");
+  console.error(t("Usage: install-claude-hooks.mjs /absolute/path/to/cc-pets"));
   process.exit(2);
 }
 
@@ -21,8 +22,8 @@ if (!binary) {
 // ~/.claude/statusline-command.sh 并把 settings.json 的 statusLine 指过去，
 // 对还没装 Claude 的用户等于提前替他决定了状态栏。exit 0 的理由见 install-codex-hooks.mjs。
 if (!detectClaudeCLI()) {
-  console.log("未检测到 Claude Code CLI，跳过 Claude Hooks 与 status line 接入。");
-  console.log("之后安装了 Claude Code，执行 cc-pets install 即可补装。");
+  console.log(t("Claude Code CLI not detected; skipping Claude hooks and status line setup."));
+  console.log(t("If you install Claude Code later, run cc-pets install to set it up."));
   process.exit(0);
 }
 
@@ -141,7 +142,7 @@ if (fs.existsSync(settingsPath)) {
   try {
     config = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
   } catch (error) {
-    console.error(`无法解析 ${settingsPath}: ${error.message}`);
+    console.error(t("Can't parse {settingsPath}: {message}", { settingsPath, message: error.message }));
     process.exit(1);
   }
 }
@@ -236,17 +237,17 @@ if (!statusLineInstalled && originalStatusLineCommand && fs.existsSync(statusLin
 }
 
 if (!statusLineInstalled && !statusLineWrapped) {
-  console.warn(`未接入 Claude status line：${originalStatusLineCommand || "(未配置)"}`);
-  console.warn("Claude Hooks 仍会正常工作，但桌宠拿不到 Claude 额度百分比（Token 用量不受影响）。");
+  console.warn(t("Claude status line not hooked up: {command}", { command: originalStatusLineCommand || t("(not configured)") }));
+  console.warn(t("Claude hooks still work, but the pet can't show Claude quota % (token usage is unaffected)."));
 }
 
 const temporaryPath = `${settingsPath}.cc-pets.tmp`;
 fs.writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 fs.renameSync(temporaryPath, settingsPath);
 fs.chmodSync(settingsPath, 0o600);
-console.log(`Claude Code Hooks 已安装到 ${settingsPath}`);
+console.log(t("Claude Code hooks installed in {settingsPath}", { settingsPath }));
 if (statusLineInstalled) {
-  console.log("Claude 额度采集已接入现有 status line。首次 API 响应后桌宠会显示额度。");
+  console.log(t("Claude quota tracking added to your existing status line. The pet shows quota after the first API response."));
 } else if (statusLineWrapped) {
-  console.log("Claude 额度采集已通过包装器接入 status line，原命令仍照常执行。首次 API 响应后桌宠会显示额度。");
+  console.log(t("Claude quota tracking added to the status line through a wrapper; your original command still runs. The pet shows quota after the first API response."));
 }

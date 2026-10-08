@@ -1,3 +1,4 @@
+#import "CCPetsL10n.h"
 #import "CCPetsCleanup.h"
 #import "CCPetsPaths.h"
 #import <sys/file.h>
@@ -147,13 +148,13 @@ int CleanCCPetsData(BOOL purge) {
     NSString *supportDirectory = ApplicationSupportDirectory();
     NSString *buildCache = BuildCacheDirectory();
     if (!IsSafeSupportDirectory(supportDirectory)) {
-        fprintf(stderr, "清理失败：应用数据目录不属于 CC Pets：%s\n",
-            supportDirectory.UTF8String);
+        fprintf(stderr, "%s\n", [NSString stringWithFormat:
+            L(@"Clean failed: the app data directory doesn't belong to CC Pets: %@"), supportDirectory].UTF8String);
         return 3;
     }
     if (buildCache.length > 0 && !IsSafeBuildCacheDirectory(buildCache)) {
-        fprintf(stderr, "清理失败：构建缓存目录不属于 CC Pets：%s\n",
-            buildCache.UTF8String);
+        fprintf(stderr, "%s\n", [NSString stringWithFormat:
+            L(@"Clean failed: the build cache directory doesn't belong to CC Pets: %@"), buildCache].UTF8String);
         return 3;
     }
     NSUInteger removed = 0;
@@ -174,8 +175,10 @@ int CleanCCPetsData(BOOL purge) {
         [NSUserDefaults.standardUserDefaults removePersistentDomainForName:domain];
         [NSUserDefaults.standardUserDefaults synchronize];
     }
-    printf("%s完成，共移除 %lu 项。\n", purge ? "完整数据清理" : "缓存清理",
-        (unsigned long)removed);
+    NSString *format = purge
+        ? (removed != 1 ? L(@"Full cleanup done. Removed %lu items.") : L(@"Full cleanup done. Removed %lu item."))
+        : (removed != 1 ? L(@"Cache cleanup done. Removed %lu items.") : L(@"Cache cleanup done. Removed %lu item."));
+    printf("%s\n", [NSString stringWithFormat:format, (unsigned long)removed].UTF8String);
     return EXIT_SUCCESS;
 }
 
