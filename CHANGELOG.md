@@ -5,9 +5,9 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
-## [2.2.0] - Unreleased
+## [2.2.0] - 2026-10-08
 
-First English-language release; prepared on `publish`, pending a stable release from `main`.
+First English-language release: the app and CLI are available in English and Simplified Chinese.
 
 ### Language
 
