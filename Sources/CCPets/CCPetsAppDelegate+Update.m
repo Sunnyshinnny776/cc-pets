@@ -201,10 +201,10 @@ static void TrimUpdateLog(NSString *path) {
             [NSURL URLWithString:[@"https://github.com/" stringByAppendingString:CCPetsRepositorySlug]]];
     }
 }
-// 版本号以 npm Registry 为准（自动更新装的就是它），更新说明取同版本 tag 的 GitHub Release
-// 描述。Release 没写、没建、或 GitHub 请求失败都只是没有说明，不影响提示更新本身。
-- (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSArray<NSString *> *highlights,
-    BOOL highlightsTruncated, NSString *errorMessage))completion {
+// 版本号以 npm Registry 为准（自动更新装的就是它），更新说明取同版本 tag 里的
+// release notes 文件。说明没写、或请求全部失败都只是没有说明，不影响提示更新本身。
+- (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSString *notes,
+    NSString *errorMessage))completion {
     NSURL *url = [NSURL URLWithString:@"https://registry.npmjs.org/cc-pets/latest"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url
         cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];
@@ -221,35 +221,59 @@ static void TrimUpdateLog(NSString *path) {
         NSComparisonResult comparison = CompareStableVersions(@CC_PETS_VERSION, latestVersion, &valid);
         if (error || httpResponse.statusCode != 200 || !valid) {
             NSString *message = error.localizedDescription ?: L(@"The npm registry returned invalid version info. Please try again later.");
-            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, nil, NO, message); });
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, nil, message); });
             return;
         }
         if (comparison != NSOrderedAscending) {
-            dispatch_async(dispatch_get_main_queue(), ^{ completion(latestVersion, nil, NO, nil); });
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(latestVersion, nil, nil); });
             return;
         }
-        NSString *releaseURL = [NSString stringWithFormat:
-            @"https://api.github.com/repos/%@/releases/tags/v%@", CCPetsRepositorySlug, latestVersion];
-        NSMutableURLRequest *releaseRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:releaseURL]
-            cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:10];
-        [releaseRequest setValue:@"application/vnd.github+json" forHTTPHeaderField:@"Accept"];
-        [releaseRequest setValue:@"cc-pets/" CC_PETS_VERSION forHTTPHeaderField:@"User-Agent"];
-        NSURLSessionDataTask *releaseTask = [NSURLSession.sharedSession dataTaskWithRequest:releaseRequest
-            completionHandler:^(NSData *releaseData, NSURLResponse *releaseResponse, NSError *releaseError) {
-            NSInteger status = [releaseResponse isKindOfClass:NSHTTPURLResponse.class]
-                ? ((NSHTTPURLResponse *)releaseResponse).statusCode : 0;
-            NSDictionary *release = !releaseError && status == 200 && releaseData
-                ? [NSJSONSerialization JSONObjectWithData:releaseData options:0 error:nil] : nil;
-            NSString *body = [release isKindOfClass:NSDictionary.class] &&
-                [release[@"body"] isKindOfClass:NSString.class] ? release[@"body"] : nil;
-            BOOL truncated = NO;
-            NSArray<NSString *> *highlights = ReleaseNoteHighlightsForLanguage(body,
-                CCPetsCurrentLanguage(), UpdateHighlightLimit, UpdateHighlightMaxLength, &truncated);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                completion(latestVersion, highlights, truncated, nil);
-            });
+        [self fetchReleaseNotesForVersion:latestVersion sourceIndex:0 completion:^(NSString *body) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(latestVersion, body, nil); });
         }];
-        [releaseTask resume];
+    }];
+    [task resume];
+}
+// 更新说明按顺序尝试：tag 里的 docs/release-notes-vX.Y.Z.md（raw.githubusercontent.com，
+// 再退到 jsDelivr），最后才是 GitHub Release API。未认证的 API 按出口 IP 每小时只给 60 次，
+// 走共享代理时很容易被别人用光，所以只当兜底。全部失败时 body 为 nil。
+- (void)fetchReleaseNotesForVersion:(NSString *)version sourceIndex:(NSUInteger)index
+    completion:(void (^)(NSString *body))completion {
+    NSString *notesPath = [NSString stringWithFormat:@"v%@/docs/release-notes-v%@.md", version, version];
+    NSArray<NSString *> *sources = @[
+        [NSString stringWithFormat:@"https://raw.githubusercontent.com/%@/%@", CCPetsRepositorySlug, notesPath],
+        [NSString stringWithFormat:@"https://cdn.jsdelivr.net/gh/%@@%@", CCPetsRepositorySlug, notesPath],
+        [NSString stringWithFormat:@"https://api.github.com/repos/%@/releases/tags/v%@",
+            CCPetsRepositorySlug, version],
+    ];
+    if (index >= sources.count) {
+        completion(nil);
+        return;
+    }
+    BOOL fromAPI = index == sources.count - 1;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:sources[index]]
+        cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:10];
+    if (fromAPI) [request setValue:@"application/vnd.github+json" forHTTPHeaderField:@"Accept"];
+    [request setValue:@"cc-pets/" CC_PETS_VERSION forHTTPHeaderField:@"User-Agent"];
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request
+        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
+            ? ((NSHTTPURLResponse *)response).statusCode : 0;
+        NSString *body = nil;
+        if (!error && status == 200 && data) {
+            if (fromAPI) {
+                NSDictionary *release = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+                body = [release isKindOfClass:NSDictionary.class] &&
+                    [release[@"body"] isKindOfClass:NSString.class] ? release[@"body"] : nil;
+            } else {
+                body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            }
+        }
+        if (body.length > 0) {
+            completion(body);
+            return;
+        }
+        [self fetchReleaseNotesForVersion:version sourceIndex:index + 1 completion:completion];
     }];
     [task resume];
 }
@@ -257,8 +281,7 @@ static void TrimUpdateLog(NSString *path) {
     if (self.checkingForUpdate || self.updating) return;
     self.checkingForUpdate = YES;
     __weak typeof(self) weakSelf = self;
-    [self fetchLatestReleaseWithCompletion:^(NSString *version, NSArray<NSString *> *highlights,
-        BOOL truncated, NSString *errorMessage) {
+    [self fetchLatestReleaseWithCompletion:^(NSString *version, NSString *notes, NSString *errorMessage) {
         typeof(self) strongSelf = weakSelf;
         if (!strongSelf) return;
         strongSelf.checkingForUpdate = NO;
@@ -273,7 +296,7 @@ static void TrimUpdateLog(NSString *path) {
                 message:[NSString stringWithFormat:L(@"Version %@"), @CC_PETS_VERSION]];
             return;
         }
-        [strongSelf rememberPendingUpdate:version highlights:highlights truncated:truncated];
+        [strongSelf rememberPendingUpdate:version notes:notes];
         [strongSelf showUpdateDialog];
     }];
 }
@@ -290,8 +313,7 @@ static void TrimUpdateLog(NSString *path) {
     self.lastSilentUpdateCheckAt = now;
     self.checkingForUpdate = YES;
     __weak typeof(self) weakSelf = self;
-    [self fetchLatestReleaseWithCompletion:^(NSString *version, NSArray<NSString *> *highlights,
-        BOOL truncated, NSString *errorMessage) {
+    [self fetchLatestReleaseWithCompletion:^(NSString *version, NSString *notes, NSString *errorMessage) {
         typeof(self) strongSelf = weakSelf;
         if (!strongSelf) return;
         strongSelf.checkingForUpdate = NO;
@@ -301,17 +323,16 @@ static void TrimUpdateLog(NSString *path) {
             [strongSelf clearPendingUpdate];
             return;
         }
-        [strongSelf rememberPendingUpdate:version highlights:highlights truncated:truncated];
+        [strongSelf rememberPendingUpdate:version notes:notes];
         [strongSelf showUpdateBubble];
     }];
 }
-- (void)rememberPendingUpdate:(NSString *)version highlights:(NSArray<NSString *> *)highlights
-    truncated:(BOOL)truncated {
+// 存的是说明原文，弹窗时再按当时的界面语言解析：切换语言后不用重新联网，要点也跟着换。
+- (void)rememberPendingUpdate:(NSString *)version notes:(NSString *)notes {
     // 「稍后」只针对当时那个版本；又出了更新的版本就重新提醒。
     if (![version isEqualToString:self.pendingUpdateVersion]) self.updateReminderSnoozed = NO;
     self.pendingUpdateVersion = version;
-    self.pendingUpdateHighlights = highlights ?: @[];
-    self.pendingUpdateHighlightsTruncated = truncated;
+    self.pendingUpdateNotes = notes;
     [self refreshUpdateBadge];
 }
 - (void)refreshUpdateBadge {
@@ -322,15 +343,14 @@ static void TrimUpdateLog(NSString *path) {
 }
 - (void)clearPendingUpdate {
     self.pendingUpdateVersion = nil;
-    self.pendingUpdateHighlights = nil;
-    self.pendingUpdateHighlightsTruncated = NO;
+    self.pendingUpdateNotes = nil;
     [self refreshUpdateBadge];
     if (self.updateBubbleVisible) [self hideSpeechBubble];
 }
 // 更新要点放进 accessoryView 而不是 informativeText：后者是一整段纯文本，列表项折行后
 // 第二行会顶到「•」下面，几条长说明挤成一坨。这里用悬挂缩进让折行对齐到文字起点。
-- (NSView *)updateHighlightsAccessoryView {
-    if (self.pendingUpdateHighlights.count == 0) return nil;
+- (NSView *)updateHighlightsAccessoryView:(NSArray<NSString *> *)highlights truncated:(BOOL)truncated {
+    if (highlights.count == 0) return nil;
     const CGFloat width = 300;
     NSFont *bodyFont = [NSFont systemFontOfSize:12];
     NSString *bullet = @"•\t";
@@ -351,14 +371,14 @@ static void TrimUpdateLog(NSString *path) {
     NSDictionary *itemAttributes = @{NSFontAttributeName: bodyFont,
         NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
         NSParagraphStyleAttributeName: itemStyle};
-    [self.pendingUpdateHighlights enumerateObjectsUsingBlock:^(NSString *item, NSUInteger index, BOOL *stop) {
+    [highlights enumerateObjectsUsingBlock:^(NSString *item, NSUInteger index, BOOL *stop) {
         NSString *line = [NSString stringWithFormat:@"%@%@%@", bullet, item,
-            index + 1 < self.pendingUpdateHighlights.count || self.pendingUpdateHighlightsTruncated
+            index + 1 < highlights.count || truncated
                 ? @"\n" : @""];
         [text appendAttributedString:[[NSAttributedString alloc] initWithString:line
             attributes:itemAttributes]];
     }];
-    if (self.pendingUpdateHighlightsTruncated) {
+    if (truncated) {
         [text appendAttributedString:[[NSAttributedString alloc] initWithString:L(@"More changes in the full GitHub release notes")
             attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
                          NSForegroundColorAttributeName: NSColor.tertiaryLabelColor,
@@ -379,10 +399,13 @@ static void TrimUpdateLog(NSString *path) {
     NSAlert *alert = [NSAlert new];
     alert.messageText = [NSString stringWithFormat:L(@"CC Pets %@ Is Available"), version];
     alert.informativeText = [NSString stringWithFormat:L(@"Current version %@"), @CC_PETS_VERSION];
-    alert.accessoryView = [self updateHighlightsAccessoryView];
+    BOOL truncated = NO;
+    NSArray<NSString *> *highlights = ReleaseNoteHighlightsForLanguage(self.pendingUpdateNotes,
+        CCPetsCurrentLanguage(), UpdateHighlightLimit, UpdateHighlightMaxLength, &truncated);
+    alert.accessoryView = [self updateHighlightsAccessoryView:highlights truncated:truncated];
     [alert addButtonWithTitle:L(@"Update Now")];
     [alert addButtonWithTitle:L(@"Later")];
-    if (self.pendingUpdateHighlights.count > 0) [alert addButtonWithTitle:L(@"Release Notes")];
+    if (highlights.count > 0) [alert addButtonWithTitle:L(@"Release Notes")];
     NSModalResponse response = [alert runModal];
     if (response == NSAlertFirstButtonReturn) {
         [self startUpdateToVersion:version];

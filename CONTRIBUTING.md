@@ -67,6 +67,12 @@ current UI language; it never falls back to the full body or another language. I
 matching section is missing, the update dialog shows no highlights and does not guess
 from other text. Keep the English and Simplified Chinese bullets semantically aligned.
 
+Write the body in `docs/release-notes-vX.Y.Z.md`, commit it before creating the tag,
+and publish with `gh release create vX.Y.Z --notes-file docs/release-notes-vX.Y.Z.md`.
+The updater reads this file from the tag (raw.githubusercontent.com, then jsDelivr)
+and only falls back to the rate-limited GitHub Release API, so editing the Release on
+GitHub afterwards does not change the in-app highlights.
+
 ## Asset requirements
 
 - Use PNG or WebP with a transparent background.

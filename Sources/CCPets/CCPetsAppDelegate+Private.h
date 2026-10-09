@@ -305,16 +305,17 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 - (void)retryUpdate:(NSArray *)context;
 - (void)startUpdateToVersion:(NSString *)version attempt:(NSInteger)attempt;
 - (void)showAboutPanel:(id)sender;
-- (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSArray<NSString *> *highlights,
-    BOOL highlightsTruncated, NSString *errorMessage))completion;
+- (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSString *notes,
+    NSString *errorMessage))completion;
+- (void)fetchReleaseNotesForVersion:(NSString *)version sourceIndex:(NSUInteger)index
+    completion:(void (^)(NSString *body))completion;
 - (void)checkForUpdates:(id)sender;
 - (void)showPendingUpdate:(id)sender;
 - (void)silentCheckForUpdate;
-- (void)rememberPendingUpdate:(NSString *)version highlights:(NSArray<NSString *> *)highlights
-    truncated:(BOOL)truncated;
+- (void)rememberPendingUpdate:(NSString *)version notes:(NSString *)notes;
 - (void)refreshUpdateBadge;
 - (void)clearPendingUpdate;
-- (NSView *)updateHighlightsAccessoryView;
+- (NSView *)updateHighlightsAccessoryView:(NSArray<NSString *> *)highlights truncated:(BOOL)truncated;
 - (void)showUpdateDialog;
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem;
 - (void)applyUpdateBadgeStyle;

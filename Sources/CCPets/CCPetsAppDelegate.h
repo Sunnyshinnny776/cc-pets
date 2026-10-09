@@ -93,8 +93,7 @@
 @property BOOL checkingForUpdate;
 @property BOOL updating;
 @property(copy) NSString *pendingUpdateVersion;
-@property(copy) NSArray<NSString *> *pendingUpdateHighlights;
-@property BOOL pendingUpdateHighlightsTruncated;
+@property(copy) NSString *pendingUpdateNotes;
 @property NSTimeInterval lastSilentUpdateCheckAt;
 @property BOOL updateBubbleVisible;
 @property BOOL updateBubbleDeferred;

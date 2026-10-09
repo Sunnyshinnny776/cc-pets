@@ -57,6 +57,11 @@ GitHub Release 和 tag。提交到 `main` 前，代码、文档、截图与验�
 完全匹配的段落，不会退回全文，也不会读取其他语言；缺少匹配段落时，更新对话框不展示
 要点，不会从其他文字中猜测。英文和简体中文的要点应保持语义对应。
 
+正文写在 `docs/release-notes-vX.Y.Z.md`，在打 tag 之前提交，再用
+`gh release create vX.Y.Z --notes-file docs/release-notes-vX.Y.Z.md` 发布。更新器从 tag
+里读取这个文件（先 raw.githubusercontent.com，再 jsDelivr），最后才退到有限流的
+GitHub Release API，所以发布后在 GitHub 网页上修改 Release 不会改变 App 内的要点。
+
 ## 素材规范
 
 - 支持 PNG 或 WebP，背景必须透明。
