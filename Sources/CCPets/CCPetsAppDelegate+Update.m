@@ -354,7 +354,8 @@ static void TrimUpdateLog(NSString *path) {
     const CGFloat width = 300;
     NSFont *bodyFont = [NSFont systemFontOfSize:12];
     NSString *bullet = @"•\t";
-    CGFloat indent = ceil([bullet sizeWithAttributes:@{NSFontAttributeName: bodyFont}].width) + 4;
+    // 只量「•」本身：连 \t 一起量会按默认 28pt 制表位展开，符号和文字之间空出一大截。
+    CGFloat indent = ceil([@"•" sizeWithAttributes:@{NSFontAttributeName: bodyFont}].width) + 6;
     NSMutableParagraphStyle *itemStyle = [NSMutableParagraphStyle new];
     itemStyle.tabStops = @[[[NSTextTab alloc] initWithTextAlignment:NSTextAlignmentLeft
         location:indent options:@{}]];
