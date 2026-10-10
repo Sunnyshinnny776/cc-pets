@@ -6,6 +6,9 @@
     target:(id)target action:(SEL)action width:(CGFloat)width {
     // item 要有 action 才会被菜单高亮。鼠标点击由行视图自己处理（菜单不关）；
     // 用键盘选中后按回车走的是这个 action，行为与点击一致，菜单照常关闭。
+    // 所有设置单选行统一按文案撑宽，避免英文标题被截断。
+    width = MAX(width, ceil([title sizeWithAttributes:
+        @{NSFontAttributeName: [NSFont menuFontOfSize:13]}].width) + 42);
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:@selector(chooseFromMenuItem:)
         keyEquivalent:@""];
     MenuChoiceRowView *row = [[MenuChoiceRowView alloc] initWithFrame:NSMakeRect(0, 0, width, 24)];
