@@ -5,6 +5,19 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
+## [Unreleased]
+
+### Pet speech
+
+- Added **Chatter → Line Source → Pet-specific Lines / Default Lines**. Pet-specific lines override shared sections and fall back to shared lines for missing sections; default lines use only the editable `~/.cc-pets/speech.txt`. The global choice applies immediately and persists across pet changes and restarts, with pet-specific lines selected initially.
+- Fix mixed Chinese and English in the lines editor after changing the UI language: window titles, buttons, scope labels and situation descriptions now refresh together, preserving unsaved text and the selected situation.
+
+### Menus
+
+- Moved **Frequency** and **Line Source** into separate Chatter submenus and removed the separators from the Chatter menu.
+- Frequency, line source and click-reaction threshold and timing choices now keep the menu open on mouse clicks and update their checkmarks immediately through the shared choice-row component.
+- Shared choice rows size themselves to their labels so longer English titles fit.
+
 ## [2.2.0] - 2026-10-08
 
 First English-language release: the app and CLI are available in English and Simplified Chinese.

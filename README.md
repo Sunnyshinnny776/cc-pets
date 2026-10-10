@@ -53,6 +53,9 @@ English — v2.2.0 quota panel and Language menu:
 - Supports optional local quota history and macOS notifications.
 - Supports third-party CLI agents through a provider event protocol.
 - Includes editable global and per-pet speech.
+- Offers **Chatter → Line Source → Pet-specific Lines / Default Lines**. Pet-specific lines
+  override shared sections; default lines use only the editable shared speech file. The
+  selection persists across pet changes and restarts, with pet-specific lines selected initially.
 - Includes one original pet and can download compatible assets from PetDex.
 - Uses native AppKit with no Electron runtime.
 

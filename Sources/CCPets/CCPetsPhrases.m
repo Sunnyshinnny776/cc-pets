@@ -1,6 +1,21 @@
 #import "CCPetsPhrases.h"
 #import "CCPetsL10n.h"
 
+NSString *const PetPhrasesSourcePet = @"pet";
+NSString *const PetPhrasesSourceDefault = @"default";
+static NSString *const PetPhrasesSourceKey = @"CCPetsPhrasesSource";
+
+NSString *PetPhrasesSource(void) {
+    NSString *source = [NSUserDefaults.standardUserDefaults stringForKey:PetPhrasesSourceKey];
+    return [source isEqualToString:PetPhrasesSourceDefault] ?
+        PetPhrasesSourceDefault : PetPhrasesSourcePet;
+}
+
+void PetPhrasesSetSource(NSString *source) {
+    if (![@[PetPhrasesSourcePet, PetPhrasesSourceDefault] containsObject:source]) return;
+    [NSUserDefaults.standardUserDefaults setObject:source forKey:PetPhrasesSourceKey];
+}
+
 NSString *const PetPhraseTagDone = @"done";
 NSString *const PetPhraseTagFail = @"fail";
 NSString *const PetPhraseTagQuotaLow = @"quota_low";
@@ -228,26 +243,23 @@ NSArray<NSString *> *PetPhraseAllTags(void) {
 }
 
 NSString *PetPhraseTagDescription(NSString *tag) {
-    static NSDictionary<NSString *, NSString *> *map;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        map = @{
-            PetPhraseTagIdle: L(@"idle"), PetPhraseTagDone: L(@"Task done"),
-            PetPhraseTagFail: L(@"repeated failures"), PetPhraseTagWake: L(@"back after a long break"),
-            PetPhraseTagLateNight: L(@"working late at night"), PetPhraseTagLongSession: L(@"long session"),
-            PetPhraseTagQuotaLow: L(@"quota running low"),
-            PetPhraseTagClickHeart: L(@"happy after a few clicks"),
-            PetPhraseTagClickAnnoyed: L(@"annoyed after too many clicks"),
-            PetPhraseTagStateStarting: L(@"Starting"), PetPhraseTagStateIdle: L(@"Idle"),
-            PetPhraseTagStateThinking: L(@"Thinking"), PetPhraseTagStateTool: L(@"using a tool"),
-            PetPhraseTagStateToolBash: L(@"Running a command"), PetPhraseTagStateToolEdit: L(@"Editing files"),
-            PetPhraseTagStateToolRead: L(@"Looking things up"), PetPhraseTagStateToolDone: L(@"step done"),
-            PetPhraseTagStateToolFailed: L(@"Tool failed"), PetPhraseTagStateSubagent: L(@"Subagent working"),
-            PetPhraseTagStateApproval: L(@"Awaiting approval"), PetPhraseTagStateAutoReview: L(@"Auto-reviewing"),
-            PetPhraseTagStateCompleted: L(@"Task completed"), PetPhraseTagStateFailed: L(@"Task failed"),
-            PetPhraseTagStateNotification: L(@"Needs attention"),
-        };
-    });
+    // 翻译跟随当前语言，不能用 dispatch_once 固定成首次调用时的语言。
+    NSDictionary<NSString *, NSString *> *map = @{
+        PetPhraseTagIdle: L(@"idle"), PetPhraseTagDone: L(@"Task done"),
+        PetPhraseTagFail: L(@"repeated failures"), PetPhraseTagWake: L(@"back after a long break"),
+        PetPhraseTagLateNight: L(@"working late at night"), PetPhraseTagLongSession: L(@"long session"),
+        PetPhraseTagQuotaLow: L(@"quota running low"),
+        PetPhraseTagClickHeart: L(@"happy after a few clicks"),
+        PetPhraseTagClickAnnoyed: L(@"annoyed after too many clicks"),
+        PetPhraseTagStateStarting: L(@"Starting"), PetPhraseTagStateIdle: L(@"Idle"),
+        PetPhraseTagStateThinking: L(@"Thinking"), PetPhraseTagStateTool: L(@"using a tool"),
+        PetPhraseTagStateToolBash: L(@"Running a command"), PetPhraseTagStateToolEdit: L(@"Editing files"),
+        PetPhraseTagStateToolRead: L(@"Looking things up"), PetPhraseTagStateToolDone: L(@"step done"),
+        PetPhraseTagStateToolFailed: L(@"Tool failed"), PetPhraseTagStateSubagent: L(@"Subagent working"),
+        PetPhraseTagStateApproval: L(@"Awaiting approval"), PetPhraseTagStateAutoReview: L(@"Auto-reviewing"),
+        PetPhraseTagStateCompleted: L(@"Task completed"), PetPhraseTagStateFailed: L(@"Task failed"),
+        PetPhraseTagStateNotification: L(@"Needs attention"),
+    };
     return map[tag] ?: tag;
 }
 
@@ -460,7 +472,9 @@ static NSString *FillSlots(NSString *template, NSDictionary<NSString *, NSString
 // 标签却不写台词，是用户在明确表达"这只宠物在这个情境闭嘴"，那时必须返回空，
 // 落回通用的话这个表达就没有任何写法能实现了。
 static NSArray<NSString *> *CandidatesForTag(NSString *tag) {
-    NSArray *entries = LoadPetPhrases()[tag];
+    // 默认模式跳过专属词库，保留用户编辑过的通用台词。
+    NSArray *entries = [PetPhrasesSource() isEqualToString:PetPhrasesSourcePet] ?
+        LoadPetPhrases()[tag] : nil;
     if (entries == nil) entries = LoadUserPhrases()[tag];
     if (![entries isKindOfClass:NSArray.class]) return @[];
     NSMutableArray<NSString *> *result = [NSMutableArray array];

@@ -135,13 +135,13 @@
     [defaults setBool:enabled forKey:PetInteractionEnabledKey];
     sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
 }
-- (void)setPetInteractionHeartThreshold:(NSMenuItem *)sender {
+- (void)setPetInteractionHeartThreshold:(MenuChoiceRowView *)sender {
     NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
         sender.representedObject : @3;
     [NSUserDefaults.standardUserDefaults setInteger:MAX((NSInteger)2, value.integerValue)
         forKey:PetInteractionHeartThresholdKey];
 }
-- (void)setPetInteractionAnnoyedThreshold:(NSMenuItem *)sender {
+- (void)setPetInteractionAnnoyedThreshold:(MenuChoiceRowView *)sender {
     NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
         sender.representedObject : @10;
     NSInteger heart = MAX((NSInteger)2, [NSUserDefaults.standardUserDefaults
@@ -149,7 +149,7 @@
     [NSUserDefaults.standardUserDefaults setInteger:MAX(heart + 1, value.integerValue)
         forKey:PetInteractionAnnoyedThresholdKey];
 }
-- (void)setPetInteractionInterval:(NSMenuItem *)sender {
+- (void)setPetInteractionInterval:(MenuChoiceRowView *)sender {
     NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
         sender.representedObject : @1.2;
     [NSUserDefaults.standardUserDefaults setDouble:MAX(0.4, MIN(3.0, value.doubleValue))
@@ -157,13 +157,37 @@
 }
 // 频率档位。改完立刻生效——四道闸都是现读的，不缓存。
 // 顺手把冷却清掉，否则刚调高档位还要等完上一档的冷却才见效，会让人以为没生效。
-- (void)setSpeechFrequency:(NSMenuItem *)sender {
+- (void)setSpeechFrequency:(MenuChoiceRowView *)sender {
     NSString *value = [sender.representedObject isKindOfClass:NSString.class] ?
         sender.representedObject : PetSpeechFrequencyNormal;
     [NSUserDefaults.standardUserDefaults setObject:value forKey:PetSpeechFrequencyKey];
     self.speechCooldownUntil = 0;
     self.lastIdleSpeechCheck = 0;
 }
+- (void)setPhrasesSource:(MenuChoiceRowView *)sender {
+    NSString *source = sender.representedObject;
+    if (![@[PetPhrasesSourcePet, PetPhrasesSourceDefault] containsObject:source] ||
+        [source isEqualToString:PetPhrasesSource()]) return;
+    PetPhrasesSetSource(source);
+    NSString *tag = self.lastPetVoiceTag;
+    self.lastPetVoiceTag = nil;
+    self.lastPetVoiceText = nil;
+    // 收起旧来源的碎碎念，状态卡副行也立即换成新来源。
+    if (!self.updateBubbleVisible) [self hideSpeechBubble];
+    if (self.hasAgentStatus && self.lastStatusState.length > 0) {
+        [NSObject cancelPreviousPerformRequestsWithTarget:self
+            selector:@selector(restoreStatusDetail) object:nil];
+        // 保留当前工具对应的小节，不把执行命令、编辑文件等状态退成通用工具态。
+        tag = tag ?: [self petVoiceTagForState:self.lastStatusState tool:@""];
+        NSString *text = PetPhraseForTag(tag, [self speechSlots]);
+        self.lastPetVoiceTag = tag;
+        self.lastPetVoiceText = text;
+        self.statusDetailLabel.stringValue = text ?: @"";
+        [self resizeStatusCardToFitText];
+        [self positionAgentStatus];
+    }
+}
+
 // 台词交给内置编辑器，不再 openURL: 丢给"文本编辑"。
 //
 // 换掉的理由是反馈：系统编辑器保存完什么都不会说，小节名拼错、句子超 30 字、槽位

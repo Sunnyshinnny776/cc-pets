@@ -8,6 +8,7 @@
 #import "CCPetsBridge.h"
 #import "CCPetsGlassView.h"
 #import "MenuChoiceRow.h"
+#import "CCPetsPhrases.h"
 
 // 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate+Speech.m，这里只读不写；
 // 单独 extern 而不 import 那个头文件，是因为它反过来 import 了 PetView.h。
@@ -1692,13 +1693,11 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
             NSString *number = value.doubleValue == value.integerValue ?
                 [NSString stringWithFormat:@"%ld", (long)value.integerValue] :
                 [NSString stringWithFormat:@"%.1f", value.doubleValue];
-            NSMenuItem *option = [options addItemWithTitle:
-                [number stringByAppendingString:group[@"suffix"]]
-                action:NSSelectorFromString(group[@"action"]) keyEquivalent:@""];
-            option.target = NSApp.delegate;
-            option.representedObject = value;
-            option.state = fabs(current.doubleValue - value.doubleValue) < 0.001 ?
-                NSControlStateValueOn : NSControlStateValueOff;
+            [MenuChoiceRowView addToMenu:options
+                title:[number stringByAppendingString:group[@"suffix"]] group:group[@"key"]
+                representedObject:value checked:fabs(current.doubleValue - value.doubleValue) < 0.001
+                target:NSApp.delegate action:NSSelectorFromString(group[@"action"])
+                width:PetSubmenuRowWidth];
         }
         groupItem.submenu = options;
     }
@@ -1733,10 +1732,9 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         width:PetSubmenuRowWidth
         tag:1];
     // 频率是四道闸的组合，单调任何一道都不会真的变频繁，所以只给一个档位。
-    // 用系统的打勾单选行，不用自绘开关：这几项互斥，开关会看起来像四个独立选项。
-    [speechMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *frequencyHeader = [speechMenu addItemWithTitle:L(@"Frequency") action:nil keyEquivalent:@""];
-    frequencyHeader.enabled = NO;
+    // 单选行负责互斥勾选，鼠标点击后保持菜单展开。
+    NSMenuItem *frequencyItem = [speechMenu addItemWithTitle:L(@"Frequency") action:nil keyEquivalent:@""];
+    NSMenu *frequencyMenu = [NSMenu new];
     NSString *frequency = [NSUserDefaults.standardUserDefaults
         stringForKey:PetSpeechFrequencyKey] ?: @"normal";
     NSArray<NSDictionary *> *frequencyOptions = @[
@@ -1746,15 +1744,23 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         @{@"title": L(@"Chatty"), @"value": @"chatty"},
     ];
     for (NSDictionary *option in frequencyOptions) {
-        NSMenuItem *item = [speechMenu addItemWithTitle:option[@"title"]
-            action:@selector(setSpeechFrequency:) keyEquivalent:@""];
-        item.target = NSApp.delegate;
-        item.representedObject = option[@"value"];
-        item.state = [frequency isEqualToString:option[@"value"]] ?
-            NSControlStateValueOn : NSControlStateValueOff;
-        item.indentationLevel = 1;
+        [MenuChoiceRowView addToMenu:frequencyMenu title:option[@"title"] group:@"speechFrequency"
+            representedObject:option[@"value"] checked:[frequency isEqualToString:option[@"value"]]
+            target:NSApp.delegate action:@selector(setSpeechFrequency:) width:PetSubmenuRowWidth];
     }
-    [speechMenu addItem:NSMenuItem.separatorItem];
+    frequencyItem.submenu = frequencyMenu;
+    NSMenuItem *sourceItem = [speechMenu addItemWithTitle:L(@"Line Source")
+        action:nil keyEquivalent:@""];
+    NSMenu *sourceMenu = [NSMenu new];
+    NSString *source = PetPhrasesSource();
+    for (NSArray<NSString *> *option in @[
+        @[L(@"Pet-specific Lines"), PetPhrasesSourcePet],
+        @[L(@"Default Lines"), PetPhrasesSourceDefault]]) {
+        [MenuChoiceRowView addToMenu:sourceMenu title:option[0] group:@"phrasesSource"
+            representedObject:option[1] checked:[source isEqualToString:option[1]]
+            target:NSApp.delegate action:@selector(setPhrasesSource:) width:PetSubmenuRowWidth];
+    }
+    sourceItem.submenu = sourceMenu;
     // 没有这个入口，九成用户不会知道台词可以自己改。
     NSMenuItem *editPhrases = [speechMenu addItemWithTitle:L(@"Edit Lines…")
         action:@selector(editPhrasesFile:) keyEquivalent:@""];

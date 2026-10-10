@@ -141,10 +141,11 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 - (void)setGlassDimLevel:(MenuChoiceRowView *)sender;
 - (void)toggleSpeech:(NSButton *)sender;
 - (void)togglePetInteraction:(NSButton *)sender;
-- (void)setPetInteractionHeartThreshold:(NSMenuItem *)sender;
-- (void)setPetInteractionAnnoyedThreshold:(NSMenuItem *)sender;
-- (void)setPetInteractionInterval:(NSMenuItem *)sender;
-- (void)setSpeechFrequency:(NSMenuItem *)sender;
+- (void)setPetInteractionHeartThreshold:(MenuChoiceRowView *)sender;
+- (void)setPetInteractionAnnoyedThreshold:(MenuChoiceRowView *)sender;
+- (void)setPetInteractionInterval:(MenuChoiceRowView *)sender;
+- (void)setSpeechFrequency:(MenuChoiceRowView *)sender;
+- (void)setPhrasesSource:(MenuChoiceRowView *)sender;
 - (void)editPhrasesFile:(id)sender;
 - (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender;
 - (void)languageDidChange:(NSNotification *)notification;

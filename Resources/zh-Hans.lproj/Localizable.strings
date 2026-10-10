@@ -251,6 +251,9 @@
 "Normal" = "正常";
 "Often" = "较多";
 "Chatty" = "话痨";
+"Line Source" = "台词来源";
+"Pet-specific Lines" = "专属台词";
+"Default Lines" = "默认台词";
 "Edit Lines…" = "编辑台词…";
 "Update to %@…" = "更新到 %@…";
 "Language" = "语言";
