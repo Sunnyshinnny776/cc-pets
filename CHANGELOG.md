@@ -7,6 +7,12 @@ truth for the version.
 
 ## [Unreleased]
 
+### Pet size and rendering
+
+- Added **Pet Size** to the right-click menu with a live 50%–200% slider and **Reset Size** to restore 100%. Scaling keeps the pet's feet in place, refreshes cached animation frames at the new size, and persists across pet changes and restarts.
+- Hook status cards and speech bubbles scale down with the pet below 100%, including text, icons and click targets; at 100% and above they keep their original size.
+- Fix blurry sprites on Retina displays by decoding for at least 2x resolution and the highest connected display scale. The loader accounts for the maximum pet size and retains original images when downsampling is unnecessary.
+
 ### Pet speech
 
 - Added **Chatter → Line Source → Pet-specific Lines / Default Lines**. Pet-specific lines override shared sections and fall back to shared lines for missing sections; default lines use only the editable `~/.cc-pets/speech.txt`. The global choice applies immediately and persists across pet changes and restarts, with pet-specific lines selected initially.
