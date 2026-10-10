@@ -143,7 +143,7 @@
     NSDictionary *option = [self petOptionWithID:petID inOptions:options];
     if (!option) return;
     NSInteger spriteRowCount = [option[@"spriteRowCount"] integerValue] ?: 9;
-    NSImage *image = LoadPetSpriteImage(option[@"path"], NSMakeSize(140, 150), spriteRowCount);
+    NSImage *image = LoadPetSpriteImage(option[@"path"], CCPetsPetDecodeCellSize(), spriteRowCount);
     if (!image) return;
     [self.petView applySheet:image petID:petID rowCount:spriteRowCount];
     PetPhrasesSetCurrentPetID(petID);

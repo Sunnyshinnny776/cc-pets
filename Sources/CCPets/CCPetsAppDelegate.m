@@ -159,7 +159,7 @@
     NSDictionary *selectedOption = [self petOptionWithID:selected inOptions:petOptions] ?: petOptions.firstObject;
     selected = selectedOption[@"id"];
     NSString *spritePath = selectedOption[@"path"];
-    NSImage *image = LoadPetSpriteImage(spritePath, NSMakeSize(140, 150),
+    NSImage *image = LoadPetSpriteImage(spritePath, CCPetsPetDecodeCellSize(),
         [selectedOption[@"spriteRowCount"] integerValue] ?: 9);
     if (!image) {
         fprintf(stderr, "%s\n", [NSString stringWithFormat:L(@"Can't read the pet sprite: %@"), spritePath].UTF8String);
@@ -396,6 +396,8 @@
 
     NSScreen *screen = NSScreen.mainScreen;
     NSRect visible = screen.visibleFrame;
+    [self applyPetSizePreference];
+    size = self.panel.frame.size;
     [self.panel setFrameOrigin:NSMakePoint(NSMaxX(visible) - size.width - 24, NSMinY(visible) + 18)];
     [self.panel orderFrontRegardless];
     self.usageMonitor = [CCPetsUsageMonitor new];

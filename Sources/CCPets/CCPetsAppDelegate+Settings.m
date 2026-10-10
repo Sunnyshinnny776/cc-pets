@@ -1,7 +1,38 @@
 // 右键菜单里的各项设置开关。
 #import "CCPetsAppDelegate+Private.h"
+#import <math.h>
 
 @implementation AppDelegate (Settings)
+- (void)setPetSizeFromSlider:(NSSlider *)sender {
+    double scale = round(sender.doubleValue * 100) / 100;
+    if (!isfinite(scale)) return;
+    scale = MAX(CCPetsPetMinimumScale, MIN(CCPetsPetMaximumScale, scale));
+    sender.doubleValue = scale;
+    [NSUserDefaults.standardUserDefaults setDouble:scale forKey:CCPetsPetScaleKey];
+    [self applyPetSizePreference];
+}
+- (void)applyPetSizePreference {
+    if (!self.petView || !self.panel) return;
+    CGFloat scale = CCPetsPetScalePreference();
+    NSRect oldPet = [self.panel convertRectToScreen:self.petView.frame];
+    NSSize petSize = NSMakeSize(140 * scale + 4, 150 * scale);
+    NSSize panelSize = NSMakeSize(MAX(230, petSize.width + 86), petSize.height + 20);
+    // 脚底中心的屏幕坐标保持不变；透明余量继续留给拖动滞后和呼吸动画。
+    NSRect panelFrame = NSMakeRect(NSMidX(oldPet) - panelSize.width / 2,
+        NSMinY(oldPet), panelSize.width, panelSize.height);
+    [self.panel setFrame:panelFrame display:NO];
+    self.petView.frame = NSMakeRect((panelSize.width - petSize.width) / 2,
+        0, petSize.width, petSize.height);
+    [self.petView displayIfNeeded];
+    [self.updateBadgeView setFrameOrigin:NSMakePoint(NSMaxX(self.petView.frame) - 30,
+        NSMaxY(self.petView.frame) - 28)];
+    // 只更新已创建的气泡；独立消息气泡仍在首次播报时按需创建。
+    [self resizeStatusCardToFitText];
+    [self resizeSpeechBubbleToFitText];
+    [self.statusPanel.contentView displayIfNeeded];
+    [self.speechPanel.contentView displayIfNeeded];
+    [self petWindowDidMove:nil];
+}
 - (NSString *)systemMetricKeyForTag:(NSInteger)tag {
     if (tag == 1) return SystemCPUEnabledKey;
     if (tag == 2) return SystemTemperatureEnabledKey;

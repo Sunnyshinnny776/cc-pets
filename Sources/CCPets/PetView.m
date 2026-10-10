@@ -8,6 +8,8 @@
 #import "CCPetsBridge.h"
 #import "CCPetsGlassView.h"
 #import "MenuChoiceRow.h"
+#import "MenuPetSizeView.h"
+#import "CCPetsPetSize.h"
 #import "CCPetsPhrases.h"
 
 // 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate+Speech.m，这里只读不写；
@@ -83,6 +85,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
 // 精灵内容单独挂一层：呼吸、弹簧、落地 squash 都要对这一层做 CA 动画，放在视图自己的
 // layer 上会连带影响命中测试和子视图几何。
 @property CALayer *spriteLayer;
+@property NSSize spriteCacheSize;
 // 当前帧已经停了几拍，够 frameHolds 里那个数才推进。
 @property NSUInteger holdTicks;
 // 待机当前的速度档（拍/帧）。行为已关，字段留给微动层的慢放用。
@@ -940,7 +943,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
 //
 // 试过两条更"聪明"的路，都不行，别改回去：
 //   1. CGImageCreateWithImageInRect 预裁——素材经 LoadPetSpriteImage 缩略后不保证能被
-//      8 列 rowCount 行整除（默认素材 1536×1872 会装成 1120×1365，cellHeight=151.67），
+//      8 列 rowCount 行整除（超大素材缩略后可能得到小数尺寸的源格），
 //      小数矩形会被取整，采样相位偏掉，边缘整行错位。
 //   2. 整表交给 layer + contentsRect 选帧——CA 自己的最近邻缩放相位同样和 NSImage 对不上，
 //      实测形状吻合度反而从 99.4% 掉到 93.5%。
@@ -957,6 +960,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     // 原来给 48 格 = 15.4MB，而真实活跃工作集只有待机 6 帧 + 当前动作 ≤8 帧 +
     // 偶尔几个朝向格，20 格足够，超出的部分纯粹是白占着。
     NSSize pointSize = NSInsetRect(self.bounds, 2, 0).size;
+    self.spriteCacheSize = pointSize;
     NSUInteger cellCost = (NSUInteger)(ceil(pointSize.width * scale) *
         ceil(pointSize.height * scale) * 4);
     NSUInteger affordable = MIN((NSUInteger)(self.spriteRowCount * 8), (NSUInteger)20);
@@ -964,7 +968,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     [self updateSpriteContents];
 }
 // 视网膜屏上必须按 backingScaleFactor 栅格化。原来 drawRect: 是直接画进 2x 的后备存储，
-// 等于用更高分辨率去采样那个 151.67 高的源格；预栅格化成 1x 位图再让 layer 放大，
+// 等于按实际屏幕分辨率采样源格；预栅格化成 1x 位图再让 layer 放大，
 // 会比改造前糊一档。
 - (CGFloat)spriteScale {
     CGFloat scale = self.window.backingScaleFactor;
@@ -1047,7 +1051,22 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
 }
 - (void)layout {
     [super layout];
+    [self refreshSpriteSize];
+}
+- (void)refreshSpriteSize {
     [self layoutSpriteLayer];
+    // 每格缓存的键只包含行/帧，尺寸改变后必须清掉旧尺寸的位图。
+    if (!NSEqualSizes(self.spriteCacheSize, NSInsetRect(self.bounds, 2, 0).size)) {
+        [self rebuildSpriteCache];
+    }
+}
+- (void)setFrame:(NSRect)newFrame {
+    [super setFrame:newFrame];
+    [self refreshSpriteSize];
+}
+- (void)setFrameSize:(NSSize)newSize {
+    [super setFrameSize:newSize];
+    [self refreshSpriteSize];
 }
 // 锚点是脚底 (0.5, 0)，所以不能直接设 frame——那会把锚点当左下角算。改用 bounds + position。
 - (void)layoutSpriteLayer {
@@ -1593,6 +1612,14 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     }
     self.activePetSwitchMenu = switchMenu;
     switchItem.submenu = switchMenu;
+    NSMenuItem *sizeItem = [menu addItemWithTitle:L(@"Pet Size") action:nil keyEquivalent:@""];
+    NSMenu *sizeMenu = [[NSMenu alloc] initWithTitle:L(@"Pet Size")];
+    NSMenuItem *sizeControl = [[NSMenuItem alloc] initWithTitle:L(@"Pet Size")
+        action:nil keyEquivalent:@""];
+    sizeControl.view = [[MenuPetSizeView alloc] initWithScale:CCPetsPetScalePreference()
+        target:NSApp.delegate action:@selector(setPetSizeFromSlider:)];
+    [sizeMenu addItem:sizeControl];
+    sizeItem.submenu = sizeMenu;
     [menu addItem:NSMenuItem.separatorItem];
     [self addPersistentSwitchToMenu:menu
         title:L(@"Show Status Card")

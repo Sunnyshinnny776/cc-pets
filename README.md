@@ -207,7 +207,13 @@ prompts, command text, file contents, or model output.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, notification, Help (update check and About), and exit menu |
+| Right-click | Pet, size, notification, Help (update check and About), and exit menu |
+
+**Pet Size** in the right-click menu offers a 50%–200% slider with a live percentage
+and **Reset Size** to return to 100%. The pet scales around its feet, and its size
+persists across pet changes and restarts.
+Hook status cards and speech bubbles shrink with the pet below 100%, including
+their text, icons, and click targets. At 100% and above they keep their original size.
 
 The **Panel theme** submenu offers **Classic** and **Liquid Glass**. Classic is the
 default. Changes apply immediately to the quota panel, status card, and speech

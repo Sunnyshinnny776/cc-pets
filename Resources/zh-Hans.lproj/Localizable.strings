@@ -333,3 +333,5 @@
 "ⓘ  % = share of official plan quota left; tokens = locally counted usage (input incl. cache reads/writes). They measure different things" = "ⓘ  百分比 = 官方订阅额度的剩余比例；Token = 本机统计的已用量（输入含缓存读写），两者口径不同";
 "Today" = "今日用量";
 "Unknown argument: %@\nRun cc-pets --help for usage." = "未知参数：%@\n运行 cc-pets --help 查看用法。";
+"Pet Size" = "宠物大小";
+"Reset Size" = "恢复默认";
