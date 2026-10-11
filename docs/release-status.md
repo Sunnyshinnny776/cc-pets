@@ -1,6 +1,6 @@
 # v2.2.0 发布状态
 
-目标：首个英文语言版本。当前为 `publish` 上的发布准备，尚未发布正式 GitHub Release。
+首个英文语言版本。2026-10-08 从 `main` 发布正式 tag `v2.2.0` 与 GitHub Release。
 
 ## 分支职责与交付范围
 
@@ -25,5 +25,5 @@
 - 四张截图均核验为 `1356×957`，英文图等比例缩放并补边，完整保留面板、桌宠和菜单。
 - Release 正文通过实际解析函数校验：英语与简体中文各 3 条要点，无截断；小写 `english` 不匹配且不会读取中文。
 - README 和状态文档中的本地链接、插图路径完成核验。
-- 本交付提交并推送到 `origin/publish`，供本地测试及正式版集成；合并 `main`、正式 tag 和 GitHub Release 待后续发布操作。
+- 本交付经 `origin/publish` fast-forward 集成到 `main`，在 `main` 复验 `CC_PETS_STRICT=1 npm test` 后发布正式 tag 和 GitHub Release。
 - 历史版本记录保留；封面仅将版本文字更新为 v2.2.0，尺寸仍为 `2560×1280`，版本文字区域外逐像素验证保持不变。

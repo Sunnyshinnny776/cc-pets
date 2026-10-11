@@ -5,9 +5,28 @@ English | [简体中文](./CHANGELOG.zh-CN.md)
 This project follows Semantic Versioning. `package.json` is the single source of
 truth for the version.
 
-## [2.2.0] - Unreleased
+## [Unreleased]
 
-First English-language release; prepared on `publish`, pending a stable release from `main`.
+### Pet size and rendering
+
+- Added **Pet Size** to the right-click menu with a live 50%–200% slider and **Reset Size** to restore 100%. Scaling keeps the pet's feet in place, refreshes cached animation frames at the new size, and persists across pet changes and restarts.
+- Hook status cards and speech bubbles scale down with the pet below 100%, including text, icons and click targets; at 100% and above they keep their original size.
+- Fix blurry sprites on Retina displays by decoding for at least 2x resolution and the highest connected display scale. The loader accounts for the maximum pet size and retains original images when downsampling is unnecessary.
+
+### Pet speech
+
+- Added **Chatter → Line Source → Pet-specific Lines / Default Lines**. Pet-specific lines override shared sections and fall back to shared lines for missing sections; default lines use only the editable `~/.cc-pets/speech.txt`. The global choice applies immediately and persists across pet changes and restarts, with pet-specific lines selected initially.
+- Fix mixed Chinese and English in the lines editor after changing the UI language: window titles, buttons, scope labels and situation descriptions now refresh together, preserving unsaved text and the selected situation.
+
+### Menus
+
+- Moved **Frequency** and **Line Source** into separate Chatter submenus and removed the separators from the Chatter menu.
+- Frequency, line source and click-reaction threshold and timing choices now keep the menu open on mouse clicks and update their checkmarks immediately through the shared choice-row component.
+- Shared choice rows size themselves to their labels so longer English titles fit.
+
+## [2.2.0] - 2026-10-08
+
+First English-language release: the app and CLI are available in English and Simplified Chinese.
 
 ### Language
 

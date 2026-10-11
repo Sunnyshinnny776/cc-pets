@@ -7,6 +7,7 @@
 #import "CCPetsEvents.h"
 #import "CCPetsQuotaHistory.h"
 #import "CCPetsImageLoader.h"
+#import "CCPetsPetSize.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
@@ -102,6 +103,22 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     return ceil(label.fittingSize.width) + 2;
 }
 
+// 文案、玻璃与按钮仍使用原来的逻辑坐标，只缩小窗口与根视图的 frame。
+// bounds 保留原尺寸，AppKit 会同步转换绘制和命中坐标，避免文字被小外壳裁掉。
+static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
+    if (!panel) return;
+    CGFloat scale = CCPetsBubbleScalePreference();
+    NSSize size = NSMakeSize(logicalSize.width * scale, logicalSize.height * scale);
+    NSView *root = panel.contentView;
+    BOOL autoresizes = root.autoresizesSubviews;
+    root.autoresizesSubviews = NO;
+    [panel setContentSize:size];
+    root.frame = NSMakeRect(0, 0, size.width, size.height);
+    root.bounds = NSMakeRect(0, 0, logicalSize.width, logicalSize.height);
+    root.autoresizesSubviews = autoresizes;
+    root.needsDisplay = YES;
+}
+
 @interface CCPetsStatusClickButton : NSButton
 @end
 
@@ -128,6 +145,8 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 
 // 右键菜单里的各项设置开关
 @interface AppDelegate (Settings)
+- (void)applyPetSizePreference;
+- (void)setPetSizeFromSlider:(NSSlider *)sender;
 - (void)toggleSystemMetric:(NSButton *)sender;
 - (void)setUsageDisplayModeFromControl:(NSButton *)sender;
 - (NSString *)systemMetricKeyForTag:(NSInteger)tag;
@@ -141,10 +160,11 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 - (void)setGlassDimLevel:(MenuChoiceRowView *)sender;
 - (void)toggleSpeech:(NSButton *)sender;
 - (void)togglePetInteraction:(NSButton *)sender;
-- (void)setPetInteractionHeartThreshold:(NSMenuItem *)sender;
-- (void)setPetInteractionAnnoyedThreshold:(NSMenuItem *)sender;
-- (void)setPetInteractionInterval:(NSMenuItem *)sender;
-- (void)setSpeechFrequency:(NSMenuItem *)sender;
+- (void)setPetInteractionHeartThreshold:(MenuChoiceRowView *)sender;
+- (void)setPetInteractionAnnoyedThreshold:(MenuChoiceRowView *)sender;
+- (void)setPetInteractionInterval:(MenuChoiceRowView *)sender;
+- (void)setSpeechFrequency:(MenuChoiceRowView *)sender;
+- (void)setPhrasesSource:(MenuChoiceRowView *)sender;
 - (void)editPhrasesFile:(id)sender;
 - (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender;
 - (void)languageDidChange:(NSNotification *)notification;
@@ -305,16 +325,17 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
 - (void)retryUpdate:(NSArray *)context;
 - (void)startUpdateToVersion:(NSString *)version attempt:(NSInteger)attempt;
 - (void)showAboutPanel:(id)sender;
-- (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSArray<NSString *> *highlights,
-    BOOL highlightsTruncated, NSString *errorMessage))completion;
+- (void)fetchLatestReleaseWithCompletion:(void (^)(NSString *version, NSString *notes,
+    NSString *errorMessage))completion;
+- (void)fetchReleaseNotesForVersion:(NSString *)version sourceIndex:(NSUInteger)index
+    completion:(void (^)(NSString *body))completion;
 - (void)checkForUpdates:(id)sender;
 - (void)showPendingUpdate:(id)sender;
 - (void)silentCheckForUpdate;
-- (void)rememberPendingUpdate:(NSString *)version highlights:(NSArray<NSString *> *)highlights
-    truncated:(BOOL)truncated;
+- (void)rememberPendingUpdate:(NSString *)version notes:(NSString *)notes;
 - (void)refreshUpdateBadge;
 - (void)clearPendingUpdate;
-- (NSView *)updateHighlightsAccessoryView;
+- (NSView *)updateHighlightsAccessoryView:(NSArray<NSString *> *)highlights truncated:(BOOL)truncated;
 - (void)showUpdateDialog;
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem;
 - (void)applyUpdateBadgeStyle;

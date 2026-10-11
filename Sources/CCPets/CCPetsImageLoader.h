@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
 
-// 按桌宠实际绘制尺寸解码精灵图，避免让超大外部素材长期占用完整 RGBA 内存。
+// cellSize 使用逻辑点；按至少 2x 及当前屏幕最高倍率解码，保留 Retina 细节，
+// 同时限制超大外部素材的 RGBA 内存占用。无需降采样时保留原图。
 NSImage *LoadPetSpriteImage(NSString *path, NSSize cellSize, NSInteger rowCount);

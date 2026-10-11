@@ -72,6 +72,13 @@ NSString *PetPhrasesKeyForPetID(NSString *petID);
 // 某只宠物的专属词库路径。petID 为空返回 nil。
 NSString *PetPhrasesFilePathForPetID(NSString *petID);
 
+// 全局台词来源偏好，切换宠物和重启后仍保留。未设置时保持原来的专属优先行为。
+// 专属模式按小节回落到通用词库；默认模式只读通用词库，不改写任何台词文件。
+extern NSString *const PetPhrasesSourcePet;
+extern NSString *const PetPhrasesSourceDefault;
+NSString *PetPhrasesSource(void);
+void PetPhrasesSetSource(NSString *source);
+
 // 当前是哪只宠物。取词层本来是纯函数，这里是唯一的外部状态——桌宠启动和每次切换
 // 宠物时由 AppDelegate 推进来。做成 setter 而不是让 PetPhraseForTag 多带一个参数：
 // 说话的调用点散在十几处，每处都传一遍 petID 只会让人漏传，而漏传的表现是"专属台词
