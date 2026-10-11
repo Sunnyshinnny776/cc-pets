@@ -21,7 +21,7 @@ Install preview builds explicitly; the automatic updater accepts stable versions
 `main` is reserved for stable releases, including the stable GitHub Release and tag.
 Complete implementation, documentation, screenshots, and validation on `publish`
 before submitting to `main`; repeat integration checks there before a stable release.
-The current stable release target is **v2.2.1**, covering pet size, speech sources, and menu fixes.
+The latest stable GitHub release is **v2.2.1**, covering pet size, speech sources, and menu fixes.
 See [release status](docs/release-status.md) for validation and handoff details.
 
 ## Localization

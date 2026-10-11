@@ -1,7 +1,7 @@
 # v2.2.1 发布状态
 
-目标：将 `publish` 的宠物大小、台词来源、菜单与渲染更新发布为正式小版本 `v2.2.1`。
-当前处于发布准备阶段，尚未集成 `main`、创建正式 tag 或发布 GitHub Release / npm 包。
+2026-10-11 已从 `main` 发布正式 tag `v2.2.1` 与 [GitHub Release](https://github.com/Sunnyshinnny776/cc-pets/releases/tag/v2.2.1)。
+本次包含宠物大小、台词来源、菜单与渲染更新。npm 尚未发布；当前机器未登录 npm，等待 npm 负责人发布。
 
 ## 分支职责与发布顺序
 
@@ -25,5 +25,9 @@
 - 首轮直接运行停在控制终端回落检查；源码检测到共享 daemon 时会拒绝推断终端，隔离复验通过，未修改代码或跳过检查。
 - 使用真实 `ReleaseNoteHighlightsForLanguage` 校验本版正文：英语与简体中文各 3 条，无截断；小写 `english` 不匹配。
 - 二进制版本、app 短版本与构建版本均为 `2.2.1`，应用签名、版本文档本地链接与图片路径、diff 空白检查通过。
-- 待完成：提交发布准备、推送 `publish`，集成 `main` 并复验。
-- 待发布：正式 tag `v2.2.1` 和使用已提交正文的 GitHub Release；npm 发布另行协调。
+- 发布准备提交 `cf885fa` 已推送 `publish`；[PR #11](https://github.com/Sunnyshinnny776/cc-pets/pull/11) 的 macOS CI 通过后 squash 合并到 `main`，集成提交为 `bceca64`。
+- 本地 `main` 集成环境复验 `CC_PETS_STRICT=1 npm test` 全套通过；远端 squash 集成树与本地已验证的发布准备树完全一致。
+- 正式 tag `v2.2.1` 指向 `bceca64`；GitHub Release 为正式版本（非 draft、非 prerelease），使用已提交的本版 Release Note。
+- GitHub Release 正文、远端 tag 中的正文文件与本地已验证文件逐一比对一致。
+- 本地桌面端已安装并重启为 `2.2.1`，签名校验通过，安装的二进制与已验证构建一致。
+- npm 登录检查返回 `ENEEDAUTH`，未执行 npm 发布；自动更新仍等待对应 npm 版本上线。
