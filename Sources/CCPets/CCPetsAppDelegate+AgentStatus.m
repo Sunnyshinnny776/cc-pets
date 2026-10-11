@@ -597,6 +597,7 @@
 }
 // 状态卡：左内边距 20 + 文字 + 间隙 8 + 图标 34 + 右内边距 14。
 - (void)resizeStatusCardToFitText {
+    if (!self.statusPanel) return;
     const CGFloat leading = 20, gap = 8, iconWidth = 34, trailing = 14;
     // 副行没内容时收成单行，而不是留一块空白。
     //
@@ -611,13 +612,9 @@
     }
     CGFloat glassWidth = leading + textWidth + gap + iconWidth + trailing;
     glassWidth = fmax(210.0, fmin(glassWidth, 420.0));
-    // 高度也要参与早退判断，否则单行/双行之间切换时尺寸不会更新。
-    if (fabs(NSWidth(self.statusGlass.frame) - glassWidth) < 0.5 &&
-        fabs(NSHeight(self.statusGlass.frame) - height) < 0.5) return;
-
     NSSize panelSize = NSMakeSize(glassWidth + 12, height + 12);
-    [self.statusPanel setContentSize:panelSize];
-    self.statusPanel.contentView.frame = NSMakeRect(0, 0, panelSize.width, panelSize.height);
+    // 文字未变化时也重新应用比例，滑动条缩放不能被原来的尺寸早退跳过。
+    PetResizeBubblePanel(self.statusPanel, panelSize);
     self.statusGlass.frame = NSMakeRect(6, 6, glassWidth, height);
     self.statusGlass.cornerRadius = height / 2.0;
     self.statusShadowView.frame = NSMakeRect(6, 6, glassWidth, height);
@@ -639,6 +636,7 @@
     self.statusIconButton.frame = NSMakeRect(glassWidth - trailing - iconWidth,
         (height - iconWidth) / 2.0, iconWidth, iconWidth);
     self.statusClickButton.frame = NSMakeRect(6, 6, glassWidth - 56, height);
+    [self layoutApprovalBadge];
 }
 // 面板底边到"最小那颗圆点底边"的距离。定位要拿它反推面板该放多高，
 // 才能让圆点正好落在宠物头顶而不是悬在空中。
@@ -647,8 +645,9 @@
     NSRect visible = (self.panel.screen ?: NSScreen.mainScreen).visibleFrame;
     NSSize size = self.statusPanel.frame.size;
     CGFloat x = NSMidX(petFrame) - size.width / 2.0;
-    CGFloat aboveY = NSMaxY(petFrame) + 8;
-    CGFloat belowY = NSMinY(petFrame) - size.height - 8;
+    CGFloat gap = 8 * CCPetsBubbleScalePreference();
+    CGFloat aboveY = NSMaxY(petFrame) + gap;
+    CGFloat belowY = NSMinY(petFrame) - size.height - gap;
     BOOL aboveFits = aboveY + size.height <= NSMaxY(visible) - 10;
     BOOL belowFits = belowY >= NSMinY(visible) + 10;
     self.statusBubbleAbove = aboveFits || !belowFits;

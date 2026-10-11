@@ -189,9 +189,10 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     NSSize size = self.speechPanel.frame.size;
     CGFloat x = NSMidX(petFrame) - size.width / 2.0;
     // 头顶放不下就翻到脚下，尾巴跟着改朝向长在顶边。
-    CGFloat aboveY = NSMaxY(petFrame) - 6;
+    CGFloat inset = 6 * CCPetsBubbleScalePreference();
+    CGFloat aboveY = NSMaxY(petFrame) - inset;
     BOOL fitsAbove = aboveY + size.height <= NSMaxY(visible) - 10;
-    CGFloat y = fitsAbove ? aboveY : NSMinY(petFrame) - size.height + 6;
+    CGFloat y = fitsAbove ? aboveY : NSMinY(petFrame) - size.height + inset;
     x = fmax(NSMinX(visible) + 10, fmin(x, NSMaxX(visible) - size.width - 10));
     y = fmax(NSMinY(visible) + 10, fmin(y, NSMaxY(visible) - size.height - 10));
     [self.speechPanel setFrameOrigin:NSMakePoint(x, y)];
@@ -379,14 +380,15 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
 }
 // 独立气泡：左右各 16 内边距，没有图标。
 - (void)resizeSpeechBubbleToFitText {
+    if (!self.speechPanel) return;
     const CGFloat padding = 16;
     CGFloat width = padding * 2 + PetMeasuredLabelWidth(self.speechLabel);
     width = fmax(96.0, fmin(width, 300.0));
     NSSize panelSize = NSMakeSize(width + 12, PetSpeechBodyHeight + 12);
-    [self.speechPanel setContentSize:panelSize];
-    self.speechPanel.contentView.frame = NSMakeRect(0, 0, panelSize.width, panelSize.height);
+    PetResizeBubblePanel(self.speechPanel, panelSize);
     self.speechGlass.frame = NSMakeRect(6, 6, width, PetSpeechBodyHeight);
     self.speechGlass.cornerRadius = PetSpeechBodyHeight / 2.0;
     self.speechLabel.frame = NSMakeRect(padding, 10, width - padding * 2, 18);
+    self.speechClickButton.frame = self.speechPanel.contentView.bounds;
 }
 @end

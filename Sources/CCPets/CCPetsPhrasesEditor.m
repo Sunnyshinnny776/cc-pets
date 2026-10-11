@@ -8,6 +8,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
 @property NSTextView *textView;
 @property NSPopUpButton *tagPicker;
 @property NSTextField *statusLabel;
+@property NSButton *speakButton;
 @property NSButton *saveButton;
 @property NSButton *saveAndCloseButton;
 @property NSButton *revertButton;
@@ -42,6 +43,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     PetPhrasesEditorController *controller = [self shared];
     [controller buildWindowIfNeeded];
     [controller syncScopeToCurrentPet];
+    [controller refreshLocalizedUI];
     [controller reloadFromDisk];
     [NSApp activateIgnoringOtherApps:YES];
     [controller.window makeKeyAndOrderFront:nil];
@@ -111,6 +113,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     NSButton *speak = [NSButton buttonWithTitle:L(@"Try a Line") target:self
         action:@selector(speakSample:)];
     speak.translatesAutoresizingMaskIntoConstraints = NO;
+    self.speakButton = speak;
 
     NSButton *save = [NSButton buttonWithTitle:L(@"Save") target:self action:@selector(save:)];
     // ⌘S 而不是回车：这是个多行文本编辑器，回车要用来换行。
@@ -182,6 +185,35 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     ]];
 
     self.window = window;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(languageDidChange:)
+        name:CCPetsLanguageDidChangeNotification object:nil];
+}
+
+// 只更新界面文案，保留编辑内容、撤销记录和当前编辑的宠物。
+- (void)refreshLocalizedUI {
+    self.window.title = L(@"Pet Lines");
+    self.speakButton.title = L(@"Try a Line");
+    self.saveButton.title = L(@"Save");
+    self.saveAndCloseButton.title = L(@"Save & Close");
+    self.fillButton.title = L(@"Insert Template");
+    [self.scopeControl setLabel:L(@"Shared") forSegment:0];
+    [self.scopeControl setLabel:self.scopePetID.length > 0 ?
+        [NSString stringWithFormat:L(@"This Pet · %@"),
+            [self displayNameForPetID:self.scopePetID]] : L(@"This Pet") forSegment:1];
+    [self syncRevertButtonTitle];
+    // 更新原有菜单项，不改变用户选中的情境。
+    for (NSMenuItem *item in self.tagPicker.itemArray) {
+        NSString *tag = item.representedObject;
+        item.title = [NSString stringWithFormat:L(@"%1$@ (%2$@)"),
+            PetPhraseTagDescription(tag), tag];
+    }
+}
+
+- (void)languageDidChange:(NSNotification *)notification {
+    [self refreshLocalizedUI];
+    // 通用词库可能已随语言切换换成新默认内容；有草稿时只刷新界面，不能重载覆盖它。
+    if (![self isDirty]) [self reloadFromDisk];
+    else [self showCurrentFileStatus];
 }
 
 #pragma mark - 编辑范围
@@ -277,7 +309,12 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     self.loadedText = text;
     self.loadedStamp = [NSFileManager.defaultManager attributesOfItemAtPath:path
         error:nil][NSFileModificationDate];
-    if (self.petScope && text.length == 0) {
+    [self showCurrentFileStatus];
+}
+
+- (void)showCurrentFileStatus {
+    NSString *path = [self currentFilePath];
+    if (self.petScope && self.textView.string.length == 0) {
         [self showStatus:[NSString stringWithFormat:
             L(@"%@ · Still empty, so this pet uses the shared lines. Only write the sections you want to change, or click “Insert Template” at the top right to see what's possible."), path]
             warning:NO];

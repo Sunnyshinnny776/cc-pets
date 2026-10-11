@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.2.0: Liquid Glass theme and multi-terminal jump-back">
+  <img src="docs/images/cover.png" alt="CC Pets v2.2.1: adjustable pet size and selectable speech sources">
 </p>
 
 # CC Pets
@@ -13,18 +13,17 @@ Codex App Server interface and Claude Code's official status line input.
 
 > The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
 
-## What's new in v2.2.0
+## What's new in v2.2.1
 
-- **First English release** — menus, quota panels, status cards, update dialogs, and CLI
-  output now support English and Simplified Chinese. Choose **Language → English**,
-  **简体中文**, or **System Default** in the right-click menu.
-- **English panel polish** — stronger summary headings, clearer spacing, shorter window
-  titles and risk messages, and a compact explanation of quota and token totals.
-- **Language-specific release highlights** — update dialogs read only the matching
-  `English` or `简体中文` section of GitHub Release notes. A missing section leaves the
-  highlights empty; content from another language is not substituted.
+- **Adjustable pet size** — use **Pet Size** in the right-click menu for live 50%–200%
+  scaling. The setting persists, smaller pets get proportionally smaller status cards
+  and bubbles, and sprites stay sharper on Retina displays.
+- **Selectable speech sources** — choose **Chatter → Line Source → Pet-specific Lines**
+  or **Default Lines**. The choice applies immediately and survives pet changes and restarts.
+- **Menu and editor fixes** — choice menus stay open and update their checkmarks,
+  longer English labels fit, and the lines editor refreshes its language without losing edits.
 
-See the [changelog](./CHANGELOG.md) for the full list.
+See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.2.1.md) for the full list.
 
 ## Screenshots
 
@@ -53,6 +52,9 @@ English — v2.2.0 quota panel and Language menu:
 - Supports optional local quota history and macOS notifications.
 - Supports third-party CLI agents through a provider event protocol.
 - Includes editable global and per-pet speech.
+- Offers **Chatter → Line Source → Pet-specific Lines / Default Lines**. Pet-specific lines
+  override shared sections; default lines use only the editable shared speech file. The
+  selection persists across pet changes and restarts, with pet-specific lines selected initially.
 - Includes one original pet and can download compatible assets from PetDex.
 - Uses native AppKit with no Electron runtime.
 
@@ -171,7 +173,10 @@ claude-with-pet               # Start the pet and enter Claude Code CLI.
 
 `package.json` is the single version source. Use `npm version patch`, `minor`, or
 `major` for a future release; npm runs the test suite and the build writes the
-version into the generated app's `Info.plist`.
+version into the generated app's `Info.plist`. Every release also updates both
+READMEs, both changelogs, the cover version, and [release status](./docs/release-status.md).
+Commit the bilingual `docs/release-notes-vX.Y.Z.md` before tagging; follow the
+[Release notes rules](./CONTRIBUTING.md#github-release-notes).
 
 ## Agent integration
 
@@ -204,7 +209,13 @@ prompts, command text, file contents, or model output.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, notification, Help (update check and About), and exit menu |
+| Right-click | Pet, size, notification, Help (update check and About), and exit menu |
+
+**Pet Size** in the right-click menu offers a 50%–200% slider with a live percentage
+and **Reset Size** to return to 100%. The pet scales around its feet, and its size
+persists across pet changes and restarts.
+Hook status cards and speech bubbles shrink with the pet below 100%, including
+their text, icons, and click targets. At 100% and above they keep their original size.
 
 The **Panel theme** submenu offers **Classic** and **Liquid Glass**. Classic is the
 default. Changes apply immediately to the quota panel, status card, and speech
@@ -358,7 +369,7 @@ external assets.
 - Local quota history is disabled by default and retains seven days when enabled.
 - Status cards and notifications show only provider, state, and redacted tool category.
 - CC Pets contains no telemetry and uploads no conversations, quotas, credentials, or usage statistics.
-- On launch, and when a CLI reopens the running pet, CC Pets asks the npm registry for the latest version (at most once every 10 minutes per run); only when a newer version exists does it read that version's release notes from the GitHub API. These requests carry no account or usage data.
+- On launch, and when a CLI reopens the running pet, CC Pets asks the npm registry for the latest version (at most once every 10 minutes per run); only when a newer version exists does it read that version's committed release notes from the tag through raw.githubusercontent.com, then jsDelivr, with the GitHub Release API as a fallback. These requests carry no account or usage data.
 - Exiting the pet or running `cc-pets uninstall` leaves no background daemon running.
 - [CC Bridge](./CC_BRIDGE.md) is off by default. When enabled, messages between sessions are stored
   in the current user's temporary directory (owner-only, 24-hour expiry); it is the only feature
