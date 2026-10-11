@@ -7,6 +7,8 @@ truth for the version.
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-10-11
+
 ### Pet size and rendering
 
 - Added **Pet Size** to the right-click menu with a live 50%–200% slider and **Reset Size** to restore 100%. Scaling keeps the pet's feet in place, refreshes cached animation frames at the new size, and persists across pet changes and restarts.
@@ -23,6 +25,10 @@ truth for the version.
 - Moved **Frequency** and **Line Source** into separate Chatter submenus and removed the separators from the Chatter menu.
 - Frequency, line source and click-reaction threshold and timing choices now keep the menu open on mouse clicks and update their checkmarks immediately through the shared choice-row component.
 - Shared choice rows size themselves to their labels so longer English titles fit.
+
+### Updates
+
+- Read the committed `docs/release-notes-vX.Y.Z.md` from the version tag through raw.githubusercontent.com, then jsDelivr, with the GitHub Release API as a fallback. Release highlights continue to follow the exact UI-language section heading.
 
 ## [2.2.0] - 2026-10-08
 

@@ -16,12 +16,12 @@ scope can be agreed on first.
 ## Branch and release policy
 
 Develop, test, and prepare preview releases on `publish`. Preview releases must be
-marked as GitHub prereleases and use a prerelease version such as `2.2.0-rc.1`.
+marked as GitHub prereleases and use a prerelease version such as `2.2.1-rc.1`.
 Install preview builds explicitly; the automatic updater accepts stable versions only.
 `main` is reserved for stable releases, including the stable GitHub Release and tag.
 Complete implementation, documentation, screenshots, and validation on `publish`
 before submitting to `main`; repeat integration checks there before a stable release.
-The current release candidate is **v2.2.0**, the first English-language release.
+The current stable release target is **v2.2.1**, covering pet size, speech sources, and menu fixes.
 See [release status](docs/release-status.md) for validation and handoff details.
 
 ## Localization
@@ -72,6 +72,14 @@ and publish with `gh release create vX.Y.Z --notes-file docs/release-notes-vX.Y.
 The updater reads this file from the tag (raw.githubusercontent.com, then jsDelivr)
 and only falls back to the rate-limited GitHub Release API, so editing the Release on
 GitHub afterwards does not change the in-app highlights.
+
+For every release, update `package.json`, both READMEs, both changelogs, the cover
+version, and `docs/release-status.md` together. Move shipped changes from
+`Unreleased` into the dated version section and preserve historical entries and
+release notes. Keep exactly three top-level highlights per language, each at most
+50 characters; use prose for additional detail and link to the matching tagged
+changelog. Verify the final body with the app's release-note parser before tagging,
+and publish that committed file without regenerating the body on GitHub.
 
 ## Asset requirements
 

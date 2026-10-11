@@ -15,11 +15,11 @@
 ## 分支与发布规则
 
 在 `publish` 完成开发、修改、测试和测试版本准备。测试版本必须在 GitHub 标记为
-prerelease，并使用如 `2.2.0-rc.1` 的预发布版本号。`main` 仅负责正式版本，包括正式
+prerelease，并使用如 `2.2.1-rc.1` 的预发布版本号。`main` 仅负责正式版本，包括正式
 GitHub Release 和 tag。提交到 `main` 前，代码、文档、截图与验证必须全部完成；
 在 `main` 完成集成验证后才能发布正式版本。
 测试版本需显式安装，自动更新器只接受正式版本号。
-当前待发布版本为 **v2.2.0**，作为首个英文语言版本。
+当前正式发布目标为 **v2.2.1**，包含宠物大小、台词来源与菜单修复。
 验证和交接状态见[发布状态](docs/release-status.md)。
 
 ## 多语言
@@ -61,6 +61,12 @@ GitHub Release 和 tag。提交到 `main` 前，代码、文档、截图与验�
 `gh release create vX.Y.Z --notes-file docs/release-notes-vX.Y.Z.md` 发布。更新器从 tag
 里读取这个文件（先 raw.githubusercontent.com，再 jsDelivr），最后才退到有限流的
 GitHub Release API，所以发布后在 GitHub 网页上修改 Release 不会改变 App 内的要点。
+
+每次发版须同步更新 `package.json`、双语 README、双语 CHANGELOG、封面版本文字和
+`docs/release-status.md`。将已交付改动从 `Unreleased` 归入带日期的版本小节，保留历史
+版本记录及 Release Note。每种语言严格保留 3 条顶层要点，每条不超过 50 字符；补充
+细节使用段落，并链接到对应 tag 的 CHANGELOG。打 tag 前用 App 的真实解析函数校验
+最终正文，发布时直接使用已提交文件，不在 GitHub 重新生成正文。
 
 ## 素材规范
 

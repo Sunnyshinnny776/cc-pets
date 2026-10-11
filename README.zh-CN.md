@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.2.0：Liquid Glass 主题与多终端回跳">
+  <img src="docs/images/cover.png" alt="CC Pets v2.2.1：宠物大小调整与台词来源选择">
 </p>
 
 # CC Pets
@@ -9,16 +9,16 @@
 一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
 并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
 
-## v2.2.0 新功能
+## v2.2.1 新功能
 
-- **首个英文版**：菜单、额度面板、状态卡、更新弹窗和 CLI 输出支持英语与简体中文。
-  右键「语言」可选择「English」「简体中文」或「跟随系统」。
-- **英文面板优化**：汇总标题加粗、标签与数字间距调整、窗口标题和风险提示精简，
-  底部说明清楚区分官方剩余额度与本机 Token 用量。
-- **按语言读取更新要点**：更新弹窗只读取 GitHub Release 中对应的 `English` 或
-  `简体中文` 段落；缺少对应段落时不展示要点，不会使用其他语言替代。
+- **宠物大小调整**：右键「宠物大小」可实时缩放至 50%～200%，设置自动保存；
+  小尺寸宠物的状态卡与气泡同比例缩小，并修复 Retina 屏幕上的精灵图模糊。
+- **台词来源选择**：「碎碎念 → 台词来源」可选择「专属台词」或「默认台词」，
+  立即生效，切换宠物和重启后仍保留。
+- **菜单与编辑器修复**：单选后菜单保持展开、勾选即时更新，长英文标题完整显示；
+  台词编辑器切换语言时统一刷新文案，并保留未保存的编辑。
 
-完整改动见 [更新记录](./CHANGELOG.zh-CN.md)。
+完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.2.1.md)。
 
 ## 界面预览
 
@@ -469,7 +469,10 @@ claude-with-pet
 
 项目版本以 `package.json` 为唯一来源。发布新版本时执行 `npm version patch`、
 `npm version minor` 或 `npm version major`；npm 会自动运行完整测试，构建过程会将新版本写入
-生成的 App `Info.plist`，无需手动修改 `Resources/Info.plist`。
+生成的 App `Info.plist`，无需手动修改 `Resources/Info.plist`。每次发版同时更新双语 README、
+双语 CHANGELOG、封面版本文字与[发布状态](./docs/release-status.md)。双语正文
+`docs/release-notes-vX.Y.Z.md` 须先提交再打 tag，遵循
+[Release Note 规则](./CONTRIBUTING.zh-CN.md#github-release-说明)。
 
 ## 用量数据
 
@@ -655,7 +658,7 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 - 额度历史默认关闭；启用后只在本机保留最近 7 天的剩余比例快照。
 - 状态气泡和通知只显示 Provider、状态及脱敏工具类别，不显示会话正文。
 - 项目不上传会话内容、额度、凭据或使用统计，也不包含遥测服务。
-- 桌宠启动时及 CLI 再次唤起桌宠时会向 npm Registry 查询最新版本号（同一次运行内最多每 10 分钟一次）；仅在有新版本时再向 GitHub API 读取该版本的 Release 说明。请求不携带任何账号或使用数据。
+- 桌宠启动时及 CLI 再次唤起桌宠时会向 npm Registry 查询最新版本号（同一次运行内最多每 10 分钟一次）；仅在有新版本时再读取该版本 tag 中已提交的 Release Note，依次尝试 raw.githubusercontent.com、jsDelivr，最后回退到 GitHub Release API。请求不携带任何账号或使用数据。
 - 右键“退出桌宠”或执行 `cc-pets uninstall` 后，不会继续运行后台守护进程。
 - [CC Bridge](./CC_BRIDGE.zh-CN.md) 默认关闭；开启后，会话之间的消息正文会保存在当前用户的临时目录
   （仅本人可读，24 小时过期），这是本项目唯一会保存正文的功能。
