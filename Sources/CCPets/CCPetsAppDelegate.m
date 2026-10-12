@@ -2,6 +2,9 @@
 // 共享常量和跨文件的方法声明见 CCPetsAppDelegate+Private.h。
 #import "CCPetsAppDelegate+Private.h"
 
+@implementation CCPetsBubbleContainerView
+@end
+
 @implementation CCPetsStatusClickButton
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 - (void)resetCursorRects {

@@ -389,6 +389,6 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     self.speechGlass.frame = NSMakeRect(6, 6, width, PetSpeechBodyHeight);
     self.speechGlass.cornerRadius = PetSpeechBodyHeight / 2.0;
     self.speechLabel.frame = NSMakeRect(padding, 10, width - padding * 2, 18);
-    self.speechClickButton.frame = self.speechPanel.contentView.bounds;
+    self.speechClickButton.frame = NSMakeRect(0, 0, panelSize.width, panelSize.height);
 }
 @end

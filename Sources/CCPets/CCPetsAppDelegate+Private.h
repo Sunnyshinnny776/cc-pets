@@ -103,19 +103,31 @@ static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     return ceil(label.fittingSize.width) + 2;
 }
 
-// 文案、玻璃与按钮仍使用原来的逻辑坐标，只缩小窗口与根视图的 frame。
-// bounds 保留原尺寸，AppKit 会同步转换绘制和命中坐标，避免文字被小外壳裁掉。
+// 窗口的 contentView 由 AppKit 管理尺寸，不能直接拿它的 bounds 做缩放。
+// 外壳保持窗口坐标，内部视图独立保留逻辑坐标，统一缩放绘制和命中区域。
+@interface CCPetsBubbleContainerView : NSView
+@end
+
 static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
     if (!panel) return;
     CGFloat scale = CCPetsBubbleScalePreference();
     NSSize size = NSMakeSize(logicalSize.width * scale, logicalSize.height * scale);
-    NSView *root = panel.contentView;
-    BOOL autoresizes = root.autoresizesSubviews;
+    NSView *container = panel.contentView;
+    NSView *root;
+    if ([container isKindOfClass:CCPetsBubbleContainerView.class]) {
+        root = container.subviews.firstObject;
+    } else {
+        root = container;
+        container = [[CCPetsBubbleContainerView alloc] initWithFrame:root.frame];
+        container.autoresizesSubviews = NO;
+        panel.contentView = container;
+        [container addSubview:root];
+    }
+    root.autoresizingMask = NSViewNotSizable;
     root.autoresizesSubviews = NO;
     [panel setContentSize:size];
     root.frame = NSMakeRect(0, 0, size.width, size.height);
     root.bounds = NSMakeRect(0, 0, logicalSize.width, logicalSize.height);
-    root.autoresizesSubviews = autoresizes;
     root.needsDisplay = YES;
 }
 
