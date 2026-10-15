@@ -139,6 +139,23 @@ NSString *PetPhrasesFilePathForPetID(NSString *petID) {
         [key stringByAppendingPathExtension:@"txt"]];
 }
 
+NSString *const PetSelectedSpriteKey = @"CCPetsSelectedSprite";
+
+void PetMigrateRenamedBuiltinSprite(NSUserDefaults *defaults) {
+    NSString *const legacyID = @"builtin:默认.webp";
+    NSString *const currentID = @"builtin:ByteMochi.webp";
+    NSString *selected = [defaults stringForKey:PetSelectedSpriteKey];
+    if ([selected isEqualToString:legacyID] || [selected isEqualToString:@"默认.webp"]) {
+        [defaults setObject:currentID forKey:PetSelectedSpriteKey];
+    }
+    NSString *legacyPath = PetPhrasesFilePathForPetID(legacyID);
+    NSString *currentPath = PetPhrasesFilePathForPetID(currentID);
+    NSFileManager *files = NSFileManager.defaultManager;
+    if ([files fileExistsAtPath:legacyPath] && ![files fileExistsAtPath:currentPath]) {
+        [files moveItemAtPath:legacyPath toPath:currentPath error:nil];
+    }
+}
+
 // 当前宠物。取词层唯一的外部状态，见头文件里为什么不走参数。
 static NSString *PetPhrasesCurrentPet;
 

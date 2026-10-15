@@ -157,7 +157,8 @@
         [defaults setBool:YES forKey:StatusBubblePreferenceV2Key];
     }
     self.statusBubbleExpanded = [defaults boolForKey:StatusBubbleExpandedKey];
-    NSString *selected = [defaults stringForKey:@"CCPetsSelectedSprite"];
+    PetMigrateRenamedBuiltinSprite(defaults);
+    NSString *selected = [defaults stringForKey:PetSelectedSpriteKey];
     if (selected.length > 0 && ![selected containsString:@":"]) selected = [@"builtin:" stringByAppendingString:selected];
     NSDictionary *selectedOption = [self petOptionWithID:selected inOptions:petOptions] ?: petOptions.firstObject;
     selected = selectedOption[@"id"];

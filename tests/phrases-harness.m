@@ -379,6 +379,49 @@ int main(void) {
 
         PetPhrasesSetCurrentPetID(nil);
 
+        // ---- 内置素材改名（默认.webp → ByteMochi.webp）的迁移 ----
+        //
+        // 选中的宠物和专属台词都按 petID 存。不迁移的话，旧 ID 找不到，用户会被退回列表第一只，
+        // 写过的专属台词也悄悄失效。
+        NSString *suiteName = [NSString stringWithFormat:@"com.universewang.cc-pets.tests.migrate-%d", getpid()];
+        NSUserDefaults *migrationDefaults = [[NSUserDefaults alloc] initWithSuiteName:suiteName];
+        NSString *legacySpeech = PetPhrasesFilePathForPetID(@"builtin:默认.webp");
+        NSString *currentSpeech = PetPhrasesFilePathForPetID(@"builtin:ByteMochi.webp");
+        [NSFileManager.defaultManager removeItemAtPath:currentSpeech error:nil];
+
+        [migrationDefaults setObject:@"builtin:默认.webp" forKey:PetSelectedSpriteKey];
+        WriteUserPhrases(legacySpeech, @"[idle]\n旧的专属台词。\n");
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[migrationDefaults stringForKey:PetSelectedSpriteKey] isEqualToString:@"builtin:ByteMochi.webp"],
+            @"选中的旧内置宠物应改成新 ID");
+        Check(![NSFileManager.defaultManager fileExistsAtPath:legacySpeech], @"旧的专属台词文件应被改名");
+        Check([[NSString stringWithContentsOfFile:currentSpeech encoding:NSUTF8StringEncoding error:nil]
+            isEqualToString:@"[idle]\n旧的专属台词。\n"], @"专属台词的内容要原样带过去");
+
+        // 很早的版本存的是不带前缀的文件名。
+        [migrationDefaults setObject:@"默认.webp" forKey:PetSelectedSpriteKey];
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[migrationDefaults stringForKey:PetSelectedSpriteKey] isEqualToString:@"builtin:ByteMochi.webp"],
+            @"不带前缀的旧文件名也要迁移");
+
+        // 新文件已经存在时不覆盖：用户在新版本里写的内容更新。
+        WriteUserPhrases(legacySpeech, @"[idle]\n旧的。\n");
+        WriteUserPhrases(currentSpeech, @"[idle]\n新的。\n");
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[NSString stringWithContentsOfFile:currentSpeech encoding:NSUTF8StringEncoding error:nil]
+            isEqualToString:@"[idle]\n新的。\n"], @"新的专属台词已存在时不能被旧文件覆盖");
+        Check([NSFileManager.defaultManager fileExistsAtPath:legacySpeech], @"不覆盖时旧文件原样保留");
+
+        // 别的宠物、没有旧状态时什么都不动；重复执行无副作用。
+        [migrationDefaults setObject:@"external:团子" forKey:PetSelectedSpriteKey];
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[migrationDefaults stringForKey:PetSelectedSpriteKey] isEqualToString:@"external:团子"],
+            @"选的不是旧内置宠物时不能改");
+        [migrationDefaults removePersistentDomainForName:suiteName];
+        [NSFileManager.defaultManager removeItemAtPath:legacySpeech error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:currentSpeech error:nil];
+
         if (failures > 0) {
             fprintf(stderr, "词库测试失败 %ld 项\n", (long)failures);
             return 1;

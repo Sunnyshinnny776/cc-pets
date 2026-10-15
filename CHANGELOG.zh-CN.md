@@ -12,6 +12,10 @@
 - 回写的 `settings.json` / `hooks.json` 保持原有键顺序与格式，数字按原文保留（大整数不再丢精度）；卸载时，里面本来没有我们条目的配置文件不再被重新排版。
 - `cc-pets install` 会用原生程序重新注册 CC Bridge；升级后需重启正在运行的 Codex 会话，并在 `/hooks` 中重新信任更新后的 hooks。
 
+### 宠物
+
+- 内置宠物改名为 **ByteMochi**（原文件名 `默认.webp`）。升级后仍保持选中，为它写的专属台词会从 `builtin-默认.txt` 移到 `builtin-ByteMochi.txt`；已存在的 `builtin-ByteMochi.txt` 不会被覆盖。
+
 ### 修复
 
 - CLI 文案中带下划线的占位符现在会被正确替换；此前 `cc-pets bridge enable` 输出的是 `{MCP_NAME}` 而不是 `cc-bridge`。

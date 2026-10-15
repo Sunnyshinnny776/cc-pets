@@ -13,6 +13,10 @@ truth for the version.
 - Rewritten `settings.json` / `hooks.json` keep their original key order and formatting, and numeric literals are preserved exactly (large integers no longer lose precision). Uninstalling no longer reformats a config file that had nothing of ours in it.
 - `cc-pets install` re-registers CC Bridge with the native binary; after upgrading, restart running Codex sessions and trust the updated hooks in `/hooks`.
 
+### Pets
+
+- The built-in pet is now named **ByteMochi** (its file was `默认.webp`). Upgrading keeps it selected and moves its pet-specific lines from `builtin-默认.txt` to `builtin-ByteMochi.txt`; an existing `builtin-ByteMochi.txt` is never overwritten.
+
 ### Fixes
 
 - CLI messages now fill in placeholders containing underscores; `cc-pets bridge enable` previously printed `{MCP_NAME}` instead of `cc-bridge`.

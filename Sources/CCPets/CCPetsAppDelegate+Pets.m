@@ -147,7 +147,7 @@
     if (!image) return;
     [self.petView applySheet:image petID:petID rowCount:spriteRowCount];
     PetPhrasesSetCurrentPetID(petID);
-    [NSUserDefaults.standardUserDefaults setObject:petID forKey:@"CCPetsSelectedSprite"];
+    [NSUserDefaults.standardUserDefaults setObject:petID forKey:PetSelectedSpriteKey];
 }
 - (BOOL)deletePetWithID:(NSString *)petID {
     if (![petID hasPrefix:@"external:"]) return NO;
@@ -177,7 +177,7 @@
         if (fallback) [self switchPetToID:fallback[@"id"]];
         else {
             PetPhrasesSetCurrentPetID(nil);
-            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"CCPetsSelectedSprite"];
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:PetSelectedSpriteKey];
         }
     }
     return YES;
