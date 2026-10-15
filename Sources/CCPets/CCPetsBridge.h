@@ -10,22 +10,35 @@
 extern NSString *const BridgeBadgeEnabledKey;
 extern NSString *const BridgeNotificationKey;
 
-// <PetStateDirectory>/cc-bridge-<uid>，与 scripts/bridge/store.mjs 的 bridgeDirectory 一致。
+// <PetStateDirectory>/cc-bridge-<uid>：会话注册表、信箱、回执、预留。写入端见 CCPetsBridgeStore.h。
 NSString *CCBridgeStateDirectory(void);
+// ~/.cc-pets（可用 CC_PETS_HOME 覆盖）：开关文件与 CLI 定位文件所在目录。
+NSString *CCBridgeHomeDirectory(void);
 
 // ~/.cc-pets/bridge-enabled（可用 CC_PETS_HOME 覆盖）存在即视为开启。
 BOOL CCBridgeEnabled(void);
 
-// 开关文件里保存的选项（与 scripts/bridge/options.mjs 一致），未开启或缺项时取默认值：
+// 选项（保存在开关文件里）：
 // @{ @"codexApprove": NSArray, @"claudeAllow": NSArray, @"wake": @YES, @"editGuard": @YES }
+//   codexApprove  Codex 中免审批的工具（写入 config.toml 的带标记块）
+//   claudeAllow   Claude Code 中免确认的工具（写入 settings.json 的 permissions.allow）
+//   wake          自动唤醒空闲会话；关闭后消息只进信箱，等对方下次收到用户输入时带入（省 token）
+//   editGuard     编辑他人预留的文件时暂停一次（首次拦截、重试放行）
+// 工具名只保留认识的，按分组定义的顺序排列；wake / editGuard 只有明确写 false 才算关。
+NSDictionary *CCBridgeNormalizeOptions(NSDictionary *raw);
+// 开关文件的原始内容，读不到时为空字典。
+NSDictionary *CCBridgeReadSavedOptions(void);
+// 已开启时取保存的选项，否则取默认值。
 NSDictionary *CCBridgeOptions(void);
 
-// 免审批分组：view / send / reserve / name → 工具名。必须与 options.mjs 的 TOOL_GROUPS 一致。
+// 免审批分组：view / send / reserve / name → 工具名。桌宠菜单按分组显示，不暴露 7 个工具名。
 NSArray<NSString *> *CCBridgeToolGroupNames(void);
 NSArray<NSString *> *CCBridgeToolGroup(NSString *group);
 
 // CLI 定位（~/.cc-pets/bridge-cli.json，由 cc-pets bridge refresh / enable / configure 写入）：
-// @{ @"node", @"cli" }，两者都必须是存在的绝对路径，否则返回 nil。
+// @{ @"binary": cc-pets 可执行文件, @"path": 写入时终端里的 PATH }。桌宠是从 Finder / open 拉起的，
+// PATH 里通常没有 nvm 之类的目录，调用 claude / codex mcp add 时要用这份 PATH。
+// binary 必须是存在的可执行绝对路径，否则返回 nil。
 NSDictionary<NSString *, NSString *> *CCBridgeCLILocator(void);
 
 // 仍有效（未过期、持有者在给定会话集合内）的文件预留条数。

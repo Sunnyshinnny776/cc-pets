@@ -61,7 +61,8 @@ English — v2.2.0 quota panel and Language menu:
 ## Requirements
 
 - macOS 13 or later
-- Node.js 18 or later
+- Node.js 18 or later, for npm only: it installs and updates CC Pets, while the app and
+  its `cc-pets` commands, hooks and CC Bridge run natively
 - Codex CLI and/or Claude Code CLI installed and signed in
 - zsh
 - Xcode Command Line Tools (`xcode-select --install`)
@@ -321,7 +322,7 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown
 ## Pet assets
 
 This project does not operate an asset registry. The repository and npm package
-contain one original built-in asset, ByteMochi (`默认.webp`), distributed under the
+contain one original built-in asset, ByteMochi (`ByteMochi.webp`), distributed under the
 MIT License. All other assets are downloaded by the user to
 `~/.cc-pets/pets/<name>/` and are not part of this repository or npm package.
 

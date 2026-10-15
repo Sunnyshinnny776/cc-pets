@@ -9,7 +9,9 @@ truth for the version.
 
 ### Installation
 
-- Claude Code and Codex hook installation now runs natively (`cc-pets --install-claude-hooks` / `--install-codex-hooks`) instead of through Node scripts. Rewritten `settings.json` / `hooks.json` keep their original key order and formatting, and numeric literals are preserved exactly (large integers no longer lose precision).
+- Everything CC Pets runs is now native: hook installation and removal, CC Bridge (hooks, watcher, MCP server and `cc-pets bridge`), `cc-pets doctor` / `paths`, `cc-pets pet` and the zsh scripts' translations. Node.js is only needed by npm to install and update the package, and CC Bridge hooks no longer start a Node process on every event.
+- Rewritten `settings.json` / `hooks.json` keep their original key order and formatting, and numeric literals are preserved exactly (large integers no longer lose precision). Uninstalling no longer reformats a config file that had nothing of ours in it.
+- `cc-pets install` re-registers CC Bridge with the native binary; after upgrading, restart running Codex sessions and trust the updated hooks in `/hooks`.
 
 ### Fixes
 

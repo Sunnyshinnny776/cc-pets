@@ -20,14 +20,15 @@
     }
     self.bridgeCommandRunning = YES;
     NSTask *task = [NSTask new];
-    task.executableURL = [NSURL fileURLWithPath:locator[@"node"]];
-    task.arguments = [@[locator[@"cli"]] arrayByAddingObjectsFromArray:arguments];
+    task.executableURL = [NSURL fileURLWithPath:locator[@"binary"]];
+    task.arguments = [@[@"bridge"] arrayByAddingObjectsFromArray:arguments];
     NSMutableDictionary<NSString *, NSString *> *environment =
         [NSProcessInfo.processInfo.environment mutableCopy];
     NSString *existingPath = environment[@"PATH"].length > 0 ? environment[@"PATH"] : @"/usr/bin:/bin:/usr/sbin:/sbin";
-    // claude / codex 常装在 node 同目录（nvm），桌宠的 PATH 里未必有。
-    environment[@"PATH"] = [NSString stringWithFormat:@"%@:%@",
-        [locator[@"node"] stringByDeletingLastPathComponent], existingPath];
+    // claude / codex 常装在 nvm 之类的目录里，从 Finder 启动的桌宠 PATH 里没有；
+    // 用 cc-pets 上次在终端里运行时记下的 PATH。
+    NSString *terminalPath = locator[@"path"];
+    environment[@"PATH"] = terminalPath.length > 0 ? [NSString stringWithFormat:@"%@:%@", terminalPath, existingPath] : existingPath;
     task.environment = environment;
     NSPipe *output = [NSPipe pipe];
     task.standardOutput = output;

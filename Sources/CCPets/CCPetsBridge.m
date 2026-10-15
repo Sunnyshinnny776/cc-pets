@@ -16,15 +16,20 @@ NSString *CCBridgeStateDirectory(void) {
     return [PetStateDirectory() stringByAppendingPathComponent:name];
 }
 
-static NSString *BridgeHomeDirectory(void) {
+// $HOME 可被覆盖（测试与命令行子命令都依赖这一点），没有时才退回账户的 home。
+NSString *CCBridgeHomeDirectory(void) {
     NSString *home = NSProcessInfo.processInfo.environment[@"CC_PETS_HOME"];
-    if (home.length == 0) home = [NSHomeDirectory() stringByAppendingPathComponent:@".cc-pets"];
+    if (home.length == 0) {
+        NSString *userHome = NSProcessInfo.processInfo.environment[@"HOME"];
+        if (userHome.length == 0) userHome = NSHomeDirectory();
+        home = [userHome stringByAppendingPathComponent:@".cc-pets"];
+    }
     return home.stringByStandardizingPath;
 }
 
 BOOL CCBridgeEnabled(void) {
     return [NSFileManager.defaultManager fileExistsAtPath:
-        [BridgeHomeDirectory() stringByAppendingPathComponent:@"bridge-enabled"]];
+        [CCBridgeHomeDirectory() stringByAppendingPathComponent:@"bridge-enabled"]];
 }
 
 NSArray<NSString *> *CCBridgeToolGroupNames(void) {
@@ -89,27 +94,37 @@ static NSDictionary *ReadJSONObject(NSString *path) {
     return [object isKindOfClass:NSDictionary.class] ? object : nil;
 }
 
-NSDictionary *CCBridgeOptions(void) {
-    NSDictionary *raw = nil;
-    if (CCBridgeEnabled()) {
-        raw = ReadJSONObject([BridgeHomeDirectory() stringByAppendingPathComponent:@"bridge-enabled"]);
-    }
+// 只有 JSON 里明确写着 false 才算关；0、缺省、其他类型都按开处理。
+static BOOL IsJSONFalse(id value) {
+    return [value isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() && ![value boolValue];
+}
+
+NSDictionary *CCBridgeNormalizeOptions(NSDictionary *raw) {
+    if (![raw isKindOfClass:NSDictionary.class]) raw = nil;
     return @{
         @"codexApprove": KnownTools(raw[@"codexApprove"]),
         @"claudeAllow": KnownTools(raw[@"claudeAllow"]),
-        @"wake": @(![raw[@"wake"] isEqual:@NO]),
-        @"editGuard": @(![raw[@"editGuard"] isEqual:@NO])
+        // 必须是 @YES / @NO（CFBoolean）：写回开关文件时要落成 JSON 的 true / false，而不是 1 / 0。
+        @"wake": IsJSONFalse(raw[@"wake"]) ? @NO : @YES,
+        @"editGuard": IsJSONFalse(raw[@"editGuard"]) ? @NO : @YES
     };
 }
 
+NSDictionary *CCBridgeReadSavedOptions(void) {
+    return ReadJSONObject([CCBridgeHomeDirectory() stringByAppendingPathComponent:@"bridge-enabled"]) ?: @{};
+}
+
+NSDictionary *CCBridgeOptions(void) {
+    return CCBridgeNormalizeOptions(CCBridgeEnabled() ? CCBridgeReadSavedOptions() : nil);
+}
+
 NSDictionary<NSString *, NSString *> *CCBridgeCLILocator(void) {
-    NSDictionary *raw = ReadJSONObject([BridgeHomeDirectory() stringByAppendingPathComponent:@"bridge-cli.json"]);
-    NSString *node = [raw[@"node"] isKindOfClass:NSString.class] ? [raw[@"node"] stringByStandardizingPath] : nil;
-    NSString *cli = [raw[@"cli"] isKindOfClass:NSString.class] ? [raw[@"cli"] stringByStandardizingPath] : nil;
-    NSFileManager *files = NSFileManager.defaultManager;
-    if (!node.isAbsolutePath || !cli.isAbsolutePath) return nil;
-    if (![files isExecutableFileAtPath:node] || ![files isReadableFileAtPath:cli]) return nil;
-    return @{@"node": node, @"cli": cli};
+    NSDictionary *raw = ReadJSONObject([CCBridgeHomeDirectory() stringByAppendingPathComponent:@"bridge-cli.json"]);
+    NSString *binary = [raw[@"binary"] isKindOfClass:NSString.class] ? [raw[@"binary"] stringByStandardizingPath] : nil;
+    if (!binary.isAbsolutePath || ![NSFileManager.defaultManager isExecutableFileAtPath:binary]) return nil;
+    NSString *path = [raw[@"path"] isKindOfClass:NSString.class] ? raw[@"path"] : @"";
+    return @{@"binary": binary, @"path": path};
 }
 
 NSUInteger CCBridgeActiveReservationCount(NSSet<NSString *> *sessionIds) {

@@ -10,7 +10,7 @@ APP_DIR="${BUILD_DIR}/CC Pets.app"
 APP_MACOS_DIR="${APP_DIR}/Contents/MacOS"
 APP_RESOURCES_DIR="${APP_DIR}/Contents/Resources"
 RESOURCE_DIR="${CC_PETS_RESOURCE_DIR:-${PROJECT_DIR}/Sources/CCPets/Resources}"
-PACKAGE_VERSION="$(node -p "require('${PROJECT_DIR}/package.json').version")"
+PACKAGE_VERSION="$(/usr/bin/plutil -extract version raw -o - "${PROJECT_DIR}/package.json")"
 mkdir -p "${BUILD_DIR}" "${CACHE_DIR}" "${APP_MACOS_DIR}" "${APP_RESOURCES_DIR}"
 
 # 之前没有任何优化和告警选项：默认等于 -O0，且第一次开启 -Wall -Wextra 就抓到了

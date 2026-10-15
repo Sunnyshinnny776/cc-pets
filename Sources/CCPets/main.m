@@ -9,7 +9,11 @@
 #import "CCPetsUsage.h"
 #import "CCPetsVersion.h"
 #import "CCPetsCleanup.h"
-#import "CCPetsHookInstaller.h"
+#import "CCPetsIntegrations.h"
+#import "CCPetsBridgeCLI.h"
+#import "CCPetsDoctor.h"
+#import "CCPetsPetStore.h"
+#import "CCPetsCLISupport.h"
 #import "CCPetsTerminalFocus.h"
 #import <sys/file.h>
 #import <sys/stat.h>
@@ -18,6 +22,36 @@
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        // 下面这些都是命令行入口，输出语言跟终端走；真正启动桌宠前再切回 App 的语言规则。
+        CCPetsUseCommandLineLanguage(YES);
+        if (argc > 1 && (strcmp(argv[1], "doctor") == 0 || strcmp(argv[1], "paths") == 0)) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 1; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCPetsDoctorMain(arguments);
+        }
+        if (argc > 1 && strcmp(argv[1], "pet") == 0) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCPetsPetStoreMain(arguments);
+        }
+        if (argc > 1 && strcmp(argv[1], "--configure-updater") == 0) return ConfigureUpdater();
+        // zsh 脚本的文案（scripts/i18n.zsh）：--localize <英文原文> [name=value …]，与 App 共用一张表。
+        if (argc > 2 && strcmp(argv[1], "--localize") == 0) {
+            NSMutableDictionary<NSString *, NSString *> *values = [NSMutableDictionary dictionary];
+            for (int index = 3; index < argc; index++) {
+                NSString *pair = @(argv[index]);
+                NSRange equals = [pair rangeOfString:@"="];
+                if (equals.location == NSNotFound) values[pair] = @"";
+                else values[[pair substringToIndex:equals.location]] = [pair substringFromIndex:NSMaxRange(equals)];
+            }
+            puts(CCPetsInterpolate(CCPetsLocalized(@(argv[2])), values).UTF8String);
+            return EXIT_SUCCESS;
+        }
+        if (argc > 1 && strcmp(argv[1], "bridge") == 0) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCBridgeCommandMain(arguments);
+        }
         if (argc > 1 && (strcmp(argv[1], "--version") == 0 ||
                          strcmp(argv[1], "-version") == 0 ||
                          strcmp(argv[1], "-v") == 0)) {
@@ -55,6 +89,12 @@ int main(int argc, const char *argv[]) {
         }
         if (argc > 1 && strcmp(argv[1], "--install-codex-hooks") == 0) {
             return InstallCodexHooks(argc > 2 ? @(argv[2]) : nil);
+        }
+        // --uninstall-integrations [--prepare-install] [<shellRC>]
+        if (argc > 1 && strcmp(argv[1], "--uninstall-integrations") == 0) {
+            BOOL preparing = argc > 2 && strcmp(argv[2], "--prepare-install") == 0;
+            int index = preparing ? 3 : 2;
+            return UninstallIntegrations(preparing, argc > index ? @(argv[index]) : nil);
         }
         if (argc > 1 && strcmp(argv[1], "--clean") == 0) return CleanCCPetsData(NO);
         if (argc > 1 && strcmp(argv[1], "--purge-data") == 0) return CleanCCPetsData(YES);
@@ -123,6 +163,7 @@ int main(int argc, const char *argv[]) {
             return 2;
         }
 
+        CCPetsUseCommandLineLanguage(NO);
         NSString *lockName = [NSString stringWithFormat:@"cc-pets-%u.lock", getuid()];
         NSString *lockPath = [PetStateDirectory() stringByAppendingPathComponent:lockName];
         int lock = open(lockPath.fileSystemRepresentation, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);

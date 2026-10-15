@@ -313,7 +313,8 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown             # 交�
 ## 系统要求
 
 - macOS 13 或更高版本
-- Node.js 18 或更高版本
+- Node.js 18 或更高版本，仅供 npm 安装与升级使用；桌宠本身以及 `cc-pets` 命令、Hooks、
+  CC Bridge 都是原生程序，运行时不依赖 Node
 - 已安装并登录 Codex CLI 和/或 Claude Code CLI
 - zsh
 - Xcode Command Line Tools，可通过 `xcode-select --install` 安装
@@ -556,7 +557,7 @@ Codex 侧同理：桌宠固定只统计 `~/.codex`，不读继承来的 `CODEX_H
 
 ## 素材与版权
 
-**本项目不自建素材仓库。** 仓库和 npm 包里只有一个内置素材 `默认.webp`（原创角色
+**本项目不自建素材仓库。** 仓库和 npm 包里只有一个内置素材 `ByteMochi.webp`（原创角色
 ByteMochi，随代码按 MIT License 分发）。其余桌宠素材一律**由用户自己从素材源按需下载**
 到本机 `~/.cc-pets/pets/`，既不进仓库，也不进 npm 发布包。
 
@@ -599,7 +600,7 @@ cc-pets pet search petdex:otter
 ```
 
 一个源的完整定义就是清单地址、资源 host 白名单和 Referer 三项，集中在
-`scripts/pet-store.mjs` 顶部的 `SOURCES` 表里。以后接自建 registry 时在表里加一行即可，
+`Sources/CCPets/CCPetsPetStore.m` 的 `Sources()` 表里。以后接自建 registry 时在表里加一行即可，
 命令、目录结构和桌宠端都不用改。默认源用 `CC_PETS_SOURCE` 切换。
 
 来源记录在宠物目录内的 `.source.json`（`{ "source", "slug", "installedAt" }`），下载来的

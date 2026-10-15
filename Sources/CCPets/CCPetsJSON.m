@@ -26,6 +26,12 @@
     _values[key] = value;
 }
 
+- (void)removeObjectForKey:(NSString *)key {
+    if (!_values[key]) return;
+    [_keys removeObject:key];
+    [_values removeObjectForKey:key];
+}
+
 // 浅拷贝，对应 JS 的 { ...object }。
 - (id)copyWithZone:(NSZone *)zone {
     CCPetsJSONObject *copy = [CCPetsJSONObject new];
@@ -350,6 +356,12 @@ static void JSONAppendValue(NSMutableString *output, id value, NSString *indent)
             [output appendString:index + 1 < keys.count ? @",\n" : @"\n"];
         }];
         [output appendFormat:@"%@}", indent];
+    } else if ([value isKindOfClass:NSDictionary.class]) {
+        // 普通字典没有顺序，按键排序输出，至少保证同样的内容写出来一模一样。
+        CCPetsJSONObject *object = [CCPetsJSONObject new];
+        NSDictionary *dictionary = value;
+        for (NSString *key in [dictionary.allKeys sortedArrayUsingSelector:@selector(compare:)]) object[key] = dictionary[key];
+        JSONAppendValue(output, object, indent);
     } else if ([value isKindOfClass:NSArray.class]) {
         NSArray *array = value;
         if (array.count == 0) {

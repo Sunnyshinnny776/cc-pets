@@ -7,13 +7,14 @@
 //
 // 值的表示：对象 CCPetsJSONObject、数组 NSMutableArray、字符串 NSString、null NSNull、
 // 布尔 @YES/@NO、解析出的数字 CCPetsJSONNumber（保留原文字面量，不经过 double 往返）。
-// 代码里新建的数字可以直接用非布尔的 NSNumber。
+// 代码里新建的数字可以直接用非布尔的 NSNumber；普通 NSDictionary 也能写出，键按字母序排列。
 
 @interface CCPetsJSONObject : NSObject <NSCopying>
 @property (nonatomic, readonly) NSArray<NSString *> *keys;
 - (id)objectForKeyedSubscript:(NSString *)key;
 // 已有的键原位替换值，新键追加到末尾，与 JS 对象的属性顺序规则相同。
 - (void)setObject:(id)value forKeyedSubscript:(NSString *)key;
+- (void)removeObjectForKey:(NSString *)key;
 @end
 
 @interface CCPetsJSONNumber : NSObject

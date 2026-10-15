@@ -8,7 +8,9 @@
 
 ### 安装
 
-- Claude Code 与 Codex 的 Hooks 安装改为原生实现（`cc-pets --install-claude-hooks` / `--install-codex-hooks`），不再经由 Node 脚本。回写的 `settings.json` / `hooks.json` 保持原有键顺序与格式，数字按原文保留（大整数不再丢精度）。
+- CC Pets 运行时的所有部分都改为原生实现：Hooks 的安装与卸载、CC Bridge（hooks、watcher、MCP server 与 `cc-pets bridge`）、`cc-pets doctor` / `paths`、`cc-pets pet`，以及 zsh 脚本的多语言。Node.js 只剩 npm 安装、升级时需要，CC Bridge 的 hook 也不再每次事件都拉起一个 Node 进程。
+- 回写的 `settings.json` / `hooks.json` 保持原有键顺序与格式，数字按原文保留（大整数不再丢精度）；卸载时，里面本来没有我们条目的配置文件不再被重新排版。
+- `cc-pets install` 会用原生程序重新注册 CC Bridge；升级后需重启正在运行的 Codex 会话，并在 `/hooks` 中重新信任更新后的 hooks。
 
 ### 修复
 

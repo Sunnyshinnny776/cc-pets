@@ -53,7 +53,12 @@ if [[ "${CC_PETS_SKIP_APP_STOP:-0}" != "1" ]]; then
   fi
 fi
 
-node "${PROJECT_DIR}/scripts/uninstall-integrations.mjs" "${SHELL_RC}"
+if [[ ! -x "${PET_BIN}" ]]; then
+  "${PROJECT_DIR}/scripts/build.sh" >/dev/null
+fi
+# CC Bridge 先拆：它的 hooks 和放行规则也在 settings.json / hooks.json 里。
+"${PET_BIN}" bridge teardown
+"${PET_BIN}" --uninstall-integrations "${SHELL_RC}"
 
 if (( PURGE )); then
   if [[ ! -x "${PET_BIN}" ]]; then
