@@ -98,7 +98,7 @@ function table(language) {
 
 function interpolate(text, values) {
   if (!values) return text;
-  return text.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (match, name) =>
+  return text.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (match, name) =>
     Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match);
 }
 

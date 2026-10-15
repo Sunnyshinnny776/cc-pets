@@ -1924,6 +1924,15 @@ print "更新说明解析测试通过"
 
 # 多语言。源码里的英文原文就是各语言表的 key，改了原文忘了改表，那种语言就会漏出英文。
 node "${PROJECT_DIR}/scripts/check-l10n.mjs"
+# 带下划线的占位符（{MCP_NAME}、{MAX_TTL_MINUTES}）曾因正则不认 _ 而原样漏到输出里。
+node --input-type=module -e '
+  const { translate } = await import(process.argv[1]);
+  for (const language of ["en", "zh-Hans"]) {
+    const text = translate(language, "Codex MCP registered: {MCP_NAME}", { MCP_NAME: "cc-bridge" });
+    if (!text.endsWith("cc-bridge") || text.includes("{")) process.exit(1);
+  }
+' "${PROJECT_DIR}/scripts/i18n.mjs"
+print "CLI 多语言占位符替换测试通过"
 L10N_TMP="$(mktemp -d /tmp/cc-pets-l10n-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \

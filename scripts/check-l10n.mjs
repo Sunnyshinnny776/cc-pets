@@ -90,7 +90,7 @@ function readStrings(file) {
 function placeholders(text) {
   const printf = [...text.matchAll(/%(?:\d+\$)?(?:[-+ #0]*\d*(?:\.\d+)?)(l{0,2}[dufsx@]|%)/g)]
     .map((match) => match[1]).filter((type) => type !== "%").sort();
-  const slots = [...text.matchAll(/\{([A-Za-z][A-Za-z0-9]*)\}/g)].map((match) => match[1]).sort();
+  const slots = [...text.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map((match) => match[1]).sort();
   return JSON.stringify([printf, [...new Set(slots)]]);
 }
 
