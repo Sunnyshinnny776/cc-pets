@@ -830,8 +830,8 @@ node -e '
   };
   fs.writeFileSync(process.argv[1], JSON.stringify(config));
 ' "${CLAUDE_TMP}/settings.json" "${CLAUDE_STATUS_SCRIPT}"
-CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
-CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -859,14 +859,34 @@ node -e '
 ' "${CLAUDE_INJECTED_USAGE_TMP}"
 print "Claude Code Hooks 合并与幂等测试通过"
 
+# 原生安装器回写用户配置时必须保留键顺序和 JSON.stringify(…, null, 2) 的格式；
+# 数字保留原文字面量，大整数不会像 JSON.parse 那样丢精度。
+CODEX_ORDER_TMP="$(mktemp -d /tmp/cc-pets-codex-order-test.XXXXXX)"
+print -r -- '{"zeta":{"中文":"a/b \u0001","n":[1.5,12345678901234567890],"e":[],"o":{}},"alpha":true,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"existing"}]}]},"omega":null}' \
+  > "${CODEX_ORDER_TMP}/hooks.json"
+CODEX_HOME="${CODEX_ORDER_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-codex-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+node -e '
+  const fs = require("fs");
+  const text = fs.readFileSync(process.argv[1], "utf8");
+  const config = JSON.parse(text);
+  if (Object.keys(config).join(",") !== "zeta,alpha,hooks,omega") process.exit(1);
+  if (!text.includes("12345678901234567890")) process.exit(2);
+  if (text.replace("12345678901234567890", "12345678901234567000") !== `${JSON.stringify(config, null, 2)}\n`) process.exit(3);
+  if (config.zeta["中文"] !== "a/b \u0001") process.exit(4);
+  if (config.hooks.Stop[0].hooks[0].command !== "existing") process.exit(5);
+  if (Object.values(config.hooks).flat().length !== 9) process.exit(6);
+  if ((fs.statSync(process.argv[1]).mode & 0o777) !== 0o600) process.exit(7);
+' "${CODEX_ORDER_TMP}/hooks.json"
+print "原生 Hooks 安装器保序回写测试通过"
+
 # 第三方状态栏（`bun x ccstatusline` 之类带参数的命令行）没法就地插 prelude。statusline 是
 # Claude 额度的唯一来源，改不了就等于这些用户永远拿不到额度，因此要回退到包装器：
 # command 换成 claude-statusline-with-pet + base64 原命令，采集完再把原命令照常执行。
 CLAUDE_WRAPPED_TMP="$(mktemp -d /tmp/cc-pets-claude-wrapped-status-test.XXXXXX)"
 print -r -- '{"statusLine":{"type":"command","command":"print -n third-party-status","refreshInterval":30}}' \
   > "${CLAUDE_WRAPPED_TMP}/settings.json"
-CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
-CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -906,7 +926,7 @@ print "Claude Code 第三方 status line 包装接入与卸载还原测试通过
 
 CLAUDE_EMPTY_TMP="$(mktemp -d /tmp/cc-pets-claude-empty-status-test.XXXXXX)"
 print -r -- '{}' > "${CLAUDE_EMPTY_TMP}/settings.json"
-CLAUDE_CONFIG_DIR="${CLAUDE_EMPTY_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_EMPTY_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -1285,8 +1305,8 @@ grep -q "❌ Codex Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
 grep -q "→ cc-pets install" "${DOCTOR_TMP}/empty.txt"
 
 # 装好 Hooks、status line 与 shim 后全部通过；doctor 不得修改任何配置。
-doctor_env node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
-doctor_env node "${PROJECT_DIR}/scripts/install-codex-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" --install-codex-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 mkdir -p "${DOCTOR_TMP}/shims"
 ln -s "${PROJECT_DIR}/bin/codex-with-pet" "${DOCTOR_TMP}/shims/codex"
 ln -s "${PROJECT_DIR}/bin/claude-with-pet" "${DOCTOR_TMP}/shims/claude"

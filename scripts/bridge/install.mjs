@@ -1,6 +1,6 @@
 // CC Bridge 的接入与移除：hooks、MCP 注册、Codex 工具审批与 Claude 工具放行（可选）。
 //
-// 与 install-claude-hooks.mjs / install-codex-hooks.mjs 同一套约定：
+// 与 Agent Hooks 安装器（Sources/CCPets/CCPetsHookInstaller.m）同一套约定：
 //   - 只追加带标记的条目，移除时只认自己的标记，不碰用户其他配置；
 //   - 配置文件先写临时文件再 rename；
 //   - 没装的 CLI 不写（不凭空创建 ~/.claude、~/.codex）。

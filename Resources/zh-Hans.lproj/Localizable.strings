@@ -335,3 +335,17 @@
 "Unknown argument: %@\nRun cc-pets --help for usage." = "未知参数：%@\n运行 cc-pets --help 查看用法。";
 "Pet Size" = "宠物大小";
 "Reset Size" = "恢复默认";
+"Usage: cc-pets --install-claude-hooks /absolute/path/to/cc-pets" = "用法: cc-pets --install-claude-hooks /absolute/path/to/cc-pets";
+"Claude Code CLI not detected; skipping Claude hooks and status line setup." = "未检测到 Claude Code CLI，跳过 Claude Hooks 与 status line 接入。";
+"If you install Claude Code later, run cc-pets install to set it up." = "之后安装了 Claude Code，执行 cc-pets install 即可补装。";
+"Can't parse %1$@: %2$@" = "无法解析 %1$@: %2$@";
+"Claude status line not hooked up: %@" = "未接入 Claude status line：%@";
+"Claude hooks still work, but the pet can't show Claude quota % (token usage is unaffected)." = "Claude Hooks 仍会正常工作，但桌宠拿不到 Claude 额度百分比（Token 用量不受影响）。";
+"Claude Code hooks installed in %@" = "Claude Code Hooks 已安装到 %@";
+"Claude quota tracking added to your existing status line. The pet shows quota after the first API response." = "Claude 额度采集已接入现有 status line。首次 API 响应后桌宠会显示额度。";
+"Claude quota tracking added to the status line through a wrapper; your original command still runs. The pet shows quota after the first API response." = "Claude 额度采集已通过包装器接入 status line，原命令仍照常执行。首次 API 响应后桌宠会显示额度。";
+"Usage: cc-pets --install-codex-hooks /absolute/path/to/cc-pets" = "用法: cc-pets --install-codex-hooks /absolute/path/to/cc-pets";
+"Codex CLI not detected; skipping Codex hooks." = "未检测到 Codex CLI，跳过 Codex Hooks 安装。";
+"If you install Codex later, run cc-pets install to set it up." = "之后安装了 Codex，执行 cc-pets install 即可补装。";
+"Codex agent hooks installed in %@" = "Codex Agent Hooks 已安装到 %@";
+"Next time you start Codex, run /hooks and trust the CC Pets hooks." = "下次启动 Codex 后，请执行 /hooks 并信任 CC Pets Hooks。";

@@ -24,9 +24,9 @@ export PATH="${NODE_EXECUTABLE:h}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 "${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/uninstall-integrations.mjs" --prepare-install "${SHELL_RC}"
 "${PROJECT_DIR}/scripts/build.sh"
 "${PROJECT_DIR}/scripts/install-app.sh"
-"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/install-codex-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets"
-"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" \
-  "${PROJECT_DIR}/.build/release/cc-pets"
+PET_BINARY="${PROJECT_DIR}/.build/release/cc-pets"
+"${PET_BINARY}" --install-codex-hooks "${PET_BINARY}"
+"${PET_BINARY}" --install-claude-hooks "${PET_BINARY}"
 "${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/configure-updater.mjs"
 # CC Bridge 默认关闭；用户开启过的话，包路径可能随升级变化，按原选项重写一遍集成。
 "${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/bridge/cli.mjs" refresh || \

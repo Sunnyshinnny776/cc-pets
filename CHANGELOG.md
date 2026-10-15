@@ -7,6 +7,10 @@ truth for the version.
 
 ## [Unreleased]
 
+### Installation
+
+- Claude Code and Codex hook installation now runs natively (`cc-pets --install-claude-hooks` / `--install-codex-hooks`) instead of through Node scripts. Rewritten `settings.json` / `hooks.json` keep their original key order and formatting, and numeric literals are preserved exactly (large integers no longer lose precision).
+
 ## [2.2.1] - 2026-10-11
 
 ### Pet size and rendering

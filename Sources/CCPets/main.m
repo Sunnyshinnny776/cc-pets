@@ -9,6 +9,7 @@
 #import "CCPetsUsage.h"
 #import "CCPetsVersion.h"
 #import "CCPetsCleanup.h"
+#import "CCPetsHookInstaller.h"
 #import "CCPetsTerminalFocus.h"
 #import <sys/file.h>
 #import <sys/stat.h>
@@ -48,6 +49,13 @@ int main(int argc, const char *argv[]) {
                          strcmp(argv[1], "provider-event") == 0)) return RecordProviderEvent();
         if (argc > 1 && strcmp(argv[1], "--claude-usage") == 0) return RecordClaudeUsage();
         if (argc > 1 && strcmp(argv[1], "--codex-launch") == 0) return RegisterCodexLaunch();
+        // 安装器调用：--install-claude-hooks / --install-codex-hooks <包目录>/.build/release/cc-pets。
+        if (argc > 1 && strcmp(argv[1], "--install-claude-hooks") == 0) {
+            return InstallClaudeHooks(argc > 2 ? @(argv[2]) : nil);
+        }
+        if (argc > 1 && strcmp(argv[1], "--install-codex-hooks") == 0) {
+            return InstallCodexHooks(argc > 2 ? @(argv[2]) : nil);
+        }
         if (argc > 1 && strcmp(argv[1], "--clean") == 0) return CleanCCPetsData(NO);
         if (argc > 1 && strcmp(argv[1], "--purge-data") == 0) return CleanCCPetsData(YES);
         if (argc > 1 && strcmp(argv[1], "--paths") == 0) {

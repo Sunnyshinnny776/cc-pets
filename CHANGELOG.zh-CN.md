@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### 安装
+
+- Claude Code 与 Codex 的 Hooks 安装改为原生实现（`cc-pets --install-claude-hooks` / `--install-codex-hooks`），不再经由 Node 脚本。回写的 `settings.json` / `hooks.json` 保持原有键顺序与格式，数字按原文保留（大整数不再丢精度）。
+
 ## [2.2.1] - 2026-10-11
 
 ### 宠物大小与渲染

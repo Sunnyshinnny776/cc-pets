@@ -1,8 +1,9 @@
 import os from "node:os";
 import path from "node:path";
 
-// CC Pets 写进 Claude Code / Codex 配置里的条目怎么认。安装、卸载、cc-pets doctor 共用这一份，
-// 以免哪天改了写法，doctor 还按旧规则说"一切正常"。
+// CC Pets 写进 Claude Code / Codex 配置里的条目怎么认。卸载、cc-pets doctor 共用这一份，
+// 以免哪天改了写法，doctor 还按旧规则说"一切正常"。写入端是原生安装器
+// （Sources/CCPets/CCPetsHookInstaller.m），那边有同样的常量，改写法时两边一起改。
 
 export const CODEX_HOOK = { marker: "CC_PETS_CODEX_AGENT_HOOK=1", executable: "cc-pets" };
 export const LEGACY_CODEX_HOOK = { marker: "CODEX_PET_AGENT_HOOK=1", executable: "codex-pet" };
@@ -29,7 +30,7 @@ export const isManagedStatusLine = (value, marker) =>
   /\/bin\/claude-statusline-with-pet' '[A-Za-z0-9+/=]*'$/.test(value);
 
 // `bash ~/x.sh` 这类带解释器前缀的命令同样指向一个被就地注入过的脚本；带 -c 的不算，
-// `-c` 后面是命令串而非脚本路径。install-claude-hooks.mjs 另有一份返回更多字段的解析，规则一致。
+// `-c` 后面是命令串而非脚本路径。原生安装器（Sources/CCPets/CCPetsHookInstaller.m）另有一份返回更多字段的解析，规则一致。
 const interpreterPattern =
   /^(?:\/usr\/bin\/env\s+)?(?:[^\s'"]*\/)?(?:ba|z|k|da)?sh((?:\s+-[A-Za-z]+)*)\s+(.+)$/s;
 
