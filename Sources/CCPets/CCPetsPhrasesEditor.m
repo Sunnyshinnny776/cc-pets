@@ -218,7 +218,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
 
 #pragma mark - 编辑范围
 
-// 菜单里显示的宠物名。petID 是 external:哆啦A梦 / builtin:默认.webp，
+// 菜单里显示的宠物名。petID 是 external:团子 / builtin:ByteMochi.webp，
 // 前缀和扩展名对用户没有意义。
 - (NSString *)displayNameForPetID:(NSString *)petID {
     NSRange colon = [petID rangeOfString:@":"];

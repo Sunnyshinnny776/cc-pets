@@ -117,7 +117,7 @@ NSString *PetPhrasesKeyForPetID(NSString *petID) {
         scheme = [petID substringToIndex:colon.location];
         name = [petID substringFromIndex:colon.location + 1];
     }
-    // 内置素材的 petID 是文件名，扩展名对用户没有任何意义，留着只会让 builtin-默认.webp.txt
+    // 内置素材的 petID 是文件名，扩展名对用户没有任何意义，留着只会让 builtin-ByteMochi.webp.txt
     // 这种双扩展名看起来像出了错。
     if ([scheme isEqualToString:@"builtin"]) {
         NSString *extension = name.pathExtension.lowercaseString;

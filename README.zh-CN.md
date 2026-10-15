@@ -232,7 +232,7 @@ Agent **正在干活**时（思考、调用工具、等待审批、子 Agent 工
 
 上面那份 `speech.txt` 是**所有**宠物的通用台词。想让某一只换个口吻，编辑器顶部有一个
 「**通用** / **当前宠物 · ×××**」的切换——切到右边，写的就只属于当前这只宠物，
-存在 `~/.cc-pets/speech/<宠物名>.txt`（内置素材是 `builtin-默认.txt`）。
+存在 `~/.cc-pets/speech/<宠物名>.txt`（内置素材是 `builtin-ByteMochi.txt`）。
 
 这一页**初次打开是空白的，这是正常的**：空白 = 这只宠物全部沿用通用台词。
 不知道能写什么就点右上角 **填入默认模板**，它会把整份默认台词以**注释状态**填进来
@@ -242,10 +242,10 @@ Agent **正在干活**时（思考、调用工具、等待审批、子 Agent 工
 手写的话，**只写想改的小节**就行：
 
 ```
-# ~/.cc-pets/speech/external-哆啦A梦.txt
+# ~/.cc-pets/speech/external-团子.txt
 [idle]
-铜锣烧…
-口袋里好像有点东西。
+想吃糯米团…
+兜里好像有点东西。
 
 [done]
 诺，任意门给你。
@@ -582,7 +582,7 @@ v2（`1536×2288`、`8×11`），单元格均为 `192×208`，前九行遵循相
 ```bash
 cc-pets pet search otter      # 搜索可用素材（不带关键词就列全部）
 cc-pets pet add boba          # 下载到 ~/.cc-pets/pets/boba/
-cc-pets pet add boba doraemon # 一次装多个
+cc-pets pet add boba otterumells # 一次装多个
 cc-pets pet list              # 列出已安装的素材，按来源分组
 cc-pets pet remove boba       # 删除
 cc-pets pet source            # 列出可用的素材源

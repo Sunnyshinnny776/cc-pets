@@ -605,7 +605,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/tests/image-loader-harness.m" \
   -o "${IMAGE_LOADER_TMP}/image-loader-test"
 "${IMAGE_LOADER_TMP}/image-loader-test" \
-  "${PROJECT_DIR}/Sources/CCPets/Resources/默认.webp"
+  "${PROJECT_DIR}/Sources/CCPets/Resources/ByteMochi.webp"
 
 # 系统低功耗和减少动态效果会降低空闲动画频率。
 grep -q 'NSProcessInfoPowerStateDidChangeNotification' "${PET_SOURCES[@]}"

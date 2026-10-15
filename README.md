@@ -300,7 +300,7 @@ Supported live placeholders are `{quota5h}`, `{resetTime}`, `{toolName}`,
 is unavailable.
 
 Per-pet overrides live at `~/.cc-pets/speech/<pet-name>.txt` (the built-in asset
-uses `builtin-默认.txt`). A missing section falls back to global speech; a present
+uses `builtin-ByteMochi.txt`). A missing section falls back to global speech; a present
 section replaces that global section; an empty present section keeps the pet silent
 for that situation.
 
@@ -333,7 +333,7 @@ licenses, copyrights, and terms remain with their respective authors and platfor
 
 ```bash
 cc-pets pet search otter
-cc-pets pet add boba doraemon
+cc-pets pet add boba otterumells
 cc-pets pet add petdex:boba --as boba-petdex
 cc-pets pet list
 cc-pets pet remove boba

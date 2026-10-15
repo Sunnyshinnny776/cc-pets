@@ -63,10 +63,10 @@ NSString *PetPhrasesFilePath(void);
 //
 // 专属目录：~/.cc-pets/speech/。可用 CC_PETS_PHRASES_PET_DIR 覆盖（测试用）。
 NSString *PetPhrasesPetDirectory(void);
-// petID（builtin:默认.webp / external:哆啦A梦）转成文件名用的 key。
+// petID（builtin:ByteMochi.webp / external:团子）转成文件名用的 key。
 //
 // petID 里的冒号、素材名里的斜杠都不能直接进文件名，内置素材的 .webp 后缀留着也只是
-// 噪音，所以统一规整成 builtin-默认 / external-哆啦A梦。中文原样保留——用户要能在
+// 噪音，所以统一规整成 builtin-ByteMochi / external-团子。中文原样保留——用户要能在
 // Finder 里一眼认出哪份是哪只的，转义成百分号编码就白瞎了。
 NSString *PetPhrasesKeyForPetID(NSString *petID);
 // 某只宠物的专属词库路径。petID 为空返回 nil。
