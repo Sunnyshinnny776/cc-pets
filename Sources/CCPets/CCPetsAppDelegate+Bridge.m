@@ -122,30 +122,19 @@
         sender:sender successMessage:nil];
 }
 - (void)toggleBridgeBadge:(NSButton *)sender {
-    BOOL enabled = ![NSUserDefaults.standardUserDefaults boolForKey:BridgeBadgeEnabledKey];
-    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:BridgeBadgeEnabledKey];
+    BOOL enabled = !CCPetsPrefBool(BridgeBadgeEnabledKey);
+    [self updateBridgeBadgeEnabled:enabled];
     sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+}
+- (void)updateBridgeBadgeEnabled:(BOOL)enabled {
+    CCPetsPrefSetBool(BridgeBadgeEnabledKey, enabled);
     [self refreshBridgeBadge];
 }
 // 与"系统通知"那组开关同一套授权流程：第一次打开时向系统申请通知权限。
 - (void)toggleBridgeNotification:(NSButton *)sender {
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    if ([defaults boolForKey:BridgeNotificationKey]) {
-        [defaults setBool:NO forKey:BridgeNotificationKey];
-        sender.state = NSControlStateValueOff;
-        return;
-    }
-    [UNUserNotificationCenter.currentNotificationCenter
-        requestAuthorizationWithOptions:UNAuthorizationOptionAlert | UNAuthorizationOptionSound
-        completionHandler:^(BOOL granted, NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [defaults setBool:granted forKey:BridgeNotificationKey];
-            sender.state = granted ? NSControlStateValueOn : NSControlStateValueOff;
-            if (!granted) {
-                [self showAlertWithTitle:L(@"Can't Enable Notifications") message:error.localizedDescription ?:
-                    L(@"Allow notifications in System Settings → Notifications → CC Pets, then try again.")];
-            }
-        });
+    [self updateNotification:BridgeNotificationKey enabled:!CCPetsPrefBool(BridgeNotificationKey)
+        completion:^(BOOL enabled) {
+        sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
     }];
 }
 // 读 bridge 状态（会话名、最近送达、信箱积压），刷新角标。bridge 未开启时清空并隐藏。

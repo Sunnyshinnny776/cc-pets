@@ -6,10 +6,8 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
 
 @implementation AppDelegate (Speech)
 - (BOOL)speechEnabled {
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     // 缺省开启；用户可在右键菜单里关掉。
-    id value = [defaults objectForKey:@"CCPetsSpeechEnabled"];
-    return value == nil ? YES : [value boolValue];
+    return CCPetsPrefBool(PetSpeechEnabledKey);
 }
 // 当前档位。现读，右键菜单里改完立刻生效不用重启。
 - (PetSpeechRate)speechRate {

@@ -16,11 +16,6 @@
 // 单独 extern 而不 import 那个头文件，是因为它反过来 import 了 PetView.h。
 extern NSString *const PetSpeechFrequencyKey;
 
-NSString *const PetInteractionEnabledKey = @"CCPetsInteractionEnabled";
-NSString *const PetInteractionHeartThresholdKey = @"CCPetsInteractionHeartThreshold";
-NSString *const PetInteractionAnnoyedThresholdKey = @"CCPetsInteractionAnnoyedThreshold";
-NSString *const PetInteractionIntervalKey = @"CCPetsInteractionInterval";
-
 // 按下后位移超过这个距离才判定为拖动，之内视为点击。
 static const CGFloat PetDragThreshold = 3.0;
 // 菜单里自绘行的宽度：主菜单要撑满 menu.minimumWidth，子菜单按自身内容收窄，
@@ -1751,10 +1746,9 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     systemStatusItem.submenu = systemStatusMenu;
     NSMenuItem *speechItem = [menu addItemWithTitle:L(@"Chatter") action:nil keyEquivalent:@""];
     NSMenu *speechMenu = [NSMenu new];
-    id speechValue = [NSUserDefaults.standardUserDefaults objectForKey:@"CCPetsSpeechEnabled"];
     [self addPersistentSwitchToMenu:speechMenu
         title:L(@"Enable chatter")
-        checked:speechValue == nil ? YES : [speechValue boolValue]
+        checked:CCPetsPrefBool(PetSpeechEnabledKey)
         action:@selector(toggleSpeech:)
         width:PetSubmenuRowWidth
         tag:1];

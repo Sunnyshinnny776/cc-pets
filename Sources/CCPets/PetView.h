@@ -1,10 +1,8 @@
 #import <Cocoa/Cocoa.h>
 
-// 连击互动配置。放在 PetView 公共契约里，菜单和点击处理共用同一组 defaults 键。
-extern NSString *const PetInteractionEnabledKey;
-extern NSString *const PetInteractionHeartThresholdKey;
-extern NSString *const PetInteractionAnnoyedThresholdKey;
-extern NSString *const PetInteractionIntervalKey;
+// 连击互动配置的 defaults 键（PetInteraction*Key）定义在 CCPetsPreferences，菜单、设置页和
+// 点击处理共用同一组。
+#import "CCPetsPreferences.h"
 
 @interface PetView : NSView <NSMenuDelegate>
 @property(nonatomic) NSImage *sheet;

@@ -3,7 +3,7 @@
 
 NSString *const PetPhrasesSourcePet = @"pet";
 NSString *const PetPhrasesSourceDefault = @"default";
-static NSString *const PetPhrasesSourceKey = @"CCPetsPhrasesSource";
+NSString *const PetPhrasesSourceKey = @"CCPetsPhrasesSource";
 
 NSString *PetPhrasesSource(void) {
     NSString *source = [NSUserDefaults.standardUserDefaults stringForKey:PetPhrasesSourceKey];

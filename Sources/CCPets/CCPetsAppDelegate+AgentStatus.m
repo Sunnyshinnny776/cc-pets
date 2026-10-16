@@ -182,10 +182,12 @@
 // 勾选 = 显示气泡。没有 agent 状态时也允许改，这样用户可以提前设好偏好，
 // 而不必等下一次会话开始。
 - (void)toggleStatusBubbleFromMenu:(NSButton *)sender {
-    self.statusBubbleExpanded = !self.statusBubbleExpanded;
-    [NSUserDefaults.standardUserDefaults setBool:self.statusBubbleExpanded
-        forKey:StatusBubbleExpandedKey];
+    [self updateStatusBubbleExpanded:!self.statusBubbleExpanded];
     sender.state = self.statusBubbleExpanded ? NSControlStateValueOn : NSControlStateValueOff;
+}
+- (void)updateStatusBubbleExpanded:(BOOL)expanded {
+    self.statusBubbleExpanded = expanded;
+    CCPetsPrefSetBool(StatusBubbleExpandedKey, expanded);
     if (self.statusBubbleExpanded && self.hasAgentStatus) {
         [self positionAgentStatus];
         [self.statusPanel orderFrontRegardless];

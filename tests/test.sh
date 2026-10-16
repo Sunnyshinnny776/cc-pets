@@ -1956,6 +1956,23 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
 grep -q 'for (NSString \*bundleID in TerminalFocusBundleCandidates(target))' \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m"
 
+# 设置写入口：右键菜单和主窗口设置页共用的钳制、默认值与变更广播。
+PREFERENCES_TMP="$(mktemp -d /tmp/cc-pets-preferences-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Cocoa \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPreferences.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPetSize.m" \
+  "${PROJECT_DIR}/tests/preferences-harness.m" \
+  -o "${PREFERENCES_TMP}/preferences-test"
+"${PREFERENCES_TMP}/preferences-test"
+# 菜单 action 不许再绕过写入口直接写 defaults，否则设置页收不到变更广播。
+if grep -nE 'standardUserDefaults (setBool|setObject|setInteger|setDouble)' \
+    "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"; then
+  print -u2 "CCPetsAppDelegate+Settings.m 绕过了 CCPetsPreferences 直接写 defaults"
+  exit 1
+fi
+
 UPDATE_RETRY_TMP="$(mktemp -d /tmp/cc-pets-update-retry-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \

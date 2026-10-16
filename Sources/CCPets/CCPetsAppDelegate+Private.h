@@ -8,6 +8,7 @@
 #import "CCPetsQuotaHistory.h"
 #import "CCPetsImageLoader.h"
 #import "CCPetsPetSize.h"
+#import "CCPetsPreferences.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
@@ -155,8 +156,22 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)applicationWillTerminate:(NSNotification *)notification;
 @end
 
-// 右键菜单里的各项设置开关
+// 右键菜单里的各项设置开关。setXxx: / toggleXxx: 是菜单控件的 action；updateXxx: 不依赖
+// 控件，写设置并让界面生效，主窗口设置页直接调用。
 @interface AppDelegate (Settings)
+- (void)updatePetScale:(double)scale;
+- (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled;
+- (void)updateUsageDisplayMode:(NSString *)mode forKey:(NSString *)key;
+- (void)updateImportCodexPets:(BOOL)enabled;
+- (void)updatePanelTheme:(NSString *)theme;
+- (void)updateGlassDimLevel:(NSNumber *)level;
+- (void)updateSpeechEnabled:(BOOL)enabled;
+- (void)updatePetInteractionEnabled:(BOOL)enabled;
+- (void)updatePetInteractionValue:(NSNumber *)value forKey:(NSString *)key;
+- (void)updateSpeechFrequency:(NSString *)value;
+- (void)updatePhrasesSource:(NSString *)source;
+- (void)updateNotification:(NSString *)key enabled:(BOOL)enabled
+    completion:(void (^)(BOOL enabled))completion;
 - (void)applyPetSizePreference;
 - (void)setPetSizeFromSlider:(NSSlider *)sender;
 - (void)toggleSystemMetric:(NSButton *)sender;
@@ -189,6 +204,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)showAgentStatusForRecord:(NSDictionary *)record;
 - (void)prunePendingApprovalRecords;
 - (void)toggleStatusBubbleFromMenu:(NSButton *)sender;
+- (void)updateStatusBubbleExpanded:(BOOL)expanded;
 - (void)sendNotificationWithTitle:(NSString *)title body:(NSString *)body;
 - (void)notifyForRecord:(NSDictionary *)record;
 - (NSString *)statusTextForState:(NSString *)state tool:(NSString *)tool;
@@ -242,6 +258,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)toggleBridgeWake:(NSButton *)sender;
 - (void)toggleBridgeEditGuard:(NSButton *)sender;
 - (void)toggleBridgeBadge:(NSButton *)sender;
+- (void)updateBridgeBadgeEnabled:(BOOL)enabled;
 - (void)toggleBridgeNotification:(NSButton *)sender;
 - (void)refreshBridgeState:(NSTimer *)timer;
 - (void)notifyNewBridgeDeliveries;

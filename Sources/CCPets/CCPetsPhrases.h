@@ -82,6 +82,7 @@ void PetMigrateRenamedBuiltinSprite(NSUserDefaults *defaults);
 
 // 全局台词来源偏好，切换宠物和重启后仍保留。未设置时保持原来的专属优先行为。
 // 专属模式按小节回落到通用词库；默认模式只读通用词库，不改写任何台词文件。
+extern NSString *const PetPhrasesSourceKey;
 extern NSString *const PetPhrasesSourcePet;
 extern NSString *const PetPhrasesSourceDefault;
 NSString *PetPhrasesSource(void);
