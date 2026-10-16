@@ -4,23 +4,38 @@
 #import "CCPetsSettingsPage.h"
 #import "CCPetsUsagePage.h"
 #import "CCPetsUIStyle.h"
+#import "CCPetsWorkbenchPages.h"
 
-NSString *const CCPetsMainWindowPageSettings = @"settings";
+NSString *const CCPetsMainWindowPageOverview = @"overview";
+NSString *const CCPetsMainWindowPageSessions = @"sessions";
 NSString *const CCPetsMainWindowPageUsage = @"usage";
+NSString *const CCPetsMainWindowPagePet = @"pet";
+NSString *const CCPetsMainWindowPageAlerts = @"alerts";
+NSString *const CCPetsMainWindowPageGeneral = @"general";
 NSString *const CCPetsMainWindowPageDiagnostics = @"diagnostics";
 NSNotificationName const CCPetsPetCardDidChangeNotification = @"CCPetsPetCardDidChange";
 static NSString *const MainWindowLastPageKey = @"CCPetsMainWindowLastPage";
-static NSString *const MainWindowFrameName = @"CCPetsMainWindow";
+// 改版后默认窗口变大了（内容多了概览和表格）。换个名字，不沿用改版前记住的小窗口尺寸。
+static NSString *const MainWindowFrameName = @"CCPetsMainWindow.v2";
 
-// 侧边栏里的页面，按显示顺序。标题现取，切换语言后重建侧边栏即可。
+// 侧边栏里的页面，按显示顺序。group 决定排在哪一组，footer 的那页钉在侧边栏底部。
+// 标题现取，切换语言后重建侧边栏即可。
 static NSArray<NSDictionary *> *MainWindowPages(void) {
     return @[
-        @{@"id": CCPetsMainWindowPageSettings, @"title": L(@"Settings"), @"symbol": @"gearshape.fill",
-          @"color": NSColor.systemGrayColor, @"class": CCPetsSettingsPage.class},
-        @{@"id": CCPetsMainWindowPageUsage, @"title": L(@"Usage"), @"symbol": @"chart.bar.xaxis",
-          @"color": NSColor.systemBlueColor, @"class": CCPetsUsagePage.class},
+        @{@"id": CCPetsMainWindowPageOverview, @"title": L(@"Overview"), @"symbol": @"house",
+          @"group": @"workbench", @"class": CCPetsOverviewPage.class},
+        @{@"id": CCPetsMainWindowPageSessions, @"title": L(@"Sessions & Messages"), @"symbol": @"terminal",
+          @"group": @"workbench", @"class": CCPetsSessionsPage.class},
+        @{@"id": CCPetsMainWindowPageUsage, @"title": L(@"Usage"), @"symbol": @"chart.bar",
+          @"group": @"workbench", @"class": CCPetsUsagePage.class},
+        @{@"id": CCPetsMainWindowPagePet, @"title": L(@"Pet"), @"symbol": @"pawprint",
+          @"group": @"settings", @"class": CCPetsPetPage.class},
+        @{@"id": CCPetsMainWindowPageAlerts, @"title": L(@"Alerts & Interaction"), @"symbol": @"bell",
+          @"group": @"settings", @"class": CCPetsAlertsPage.class},
+        @{@"id": CCPetsMainWindowPageGeneral, @"title": L(@"General"), @"symbol": @"gearshape",
+          @"group": @"settings", @"class": CCPetsGeneralPage.class},
         @{@"id": CCPetsMainWindowPageDiagnostics, @"title": L(@"Diagnostics"), @"symbol": @"stethoscope",
-          @"color": NSColor.systemGreenColor, @"class": CCPetsDiagnosticsPage.class},
+          @"group": @"footer", @"class": CCPetsDiagnosticsPage.class},
     ];
 }
 
@@ -28,6 +43,14 @@ NSArray<NSString *> *CCPetsMainWindowPageIDs(void) {
     NSMutableArray<NSString *> *ids = [NSMutableArray array];
     for (NSDictionary *entry in MainWindowPages()) [ids addObject:entry[@"id"]];
     return ids;
+}
+
+NSString *CCPetsMainWindowResolvePage(NSString *page) {
+    if (page.length == 0) return nil;
+    if ([CCPetsMainWindowPageIDs() containsObject:page]) return page;
+    // 改版前设置是一整页。旧脚本、旧文档里的 `cc-pets open settings` 落到宠物页（原来的第一组）。
+    if ([page isEqualToString:@"settings"]) return CCPetsMainWindowPagePet;
+    return nil;
 }
 
 static NSDictionary *MainWindowPageWithID(NSString *page) {
@@ -48,25 +71,365 @@ static BOOL HasVisibleRegularWindow(void) {
     return NO;
 }
 
-// 侧边栏顶部的宠物名片：会动的当前宠物、名字、Agent 状态和在线会话数。
+#pragma mark - 侧边栏部件
+
+// 侧边栏里的一项：单色图标 + 标题 + 可选角标。选中时整行铺淡青底，图标和文字换成强调色。
+// 自己画而不用 source list 表格：选中色要跟主题走（表格只会用系统强调色），分组、底部钉住的
+// 诊断项也更好排。
+@interface CCPetsSidebarItem : NSView
+@property(nonatomic, copy) NSString *pageID;
+@property(nonatomic) BOOL selected;
+@property(nonatomic) CCPetsCountBadge *badge;
+@property(nonatomic, copy) void (^onSelect)(NSString *pageID);
+- (instancetype)initWithPage:(NSDictionary *)page;
+@end
+
+@interface CCPetsSidebarItem ()
+@property(nonatomic) NSImageView *icon;
+@property(nonatomic) NSTextField *label;
+@property(nonatomic) BOOL hovering;
+@end
+
+@implementation CCPetsSidebarItem
+
+- (instancetype)initWithPage:(NSDictionary *)page {
+    if ((self = [super initWithFrame:NSZeroRect])) {
+        self.pageID = page[@"id"];
+        self.wantsLayer = YES;
+        self.translatesAutoresizingMaskIntoConstraints = NO;
+        NSImageSymbolConfiguration *configuration = [NSImageSymbolConfiguration
+            configurationWithPointSize:13 weight:NSFontWeightRegular];
+        NSImage *image = [[NSImage imageWithSystemSymbolName:page[@"symbol"] accessibilityDescription:nil]
+            imageWithSymbolConfiguration:configuration] ?: [NSImage new];
+        NSImageView *icon = [NSImageView imageViewWithImage:image];
+        icon.symbolConfiguration = configuration;
+        NSTextField *label = CCPetsLabel(page[@"title"], 13, NSFontWeightRegular, CCPetsInkColor());
+        [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        CCPetsCountBadge *badge = [CCPetsCountBadge new];
+        for (NSView *view in @[icon, label, badge]) {
+            view.translatesAutoresizingMaskIntoConstraints = NO;
+            [self addSubview:view];
+        }
+        [badge setContentCompressionResistancePriority:NSLayoutPriorityRequired
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        self.icon = icon;
+        self.label = label;
+        self.badge = badge;
+        [NSLayoutConstraint activateConstraints:@[
+            [self.heightAnchor constraintEqualToConstant:30],
+            [icon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
+            [icon.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            [icon.widthAnchor constraintEqualToConstant:18],
+            [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:8],
+            [label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            [label.trailingAnchor constraintLessThanOrEqualToAnchor:badge.leadingAnchor constant:-6],
+            [badge.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
+            [badge.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+        ]];
+        [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:NSZeroRect
+            options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp | NSTrackingInVisibleRect
+            owner:self userInfo:nil]];
+        [self applyStyle];
+    }
+    return self;
+}
+
+- (void)setSelected:(BOOL)selected {
+    _selected = selected;
+    [self applyStyle];
+}
+
+- (void)applyStyle {
+    self.icon.contentTintColor = self.selected ? CCPetsAccentColor() : CCPetsSecondaryInkColor();
+    self.label.font = [NSFont systemFontOfSize:13 weight:self.selected ? NSFontWeightSemibold : NSFontWeightRegular];
+    self.needsDisplay = YES;
+}
+
+- (BOOL)wantsUpdateLayer {
+    return YES;
+}
+
+- (void)updateLayer {
+    self.layer.cornerRadius = 7;
+    self.layer.backgroundColor = self.selected ? CCPetsSelectionColor().CGColor
+        : (self.hovering ? CCPetsHoverColor().CGColor : NSColor.clearColor.CGColor);
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    self.hovering = YES;
+    self.needsDisplay = YES;
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    self.hovering = NO;
+    self.needsDisplay = YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    if (self.onSelect) self.onSelect(self.pageID);
+}
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+    return YES;
+}
+
+- (BOOL)isAccessibilityElement {
+    return YES;
+}
+
+- (NSAccessibilityRole)accessibilityRole {
+    return NSAccessibilityButtonRole;
+}
+
+- (NSString *)accessibilityLabel {
+    return self.label.stringValue;
+}
+
+- (BOOL)isAccessibilitySelected {
+    return self.selected;
+}
+
+- (BOOL)accessibilityPerformPress {
+    if (self.onSelect) self.onSelect(self.pageID);
+    return YES;
+}
+
+@end
+
+// 侧边栏顶部的宠物名片：会动的当前宠物、名字、Agent 状态。
 @interface CCPetsPetCardView : NSView
 - (void)reload;
 @end
 
-@interface CCPetsMainSidebarController : NSViewController <NSTableViewDataSource, NSTableViewDelegate>
-@property(nonatomic) NSTableView *tableView;
+@interface CCPetsPetCardView ()
+@property(nonatomic) CCPetsSpriteView *sprite;
+@property(nonatomic) NSTextField *nameLabel;
+@property(nonatomic) NSView *statusDot;
+@property(nonatomic) NSTextField *statusLabel;
+@property(nonatomic) CCPetsStatusKind kind;
+@end
+
+@implementation CCPetsPetCardView
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        CCPetsSpriteView *sprite = [[CCPetsSpriteView alloc] initWithFrame:NSZeroRect];
+        self.sprite = sprite;
+        NSTextField *name = CCPetsLabel(@"", 13, NSFontWeightBold, CCPetsInkColor());
+        self.nameLabel = name;
+        NSView *dot = [NSView new];
+        dot.wantsLayer = YES;
+        dot.layer.cornerRadius = 3;
+        self.statusDot = dot;
+        NSTextField *status = CCPetsLabel(@"", 11, NSFontWeightRegular, CCPetsSecondaryInkColor());
+        self.statusLabel = status;
+        for (NSView *view in @[sprite, name, dot, status]) {
+            view.translatesAutoresizingMaskIntoConstraints = NO;
+            [self addSubview:view];
+        }
+        [name setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [status setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [NSLayoutConstraint activateConstraints:@[
+            // 素材格子是 140×150，按同样比例缩到 40pt 宽。
+            [sprite.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:6],
+            [sprite.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [sprite.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            [sprite.widthAnchor constraintEqualToConstant:40],
+            [sprite.heightAnchor constraintEqualToConstant:43],
+            [name.leadingAnchor constraintEqualToAnchor:sprite.trailingAnchor constant:8],
+            [name.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-6],
+            [name.bottomAnchor constraintEqualToAnchor:sprite.centerYAnchor constant:1],
+            [dot.leadingAnchor constraintEqualToAnchor:name.leadingAnchor constant:1],
+            [dot.widthAnchor constraintEqualToConstant:6],
+            [dot.heightAnchor constraintEqualToConstant:6],
+            [dot.centerYAnchor constraintEqualToAnchor:status.centerYAnchor],
+            [status.leadingAnchor constraintEqualToAnchor:dot.trailingAnchor constant:5],
+            [status.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-6],
+            [status.topAnchor constraintEqualToAnchor:name.bottomAnchor constant:1],
+        ]];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload)
+            name:CCPetsPetCardDidChangeNotification object:nil];
+        [self reload];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self applyDotColor];
+}
+
+- (void)applyDotColor {
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        self.statusDot.layer.backgroundColor = CCPetsStatusColor(self.kind).CGColor;
+    }];
+}
+
+- (void)reload {
+    id source = NSApp.delegate;
+    NSDictionary *snapshot = [source conformsToProtocol:@protocol(CCPetsPetCardSource)]
+        ? [source petCardSnapshot] : nil;
+    [self.sprite setSheet:snapshot[@"sheet"] rowCount:[snapshot[@"rowCount"] integerValue] ?: 9];
+    NSString *state = snapshot[@"state"] ?: @"idle";
+    self.sprite.state = state;
+    self.nameLabel.stringValue = snapshot[@"name"] ?: @"CC Pets";
+    self.statusLabel.stringValue = snapshot[@"status"] ?: L(@"Idle");
+    self.kind = CCPetsStatusKindForAgentState(state);
+    [self applyDotColor];
+}
+
+@end
+
+#pragma mark - 侧边栏
+
+@interface CCPetsMainSidebarController : NSViewController
 @property(nonatomic) CCPetsPetCardView *card;
-@property(nonatomic, copy) void (^selectionHandler)(NSString *page);
-@property(nonatomic, copy) void (^sectionHandler)(NSString *sectionID);
-// 当前页面的段落，显示在页面行下面当子项；nil 或空就不显示。
-@property(nonatomic, copy) NSArray<NSDictionary *> *sections;
-// 侧边栏里一行：页面行或段落行。
-@property(nonatomic, copy) NSArray<NSDictionary *> *rows;
+@property(nonatomic) NSMutableDictionary<NSString *, CCPetsSidebarItem *> *items;
+@property(nonatomic) NSStackView *navigation;
+@property(nonatomic) NSView *footer;
 @property(nonatomic, copy) NSString *currentPage;
-@property(nonatomic) BOOL selectingProgrammatically;
+@property(nonatomic, copy) void (^selectionHandler)(NSString *page);
 - (void)selectPage:(NSString *)page;
 - (void)reload;
 @end
+
+@implementation CCPetsMainSidebarController
+
+- (void)loadView {
+    NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 210, 560)];
+    CCPetsPetCardView *card = [[CCPetsPetCardView alloc] initWithFrame:NSZeroRect];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    self.card = card;
+    NSView *cardRule = [CCPetsLineView new];
+    NSStackView *navigation = [NSStackView stackViewWithViews:@[]];
+    navigation.orientation = NSUserInterfaceLayoutOrientationVertical;
+    navigation.alignment = NSLayoutAttributeLeading;
+    navigation.spacing = 2;
+    self.navigation = navigation;
+    NSView *footer = [NSView new];
+    self.footer = footer;
+    NSView *footerRule = [CCPetsLineView new];
+    for (NSView *view in @[card, cardRule, navigation, footer, footerRule]) {
+        view.translatesAutoresizingMaskIntoConstraints = NO;
+        [root addSubview:view];
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        // 名片从标题栏下沿开始，左右和导航项对齐。
+        [card.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor constant:2],
+        [card.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
+        [card.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
+        [cardRule.topAnchor constraintEqualToAnchor:card.bottomAnchor constant:12],
+        [cardRule.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16],
+        [cardRule.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-16],
+        [cardRule.heightAnchor constraintEqualToConstant:1],
+        [navigation.topAnchor constraintEqualToAnchor:cardRule.bottomAnchor constant:12],
+        [navigation.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
+        [navigation.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
+        [navigation.bottomAnchor constraintLessThanOrEqualToAnchor:footerRule.topAnchor constant:-8],
+        [footerRule.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16],
+        [footerRule.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-16],
+        [footerRule.heightAnchor constraintEqualToConstant:1],
+        [footerRule.bottomAnchor constraintEqualToAnchor:footer.topAnchor constant:-8],
+        [footer.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
+        [footer.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
+        [footer.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-10],
+    ]];
+    self.view = root;
+    [self rebuildItems];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshBadges)
+        name:CCPetsPetCardDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshBadges)
+        name:CCPetsDiagnosticsDidChangeNotification object:nil];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (NSTextField *)groupLabel:(NSString *)title {
+    NSTextField *label = CCPetsLabel(title, 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
+    return label;
+}
+
+- (void)rebuildItems {
+    for (NSView *view in [self.navigation.arrangedSubviews copy]) {
+        [self.navigation removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    for (NSView *view in [self.footer.subviews copy]) [view removeFromSuperview];
+    self.items = [NSMutableDictionary dictionary];
+    __weak typeof(self) weakSelf = self;
+    NSString *group = nil;
+    NSDictionary *groupTitles = @{@"workbench": L(@"Workbench"), @"settings": L(@"Settings")};
+    for (NSDictionary *page in MainWindowPages()) {
+        CCPetsSidebarItem *item = [[CCPetsSidebarItem alloc] initWithPage:page];
+        item.onSelect = ^(NSString *pageID) {
+            if (weakSelf.selectionHandler) weakSelf.selectionHandler(pageID);
+        };
+        self.items[page[@"id"]] = item;
+        if ([page[@"group"] isEqualToString:@"footer"]) {
+            [self.footer addSubview:item];
+            [NSLayoutConstraint activateConstraints:@[
+                [item.leadingAnchor constraintEqualToAnchor:self.footer.leadingAnchor],
+                [item.trailingAnchor constraintEqualToAnchor:self.footer.trailingAnchor],
+                [item.topAnchor constraintEqualToAnchor:self.footer.topAnchor],
+                [item.bottomAnchor constraintEqualToAnchor:self.footer.bottomAnchor],
+            ]];
+            continue;
+        }
+        if (![page[@"group"] isEqualToString:group]) {
+            group = page[@"group"];
+            NSTextField *label = [self groupLabel:groupTitles[group] ?: @""];
+            NSView *last = self.navigation.arrangedSubviews.lastObject;
+            if (last) [self.navigation setCustomSpacing:14 afterView:last];
+            [self.navigation addArrangedSubview:label];
+            [self.navigation setCustomSpacing:4 afterView:label];
+            [label.leadingAnchor constraintEqualToAnchor:self.navigation.leadingAnchor constant:10].active = YES;
+        }
+        [self.navigation addArrangedSubview:item];
+        [item.leadingAnchor constraintEqualToAnchor:self.navigation.leadingAnchor].active = YES;
+        [item.trailingAnchor constraintEqualToAnchor:self.navigation.trailingAnchor].active = YES;
+    }
+    if (self.currentPage) [self selectPage:self.currentPage];
+    [self refreshBadges];
+}
+
+// 角标：会话页是在线会话数（有等审批的就用提醒色），诊断页是要处理的问题数。
+- (void)refreshBadges {
+    id source = NSApp.delegate;
+    NSDictionary *snapshot = [source conformsToProtocol:@protocol(CCPetsPetCardSource)]
+        ? [source petCardSnapshot] : nil;
+    CCPetsCountBadge *sessions = self.items[CCPetsMainWindowPageSessions].badge;
+    sessions.count = [snapshot[@"sessions"] integerValue];
+    sessions.warn = [snapshot[@"approvals"] integerValue] > 0;
+    CCPetsCountBadge *diagnostics = self.items[CCPetsMainWindowPageDiagnostics].badge;
+    diagnostics.count = (NSInteger)CCPetsDiagnosticsStore.issueCount;
+    diagnostics.warn = YES;
+}
+
+- (void)reload {
+    [self.card reload];
+    [self rebuildItems];
+}
+
+- (void)selectPage:(NSString *)page {
+    [self view];
+    self.currentPage = page;
+    [self.items enumerateKeysAndObjectsUsingBlock:^(NSString *pageID, CCPetsSidebarItem *item, BOOL *stop) {
+        item.selected = [pageID isEqualToString:page];
+    }];
+}
+
+@end
+
+#pragma mark - 窗口
 
 @interface CCPetsMainWindowController () <NSWindowDelegate>
 @property(nonatomic) NSSplitViewController *splitController;
@@ -83,13 +446,15 @@ static id WindowCloseObserver;
 
 + (void)presentPage:(NSString *)page {
     if (!SharedMainWindow) SharedMainWindow = [CCPetsMainWindowController new];
-    NSString *target = MainWindowPageWithID(page) ? page :
-        [NSUserDefaults.standardUserDefaults stringForKey:MainWindowLastPageKey];
-    if (!MainWindowPageWithID(target)) target = MainWindowPages().firstObject[@"id"];
+    NSString *target = CCPetsMainWindowResolvePage(page) ?:
+        CCPetsMainWindowResolvePage([NSUserDefaults.standardUserDefaults stringForKey:MainWindowLastPageKey]);
+    if (!target) target = MainWindowPages().firstObject[@"id"];
     [SharedMainWindow showPage:target];
     [self enterRegularMode];
     [NSApp activateIgnoringOtherApps:YES];
     [SharedMainWindow.window makeKeyAndOrderFront:nil];
+    // 侧边栏的诊断角标要先检查一遍；结果缓存一阵，频繁开关窗口不会反复跑。
+    [CCPetsDiagnosticsStore refreshIfStale];
 }
 
 // 有 Dock 图标、能 ⌘Tab、显示菜单栏。顺带开始盯普通窗口的关闭，最后一个关掉时切回去。
@@ -119,44 +484,41 @@ static id WindowCloseObserver;
 }
 
 - (instancetype)init {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 760, 560)
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 940, 640)
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                   NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
                   NSWindowStyleMaskFullSizeContentView
         backing:NSBackingStoreBuffered defer:YES];
     if ((self = [super initWithWindow:window])) {
         window.releasedWhenClosed = NO;
-        window.minSize = NSMakeSize(640, 440);
+        window.minSize = NSMakeSize(760, 520);
         window.delegate = self;
         window.titlebarAppearsTransparent = YES;
+        window.titleVisibility = NSWindowTitleHidden;
+        // 内容区的底色；标题栏透明，延伸到标题栏底下的部分也是这个颜色。
+        window.backgroundColor = CCPetsBackgroundColor();
         // 空工具栏 + unified：侧边栏一直延伸到标题栏，和系统设置一个样子。
         window.toolbar = [[NSToolbar alloc] initWithIdentifier:@"CCPetsMainWindowToolbar"];
         window.toolbarStyle = NSWindowToolbarStyleUnified;
 
         self.sidebar = [CCPetsMainSidebarController new];
         __weak typeof(self) weakSelf = self;
-        self.sidebar.selectionHandler = ^(NSString *page) {
-            // 从段落子项点回页面行：页面没换，但要回到顶部。
-            BOOL samePage = [page isEqualToString:weakSelf.currentPage];
-            [weakSelf showPage:page];
-            if (samePage) [weakSelf scrollPageToSection:nil];
-        };
-        self.sidebar.sectionHandler = ^(NSString *sectionID) { [weakSelf scrollPageToSection:sectionID]; };
+        self.sidebar.selectionHandler = ^(NSString *page) { [weakSelf showPage:page]; };
         self.contentController = [NSViewController new];
-        self.contentController.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 560)];
+        self.contentController.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 720, 640)];
 
         NSSplitViewController *split = [NSSplitViewController new];
         NSSplitViewItem *sidebarItem = [NSSplitViewItem sidebarWithViewController:self.sidebar];
-        sidebarItem.minimumThickness = 180;
+        sidebarItem.minimumThickness = 200;
         sidebarItem.maximumThickness = 240;
         sidebarItem.canCollapse = NO;
         [split addSplitViewItem:sidebarItem];
         NSSplitViewItem *contentItem = [NSSplitViewItem splitViewItemWithViewController:self.contentController];
-        contentItem.minimumThickness = 420;
+        contentItem.minimumThickness = 520;
         [split addSplitViewItem:contentItem];
         self.splitController = split;
         window.contentViewController = split;
-        [window setContentSize:NSMakeSize(760, 560)];
+        [window setContentSize:NSMakeSize(940, 640)];
         // 记住上次的位置和大小；第一次打开时居中。
         if (![window setFrameUsingName:MainWindowFrameName]) [window center];
         window.frameAutosaveName = MainWindowFrameName;
@@ -174,11 +536,10 @@ static id WindowCloseObserver;
 - (void)showPage:(NSString *)page {
     NSDictionary *entry = MainWindowPageWithID(page);
     if (!entry) return;
+    // 标题栏不显示标题（页头里已经有），但窗口菜单和调度中心要用它。
     self.window.title = entry[@"title"];
-    if ([self.currentPage isEqualToString:page] && self.pageController) {
-        [self.sidebar selectPage:page];
-        return;
-    }
+    [self.sidebar selectPage:page];
+    if ([self.currentPage isEqualToString:page] && self.pageController) return;
     [self.pageController.view removeFromSuperview];
     [self.pageController removeFromParentViewController];
     NSViewController *controller = [entry[@"class"] new];
@@ -196,18 +557,7 @@ static id WindowCloseObserver;
     ]];
     self.pageController = controller;
     self.currentPage = page;
-    // 页面视图此时已加载，段落都建好了；侧边栏据此列出子项。
-    self.sidebar.currentPage = page;
-    self.sidebar.sections = [controller conformsToProtocol:@protocol(CCPetsMainPageSections)]
-        ? [(id<CCPetsMainPageSections>)controller pageSections] : nil;
-    [self.sidebar selectPage:page];
     [NSUserDefaults.standardUserDefaults setObject:page forKey:MainWindowLastPageKey];
-}
-
-- (void)scrollPageToSection:(NSString *)sectionID {
-    if ([self.pageController conformsToProtocol:@protocol(CCPetsMainPageSections)]) {
-        [(id<CCPetsMainPageSections>)self.pageController scrollToSectionWithID:sectionID];
-    }
 }
 
 // 页面里的文案都是建页面时取的，换语言后整页重建，比逐个控件改标题省事也不会漏。
@@ -226,283 +576,6 @@ static id WindowCloseObserver;
     if (SharedMainWindow == self) {
         dispatch_async(dispatch_get_main_queue(), ^{ SharedMainWindow = nil; });
     }
-}
-
-@end
-
-@implementation CCPetsMainSidebarController
-
-- (void)loadView {
-    NSTableView *table = [[NSTableView alloc] initWithFrame:NSZeroRect];
-    table.style = NSTableViewStyleSourceList;
-    table.headerView = nil;
-    table.rowHeight = 32;
-    table.dataSource = self;
-    table.delegate = self;
-    NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"page"];
-    // 唯一一列跟着侧边栏宽度走，长标题（英文）不会被默认的 100pt 列宽截断。
-    column.resizingMask = NSTableColumnAutoresizingMask;
-    [table addTableColumn:column];
-    table.columnAutoresizingStyle = NSTableViewFirstColumnOnlyAutoresizingStyle;
-    self.tableView = table;
-
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 200, 400)];
-    scroll.documentView = table;
-    scroll.hasVerticalScroller = YES;
-    scroll.autohidesScrollers = YES;
-    scroll.drawsBackground = NO;
-    scroll.translatesAutoresizingMaskIntoConstraints = NO;
-
-    CCPetsPetCardView *card = [[CCPetsPetCardView alloc] initWithFrame:NSZeroRect];
-    card.translatesAutoresizingMaskIntoConstraints = NO;
-    self.card = card;
-
-    NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 560)];
-    [root addSubview:card];
-    [root addSubview:scroll];
-    [NSLayoutConstraint activateConstraints:@[
-        // 名片从标题栏下沿开始，左右和列表项对齐。
-        [card.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor constant:4],
-        [card.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
-        [card.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
-        [scroll.topAnchor constraintEqualToAnchor:card.bottomAnchor constant:10],
-        [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
-    ]];
-    self.view = root;
-}
-
-// 页面行之后紧跟当前页面的段落行。
-- (void)rebuildRows {
-    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
-    for (NSDictionary *entry in MainWindowPages()) {
-        [rows addObject:@{@"kind": @"page", @"id": entry[@"id"], @"title": entry[@"title"],
-                          @"symbol": entry[@"symbol"], @"color": entry[@"color"]}];
-        if (![entry[@"id"] isEqualToString:self.currentPage]) continue;
-        for (NSDictionary *section in self.sections) {
-            NSMutableDictionary *row = [section mutableCopy];
-            row[@"kind"] = @"section";
-            [rows addObject:row];
-        }
-    }
-    self.rows = rows;
-}
-
-- (void)selectRowAtIndex:(NSInteger)index {
-    // 程序选中不当成用户点击，免得又触发一次跳转。
-    self.selectingProgrammatically = YES;
-    [self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)index] byExtendingSelection:NO];
-    self.selectingProgrammatically = NO;
-}
-
-// 列宽要跟着侧边栏走：autoresizing 只在表格本身变宽时才调整列，初始列宽比侧边栏窄时，
-// 稍长一点的标题（Diagnostics）会被截成 "Diagnos…"。
-- (void)viewDidLayout {
-    [super viewDidLayout];
-    [self.tableView sizeLastColumnToFit];
-}
-
-- (void)reload {
-    [self.card reload];
-    NSInteger selected = self.tableView.selectedRow;
-    NSDictionary *previous = selected >= 0 && selected < (NSInteger)self.rows.count ? self.rows[(NSUInteger)selected] : nil;
-    [self rebuildRows];
-    [self.tableView reloadData];
-    for (NSUInteger index = 0; previous && index < self.rows.count; index++) {
-        if ([self.rows[index][@"kind"] isEqual:previous[@"kind"]] &&
-            [self.rows[index][@"id"] isEqual:previous[@"id"]]) {
-            [self selectRowAtIndex:(NSInteger)index];
-            break;
-        }
-    }
-}
-
-- (void)setSections:(NSArray<NSDictionary *> *)sections {
-    _sections = [sections copy];
-    [self view];
-    [self rebuildRows];
-    [self.tableView reloadData];
-}
-
-- (void)selectPage:(NSString *)page {
-    [self view];
-    for (NSUInteger index = 0; index < self.rows.count; index++) {
-        if (![self.rows[index][@"kind"] isEqualToString:@"page"] ||
-            ![self.rows[index][@"id"] isEqualToString:page]) continue;
-        if (self.tableView.selectedRow != (NSInteger)index) [self selectRowAtIndex:(NSInteger)index];
-        return;
-    }
-}
-
-- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
-    if (!self.rows) [self rebuildRows];
-    return (NSInteger)self.rows.count;
-}
-
-- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn
-    row:(NSInteger)row {
-    NSDictionary *entry = self.rows[(NSUInteger)row];
-    BOOL section = [entry[@"kind"] isEqualToString:@"section"];
-    NSString *identifier = section ? @"SectionCell" : @"PageCell";
-    // 段落子项比页面行小一号、缩进一格，一眼看得出是页面里的段落。
-    CGFloat iconSize = section ? 16 : 20;
-    NSTableCellView *cell = [tableView makeViewWithIdentifier:identifier owner:self];
-    if (!cell) {
-        cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
-        cell.identifier = identifier;
-        NSImageView *icon = [NSImageView imageViewWithImage:[NSImage new]];
-        NSTextField *label = [NSTextField labelWithString:@""];
-        icon.translatesAutoresizingMaskIntoConstraints = NO;
-        label.translatesAutoresizingMaskIntoConstraints = NO;
-        label.lineBreakMode = NSLineBreakByTruncatingTail;
-        [cell addSubview:icon];
-        [cell addSubview:label];
-        cell.imageView = icon;
-        cell.textField = label;
-        [NSLayoutConstraint activateConstraints:@[
-            [icon.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:section ? 18 : 4],
-            [icon.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
-            [icon.widthAnchor constraintEqualToConstant:iconSize],
-            [icon.heightAnchor constraintEqualToConstant:iconSize],
-            [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:8],
-            [label.trailingAnchor constraintLessThanOrEqualToAnchor:cell.trailingAnchor constant:-4],
-            [label.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
-        ]];
-    }
-    cell.imageView.image = CCPetsSymbolTile(entry[@"symbol"], entry[@"color"], iconSize);
-    cell.textField.stringValue = entry[@"title"];
-    cell.textField.font = [NSFont systemFontOfSize:section ? NSFont.smallSystemFontSize + 1 : NSFont.systemFontSize];
-    return cell;
-}
-
-- (void)tableViewSelectionDidChange:(NSNotification *)notification {
-    if (self.selectingProgrammatically) return;
-    NSInteger row = self.tableView.selectedRow;
-    if (row < 0 || row >= (NSInteger)self.rows.count) return;
-    NSDictionary *entry = self.rows[(NSUInteger)row];
-    if ([entry[@"kind"] isEqualToString:@"section"]) {
-        if (self.sectionHandler) self.sectionHandler(entry[@"id"]);
-    } else if (self.selectionHandler) {
-        self.selectionHandler(entry[@"id"]);
-    }
-}
-
-@end
-
-@interface CCPetsPetCardView ()
-@property(nonatomic) CCPetsSpriteView *sprite;
-@property(nonatomic) NSTextField *nameLabel;
-@property(nonatomic) NSView *statusDot;
-@property(nonatomic) NSTextField *statusLabel;
-@property(nonatomic) NSTextField *sessionsLabel;
-@property(nonatomic) NSColor *dotColor;
-@end
-
-@implementation CCPetsPetCardView
-
-- (instancetype)initWithFrame:(NSRect)frame {
-    if ((self = [super initWithFrame:frame])) {
-        self.wantsLayer = YES;
-        self.layer.cornerRadius = 12;
-        self.layer.cornerCurve = kCACornerCurveContinuous;
-
-        CCPetsSpriteView *sprite = [[CCPetsSpriteView alloc] initWithFrame:NSZeroRect];
-        sprite.translatesAutoresizingMaskIntoConstraints = NO;
-        self.sprite = sprite;
-
-        NSTextField *name = [NSTextField labelWithString:@""];
-        name.font = [NSFont systemFontOfSize:14 weight:NSFontWeightSemibold];
-        name.alignment = NSTextAlignmentCenter;
-        name.lineBreakMode = NSLineBreakByTruncatingTail;
-        self.nameLabel = name;
-
-        NSView *dot = [NSView new];
-        dot.wantsLayer = YES;
-        dot.layer.cornerRadius = 3.5;
-        [dot.widthAnchor constraintEqualToConstant:7].active = YES;
-        [dot.heightAnchor constraintEqualToConstant:7].active = YES;
-        self.statusDot = dot;
-
-        NSTextField *status = [NSTextField labelWithString:@""];
-        status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        status.textColor = NSColor.secondaryLabelColor;
-        status.lineBreakMode = NSLineBreakByTruncatingTail;
-        [status setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
-            forOrientation:NSLayoutConstraintOrientationHorizontal];
-        self.statusLabel = status;
-        NSStackView *statusRow = [NSStackView stackViewWithViews:@[dot, status]];
-        statusRow.spacing = 5;
-        statusRow.alignment = NSLayoutAttributeCenterY;
-
-        NSTextField *sessions = [NSTextField labelWithString:@""];
-        sessions.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        sessions.textColor = NSColor.tertiaryLabelColor;
-        sessions.alignment = NSTextAlignmentCenter;
-        self.sessionsLabel = sessions;
-
-        NSStackView *stack = [NSStackView stackViewWithViews:@[sprite, name, statusRow, sessions]];
-        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-        stack.alignment = NSLayoutAttributeCenterX;
-        stack.spacing = 3;
-        [stack setCustomSpacing:6 afterView:sprite];
-        stack.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:stack];
-        [NSLayoutConstraint activateConstraints:@[
-            // 素材格子是 140×150，按同样比例缩小。
-            [sprite.widthAnchor constraintEqualToConstant:84],
-            [sprite.heightAnchor constraintEqualToConstant:90],
-            [stack.topAnchor constraintEqualToAnchor:self.topAnchor constant:10],
-            [stack.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
-            [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.leadingAnchor constant:8],
-            [stack.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-8],
-            [stack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
-            [name.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor constant:-16],
-            [statusRow.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor constant:-16],
-        ]];
-        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload)
-            name:CCPetsPetCardDidChangeNotification object:nil];
-        [self reload];
-    }
-    return self;
-}
-
-- (void)dealloc {
-    [NSNotificationCenter.defaultCenter removeObserver:self];
-}
-
-// 底色随深浅色变，放在 updateLayer 里才能在切换外观时重新解析。
-- (BOOL)wantsUpdateLayer {
-    return YES;
-}
-
-- (void)updateLayer {
-    BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:
-        @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-    self.layer.backgroundColor = [NSColor colorWithWhite:dark ? 1 : 0 alpha:dark ? 0.07 : 0.05].CGColor;
-    self.statusDot.layer.backgroundColor = (self.dotColor ?: NSColor.systemGrayColor).CGColor;
-}
-
-- (void)reload {
-    id source = NSApp.delegate;
-    NSDictionary *snapshot = [source conformsToProtocol:@protocol(CCPetsPetCardSource)]
-        ? [source petCardSnapshot] : nil;
-    [self.sprite setSheet:snapshot[@"sheet"] rowCount:[snapshot[@"rowCount"] integerValue] ?: 9];
-    self.sprite.state = snapshot[@"state"] ?: @"idle";
-    self.nameLabel.stringValue = snapshot[@"name"] ?: @"CC Pets";
-    self.statusLabel.stringValue = snapshot[@"status"] ?: L(@"Idle");
-    self.dotColor = [snapshot[@"statusColor"] isKindOfClass:NSColor.class] ? snapshot[@"statusColor"] : nil;
-    self.needsDisplay = YES;
-
-    NSInteger sessions = [snapshot[@"sessions"] integerValue];
-    NSInteger approvals = [snapshot[@"approvals"] integerValue];
-    NSString *text = sessions == 1 ? L(@"1 session online")
-        : [NSString stringWithFormat:L(@"%ld sessions online"), (long)sessions];
-    if (approvals > 0) {
-        text = [text stringByAppendingFormat:@" · %@", approvals == 1 ? L(@"1 awaiting approval")
-            : [NSString stringWithFormat:L(@"%ld awaiting approval"), (long)approvals]];
-    }
-    self.sessionsLabel.stringValue = sessions > 0 || approvals > 0 ? text : L(@"No active sessions");
 }
 
 @end

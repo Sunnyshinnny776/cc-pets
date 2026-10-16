@@ -21,7 +21,7 @@ print_usage() {
   cc-pets build              Rebuild
   cc-pets clean              Clear caches (quit the pet first)
   cc-pets doctor             Check the installation and integrations, with suggested fixes
-  cc-pets open [page]        Open the main window (pages: settings, usage, diagnostics)
+  cc-pets open [page]        Open the main window (pages: overview, sessions, usage, pet, alerts, general, diagnostics)
   cc-pets paths [--json]     List where settings, caches and data live, and their sizes
   cc-pets pet <command>      Manage pet sprites; see cc-pets pet help
   cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help

@@ -1,40 +1,20 @@
 #import "CCPetsUsagePage.h"
 #import "CCPetsFormBuilder.h"
 #import "CCPetsL10n.h"
+#import "CCPetsUIStyle.h"
 #import "CCPetsUsage.h"
-
-// 四栏的固定颜色，条形图、柱状图、图例共用。次序即堆叠次序（自下而上）。
-static NSArray<NSString *> *UsageKinds(void) {
-    return @[@"cacheRead", @"input", @"cacheWrite", @"output"];
-}
-
-static NSColor *UsageKindColor(NSString *kind) {
-    if ([kind isEqualToString:@"cacheRead"]) return NSColor.systemTealColor;
-    if ([kind isEqualToString:@"input"]) return NSColor.systemBlueColor;
-    if ([kind isEqualToString:@"cacheWrite"]) return NSColor.systemOrangeColor;
-    return NSColor.systemPurpleColor;
-}
-
-static NSString *UsageKindTitle(NSString *kind) {
-    if ([kind isEqualToString:@"cacheRead"]) return L(@"Cache Read");
-    if ([kind isEqualToString:@"input"]) return L(@"Input");
-    if ([kind isEqualToString:@"cacheWrite"]) return L(@"Cache Write");
-    return L(@"Output");
-}
 
 static unsigned long long Count(NSDictionary *counts, NSString *key) {
     return [counts[key] unsignedLongLongValue];
 }
 
-static unsigned long long TotalTokens(NSDictionary *counts) {
-    unsigned long long total = 0;
-    for (NSString *kind in UsageKinds()) total += Count(counts, kind);
-    return total;
+unsigned long long CCPetsNewTokens(NSDictionary *counts) {
+    return Count(counts, @"input") + Count(counts, @"cacheWrite") + Count(counts, @"output");
 }
 
 // 1234 -> 1.23K，1234567 -> 1.23M：卡片里放不下一长串数字，精确值在悬停时给。
 // 先按三位有效数字舍入再定单位：999,950 直接格式化会得到 "1000K"，9,995 会得到 "10.00K"。
-static NSString *FormatTokens(unsigned long long value) {
+NSString *CCPetsFormatTokens(unsigned long long value) {
     if (value < 1000) return [NSString stringWithFormat:@"%llu", value];
     double scaled = (double)value;
     NSUInteger unit = 0;
@@ -50,6 +30,16 @@ static NSString *FormatTokens(unsigned long long value) {
     }
     return [NSString stringWithFormat:scaled >= 100 ? @"%.0f%@" : (scaled >= 10 ? @"%.1f%@" : @"%.2f%@"),
         scaled, suffixes[unit]];
+}
+
+static NSString *FormatCount(unsigned long long value) {
+    static NSNumberFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        formatter = [NSNumberFormatter new];
+        formatter.numberStyle = NSNumberFormatterDecimalStyle;
+    });
+    return [formatter stringFromNumber:@(value)];
 }
 
 // 命中率 = 缓存读 / 全部输入侧（非缓存输入 + 缓存读 + 缓存写）。两家的原始口径不同，
@@ -70,10 +60,6 @@ static NSString *ModelTitle(NSString *model) {
     return [model isEqualToString:@"unknown"] ? L(@"Unknown Model") : model;
 }
 
-// 页面一次统计这么多天，切换 7 / 30 / 90 天只在本地截取，不再回数据层重算。
-// 数据层按请求的起点清理缓存，区间来回切会让 90 天里较早的会话缓存被删了又重读。
-static const NSInteger UsageMaximumRangeDays = 90;
-
 static NSMutableDictionary *SummedCounts(NSArray<NSDictionary *> *list) {
     NSMutableDictionary *sum = [NSMutableDictionary dictionary];
     for (NSDictionary *counts in list) {
@@ -84,81 +70,96 @@ static NSMutableDictionary *SummedCounts(NSArray<NSDictionary *> *list) {
     return sum;
 }
 
-#pragma mark - 部件
+NSDictionary *CCPetsUsageDayTotals(NSDictionary *day) {
+    NSDictionary *models = [day[@"models"] isKindOfClass:NSDictionary.class] ? day[@"models"] : @{};
+    return SummedCounts(models.allValues);
+}
 
-// 一个模型的四栏占比条。
-@interface CCPetsUsageProportionBar : NSView
-@property(nonatomic) NSDictionary *counts;
+#pragma mark - 数据
+
+// 统计这么多天，切换 7 / 30 / 90 天只在本地截取。
+static const NSInteger UsageMaximumRangeDays = 90;
+// 结果在这段时间内算新鲜：来回切页面不重算，隔一阵再打开能看到新用量。
+static const NSTimeInterval UsageStoreFreshness = 120;
+
+NSNotificationName const CCPetsUsageStoreDidChangeNotification = @"CCPetsUsageStoreDidChange";
+static NSDictionary<NSString *, NSDictionary *> *UsageStoreResults;
+static NSTimeInterval UsageStoreLoadedAt;
+static BOOL UsageStoreLoading;
+
+@implementation CCPetsUsageStore
+
++ (NSDictionary<NSString *, NSDictionary *> *)results {
+    return UsageStoreResults;
+}
+
++ (BOOL)loading {
+    return UsageStoreLoading;
+}
+
+// 区间是 [今天往前数 89 天的零点, 明天零点)，含今天。
++ (void)loadIfStale {
+    if (UsageStoreLoading) return;
+    if (UsageStoreResults && NSDate.date.timeIntervalSince1970 - UsageStoreLoadedAt < UsageStoreFreshness) return;
+    UsageStoreLoading = YES;
+    NSCalendar *calendar = NSCalendar.currentCalendar;
+    NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:1
+        toDate:[calendar startOfDayForDate:NSDate.date] options:0];
+    NSDate *start = [calendar dateByAddingUnit:NSCalendarUnitDay value:-UsageMaximumRangeDays toDate:end options:0];
+    // 串行队列：上一轮还没算完时不会两份同时写同一批缓存文件。
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        queue = dispatch_queue_create("com.ccpets.model-usage", DISPATCH_QUEUE_SERIAL);
+    });
+    dispatch_async(queue, ^{
+        NSMutableDictionary *results = [NSMutableDictionary dictionary];
+        for (NSString *provider in @[@"claude", @"codex"]) {
+            NSDictionary *usage = CCPetsModelUsage(provider, start.timeIntervalSince1970, end.timeIntervalSince1970);
+            if (usage) results[provider] = usage;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UsageStoreResults = results;
+            UsageStoreLoadedAt = NSDate.date.timeIntervalSince1970;
+            UsageStoreLoading = NO;
+            [NSNotificationCenter.defaultCenter postNotificationName:CCPetsUsageStoreDidChangeNotification object:nil];
+        });
+    });
+}
+
 @end
 
-@implementation CCPetsUsageProportionBar
-- (NSSize)intrinsicContentSize {
-    return NSMakeSize(NSViewNoIntrinsicMetric, 6);
-}
-- (void)drawRect:(NSRect)dirtyRect {
-    NSRect bounds = self.bounds;
-    [NSGraphicsContext saveGraphicsState];
-    [[NSBezierPath bezierPathWithRoundedRect:bounds xRadius:3 yRadius:3] addClip];
-    [[NSColor.quaternaryLabelColor colorWithAlphaComponent:0.5] set];
-    NSRectFill(bounds);
-    double total = (double)TotalTokens(self.counts);
-    CGFloat x = 0;
-    for (NSString *kind in UsageKinds()) {
-        if (total <= 0) break;
-        CGFloat width = bounds.size.width * Count(self.counts, kind) / total;
-        [UsageKindColor(kind) set];
-        NSRectFill(NSMakeRect(x, 0, width, bounds.size.height));
-        x += width;
-    }
-    [NSGraphicsContext restoreGraphicsState];
-}
-@end
+#pragma mark - 指标
 
-// 列表里的一行：点一下选中。
-@interface CCPetsUsageModelRow : NSView
-@property(nonatomic) BOOL selected;
-// 会换行的那行说明。自动布局算不出换行标签的高度（宽度没定之前它只会按一行算），
-// 所以行宽确定后手动把宽度告诉它。
-@property(nonatomic, weak) NSTextField *wrappingDetail;
-@property(nonatomic, copy) void (^onClick)(void);
-@end
+typedef NS_ENUM(NSInteger, UsageMetric) {
+    UsageMetricNew,
+    UsageMetricCacheRead,
+    UsageMetricRequests,
+};
 
-@implementation CCPetsUsageModelRow
-- (instancetype)initWithFrame:(NSRect)frame {
-    if ((self = [super initWithFrame:frame])) self.wantsLayer = YES;
-    return self;
+static unsigned long long MetricValue(UsageMetric metric, NSDictionary *counts) {
+    if (metric == UsageMetricCacheRead) return Count(counts, @"cacheRead");
+    if (metric == UsageMetricRequests) return Count(counts, @"requests");
+    return CCPetsNewTokens(counts);
 }
-- (void)layout {
-    CGFloat width = NSWidth(self.bounds) - 28;
-    if (self.wrappingDetail && width > 0 && fabs(self.wrappingDetail.preferredMaxLayoutWidth - width) > 0.5) {
-        self.wrappingDetail.preferredMaxLayoutWidth = width;
-    }
-    [super layout];
-}
-- (BOOL)wantsUpdateLayer {
-    return YES;
-}
-- (void)updateLayer {
-    self.layer.backgroundColor = self.selected
-        ? [NSColor.controlAccentColor colorWithAlphaComponent:0.12].CGColor : NSColor.clearColor.CGColor;
-}
-- (void)setSelected:(BOOL)selected {
-    _selected = selected;
-    self.needsDisplay = YES;
-}
-- (void)mouseDown:(NSEvent *)event {
-    if (self.onClick) self.onClick();
-}
-- (BOOL)acceptsFirstMouse:(NSEvent *)event {
-    return YES;
-}
-@end
 
-// 每日堆叠柱状图：横轴是天，纵轴是 Token，四栏堆叠。鼠标移上去报告是哪一天。
+static NSString *MetricText(UsageMetric metric, unsigned long long value) {
+    return metric == UsageMetricRequests ? FormatCount(value) : CCPetsFormatTokens(value);
+}
+
+#pragma mark - 图表
+
+// 每日柱状图：横轴是天，纵轴是当前指标。"全部模型"时每根柱子按模型分色堆叠（用量大的在下），
+// 只看一个模型时就是这个模型自己的颜色。鼠标移上去在柱子旁浮出当天的明细。
 @interface CCPetsUsageChartView : NSView
-// 每项：timestamp（日零点）、counts。
-@property(nonatomic, copy) NSArray<NSDictionary *> *days;
-@property(nonatomic, copy) void (^hoverChanged)(NSInteger index);
+// 每天零点的时间戳。
+@property(nonatomic, copy) NSArray<NSNumber *> *days;
+// 自下而上的堆叠层。每项：title、color、values（每天的指标值）、counts（每天的四栏，单模型明细用）。
+@property(nonatomic, copy) NSArray<NSDictionary *> *series;
+@property(nonatomic) UsageMetric metric;
+// 只看一个模型：悬停明细列这个模型的各栏，而不是各模型。
+@property(nonatomic) BOOL singleModel;
+- (void)reloadData;
 @end
 
 @interface CCPetsUsageChartView ()
@@ -166,6 +167,9 @@ static NSMutableDictionary *SummedCounts(NSArray<NSDictionary *> *list) {
 @end
 
 @implementation CCPetsUsageChartView
+
+static const CGFloat ChartLeft = 50, ChartBottom = 24, ChartTop = 10, ChartRight = 4;
+
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         _hoverIndex = -1;
@@ -175,23 +179,23 @@ static NSMutableDictionary *SummedCounts(NSArray<NSDictionary *> *list) {
     }
     return self;
 }
-- (NSSize)intrinsicContentSize {
-    return NSMakeSize(NSViewNoIntrinsicMetric, 200);
+
+- (BOOL)isFlipped {
+    return NO;
 }
-- (void)setDays:(NSArray<NSDictionary *> *)days {
-    _days = [days copy];
+
+- (void)reloadData {
     self.hoverIndex = -1;
     self.needsDisplay = YES;
 }
 
-static const CGFloat ChartLeft = 46, ChartBottom = 22, ChartTop = 8, ChartRight = 4;
-
-// 纵轴只画 0、一半、顶三条线，顶取 1/2/4/5/8 × 10^n：一半也是整齐的数，不会出现 133M / 66.7M。
-static double NiceMaximum(double value) {
-    if (value <= 0) return 1;
-    double magnitude = pow(10, floor(log10(value)));
-    for (NSNumber *step in @[@1, @2, @4, @5, @8, @10]) {
-        if (value <= step.doubleValue * magnitude) return step.doubleValue * magnitude;
+// 纵轴分四格，步长取 1 / 2 / 2.5 / 5 × 10^n：每条刻度都是整齐的数，不会出现 133M / 66.7M。
+static double NiceStep(double peak) {
+    if (peak <= 0) return 1;
+    double raw = peak / 4;
+    double magnitude = pow(10, floor(log10(raw)));
+    for (NSNumber *step in @[@1, @2, @2.5, @5, @10]) {
+        if (raw <= step.doubleValue * magnitude) return step.doubleValue * magnitude;
     }
     return 10 * magnitude;
 }
@@ -201,62 +205,222 @@ static double NiceMaximum(double value) {
         NSHeight(self.bounds) - ChartBottom - ChartTop);
 }
 
+- (double)totalAtIndex:(NSUInteger)index {
+    double total = 0;
+    for (NSDictionary *layer in self.series) total += [layer[@"values"][index] doubleValue];
+    return total;
+}
+
 - (void)drawRect:(NSRect)dirtyRect {
     NSRect plot = [self plotRect];
     NSUInteger count = self.days.count;
     double peak = 0;
-    for (NSDictionary *day in self.days) peak = MAX(peak, (double)TotalTokens(day[@"counts"]));
-    double top = NiceMaximum(peak);
-    NSDictionary *labelAttributes = @{NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:10
-        weight:NSFontWeightRegular], NSForegroundColorAttributeName: NSColor.secondaryLabelColor};
+    for (NSUInteger index = 0; index < count; index++) peak = MAX(peak, [self totalAtIndex:index]);
+    double step = NiceStep(peak);
+    double top = step * 4;
+    NSDictionary *axisAttributes = @{NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:10
+        weight:NSFontWeightRegular], NSForegroundColorAttributeName: CCPetsTertiaryInkColor()};
 
-    // 横向网格线 + 纵轴刻度。
-    for (int line = 0; line <= 2; line++) {
-        CGFloat y = NSMinY(plot) + plot.size.height * line / 2.0;
-        [(line == 0 ? NSColor.separatorColor : [NSColor.separatorColor colorWithAlphaComponent:0.4]) set];
-        NSRectFill(NSMakeRect(NSMinX(plot), y - 0.5, plot.size.width, 1));
-        NSString *label = FormatTokens((unsigned long long)(top * line / 2.0));
-        NSSize size = [label sizeWithAttributes:labelAttributes];
-        [label drawAtPoint:NSMakePoint(NSMinX(plot) - size.width - 6, y - size.height / 2)
-            withAttributes:labelAttributes];
+    // 网格：底线实线，其余虚线，都很淡，让柱子当主角。
+    for (int line = 0; line <= 4; line++) {
+        CGFloat y = round(NSMinY(plot) + plot.size.height * line / 4.0) + 0.5;
+        NSBezierPath *path = [NSBezierPath bezierPath];
+        [path moveToPoint:NSMakePoint(NSMinX(plot), y)];
+        [path lineToPoint:NSMakePoint(NSMaxX(plot), y)];
+        path.lineWidth = 1;
+        if (line > 0) {
+            CGFloat dash[] = {3, 3};
+            [path setLineDash:dash count:2 phase:0];
+        }
+        [CCPetsLineColor() set];
+        [path stroke];
+        NSString *label = MetricText(self.metric, (unsigned long long)(step * line));
+        NSSize size = [label sizeWithAttributes:axisAttributes];
+        [label drawAtPoint:NSMakePoint(NSMinX(plot) - size.width - 8, y - size.height / 2)
+            withAttributes:axisAttributes];
     }
     if (count == 0) return;
 
     CGFloat slot = plot.size.width / count;
-    CGFloat barWidth = MAX(2, MIN(28, slot * 0.68));
+    CGFloat barWidth = MAX(2, MIN(26, slot * 0.62));
+    if (self.hoverIndex >= 0 && self.hoverIndex < (NSInteger)count) {
+        [CCPetsHoverColor() set];
+        NSRectFillUsingOperation(NSMakeRect(NSMinX(plot) + slot * self.hoverIndex, NSMinY(plot), slot,
+            plot.size.height), NSCompositingOperationSourceOver);
+    }
+    for (NSUInteger index = 0; index < count; index++) {
+        CGFloat x = round(NSMinX(plot) + slot * index + (slot - barWidth) / 2);
+        CGFloat y = NSMinY(plot) + 1;
+        NSMutableArray<NSValue *> *segments = [NSMutableArray array];
+        NSMutableArray<NSColor *> *colors = [NSMutableArray array];
+        for (NSDictionary *layer in self.series) {
+            double value = [layer[@"values"][index] doubleValue];
+            if (value <= 0) continue;
+            CGFloat height = MAX(1, plot.size.height * value / top);
+            [segments addObject:[NSValue valueWithRect:NSMakeRect(x, y, barWidth, height)]];
+            [colors addObject:layer[@"color"]];
+            y += height;
+        }
+        // 堆叠段之间留 1pt 的底色缝，相邻两色分得清；最顶上一段圆角。
+        for (NSUInteger part = 0; part < segments.count; part++) {
+            NSRect rect = segments[part].rectValue;
+            BOOL last = part == segments.count - 1;
+            if (!last && rect.size.height > 2) rect.size.height -= 1;
+            [colors[part] set];
+            if (last && rect.size.height >= 3) {
+                CGFloat radius = MIN(2.5, barWidth / 3);
+                NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:rect xRadius:radius yRadius:radius];
+                [path fill];
+                NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, MIN(radius, rect.size.height)));
+            } else {
+                NSRectFill(rect);
+            }
+        }
+    }
+    [self drawDateLabelsInPlot:plot slot:slot attributes:axisAttributes];
+    if (self.hoverIndex >= 0 && self.hoverIndex < (NSInteger)count) [self drawTooltipInPlot:plot slot:slot];
+}
+
+// 横轴只标六个左右的日期，最后一个写"今天"；天数多了标满会挤成一团。
+- (void)drawDateLabelsInPlot:(NSRect)plot slot:(CGFloat)slot attributes:(NSDictionary *)attributes {
     static NSDateFormatter *formatter;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         formatter = [NSDateFormatter new];
         formatter.dateFormat = @"M/d";
     });
-    // 横轴只标几个日期，天数多了标满会挤成一团。
+    NSUInteger count = self.days.count;
     NSUInteger labelStep = MAX(1, (NSUInteger)ceil(count / 6.0));
-    for (NSUInteger index = 0; index < count; index++) {
-        NSDictionary *counts = self.days[index][@"counts"];
-        CGFloat x = NSMinX(plot) + slot * index + (slot - barWidth) / 2;
-        CGFloat y = NSMinY(plot);
-        if ((NSInteger)index == self.hoverIndex) {
-            [[NSColor.labelColor colorWithAlphaComponent:0.07] set];
-            NSRectFill(NSMakeRect(NSMinX(plot) + slot * index, NSMinY(plot), slot, plot.size.height));
+    CGFloat lastRight = -CGFLOAT_MAX;
+    // 从今天往回标：保证"今天"一定出现，其余按步长倒推。
+    NSMutableArray<NSNumber *> *indexes = [NSMutableArray array];
+    for (NSInteger index = (NSInteger)count - 1; index >= 0; index -= (NSInteger)labelStep) [indexes insertObject:@(index) atIndex:0];
+    for (NSNumber *number in indexes) {
+        NSUInteger index = number.unsignedIntegerValue;
+        NSString *label = index == count - 1 ? L(@"today")
+            : [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:self.days[index].doubleValue]];
+        NSSize size = [label sizeWithAttributes:attributes];
+        CGFloat x = NSMinX(plot) + slot * index + slot / 2 - size.width / 2;
+        x = MIN(MAX(x, NSMinX(plot) - 4), NSMaxX(self.bounds) - size.width);
+        if (x < lastRight + 6) continue;
+        [label drawAtPoint:NSMakePoint(x, 5) withAttributes:attributes];
+        lastRight = x + size.width;
+    }
+}
+
+// 悬停明细：深色日期条 + 每行一个色条、名字、数值 + 合计。全部模型时按当天量从大到小列各模型
+// （当天为 0 的不列）；单个模型时列它的输入、缓存写、输出、缓存读和请求。
+- (void)drawTooltipInPlot:(NSRect)plot slot:(CGFloat)slot {
+    NSUInteger index = (NSUInteger)self.hoverIndex;
+    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
+    if (self.singleModel) {
+        NSDictionary *layer = self.series.firstObject;
+        NSDictionary *counts = layer[@"counts"][index];
+        NSColor *color = layer[@"color"];
+        for (NSArray *part in @[@[L(@"Input"), @"input"], @[L(@"Cache Write"), @"cacheWrite"],
+                                @[L(@"Output"), @"output"], @[L(@"Cache Read"), @"cacheRead"]]) {
+            [rows addObject:@{@"title": part[0], @"value": CCPetsFormatTokens(Count(counts, part[1])), @"color": color}];
         }
-        for (NSString *kind in UsageKinds()) {
-            CGFloat height = plot.size.height * Count(counts, kind) / top;
-            if (height <= 0) continue;
-            [UsageKindColor(kind) set];
-            NSRectFill(NSMakeRect(x, y, barWidth, MAX(height, 0.5)));
-            y += height;
+        [rows addObject:@{@"title": L(@"Requests"), @"value": FormatCount(Count(counts, @"requests")), @"color": color}];
+    } else {
+        NSMutableArray<NSDictionary *> *layers = [NSMutableArray array];
+        for (NSDictionary *layer in self.series) {
+            if ([layer[@"values"][index] doubleValue] > 0) [layers addObject:layer];
         }
-        if (index % labelStep == 0 || index == count - 1) {
-            NSDate *date = [NSDate dateWithTimeIntervalSince1970:[self.days[index][@"timestamp"] doubleValue]];
-            NSString *label = [formatter stringFromDate:date];
-            NSSize size = [label sizeWithAttributes:labelAttributes];
-            if (index % labelStep == 0 || slot * (count - 1 - index) > size.width) {
-                [label drawAtPoint:NSMakePoint(NSMinX(plot) + slot * index + slot / 2 - size.width / 2, 4)
-                    withAttributes:labelAttributes];
-            }
+        [layers sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+            return [b[@"values"][index] compare:a[@"values"][index]];
+        }];
+        for (NSDictionary *layer in layers) {
+            [rows addObject:@{@"title": layer[@"title"], @"color": layer[@"color"],
+                @"value": MetricText(self.metric, [layer[@"values"][index] unsignedLongLongValue])}];
         }
     }
+    NSString *total = MetricText(self.metric, (unsigned long long)[self totalAtIndex:index]);
+
+    static NSDateFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        formatter = [NSDateFormatter new];
+        formatter.dateStyle = NSDateFormatterMediumStyle;
+        formatter.timeStyle = NSDateFormatterNoStyle;
+    });
+    NSString *date = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:self.days[index].doubleValue]];
+
+    NSDictionary *nameAttributes = @{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                                     NSForegroundColorAttributeName: CCPetsSecondaryInkColor()};
+    NSDictionary *valueAttributes = @{NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:11
+        weight:NSFontWeightMedium], NSForegroundColorAttributeName: CCPetsInkColor()};
+    NSDictionary *totalAttributes = @{NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:11
+        weight:NSFontWeightSemibold], NSForegroundColorAttributeName: CCPetsInkColor()};
+    NSDictionary *dateAttributes = @{NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightSemibold],
+                                     NSForegroundColorAttributeName: CCPetsCardColor()};
+    CGFloat width = [date sizeWithAttributes:dateAttributes].width + 24;
+    for (NSDictionary *row in rows) {
+        width = MAX(width, [row[@"title"] sizeWithAttributes:nameAttributes].width +
+            [row[@"value"] sizeWithAttributes:valueAttributes].width + 46);
+    }
+    NSString *totalTitle = self.singleModel ? [NSString stringWithFormat:@"%@ · %@", L(@"Total"),
+        [self metricTitle]] : L(@"Total");
+    NSDictionary *totalTitleAttributes = @{NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightSemibold],
+                                           NSForegroundColorAttributeName: CCPetsInkColor()};
+    width = MAX(width, [totalTitle sizeWithAttributes:totalTitleAttributes].width +
+        [total sizeWithAttributes:totalAttributes].width + 36);
+    width = MIN(MAX(width, 150), 300);
+    const CGFloat headerHeight = 24, rowHeight = 18, padding = 6;
+    CGFloat height = headerHeight + padding + rows.count * rowHeight + 1 + rowHeight + padding;
+
+    // 放在柱子右边，放不下就放左边；竖直方向贴着绘图区顶部，超出时往下压。
+    CGFloat barCenter = NSMinX(plot) + slot * index + slot / 2;
+    CGFloat x = barCenter + slot / 2 + 8;
+    if (x + width > NSMaxX(self.bounds) - 2) x = barCenter - slot / 2 - 8 - width;
+    x = MAX(2, x);
+    CGFloat y = MAX(2, NSMaxY(plot) - height);
+    NSRect box = NSMakeRect(x, y, width, height);
+
+    [NSGraphicsContext saveGraphicsState];
+    NSShadow *shadow = [NSShadow new];
+    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.18];
+    shadow.shadowBlurRadius = 10;
+    shadow.shadowOffset = NSMakeSize(0, -3);
+    [shadow set];
+    NSBezierPath *outline = [NSBezierPath bezierPathWithRoundedRect:box xRadius:8 yRadius:8];
+    [CCPetsCardColor() set];
+    [outline fill];
+    [NSGraphicsContext restoreGraphicsState];
+    [CCPetsLineColor() set];
+    [outline stroke];
+
+    [NSGraphicsContext saveGraphicsState];
+    [outline addClip];
+    [CCPetsInkColor() set];
+    NSRectFill(NSMakeRect(NSMinX(box), NSMaxY(box) - headerHeight, width, headerHeight));
+    [NSGraphicsContext restoreGraphicsState];
+    [date drawAtPoint:NSMakePoint(NSMinX(box) + 10, NSMaxY(box) - headerHeight + 5) withAttributes:dateAttributes];
+
+    CGFloat rowY = NSMaxY(box) - headerHeight - padding - rowHeight;
+    for (NSDictionary *row in rows) {
+        [(NSColor *)row[@"color"] set];
+        [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(NSMinX(box) + 10, rowY + 3, 3, 12) xRadius:1.5 yRadius:1.5] fill];
+        NSString *title = row[@"title"];
+        CGFloat valueWidth = [row[@"value"] sizeWithAttributes:valueAttributes].width;
+        [title drawWithRect:NSMakeRect(NSMinX(box) + 19, rowY + 2, width - 19 - valueWidth - 18, 14)
+            options:NSStringDrawingTruncatesLastVisibleLine | NSStringDrawingUsesLineFragmentOrigin
+            attributes:nameAttributes];
+        [row[@"value"] drawAtPoint:NSMakePoint(NSMaxX(box) - 10 - valueWidth, rowY + 2) withAttributes:valueAttributes];
+        rowY -= rowHeight;
+    }
+    [CCPetsLineColor() set];
+    NSRectFill(NSMakeRect(NSMinX(box) + 10, rowY + rowHeight, width - 20, 1));
+    rowY -= 1;
+    [totalTitle drawAtPoint:NSMakePoint(NSMinX(box) + 10, rowY + 2) withAttributes:totalTitleAttributes];
+    CGFloat totalWidth = [total sizeWithAttributes:totalAttributes].width;
+    [total drawAtPoint:NSMakePoint(NSMaxX(box) - 10 - totalWidth, rowY + 2) withAttributes:totalAttributes];
+}
+
+- (NSString *)metricTitle {
+    if (self.metric == UsageMetricCacheRead) return L(@"Cache Read");
+    if (self.metric == UsageMetricRequests) return L(@"Requests");
+    return L(@"New");
 }
 
 - (NSInteger)indexForEvent:(NSEvent *)event {
@@ -266,18 +430,247 @@ static double NiceMaximum(double value) {
     NSInteger index = (NSInteger)floor((point.x - NSMinX(plot)) / (plot.size.width / self.days.count));
     return index >= 0 && index < (NSInteger)self.days.count ? index : -1;
 }
+
 - (void)mouseMoved:(NSEvent *)event {
     NSInteger index = [self indexForEvent:event];
     if (index == self.hoverIndex) return;
     self.hoverIndex = index;
     self.needsDisplay = YES;
-    if (self.hoverChanged) self.hoverChanged(index);
 }
+
 - (void)mouseExited:(NSEvent *)event {
     if (self.hoverIndex < 0) return;
     self.hoverIndex = -1;
     self.needsDisplay = YES;
-    if (self.hoverChanged) self.hoverChanged(-1);
+}
+
+@end
+
+#pragma mark - 部件
+
+// 自动换行的横排容器：图例项多了就折到下一行，不撑宽页面。
+@interface CCPetsFlowView : NSView
+@property(nonatomic) CGFloat spacing;
+@property(nonatomic) CGFloat lineSpacing;
+@end
+
+@interface CCPetsFlowView ()
+@property(nonatomic) CGFloat laidOutHeight;
+@end
+
+@implementation CCPetsFlowView
+
+- (BOOL)isFlipped {
+    return YES;
+}
+
+- (CGFloat)heightForWidth:(CGFloat)width layout:(BOOL)apply {
+    CGFloat x = 0, y = 0, lineHeight = 0;
+    for (NSView *view in self.subviews) {
+        NSSize size = view.fittingSize;
+        if (x > 0 && x + size.width > width) {
+            x = 0;
+            y += lineHeight + self.lineSpacing;
+            lineHeight = 0;
+        }
+        if (apply) view.frame = NSMakeRect(x, y, size.width, size.height);
+        x += size.width + self.spacing;
+        lineHeight = MAX(lineHeight, size.height);
+    }
+    return y + lineHeight;
+}
+
+// 折行后的高度变了才通知自动布局；每次都通知会让布局一轮接一轮地重排。
+- (void)layout {
+    [super layout];
+    CGFloat height = [self heightForWidth:NSWidth(self.bounds) layout:YES];
+    if (fabs(height - self.laidOutHeight) > 0.5) {
+        self.laidOutHeight = height;
+        [self invalidateIntrinsicContentSize];
+    }
+}
+
+- (NSSize)intrinsicContentSize {
+    CGFloat width = NSWidth(self.bounds) > 0 ? NSWidth(self.bounds) : 600;
+    return NSMakeSize(NSViewNoIntrinsicMetric, [self heightForWidth:width layout:NO]);
+}
+
+- (void)setFrameSize:(NSSize)size {
+    BOOL widthChanged = fabs(size.width - NSWidth(self.frame)) > 0.5;
+    [super setFrameSize:size];
+    if (widthChanged) [self invalidateIntrinsicContentSize];
+}
+
+@end
+
+// 图例项：色点 + 模型名。可点的图例就是筛选器，点了只看这个模型。
+@interface CCPetsLegendItem : NSView
+@property(nonatomic) BOOL dimmed;
+@property(nonatomic) BOOL selected;
+@property(nonatomic, copy) void (^onClick)(void);
+- (instancetype)initWithTitle:(NSString *)title color:(NSColor *)color;
+@end
+
+@interface CCPetsLegendItem ()
+@property(nonatomic) CCPetsColorDot *dot;
+@property(nonatomic) NSTextField *label;
+@property(nonatomic) NSColor *color;
+@end
+
+@implementation CCPetsLegendItem
+
+- (instancetype)initWithTitle:(NSString *)title color:(NSColor *)color {
+    if ((self = [super initWithFrame:NSZeroRect])) {
+        self.wantsLayer = YES;
+        self.color = color;
+        CCPetsColorDot *dot = [[CCPetsColorDot alloc] initWithColor:color diameter:8];
+        NSTextField *label = CCPetsLabel(title, 11, NSFontWeightMedium, CCPetsSecondaryInkColor());
+        label.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightMedium];
+        for (NSView *view in @[dot, label]) {
+            view.translatesAutoresizingMaskIntoConstraints = NO;
+            [self addSubview:view];
+        }
+        [NSLayoutConstraint activateConstraints:@[
+            [dot.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:8],
+            [dot.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            [label.leadingAnchor constraintEqualToAnchor:dot.trailingAnchor constant:6],
+            [label.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
+            [label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            [self.heightAnchor constraintEqualToConstant:24],
+        ]];
+        self.dot = dot;
+        self.label = label;
+    }
+    return self;
+}
+
+- (void)setDimmed:(BOOL)dimmed {
+    _dimmed = dimmed;
+    self.alphaValue = dimmed ? 0.45 : 1;
+}
+
+- (void)setSelected:(BOOL)selected {
+    _selected = selected;
+    self.label.textColor = selected ? CCPetsInkColor() : CCPetsSecondaryInkColor();
+    self.label.font = [NSFont monospacedSystemFontOfSize:11 weight:selected ? NSFontWeightBold : NSFontWeightMedium];
+    self.needsDisplay = YES;
+}
+
+- (BOOL)wantsUpdateLayer {
+    return YES;
+}
+
+- (void)updateLayer {
+    self.layer.cornerRadius = 6;
+    self.layer.backgroundColor = self.selected ? CCPetsSelectionColor().CGColor : NSColor.clearColor.CGColor;
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    if (self.onClick) self.onClick();
+}
+
+- (void)mouseDown:(NSEvent *)event {
+}
+
+- (void)resetCursorRects {
+    if (self.onClick) [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+}
+
+- (BOOL)isAccessibilityElement {
+    return YES;
+}
+
+- (NSAccessibilityRole)accessibilityRole {
+    return self.onClick ? NSAccessibilityButtonRole : NSAccessibilityStaticTextRole;
+}
+
+- (NSString *)accessibilityLabel {
+    return self.label.stringValue;
+}
+
+- (BOOL)accessibilityPerformPress {
+    if (self.onClick) self.onClick();
+    return self.onClick != nil;
+}
+
+@end
+
+// 模型表的一行：色块 + 模型名 + 来源，占比条，四列数字。整行可点，和图例同一个筛选。
+@interface CCPetsUsageModelRow : NSView
+@property(nonatomic) BOOL selected;
+@property(nonatomic) BOOL dimmed;
+@property(nonatomic, copy) void (^onClick)(void);
+@end
+
+@implementation CCPetsUsageModelRow
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if ((self = [super initWithFrame:frame])) self.wantsLayer = YES;
+    return self;
+}
+
+- (BOOL)wantsUpdateLayer {
+    return YES;
+}
+
+- (void)updateLayer {
+    self.layer.backgroundColor = self.selected ? CCPetsSelectionColor().CGColor : NSColor.clearColor.CGColor;
+}
+
+- (void)setSelected:(BOOL)selected {
+    _selected = selected;
+    self.needsDisplay = YES;
+}
+
+- (void)setDimmed:(BOOL)dimmed {
+    _dimmed = dimmed;
+    for (NSView *view in self.subviews) view.alphaValue = dimmed ? 0.45 : 1;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    if (self.onClick) self.onClick();
+}
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+    return YES;
+}
+
+- (BOOL)isAccessibilityElement {
+    return YES;
+}
+
+- (NSAccessibilityRole)accessibilityRole {
+    return NSAccessibilityButtonRole;
+}
+
+- (BOOL)accessibilityPerformPress {
+    if (self.onClick) self.onClick();
+    return YES;
+}
+
+@end
+
+// 占比条：底轨 + 模型色。
+@interface CCPetsShareBar : NSView
+@property(nonatomic) double fraction;
+@property(nonatomic) NSColor *color;
+@end
+
+@implementation CCPetsShareBar
+- (NSSize)intrinsicContentSize {
+    return NSMakeSize(NSViewNoIntrinsicMetric, 4);
+}
+- (void)drawRect:(NSRect)dirtyRect {
+    NSRect bounds = self.bounds;
+    [CCPetsRingTrackColor() set];
+    [[NSBezierPath bezierPathWithRoundedRect:bounds xRadius:2 yRadius:2] fill];
+    NSRect fill = bounds;
+    fill.size.width = MAX(3, bounds.size.width * MIN(1, MAX(0, self.fraction)));
+    [self.color set];
+    [[NSBezierPath bezierPathWithRoundedRect:fill xRadius:2 yRadius:2] fill];
 }
 @end
 
@@ -297,19 +690,27 @@ static double NiceMaximum(double value) {
 @interface CCPetsUsagePage ()
 @property(nonatomic) CCPetsFormBuilder *form;
 @property(nonatomic) NSSegmentedControl *sourceControl;
-@property(nonatomic) NSPopUpButton *rangeControl;
+@property(nonatomic) NSSegmentedControl *rangeControl;
+@property(nonatomic) NSSegmentedControl *metricControl;
 @property(nonatomic) NSProgressIndicator *spinner;
 @property(nonatomic) NSMutableArray<CCPetsUsageHandler *> *handlers;
-// 最近 UsageMaximumRangeDays 天的结果：provider -> CCPetsModelUsage 的返回值。
-@property(nonatomic) NSDictionary<NSString *, NSDictionary *> *results;
-// 当前筛选下的模型条目：provider、model、counts、days（每天的 counts）。
+// 当前筛选下的模型条目：key、provider、model、counts（区间合计）、days（每天的 counts）。按新处理量从大到小。
 @property(nonatomic) NSArray<NSDictionary *> *entries;
-@property(nonatomic) NSArray<CCPetsUsageModelRow *> *rows;
-@property(nonatomic) NSInteger selectedIndex;
+// 模型 -> 色板位置。按 90 天、全部来源的新处理量排一次序就定下来，之后切来源、区间、指标都不重新上色：
+// 颜色跟着模型走，不跟着名次走。
+@property(nonatomic) NSDictionary<NSString *, NSNumber *> *colorSlots;
+// 选中的模型 key；nil 是全部模型。
+@property(nonatomic, copy) NSString *selectedKey;
+@property(nonatomic) NSArray<NSNumber *> *dayStamps;
 @property(nonatomic) CCPetsUsageChartView *chart;
-@property(nonatomic) NSTextField *chartCaption;
-@property(nonatomic) NSTextField *chartDetail;
-@property(nonatomic) NSUInteger generation;
+@property(nonatomic) NSTextField *chartTitle;
+@property(nonatomic) NSTextField *chartHint;
+@property(nonatomic) CCPetsFlowView *legend;
+@property(nonatomic) NSMutableDictionary<NSString *, CCPetsLegendItem *> *legendItems;
+@property(nonatomic) NSMutableDictionary<NSString *, CCPetsUsageModelRow *> *modelRows;
+@property(nonatomic) NSView *kpis;
+@property(nonatomic) NSView *chartCard;
+@property(nonatomic) NSView *tableCard;
 @end
 
 @implementation CCPetsUsagePage
@@ -322,325 +723,512 @@ static double NiceMaximum(double value) {
     control.action = @selector(invoke:);
 }
 
+- (NSSegmentedControl *)segmentedWithLabels:(NSArray<NSString *> *)labels selected:(NSInteger)selected {
+    NSSegmentedControl *control = [NSSegmentedControl segmentedControlWithLabels:labels
+        trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
+    control.controlSize = NSControlSizeSmall;
+    control.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    control.selectedSegment = selected;
+    return control;
+}
+
 - (void)loadView {
     self.handlers = [NSMutableArray array];
-    self.form = [CCPetsFormBuilder new];
-    self.selectedIndex = 0;
+    self.form = [[CCPetsFormBuilder alloc] initWithTitle:L(@"Usage") subtitle:@""];
     __weak typeof(self) weakSelf = self;
 
-    NSSegmentedControl *source = [NSSegmentedControl segmentedControlWithLabels:
-        @[L(@"All"), @"Claude Code", @"Codex"] trackingMode:NSSegmentSwitchTrackingSelectOne
-        target:nil action:nil];
-    source.selectedSegment = 0;
-    [self bind:source to:^(id sender) {
-        weakSelf.selectedIndex = 0;
+    self.sourceControl = [self segmentedWithLabels:@[L(@"All"), @"Claude Code", @"Codex"] selected:0];
+    [self bind:self.sourceControl to:^(id sender) {
+        weakSelf.selectedKey = nil;
         [weakSelf render];
     }];
-    self.sourceControl = source;
-
-    NSPopUpButton *range = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    NSMutableArray<NSString *> *ranges = [NSMutableArray array];
     for (NSNumber *days in @[@7, @30, @90]) {
-        [range addItemWithTitle:[NSString stringWithFormat:L(@"Last %ld Days"), (long)days.integerValue]];
-        range.lastItem.representedObject = days;
+        [ranges addObject:[NSString stringWithFormat:L(@"%ld Days"), (long)days.integerValue]];
     }
-    [range selectItemAtIndex:1];
-    [self bind:range to:^(id sender) {
-        weakSelf.selectedIndex = 0;
-        [weakSelf render];
-    }];
-    self.rangeControl = range;
+    self.rangeControl = [self segmentedWithLabels:ranges selected:1];
+    [self bind:self.rangeControl to:^(id sender) { [weakSelf render]; }];
 
     NSProgressIndicator *spinner = [NSProgressIndicator new];
     spinner.style = NSProgressIndicatorStyleSpinning;
     spinner.controlSize = NSControlSizeSmall;
     spinner.displayedWhenStopped = NO;
     self.spinner = spinner;
+    [self.form setAccessoryViews:@[spinner, self.sourceControl, self.rangeControl]];
 
-    NSView *spacer = [NSView new];
-    [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSStackView *header = [NSStackView stackViewWithViews:@[source, spacer, spinner, range]];
-    header.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    header.alignment = NSLayoutAttributeCenterY;
-    header.spacing = 8;
-    header.edgeInsets = NSEdgeInsetsMake(14, 28, 10, 28);
-    header.translatesAutoresizingMaskIntoConstraints = NO;
+    self.metricControl = [self segmentedWithLabels:@[L(@"New"), L(@"Cache Read"), L(@"Requests")] selected:0];
+    [self bind:self.metricControl to:^(id sender) { [weakSelf renderChart]; }];
 
-    NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 560)];
-    NSScrollView *scroll = self.form.scrollView;
-    scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:header];
-    [root addSubview:scroll];
-    [NSLayoutConstraint activateConstraints:@[
-        [header.topAnchor constraintEqualToAnchor:root.topAnchor],
-        [header.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [header.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [scroll.topAnchor constraintEqualToAnchor:header.bottomAnchor],
-        [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
-    ]];
-    self.view = root;
-    [self reload];
+    self.view = self.form.view;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(storeDidChange:)
+        name:CCPetsUsageStoreDidChangeNotification object:nil];
+    [self render];
+    [CCPetsUsageStore loadIfStale];
+    if (CCPetsUsageStore.loading) [spinner startAnimation:nil];
 }
 
 - (void)dealloc {
-    // 已经在跑的统计取消不了，但页面没了就没人接结果；generation 变了回调会直接丢弃。
-    self.generation++;
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
-// 区间是 [今天往前数 N-1 天的零点, 明天零点)，含今天。始终统计最长的那档，显示时再截取。
-- (void)reload {
-    NSInteger days = UsageMaximumRangeDays;
-    NSCalendar *calendar = NSCalendar.currentCalendar;
-    NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:1
-        toDate:[calendar startOfDayForDate:NSDate.date] options:0];
-    NSDate *start = [calendar dateByAddingUnit:NSCalendarUnitDay value:-days toDate:end options:0];
-    NSUInteger generation = ++self.generation;
-    [self.spinner startAnimation:nil];
-    __weak typeof(self) weakSelf = self;
-    // 串行队列：快速连切区间时，后一次等前一次算完再开始，不会两份同时写同一批缓存文件。
-    static dispatch_queue_t queue;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        queue = dispatch_queue_create("com.ccpets.model-usage", DISPATCH_QUEUE_SERIAL);
-    });
-    dispatch_async(queue, ^{
-        NSMutableDictionary *results = [NSMutableDictionary dictionary];
-        for (NSString *provider in @[@"claude", @"codex"]) {
-            // 页面已经被换掉就别白算了。
-            if (weakSelf.generation != generation) return;
-            NSDictionary *usage = CCPetsModelUsage(provider, start.timeIntervalSince1970,
-                end.timeIntervalSince1970);
-            if (usage) results[provider] = usage;
+- (void)storeDidChange:(NSNotification *)notification {
+    [self.spinner stopAnimation:nil];
+    self.colorSlots = nil;
+    [self render];
+}
+
+- (NSInteger)rangeDays {
+    static const NSInteger ranges[] = {7, 30, 90};
+    return ranges[MIN(2, MAX(0, self.rangeControl.selectedSegment))];
+}
+
+- (UsageMetric)metric {
+    return (UsageMetric)MAX(0, self.metricControl.selectedSegment);
+}
+
+// 色板位置：90 天、全部来源里按新处理量排名，前 8 名各占一色，其余归「其他」。
+- (void)computeColorSlots {
+    NSMutableDictionary<NSString *, NSNumber *> *totals = [NSMutableDictionary dictionary];
+    for (NSString *provider in CCPetsUsageStore.results) {
+        for (NSDictionary *day in CCPetsUsageStore.results[provider][@"daily"]) {
+            NSDictionary *models = day[@"models"];
+            for (NSString *model in models) {
+                NSString *key = [NSString stringWithFormat:@"%@|%@", provider, model];
+                totals[key] = @(totals[key].unsignedLongLongValue + CCPetsNewTokens(models[model]) +
+                    Count(models[model], @"cacheRead") / 1000);
+            }
         }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CCPetsUsagePage *page = weakSelf;
-            if (!page || page.generation != generation) return;
-            page.results = results;
-            [page.spinner stopAnimation:nil];
-            [page render];
-        });
-    });
+    }
+    NSArray<NSString *> *ranked = [totals keysSortedByValueUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
+        return [b compare:a];
+    }];
+    NSMutableDictionary<NSString *, NSNumber *> *slots = [NSMutableDictionary dictionary];
+    for (NSUInteger index = 0; index < ranked.count; index++) {
+        slots[ranked[index]] = @(index < (NSUInteger)CCPetsChartColorCount ? (NSInteger)index : -1);
+    }
+    self.colorSlots = slots;
 }
 
-// 按当前筛选把结果整理成条目，按 Token 总量从大到小。区间合计由截取后的每日数据现加，
-// 不用数据层的 models（那是整整 90 天的）。
+- (NSColor *)colorForKey:(NSString *)key {
+    NSNumber *slot = self.colorSlots[key];
+    return CCPetsChartColor(slot ? slot.integerValue : -1);
+}
+
+// 按当前来源和区间整理条目。区间合计由截取后的每日数据现加，不用数据层的 models（那是整整 90 天的）。
 - (NSArray<NSDictionary *> *)entriesForSource:(NSInteger)source rangeDays:(NSInteger)rangeDays {
     NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
     NSArray<NSString *> *providers = source == 1 ? @[@"claude"] : (source == 2 ? @[@"codex"] : @[@"claude", @"codex"]);
+    NSArray<NSNumber *> *stamps = nil;
     for (NSString *provider in providers) {
-        NSArray<NSDictionary *> *daily = self.results[provider][@"daily"];
+        NSArray<NSDictionary *> *daily = CCPetsUsageStore.results[provider][@"daily"];
         if (daily.count > (NSUInteger)rangeDays) {
             daily = [daily subarrayWithRange:NSMakeRange(daily.count - (NSUInteger)rangeDays, (NSUInteger)rangeDays)];
         }
-        NSMutableDictionary<NSString *, NSMutableArray *> *perModel = [NSMutableDictionary dictionary];
-        for (NSDictionary *day in daily) {
-            for (NSString *model in day[@"models"]) {
-                if (!perModel[model]) perModel[model] = [NSMutableArray array];
-                [perModel[model] addObject:day[@"models"][model]];
-            }
-        }
-        for (NSString *model in perModel) {
-            NSDictionary *counts = SummedCounts(perModel[model]);
-            if (TotalTokens(counts) == 0 && Count(counts, @"requests") == 0) continue;
+        if (!stamps || daily.count > stamps.count) stamps = [daily valueForKey:@"timestamp"];
+        NSMutableSet<NSString *> *models = [NSMutableSet set];
+        for (NSDictionary *day in daily) [models addObjectsFromArray:[day[@"models"] allKeys]];
+        for (NSString *model in models) {
             NSMutableArray<NSDictionary *> *days = [NSMutableArray arrayWithCapacity:daily.count];
-            for (NSDictionary *day in daily) {
-                [days addObject:@{@"timestamp": day[@"timestamp"], @"counts": day[@"models"][model] ?: @{}}];
-            }
-            [entries addObject:@{@"provider": provider, @"model": model, @"counts": counts, @"days": days}];
+            for (NSDictionary *day in daily) [days addObject:day[@"models"][model] ?: @{}];
+            NSDictionary *counts = SummedCounts(days);
+            if (CCPetsNewTokens(counts) == 0 && Count(counts, @"cacheRead") == 0 && Count(counts, @"requests") == 0) continue;
+            [entries addObject:@{@"key": [NSString stringWithFormat:@"%@|%@", provider, model],
+                                 @"provider": provider, @"model": model, @"counts": counts, @"days": days}];
         }
     }
+    self.dayStamps = stamps ?: @[];
     [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
-        unsigned long long left = TotalTokens(a[@"counts"]), right = TotalTokens(b[@"counts"]);
+        unsigned long long left = CCPetsNewTokens(a[@"counts"]), right = CCPetsNewTokens(b[@"counts"]);
+        if (left == right) {
+            left = Count(a[@"counts"], @"cacheRead");
+            right = Count(b[@"counts"], @"cacheRead");
+        }
         return left == right ? NSOrderedSame : (left > right ? NSOrderedAscending : NSOrderedDescending);
     }];
     return entries;
 }
 
-- (NSTextField *)smallLabel:(NSString *)text color:(NSColor *)color {
-    NSTextField *label = [NSTextField labelWithString:text];
-    label.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    label.textColor = color;
-    label.lineBreakMode = NSLineBreakByTruncatingTail;
-    return label;
-}
-
-- (NSView *)valueRowWithTitle:(NSString *)title value:(NSString *)value {
-    NSTextField *label = [NSTextField labelWithString:value];
-    label.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightMedium];
-    return [CCPetsFormBuilder rowWithTitle:title controls:@[label]];
-}
-
-// 一个模型一行：名字 + 来源 + 总量，下面是四栏占比条，最下面是各栏数值和命中率。
-- (CCPetsUsageModelRow *)rowForEntry:(NSDictionary *)entry index:(NSInteger)index {
-    NSDictionary *counts = entry[@"counts"];
-    NSTextField *name = [NSTextField labelWithString:ModelTitle(entry[@"model"])];
-    name.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
-    name.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    NSTextField *provider = [self smallLabel:ProviderTitle(entry[@"provider"]) color:NSColor.secondaryLabelColor];
-    NSTextField *total = [NSTextField labelWithString:FormatTokens(TotalTokens(counts))];
-    total.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightMedium];
-    total.toolTip = [NSString stringWithFormat:@"%llu", TotalTokens(counts)];
-    [name setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
-        forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSView *spacer = [NSView new];
-    [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSStackView *top = [NSStackView stackViewWithViews:@[name, provider, spacer, total]];
-    top.alignment = NSLayoutAttributeFirstBaseline;
-    top.spacing = 8;
-
-    CCPetsUsageProportionBar *bar = [CCPetsUsageProportionBar new];
-    bar.counts = counts;
-    bar.translatesAutoresizingMaskIntoConstraints = NO;
-    [bar.heightAnchor constraintEqualToConstant:6].active = YES;
-
-    NSMutableArray<NSString *> *parts = [NSMutableArray array];
-    for (NSString *kind in @[@"input", @"cacheRead", @"cacheWrite", @"output"]) {
-        [parts addObject:[NSString stringWithFormat:@"%@ %@", UsageKindTitle(kind), FormatTokens(Count(counts, kind))]];
-    }
-    [parts addObject:[NSString stringWithFormat:@"%@ %@", L(@"Hit Rate"), HitRateText(counts)]];
-    unsigned long long requests = Count(counts, @"requests");
-    [parts addObject:requests == 1 ? L(@"1 request") : [NSString stringWithFormat:L(@"%llu requests"), requests]];
-    NSTextField *detail = [NSTextField wrappingLabelWithString:[parts componentsJoinedByString:@" · "]];
-    detail.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    detail.textColor = NSColor.secondaryLabelColor;
-
-    NSStackView *stack = [NSStackView stackViewWithViews:@[top, bar, detail]];
-    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    stack.alignment = NSLayoutAttributeLeading;
-    stack.spacing = 6;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    CCPetsUsageModelRow *row = [[CCPetsUsageModelRow alloc] initWithFrame:NSZeroRect];
-    [row addSubview:stack];
-    [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
-        [stack.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14],
-        [stack.topAnchor constraintEqualToAnchor:row.topAnchor constant:10],
-        [stack.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-10],
-        [top.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
-        [bar.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
-        [detail.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
-    ]];
-    row.wrappingDetail = detail;
-    __weak typeof(self) weakSelf = self;
-    row.onClick = ^{ [weakSelf selectEntryAtIndex:index]; };
-    return row;
-}
-
 - (void)render {
-    NSInteger source = self.sourceControl.selectedSegment;
-    NSInteger rangeDays = [self.rangeControl.selectedItem.representedObject integerValue] ?: 30;
-    self.entries = [self entriesForSource:source rangeDays:rangeDays];
-    if (self.selectedIndex >= (NSInteger)self.entries.count) self.selectedIndex = 0;
-    [self.form removeAllSections];
-    // 还没算完（打开页面后立刻切了来源）：先空着，转圈的指示器已经在说明在算，别闪一下"没有数据"。
-    if (!self.results) {
-        self.rows = @[];
-        self.chart = nil;
+    NSInteger rangeDays = [self rangeDays];
+    self.form.subtitleLabel.stringValue = [NSString stringWithFormat:L(@"Last %ld days · local session logs"),
+        (long)rangeDays];
+    [self.form removeAllContent];
+    self.legendItems = [NSMutableDictionary dictionary];
+    self.modelRows = [NSMutableDictionary dictionary];
+    if (!CCPetsUsageStore.results) {
+        // 还没算完：转圈的指示器已经在说明在算，别闪一下"没有数据"。
+        [self.form addFootnote:L(@"Reading local session logs…")];
         return;
     }
-
-    if (self.entries.count == 0) {
-        NSTextField *empty = [NSTextField wrappingLabelWithString:L(@"No usage data in this period.")];
-        empty.textColor = NSColor.secondaryLabelColor;
-        [self.form addSectionWithID:@"overview" title:L(@"Overview") symbol:@"chart.bar.xaxis"
-            color:NSColor.systemBlueColor rows:@[[CCPetsFormBuilder rowWithTitle:empty.stringValue controls:@[]]]
-            footer:nil];
-        self.rows = @[];
-        self.chart = nil;
-        return;
-    }
+    if (!self.colorSlots) [self computeColorSlots];
+    self.entries = [self entriesForSource:self.sourceControl.selectedSegment rangeDays:rangeDays];
+    if (self.selectedKey && ![[self.entries valueForKey:@"key"] containsObject:self.selectedKey]) self.selectedKey = nil;
 
     NSMutableDictionary *sum = SummedCounts([self.entries valueForKey:@"counts"]);
-    [self.form addSectionWithID:@"overview" title:L(@"Overview") symbol:@"chart.bar.xaxis"
-        color:NSColor.systemBlueColor rows:@[
-        [self valueRowWithTitle:L(@"Total Tokens") value:FormatTokens(TotalTokens(sum))],
-        [self valueRowWithTitle:L(@"Requests") value:[NSString stringWithFormat:@"%llu", Count(sum, @"requests")]],
-        [self valueRowWithTitle:L(@"Hit Rate") value:HitRateText(sum)],
-    ] footer:L(@"Counted from local session logs. Input excludes cached tokens; Codex cached tokens are subtracted from its input.")];
+    [self.form addView:[self kpiStripWithSum:sum rangeDays:rangeDays]];
+    [self.form addView:[self chartCardView]];
+    if (self.entries.count > 0) [self.form addView:[self modelTable]];
+    [self.form addFootnote:L(@"New = input (excluding cache) + cache write + output. Codex counts cache hits inside input; they are subtracted here. Hit rate = cache read ÷ all input-side tokens.")];
+    [self renderChart];
+}
 
-    NSMutableArray<CCPetsUsageModelRow *> *rows = [NSMutableArray array];
-    for (NSUInteger index = 0; index < self.entries.count; index++) {
-        [rows addObject:[self rowForEntry:self.entries[index] index:(NSInteger)index]];
+#pragma mark 指标条
+
+- (NSView *)kpiWithTitle:(NSString *)title value:(NSString *)value detail:(NSString *)detail {
+    NSTextField *titleLabel = CCPetsLabel(title, 11, NSFontWeightRegular, CCPetsSecondaryInkColor());
+    NSTextField *valueLabel = CCPetsNumberLabel(value, 24, NSFontWeightBold, CCPetsInkColor());
+    NSTextField *detailLabel = CCPetsLabel(detail, 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    for (NSTextField *label in @[titleLabel, valueLabel, detailLabel]) {
+        [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
     }
-    self.rows = rows;
-    [self.form addSectionWithID:@"models" title:L(@"By Model") symbol:@"cpu"
-        color:NSColor.systemIndigoColor rows:rows footer:nil];
+    NSStackView *stack = [NSStackView stackViewWithViews:@[titleLabel, valueLabel, detailLabel]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 2;
+    stack.edgeInsets = NSEdgeInsetsMake(12, 14, 12, 14);
+    return stack;
+}
 
-    // 图表：当前选中模型每天的四栏堆叠。
+// 四个数都是"当前来源 + 区间"的合计，标签里写明是几天，切区间时一眼看出数字跟着变了。
+- (NSView *)kpiStripWithSum:(NSDictionary *)sum rangeDays:(NSInteger)rangeDays {
+    NSString *span = [NSString stringWithFormat:L(@"Last %ld days"), (long)rangeDays];
+    NSArray<NSView *> *items = @[
+        [self kpiWithTitle:[NSString stringWithFormat:L(@"%@ · New Tokens"), span]
+            value:CCPetsFormatTokens(CCPetsNewTokens(sum))
+            detail:[NSString stringWithFormat:L(@"Input %1$@ · Cache write %2$@ · Output %3$@"),
+                CCPetsFormatTokens(Count(sum, @"input")), CCPetsFormatTokens(Count(sum, @"cacheWrite")),
+                CCPetsFormatTokens(Count(sum, @"output"))]],
+        [self kpiWithTitle:[NSString stringWithFormat:L(@"%@ · Cache Read"), span]
+            value:CCPetsFormatTokens(Count(sum, @"cacheRead"))
+            detail:[NSString stringWithFormat:L(@"%@ per day"), CCPetsFormatTokens(Count(sum, @"cacheRead") / (unsigned long long)rangeDays)]],
+        [self kpiWithTitle:[NSString stringWithFormat:L(@"%@ · Hit Rate"), span] value:HitRateText(sum)
+            detail:L(@"Cache read ÷ all input-side tokens")],
+        [self kpiWithTitle:[NSString stringWithFormat:L(@"%@ · Requests"), span] value:FormatCount(Count(sum, @"requests"))
+            detail:[NSString stringWithFormat:L(@"%1$@ per day · %2$lu models"),
+                FormatCount(Count(sum, @"requests") / (unsigned long long)rangeDays), (unsigned long)self.entries.count]],
+    ];
+    CCPetsCardView *card = [CCPetsCardView new];
+    NSView *previous = nil;
+    for (NSView *item in items) {
+        item.translatesAutoresizingMaskIntoConstraints = NO;
+        [card addSubview:item];
+        [NSLayoutConstraint activateConstraints:@[
+            [item.topAnchor constraintEqualToAnchor:card.topAnchor],
+            [item.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+        ]];
+        if (previous) {
+            NSView *rule = [CCPetsLineView new];
+            rule.translatesAutoresizingMaskIntoConstraints = NO;
+            [card addSubview:rule];
+            [NSLayoutConstraint activateConstraints:@[
+                [rule.leadingAnchor constraintEqualToAnchor:previous.trailingAnchor],
+                [rule.widthAnchor constraintEqualToConstant:1],
+                [rule.topAnchor constraintEqualToAnchor:card.topAnchor constant:12],
+                [rule.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-12],
+                [item.leadingAnchor constraintEqualToAnchor:rule.trailingAnchor],
+            ]];
+        } else {
+            [item.leadingAnchor constraintEqualToAnchor:card.leadingAnchor].active = YES;
+        }
+        previous = item;
+    }
+    [previous.trailingAnchor constraintEqualToAnchor:card.trailingAnchor].active = YES;
+    // 第一格的明细最长，给它多一点宽度；其余三格等宽。
+    [NSLayoutConstraint activateConstraints:@[
+        [items[0].widthAnchor constraintEqualToAnchor:items[1].widthAnchor multiplier:1.6],
+        [items[2].widthAnchor constraintEqualToAnchor:items[1].widthAnchor],
+        [items[3].widthAnchor constraintEqualToAnchor:items[1].widthAnchor],
+    ]];
+    return card;
+}
+
+#pragma mark 图表卡片
+
+- (NSView *)chartCardView {
+    CCPetsCardView *card = [CCPetsCardView new];
+    self.chartTitle = CCPetsLabel(@"", 13, NSFontWeightSemibold, CCPetsInkColor());
+    self.chartHint = CCPetsLabel(@"", 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    [self.chartHint setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+        forOrientation:NSLayoutConstraintOrientationHorizontal];
     CCPetsUsageChartView *chart = [CCPetsUsageChartView new];
-    chart.translatesAutoresizingMaskIntoConstraints = NO;
-    [chart.heightAnchor constraintEqualToConstant:200].active = YES;
-    __weak typeof(self) weakSelf = self;
-    chart.hoverChanged = ^(NSInteger index) { [weakSelf showDayDetailAtIndex:index]; };
     self.chart = chart;
-    self.chartCaption = [self smallLabel:@"" color:NSColor.secondaryLabelColor];
-    self.chartDetail = [self smallLabel:@"" color:NSColor.labelColor];
-
-    NSMutableArray<NSView *> *legendItems = [NSMutableArray array];
-    for (NSString *kind in @[@"input", @"cacheRead", @"cacheWrite", @"output"]) {
-        NSView *swatch = [NSView new];
-        swatch.wantsLayer = YES;
-        swatch.layer.backgroundColor = UsageKindColor(kind).CGColor;
-        swatch.layer.cornerRadius = 2;
-        [swatch.widthAnchor constraintEqualToConstant:9].active = YES;
-        [swatch.heightAnchor constraintEqualToConstant:9].active = YES;
-        NSStackView *item = [NSStackView stackViewWithViews:@[swatch,
-            [self smallLabel:UsageKindTitle(kind) color:NSColor.secondaryLabelColor]]];
-        item.spacing = 4;
-        item.alignment = NSLayoutAttributeCenterY;
-        [legendItems addObject:item];
+    CCPetsFlowView *legend = [CCPetsFlowView new];
+    legend.spacing = 4;
+    legend.lineSpacing = 2;
+    self.legend = legend;
+    NSView *rule = [CCPetsLineView new];
+    NSTextField *empty = nil;
+    if (self.entries.count == 0) {
+        empty = CCPetsLabel(L(@"No usage in this period."), 12, NSFontWeightRegular, CCPetsTertiaryInkColor());
     }
-    // 末尾垫一个可拉伸的空视图，图例才会靠左排，不会被撑开到两端。
-    NSView *legendSpacer = [NSView new];
-    [legendSpacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    [legendItems addObject:legendSpacer];
-    NSStackView *legend = [NSStackView stackViewWithViews:legendItems];
-    legend.spacing = 14;
-
-    NSStackView *chartStack = [NSStackView stackViewWithViews:@[self.chartCaption, chart, legend, self.chartDetail]];
-    chartStack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    chartStack.alignment = NSLayoutAttributeLeading;
-    chartStack.spacing = 8;
-    chartStack.edgeInsets = NSEdgeInsetsMake(12, 14, 12, 14);
-    [chart.widthAnchor constraintEqualToAnchor:chartStack.widthAnchor constant:-28].active = YES;
-    [legend.widthAnchor constraintEqualToAnchor:chart.widthAnchor].active = YES;
-    [self.form addSectionWithID:@"daily" title:L(@"Daily Usage") symbol:@"calendar"
-        color:NSColor.systemOrangeColor rows:@[chartStack] footer:nil];
-
-    [self selectEntryAtIndex:self.selectedIndex];
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithArray:@[self.chartTitle, self.chartHint,
+        self.metricControl, chart, rule, legend]];
+    if (empty) [views addObject:empty];
+    for (NSView *view in views) {
+        view.translatesAutoresizingMaskIntoConstraints = NO;
+        [card addSubview:view];
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        [self.chartTitle.topAnchor constraintEqualToAnchor:card.topAnchor constant:12],
+        [self.chartTitle.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
+        [self.chartTitle.trailingAnchor constraintLessThanOrEqualToAnchor:self.metricControl.leadingAnchor constant:-10],
+        [self.chartHint.topAnchor constraintEqualToAnchor:self.chartTitle.bottomAnchor constant:1],
+        [self.chartHint.leadingAnchor constraintEqualToAnchor:self.chartTitle.leadingAnchor],
+        [self.chartHint.trailingAnchor constraintLessThanOrEqualToAnchor:self.metricControl.leadingAnchor constant:-10],
+        [self.metricControl.topAnchor constraintEqualToAnchor:card.topAnchor constant:12],
+        [self.metricControl.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+        [chart.topAnchor constraintEqualToAnchor:self.chartHint.bottomAnchor constant:10],
+        [chart.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:8],
+        [chart.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+        [chart.heightAnchor constraintEqualToConstant:230],
+        [rule.topAnchor constraintEqualToAnchor:chart.bottomAnchor constant:8],
+        [rule.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
+        [rule.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+        [rule.heightAnchor constraintEqualToConstant:1],
+        [legend.topAnchor constraintEqualToAnchor:rule.bottomAnchor constant:8],
+        [legend.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:10],
+        [legend.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-10],
+        [legend.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-10],
+    ]];
+    if (empty) {
+        [NSLayoutConstraint activateConstraints:@[
+            [empty.centerXAnchor constraintEqualToAnchor:chart.centerXAnchor],
+            [empty.centerYAnchor constraintEqualToAnchor:chart.centerYAnchor],
+        ]];
+    }
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *entry in self.entries) {
+        NSString *key = entry[@"key"];
+        CCPetsLegendItem *item = [[CCPetsLegendItem alloc] initWithTitle:ModelTitle(entry[@"model"])
+            color:[self colorForKey:key]];
+        item.onClick = ^{ [weakSelf toggleModel:key]; };
+        item.toolTip = ProviderTitle(entry[@"provider"]);
+        self.legendItems[key] = item;
+        [legend addSubview:item];
+    }
+    self.chartCard = card;
+    return card;
 }
 
-- (void)selectEntryAtIndex:(NSInteger)index {
-    if (index < 0 || index >= (NSInteger)self.entries.count) return;
-    self.selectedIndex = index;
-    for (NSUInteger row = 0; row < self.rows.count; row++) self.rows[row].selected = ((NSInteger)row == index);
-    NSDictionary *entry = self.entries[(NSUInteger)index];
-    self.chart.days = entry[@"days"];
-    self.chartCaption.stringValue = [NSString stringWithFormat:@"%@ · %@", ModelTitle(entry[@"model"]),
-        ProviderTitle(entry[@"provider"])];
-    self.chartDetail.stringValue = L(@"Hover a bar to see that day's numbers.");
+- (void)toggleModel:(NSString *)key {
+    self.selectedKey = [self.selectedKey isEqualToString:key] ? nil : key;
+    [self renderChart];
 }
 
-- (void)showDayDetailAtIndex:(NSInteger)index {
-    NSDictionary *entry = self.entries[(NSUInteger)self.selectedIndex];
-    NSArray *days = entry[@"days"];
-    if (index < 0 || index >= (NSInteger)days.count) {
-        self.chartDetail.stringValue = L(@"Hover a bar to see that day's numbers.");
-        return;
+// 图表、图例、表格的选中态一起刷新；KPI 不跟着模型变，始终是当前来源和区间的总量。
+- (void)renderChart {
+    UsageMetric metric = [self metric];
+    NSString *metricName = metric == UsageMetricCacheRead ? L(@"Daily Cache Read")
+        : (metric == UsageMetricRequests ? L(@"Daily Requests") : L(@"Daily New Tokens"));
+    NSDictionary *selected = nil;
+    for (NSDictionary *entry in self.entries) {
+        if ([entry[@"key"] isEqualToString:self.selectedKey]) selected = entry;
     }
-    NSDictionary *day = days[(NSUInteger)index];
-    NSDateFormatter *formatter = [NSDateFormatter new];
-    formatter.dateStyle = NSDateFormatterMediumStyle;
-    formatter.timeStyle = NSDateFormatterNoStyle;
-    NSDictionary *counts = day[@"counts"];
-    NSMutableArray<NSString *> *parts = [NSMutableArray array];
-    for (NSString *kind in @[@"input", @"cacheRead", @"cacheWrite", @"output"]) {
-        [parts addObject:[NSString stringWithFormat:@"%@ %@", UsageKindTitle(kind), FormatTokens(Count(counts, kind))]];
+    if (selected) {
+        self.chartTitle.stringValue = [NSString stringWithFormat:@"%@ · %@", ModelTitle(selected[@"model"]), metricName];
+        self.chartHint.stringValue = L(@"Click it again in the legend or the table to go back to all models.");
+    } else {
+        self.chartTitle.stringValue = metricName;
+        self.chartHint.stringValue = self.entries.count > 1
+            ? L(@"Stacked by model. Click a model below to see only that one.") : @"";
     }
-    self.chartDetail.stringValue = [NSString stringWithFormat:@"%@ — %@ %@ · %@",
-        [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:[day[@"timestamp"] doubleValue]]],
-        L(@"Total"), FormatTokens(TotalTokens(counts)), [parts componentsJoinedByString:@" · "]];
+
+    NSMutableArray<NSDictionary *> *series = [NSMutableArray array];
+    NSUInteger dayCount = self.dayStamps.count;
+    NSMutableArray<NSNumber *> *otherValues = nil;
+    for (NSDictionary *entry in self.entries) {
+        if (selected && entry != selected) continue;
+        NSString *key = entry[@"key"];
+        NSArray<NSDictionary *> *days = entry[@"days"];
+        // 不同来源的天数可能不一样长（某家这几天没数据），按右端对齐到同一条时间轴。
+        NSUInteger offset = dayCount > days.count ? dayCount - days.count : 0;
+        NSMutableArray<NSNumber *> *values = [NSMutableArray arrayWithCapacity:dayCount];
+        NSMutableArray<NSDictionary *> *counts = [NSMutableArray arrayWithCapacity:dayCount];
+        for (NSUInteger index = 0; index < dayCount; index++) {
+            NSDictionary *day = index >= offset ? days[index - offset] : @{};
+            [values addObject:@(MetricValue(metric, day))];
+            [counts addObject:day];
+        }
+        // 第 9 名以后合并成一层「其他」，颜色不够分也看不清。单看一个模型时不合并。
+        if (!selected && [self.colorSlots[key] integerValue] < 0) {
+            if (!otherValues) {
+                otherValues = [NSMutableArray arrayWithCapacity:dayCount];
+                for (NSUInteger index = 0; index < dayCount; index++) [otherValues addObject:@0];
+            }
+            for (NSUInteger index = 0; index < dayCount; index++) {
+                otherValues[index] = @(otherValues[index].unsignedLongLongValue + values[index].unsignedLongLongValue);
+            }
+            continue;
+        }
+        [series addObject:@{@"title": ModelTitle(entry[@"model"]), @"color": [self colorForKey:key],
+                            @"values": values, @"counts": counts}];
+    }
+    if (otherValues) {
+        [series addObject:@{@"title": L(@"Other"), @"color": CCPetsChartColor(-1), @"values": otherValues, @"counts": @[]}];
+    }
+    self.chart.days = self.dayStamps;
+    self.chart.series = series;
+    self.chart.metric = metric;
+    self.chart.singleModel = selected != nil;
+    [self.chart reloadData];
+
+    [self.legendItems enumerateKeysAndObjectsUsingBlock:^(NSString *key, CCPetsLegendItem *item, BOOL *stop) {
+        item.selected = [key isEqualToString:self.selectedKey];
+        item.dimmed = self.selectedKey && !item.selected;
+    }];
+    [self.modelRows enumerateKeysAndObjectsUsingBlock:^(NSString *key, CCPetsUsageModelRow *row, BOOL *stop) {
+        row.selected = [key isEqualToString:self.selectedKey];
+        row.dimmed = self.selectedKey && !row.selected;
+    }];
+}
+
+#pragma mark 模型表
+
+static const CGFloat ModelShareWidth = 130, ModelNumberWidth = 66, ModelRateWidth = 52, ModelNameMinimumWidth = 150;
+
+- (NSView *)tableHeader {
+    NSView *header = [NSView new];
+    NSArray<NSArray *> *columns = @[@[L(@"Model"), @0], @[L(@"Share of New"), @1], @[L(@"New"), @2],
+        @[L(@"Cache Read"), @3], @[L(@"Hit Rate"), @4], @[L(@"Requests"), @5]];
+    NSMutableArray<NSTextField *> *labels = [NSMutableArray array];
+    for (NSArray *column in columns) {
+        NSTextField *label = CCPetsLabel(column[0], 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
+        label.alignment = [column[1] integerValue] >= 2 ? NSTextAlignmentRight : NSTextAlignmentLeft;
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+        [header addSubview:label];
+        [labels addObject:label];
+    }
+    [self layoutColumns:labels inRow:header];
+    [header.heightAnchor constraintEqualToConstant:30].active = YES;
+    return header;
+}
+
+// 六列：模型（自适应）、占比条、四列右对齐的数字。表头和每一行用同一套列宽。
+- (void)layoutColumns:(NSArray<NSView *> *)cells inRow:(NSView *)row {
+    CGFloat widths[] = {0, ModelShareWidth, ModelNumberWidth, ModelNumberWidth, ModelRateWidth, ModelNumberWidth};
+    NSView *next = nil;
+    for (NSInteger index = (NSInteger)cells.count - 1; index >= 0; index--) {
+        NSView *cell = cells[(NSUInteger)index];
+        [cell.centerYAnchor constraintEqualToAnchor:row.centerYAnchor].active = YES;
+        if (next) [cell.trailingAnchor constraintEqualToAnchor:next.leadingAnchor constant:-12].active = YES;
+        else [cell.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14].active = YES;
+        if (index == 1) {
+            // 窗口窄时先让占比条变短，模型名留够宽度：名字才是这张表的主语。
+            NSLayoutConstraint *preferred = [cell.widthAnchor constraintEqualToConstant:widths[index]];
+            preferred.priority = NSLayoutPriorityDefaultLow;
+            [NSLayoutConstraint activateConstraints:@[preferred,
+                [cell.widthAnchor constraintGreaterThanOrEqualToConstant:44],
+                [cell.widthAnchor constraintLessThanOrEqualToConstant:widths[index]]]];
+        } else if (index > 0) {
+            [cell.widthAnchor constraintEqualToConstant:widths[index]].active = YES;
+        } else {
+            [cell.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14].active = YES;
+            NSLayoutConstraint *minimum = [cell.widthAnchor constraintGreaterThanOrEqualToConstant:ModelNameMinimumWidth];
+            minimum.priority = NSLayoutPriorityDefaultHigh;
+            minimum.active = YES;
+        }
+        next = cell;
+    }
+}
+
+- (NSView *)modelTable {
+    NSStackView *stack = [NSStackView stackViewWithViews:@[]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.spacing = 0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    NSView *header = [self tableHeader];
+    [stack addArrangedSubview:header];
+    [header.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+    unsigned long long totalNew = 0, maxNew = 1;
+    for (NSDictionary *entry in self.entries) {
+        totalNew += CCPetsNewTokens(entry[@"counts"]);
+        maxNew = MAX(maxNew, CCPetsNewTokens(entry[@"counts"]));
+    }
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *entry in self.entries) {
+        NSView *rule = [CCPetsFormBuilder separator];
+        [stack addArrangedSubview:rule];
+        [rule.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+        CCPetsUsageModelRow *row = [self rowForEntry:entry totalNew:totalNew maxNew:maxNew];
+        NSString *key = entry[@"key"];
+        row.onClick = ^{ [weakSelf toggleModel:key]; };
+        self.modelRows[key] = row;
+        [stack addArrangedSubview:row];
+        [row.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+    }
+    CCPetsCardView *card = [CCPetsCardView new];
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+    ]];
+    self.tableCard = card;
+    return card;
+}
+
+- (CCPetsUsageModelRow *)rowForEntry:(NSDictionary *)entry totalNew:(unsigned long long)totalNew
+    maxNew:(unsigned long long)maxNew {
+    NSDictionary *counts = entry[@"counts"];
+    NSColor *color = [self colorForKey:entry[@"key"]];
+    unsigned long long newTokens = CCPetsNewTokens(counts);
+
+    CCPetsColorDot *swatch = [[CCPetsColorDot alloc] initWithColor:color diameter:8];
+    NSTextField *name = CCPetsLabel(ModelTitle(entry[@"model"]), 12, NSFontWeightSemibold, CCPetsInkColor());
+    name.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightSemibold];
+    name.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    [name setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSStackView *nameLine = [NSStackView stackViewWithViews:@[swatch, name]];
+    nameLine.spacing = 6;
+    nameLine.alignment = NSLayoutAttributeCenterY;
+    NSTextField *provider = CCPetsLabel(ProviderTitle(entry[@"provider"]), 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    NSStackView *nameCell = [NSStackView stackViewWithViews:@[nameLine, provider]];
+    nameCell.orientation = NSUserInterfaceLayoutOrientationVertical;
+    nameCell.alignment = NSLayoutAttributeLeading;
+    nameCell.spacing = 1;
+    [provider.leadingAnchor constraintEqualToAnchor:name.leadingAnchor].active = YES;
+    [nameCell setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+        forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+    CCPetsShareBar *bar = [CCPetsShareBar new];
+    bar.fraction = (double)newTokens / maxNew;
+    bar.color = color;
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    [bar.heightAnchor constraintEqualToConstant:4].active = YES;
+    NSTextField *percent = CCPetsNumberLabel(totalNew > 0
+        ? [NSString stringWithFormat:@"%.0f%%", 100.0 * newTokens / totalNew] : @"–",
+        10, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    NSStackView *shareCell = [NSStackView stackViewWithViews:@[bar, percent]];
+    shareCell.orientation = NSUserInterfaceLayoutOrientationVertical;
+    shareCell.alignment = NSLayoutAttributeLeading;
+    shareCell.spacing = 3;
+    [bar.widthAnchor constraintEqualToAnchor:shareCell.widthAnchor multiplier:0.86].active = YES;
+
+    NSTextField *newLabel = CCPetsNumberLabel(CCPetsFormatTokens(newTokens), 12, NSFontWeightRegular, CCPetsInkColor());
+    newLabel.toolTip = FormatCount(newTokens);
+    NSTextField *readLabel = CCPetsNumberLabel(CCPetsFormatTokens(Count(counts, @"cacheRead")), 12,
+        NSFontWeightRegular, CCPetsTertiaryInkColor());
+    readLabel.toolTip = FormatCount(Count(counts, @"cacheRead"));
+    NSTextField *rateLabel = CCPetsNumberLabel(HitRateText(counts), 12, NSFontWeightRegular, CCPetsInkColor());
+    NSTextField *requestLabel = CCPetsNumberLabel(FormatCount(Count(counts, @"requests")), 12,
+        NSFontWeightRegular, CCPetsInkColor());
+    for (NSTextField *label in @[newLabel, readLabel, rateLabel, requestLabel]) label.alignment = NSTextAlignmentRight;
+
+    CCPetsUsageModelRow *row = [[CCPetsUsageModelRow alloc] initWithFrame:NSZeroRect];
+    NSArray<NSView *> *cells = @[nameCell, shareCell, newLabel, readLabel, rateLabel, requestLabel];
+    for (NSView *cell in cells) {
+        cell.translatesAutoresizingMaskIntoConstraints = NO;
+        [row addSubview:cell];
+    }
+    [self layoutColumns:cells inRow:row];
+    [row.heightAnchor constraintEqualToConstant:46].active = YES;
+    row.toolTip = [NSString stringWithFormat:@"%@ %@ · %@ %@ · %@ %@", L(@"Input"),
+        CCPetsFormatTokens(Count(counts, @"input")), L(@"Cache Write"), CCPetsFormatTokens(Count(counts, @"cacheWrite")),
+        L(@"Output"), CCPetsFormatTokens(Count(counts, @"output"))];
+    return row;
 }
 
 @end

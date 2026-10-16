@@ -1405,13 +1405,17 @@ doctor_env "${PROJECT_DIR}/bin/cc-pets" paths --json | node -e 'JSON.parse(requi
 # ---- cc-pets open：从终端打开主窗口 ----
 # 帮助里有；页面参数在发通知 / 拉起 App 之前就校验，拼错的页面不该启动任何东西。
 "${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets open"
-doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "settings"
-doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "usage"
-doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "diagnostics"
+for page in overview sessions usage pet alerts general diagnostics; do
+  doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "${page}"
+done
 if doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open no-such-page >/dev/null 2>&1; then
   print -u2 "未知页面应以非零退出"
   exit 1
 fi
+# 设置拆成三页之前只有一个 settings 页；旧名字还认，换成「宠物」页再往下传，不在帮助里列出。
+grep -q '\[page isEqualToString:@"settings"\]) return CCPetsMainWindowPagePet' \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsMainWindow.m"
+grep -q 'CCPetsMainWindowResolvePage(page)' "${PROJECT_DIR}/Sources/CCPets/CCPetsOpenCommand.m"
 # 桌宠没在运行且找不到 App：报错退出，不乱启动。复制一份二进制到 .build/release 之外，
 # 免得它按相对位置找到真正的开发版 App 并把它拉起来。
 cp "${PROJECT_DIR}/.build/release/cc-pets" "${DOCTOR_TMP}/bin/cc-pets-copy"
@@ -2020,6 +2024,14 @@ while IFS= read -r declaration; do
   fi
 done < <(sed -n '/^@protocol CCPetsSettingsActions/,/^@end/p' \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.h" | grep '^- (')
+# 工作台几页的数据协议同理。
+while IFS= read -r declaration; do
+  if ! grep -Fq -- "${declaration}" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Private.h"; then
+    print -u2 "CCPetsWorkbenchSource 的方法未在 AppDelegate 中声明：${declaration}"
+    exit 1
+  fi
+done < <(sed -n '/^@protocol CCPetsWorkbenchSource/,/^@end/p' \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsWorkbench.h" | grep '^- (')
 # 菜单 action 不许再绕过写入口直接写 defaults，否则设置页收不到变更广播。
 if grep -nE 'standardUserDefaults (setBool|setObject|setInteger|setDouble)' \
     "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"; then

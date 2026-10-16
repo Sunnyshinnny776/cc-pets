@@ -56,10 +56,15 @@ int CCPetsOpenMain(NSArray<NSString *> *arguments) {
         return 2;
     }
     NSString *page = arguments.firstObject ?: @"";
-    if (page.length > 0 && ![CCPetsMainWindowPageIDs() containsObject:page]) {
-        CCPetsPrintLine(stderr, CCPetsInterpolate(L(@"Unknown page: {page}\nPages: {pages}"),
-            @{@"page": page, @"pages": PageList()}));
-        return 2;
+    if (page.length > 0) {
+        // 旧名字（settings）换成现在的页面再往下传，桌宠那边只认新名字。
+        NSString *resolved = CCPetsMainWindowResolvePage(page);
+        if (!resolved) {
+            CCPetsPrintLine(stderr, CCPetsInterpolate(L(@"Unknown page: {page}\nPages: {pages}"),
+                @{@"page": page, @"pages": PageList()}));
+            return 2;
+        }
+        page = resolved;
     }
 
     if (PetIsRunning()) {

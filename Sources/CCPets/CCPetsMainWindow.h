@@ -8,28 +8,28 @@
 //
 // 窗口懒创建，关闭即释放，不常驻内存；页面也只在显示时创建。
 
-// 页面标识，也是 `cc-pets open <page>` 的参数。
-extern NSString *const CCPetsMainWindowPageSettings;
+// 页面标识，也是 `cc-pets open <page>` 的参数。侧边栏分两组：
+// 工作台（概览、会话与消息、用量）和设置（宠物、提醒与互动、通用），诊断单独放在底部。
+extern NSString *const CCPetsMainWindowPageOverview;
+extern NSString *const CCPetsMainWindowPageSessions;
 extern NSString *const CCPetsMainWindowPageUsage;
+extern NSString *const CCPetsMainWindowPagePet;
+extern NSString *const CCPetsMainWindowPageAlerts;
+extern NSString *const CCPetsMainWindowPageGeneral;
 extern NSString *const CCPetsMainWindowPageDiagnostics;
 
-// 所有页面标识，按侧边栏顺序。`cc-pets open <page>` 用它校验参数。
+// 所有页面标识，按侧边栏顺序。`cc-pets open <page>` 用它列出可选页面。
 NSArray<NSString *> *CCPetsMainWindowPageIDs(void);
+// 把参数换成页面标识：认识的原样返回，旧名字换成新页面（settings 拆成三页前是一整页，
+// 现在指向「宠物」），不认识的返回 nil。
+NSString *CCPetsMainWindowResolvePage(NSString *page);
 
 // 侧边栏顶部的宠物名片要的数据。由 AppDelegate 提供，窗口只读不写。
 // 键：sheet（NSImage 精灵图）、rowCount、name、state（Agent 状态，无会话时 idle）、
-// status（状态文字）、statusColor（NSColor）、sessions（在线会话数）、approvals（待审批数）。
+// status（状态文字）、statusColor（NSColor）、detail（宠物口吻的那句，没有 Agent 在跑时没有）、
+// sessions（在线会话数）、approvals（待审批数）。
 @protocol CCPetsPetCardSource <NSObject>
 - (NSDictionary *)petCardSnapshot;
-@end
-
-// 页面内容分成好几段、需要在侧边栏列出来直接跳转时实现（设置页：通用、外观、碎碎念……）。
-// 页面选中期间，这些段落作为子项显示在页面行下面；点一下就滚到对应位置，免得用户自己往下翻。
-@protocol CCPetsMainPageSections <NSObject>
-// 每项：id、title、symbol（SF Symbol 名）、color（NSColor）。页面视图加载后即可调用。
-- (NSArray<NSDictionary *> *)pageSections;
-// sectionID 为 nil 时回到页面顶部。
-- (void)scrollToSectionWithID:(NSString *)sectionID;
 @end
 
 // 名片上的任何一项变了（换宠物、Agent 状态、会话数、审批数）就发，窗口收到后重读快照。

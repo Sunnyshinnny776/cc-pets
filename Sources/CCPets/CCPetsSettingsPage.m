@@ -1,14 +1,15 @@
 #import "CCPetsSettingsPage.h"
 #import "CCPetsBridge.h"
+#import "CCPetsFormBuilder.h"
 #import "CCPetsGlassView.h"
+#import "CCPetsImageLoader.h"
 #import "CCPetsL10n.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPetSize.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPreferences.h"
-#import "CCPetsMainWindow.h"
 #import "CCPetsUIStyle.h"
-#import "CCPetsFormBuilder.h"
+#import <QuartzCore/QuartzCore.h>
 
 // 定义在 CCPetsAppDelegate+Speech.m；那边的头文件是 AppDelegate 私有的，这里单独 extern。
 extern NSString *const PetSpeechFrequencyKey;
@@ -29,28 +30,45 @@ static NSString *ClickCountText(NSInteger count) {
     return [[NSString stringWithFormat:@"%ld", (long)count] stringByAppendingString:L(@" clicks")];
 }
 
-@interface CCPetsSettingsPage ()
+static void RevealFolder(NSString *path) {
+    // 第一次用时文件夹可能还不存在；建出来比让按钮点了没反应好。
+    [NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES
+        attributes:nil error:nil];
+    [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:path isDirectory:YES]];
+}
+
+// 三个设置页共用：控件绑定、按 defaults 回填、监听设置变更。
+@interface CCPetsSettingsPageBase ()
 @property(nonatomic) CCPetsFormBuilder *form;
 @property(nonatomic) NSMutableArray<CCPetsSettingsHandler *> *handlers;
 // 每个控件一个"按 defaults 回填自己"的 block。设置一变就全部跑一遍。
 @property(nonatomic) NSMutableArray<void (^)(void)> *reloaders;
 @end
 
-@implementation CCPetsSettingsPage
+@implementation CCPetsSettingsPageBase
 
 - (id<CCPetsSettingsActions>)actions {
     id delegate = NSApp.delegate;
     return [delegate respondsToSelector:@selector(updatePetScale:)] ? delegate : nil;
 }
 
+- (NSString *)pageTitle {
+    return @"";
+}
+
+- (NSString *)pageSubtitle {
+    return @"";
+}
+
+- (void)buildContent {
+}
+
 - (void)loadView {
     self.handlers = [NSMutableArray array];
     self.reloaders = [NSMutableArray array];
-
-    self.form = [CCPetsFormBuilder new];
-    self.view = self.form.scrollView;
-
-    [self buildSections];
+    self.form = [[CCPetsFormBuilder alloc] initWithTitle:[self pageTitle] subtitle:[self pageSubtitle]];
+    self.view = self.form.view;
+    [self buildContent];
     [self reloadValues];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
         name:CCPetsPreferencesDidChangeNotification object:nil];
@@ -67,28 +85,6 @@ static NSString *ClickCountText(NSInteger count) {
 - (void)reloadValues {
     for (void (^reload)(void) in self.reloaders) reload();
 }
-
-#pragma mark - 侧边栏跳转
-
-- (NSArray<NSDictionary *> *)pageSections {
-    return self.form.sectionEntries;
-}
-
-- (void)scrollToSectionWithID:(NSString *)sectionID {
-    [self.form scrollToSectionWithID:sectionID];
-}
-
-- (NSView *)rowWithTitle:(NSString *)title controls:(NSArray<NSView *> *)controls {
-    return [CCPetsFormBuilder rowWithTitle:title controls:controls];
-}
-
-// 分组的 id 直接用图标名：每组图标各不相同，不必再另起一套标识。
-- (void)addSectionWithTitle:(NSString *)title symbol:(NSString *)symbol color:(NSColor *)color
-    rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
-    [self.form addSectionWithID:symbol title:title symbol:symbol color:color rows:rows footer:footer];
-}
-
-#pragma mark - 控件与布局
 
 - (void)bind:(NSControl *)control to:(void (^)(id sender))block {
     CCPetsSettingsHandler *handler = [CCPetsSettingsHandler new];
@@ -109,19 +105,34 @@ static NSString *ClickCountText(NSInteger count) {
 }
 
 // 普通布尔设置：读写同一个键，写完交给 AppDelegate 生效。
-- (NSView *)switchRowWithTitle:(NSString *)title key:(NSString *)key
+- (NSView *)switchRowWithTitle:(NSString *)title subtitle:(NSString *)subtitle key:(NSString *)key
     apply:(void (^)(id<CCPetsSettingsActions> actions, BOOL enabled))apply {
     __weak typeof(self) weakSelf = self;
     NSSwitch *control = [self switchWithValue:^BOOL { return CCPetsPrefBool(key); }
         action:^(NSSwitch *sender) {
         apply(weakSelf.actions, sender.state == NSControlStateValueOn);
     }];
-    return [self rowWithTitle:title controls:@[control]];
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:@[control]];
+}
+
+// 系统通知要先拿到授权，失败就弹回关闭，所以不能直接用 switchRow。
+- (NSView *)notificationRowWithTitle:(NSString *)title subtitle:(NSString *)subtitle key:(NSString *)key {
+    __weak typeof(self) weakSelf = self;
+    NSSwitch *control = [self switchWithValue:^BOOL { return CCPetsPrefBool(key); }
+        action:^(NSSwitch *sender) {
+        [weakSelf.actions updateNotification:key enabled:sender.state == NSControlStateValueOn
+            completion:^(BOOL enabled) {
+            sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+        }];
+    }];
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:@[control]];
 }
 
 - (NSPopUpButton *)popUpWithOptions:(NSArray<NSArray *> *)options selected:(id (^)(void))selected
     action:(void (^)(id value))action {
     NSPopUpButton *popUp = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    popUp.controlSize = NSControlSizeSmall;
+    popUp.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
     for (NSArray *option in options) {
         [popUp addItemWithTitle:option[0]];
         popUp.lastItem.representedObject = option[1];
@@ -138,18 +149,40 @@ static NSString *ClickCountText(NSInteger count) {
     return popUp;
 }
 
+// 档位少（四个以内）的单选用分段控件，一眼看到全部选项；多了再用弹出菜单。
+- (NSSegmentedControl *)segmentedWithOptions:(NSArray<NSArray *> *)options selected:(id (^)(void))selected
+    action:(void (^)(id value))action {
+    NSMutableArray<NSString *> *labels = [NSMutableArray array];
+    for (NSArray *option in options) [labels addObject:option[0]];
+    NSSegmentedControl *control = [NSSegmentedControl segmentedControlWithLabels:labels
+        trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
+    control.controlSize = NSControlSizeSmall;
+    control.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    [self bind:control to:^(NSSegmentedControl *sender) {
+        if (sender.selectedSegment >= 0) action(options[(NSUInteger)sender.selectedSegment][1]);
+    }];
+    [self.reloaders addObject:^{
+        id value = selected();
+        for (NSUInteger index = 0; index < options.count; index++) {
+            if ([options[index][1] isEqual:value]) control.selectedSegment = (NSInteger)index;
+        }
+    }];
+    return control;
+}
+
 // 步进器 + 数值标签。菜单里只有三档，这里可以连续调。
 - (NSView *)stepperRowWithTitle:(NSString *)title key:(NSString *)key minimum:(double)minimum
     maximum:(double)maximum increment:(double)increment fallback:(double)fallback
     format:(NSString *(^)(double value))format {
     NSStepper *stepper = [NSStepper new];
+    stepper.controlSize = NSControlSizeSmall;
     stepper.minValue = minimum;
     stepper.maxValue = maximum;
     stepper.increment = increment;
     stepper.valueWraps = NO;
-    NSTextField *valueLabel = [NSTextField labelWithString:@""];
+    NSTextField *valueLabel = CCPetsNumberLabel(@"", 12, NSFontWeightRegular, CCPetsInkColor());
     valueLabel.alignment = NSTextAlignmentRight;
-    valueLabel.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];
+    [valueLabel.widthAnchor constraintGreaterThanOrEqualToConstant:52].active = YES;
     __weak typeof(self) weakSelf = self;
     [self bind:stepper to:^(NSStepper *sender) {
         // 步进 0.1 的浮点累加会出现 1.2000000002，按步长取整再交出去。
@@ -167,141 +200,100 @@ static NSString *ClickCountText(NSInteger count) {
         stepper.doubleValue = value;
         valueLabel.stringValue = format(value);
     }];
-    return [self rowWithTitle:title controls:@[valueLabel, stepper]];
+    return [CCPetsFormBuilder rowWithTitle:title controls:@[valueLabel, stepper]];
 }
 
-- (NSView *)buttonRowWithTitle:(NSString *)title buttonTitle:(NSString *)buttonTitle
-    action:(void (^)(void))action {
-    NSButton *button = [NSButton buttonWithTitle:buttonTitle target:nil action:nil];
+- (NSButton *)smallButtonWithTitle:(NSString *)title action:(void (^)(void))action {
+    NSButton *button = [NSButton buttonWithTitle:title target:nil action:nil];
     button.controlSize = NSControlSizeSmall;
+    button.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
     [self bind:button to:^(id sender) { action(); }];
-    return [self rowWithTitle:title controls:@[button]];
+    return button;
 }
 
-static void RevealFolder(NSString *path) {
-    // 第一次用时文件夹可能还不存在；建出来比让按钮点了没反应好。
-    [NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES
-        attributes:nil error:nil];
-    [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:path isDirectory:YES]];
+- (NSSlider *)sliderWithMinimum:(double)minimum maximum:(double)maximum width:(CGFloat)width {
+    NSSlider *slider = [NSSlider sliderWithValue:minimum minValue:minimum maxValue:maximum target:nil action:nil];
+    slider.continuous = YES;
+    slider.controlSize = NSControlSizeSmall;
+    [slider.widthAnchor constraintEqualToConstant:width].active = YES;
+    return slider;
 }
 
-#pragma mark - 各分组
+- (NSTextField *)sliderValueLabel {
+    NSTextField *label = CCPetsNumberLabel(@"", 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
+    label.alignment = NSTextAlignmentRight;
+    [label.widthAnchor constraintEqualToConstant:40].active = YES;
+    return label;
+}
 
-- (void)buildSections {
+@end
+
+#pragma mark - 宠物
+
+@interface CCPetsPetPage ()
+@property(nonatomic) NSStackView *pickerRows;
+@property(nonatomic) NSMutableDictionary<NSString *, CCPetsTileView *> *petTiles;
+@property(nonatomic) NSMutableDictionary<NSString *, CCPetsSpriteView *> *petSprites;
+@property(nonatomic) NSMutableDictionary<NSString *, NSImage *> *sheetCache;
+@property(nonatomic) NSTextField *sampleLine;
+@end
+
+// 选择列表一行几只。窗口最窄时（内容区约 520pt）每张卡也有 110pt 以上，名字放得下。
+static const NSUInteger PetPickerColumns = 4;
+
+@implementation CCPetsPetPage
+
+- (NSString *)pageTitle {
+    return L(@"Pet");
+}
+
+- (NSString *)pageSubtitle {
+    return L(@"Pick the pet that lives on your desktop, its size and how chatty it is.");
+}
+
+- (void)loadView {
+    self.petTiles = [NSMutableDictionary dictionary];
+    self.petSprites = [NSMutableDictionary dictionary];
+    self.sheetCache = [NSMutableDictionary dictionary];
+    [super loadView];
+    // 切宠物不走 defaults 写入口（选中项记在桌宠自己身上），靠名片通知得知换了。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(petDidChange:)
+        name:CCPetsPetCardDidChangeNotification object:nil];
+}
+
+- (void)petDidChange:(NSNotification *)notification {
+    [self updatePetSelection];
+}
+
+- (void)buildContent {
     __weak typeof(self) weakSelf = self;
 
-    // 通用
-    NSMutableArray<NSArray *> *languages = [NSMutableArray arrayWithObject:
-        @[L(@"System Default"), CCPetsLanguageSystem]];
-    for (NSString *language in CCPetsSupportedLanguages()) {
-        [languages addObject:@[CCPetsLanguageDisplayName(language), language]];
-    }
-    NSPopUpButton *language = [self popUpWithOptions:languages
-        selected:^id { return CCPetsLanguagePreference(); }
-        action:^(NSString *value) {
-        if ([value isEqualToString:CCPetsLanguagePreference()]) return;
-        // 主窗口收到语言变更会重建本页，别在控件自己的 action 里把它拆掉。
-        dispatch_async(dispatch_get_main_queue(), ^{ CCPetsSetLanguagePreference(value); });
-    }];
+    NSStackView *rows = [NSStackView stackViewWithViews:@[]];
+    rows.orientation = NSUserInterfaceLayoutOrientationVertical;
+    rows.alignment = NSLayoutAttributeLeading;
+    rows.spacing = 10;
+    self.pickerRows = rows;
+    [self.form addView:rows];
+    [self rebuildPicker];
 
-    NSSlider *scale = [NSSlider sliderWithValue:1 minValue:CCPetsPetMinimumScale
-        maxValue:CCPetsPetMaximumScale target:nil action:nil];
-    scale.continuous = YES;
-    scale.controlSize = NSControlSizeSmall;
-    [scale.widthAnchor constraintEqualToConstant:160].active = YES;
-    NSTextField *scaleLabel = [NSTextField labelWithString:@""];
-    scaleLabel.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];
-    scaleLabel.alignment = NSTextAlignmentRight;
-    [scaleLabel.widthAnchor constraintEqualToConstant:44].active = YES;
+    // 大小
+    NSSlider *scale = [self sliderWithMinimum:CCPetsPetMinimumScale maximum:CCPetsPetMaximumScale width:200];
+    NSTextField *scaleLabel = [self sliderValueLabel];
     [self bind:scale to:^(NSSlider *sender) { [weakSelf.actions updatePetScale:sender.doubleValue]; }];
     [self.reloaders addObject:^{
         CGFloat value = CCPetsPetScalePreference();
         scale.doubleValue = value;
         scaleLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)lround(value * 100)];
     }];
-
-    [self addSectionWithTitle:L(@"General")
-        symbol:@"gearshape.fill" color:NSColor.systemGrayColor rows:@[
-        [self rowWithTitle:L(@"Language") controls:@[language]],
-        [self rowWithTitle:L(@"Pet Size") controls:@[scale, scaleLabel]],
-        [self switchRowWithTitle:L(@"Show Status Card") key:StatusBubbleExpandedKey
-            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
-            [actions updateStatusBubbleExpanded:enabled];
-        }],
+    [self.form addGroupWithTitle:nil rows:@[
+        [CCPetsFormBuilder rowWithTitle:L(@"Pet Size") controls:@[scale, scaleLabel]],
+        [self switchRowWithTitle:L(@"Import Codex Pets") subtitle:L(@"Copy pets from ~/.codex/pets into your own folder")
+            key:ImportCodexPetsKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateImportCodexPets:enabled]; }],
     ] footer:nil];
-
-    // 外观
-    NSSegmentedControl *theme = [NSSegmentedControl segmentedControlWithLabels:
-        @[L(@"Classic"), @"Liquid Glass"] trackingMode:NSSegmentSwitchTrackingSelectOne
-        target:nil action:nil];
-    if (!CCPetsLiquidGlassAvailable()) {
-        [theme setEnabled:NO forSegment:1];
-        theme.toolTip = L(@"Requires macOS 26 or later");
-    }
-    [self bind:theme to:^(NSSegmentedControl *sender) {
-        [weakSelf.actions updatePanelTheme:sender.selectedSegment == 1 ? @"liquid" : @"classic"];
-    }];
-    NSDictionary<NSNumber *, NSString *> *dimTitles = @{
-        @0: L(@"Clear (0%)"), @15: L(@"Light (15%)"), @25: L(@"Standard (25%)"), @45: L(@"Legible (45%)")};
-    NSMutableArray<NSArray *> *dimOptions = [NSMutableArray array];
-    for (NSNumber *level in CCPetsGlassDimLevels()) [dimOptions addObject:@[dimTitles[level] ?: level.stringValue, level]];
-    NSPopUpButton *dim = [self popUpWithOptions:dimOptions
-        selected:^id { return @(CCPetsGlassDimLevel()); }
-        action:^(NSNumber *value) { [weakSelf.actions updateGlassDimLevel:value]; }];
-    [self.reloaders addObject:^{
-        BOOL liquid = [CCPetsPanelTheme() isEqualToString:@"liquid"] && CCPetsLiquidGlassAvailable();
-        theme.selectedSegment = liquid ? 1 : 0;
-        // 压暗只作用于原生玻璃，经典主题下没有这层。
-        dim.enabled = liquid;
-    }];
-    [self addSectionWithTitle:L(@"Appearance")
-        symbol:@"paintbrush.fill" color:NSColor.systemPurpleColor rows:@[
-        [self rowWithTitle:L(@"Panel Theme") controls:@[theme]],
-        [self rowWithTitle:L(@"Glass Dimming") controls:@[dim]],
-    ] footer:nil];
-
-    // 用量展示：订阅额度还是 API 用量。
-    NSMutableArray<NSView *> *usageRows = [NSMutableArray array];
-    for (NSArray<NSString *> *provider in @[@[@"Codex", CodexUsageDisplayModeKey],
-                                           @[@"Claude", ClaudeUsageDisplayModeKey]]) {
-        NSString *key = provider[1];
-        NSSegmentedControl *mode = [NSSegmentedControl segmentedControlWithLabels:@[L(@"Plan"), L(@"API")]
-            trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
-        [mode setAccessibilityLabel:[NSString stringWithFormat:L(@"%@ usage display"), provider[0]]];
-        [self bind:mode to:^(NSSegmentedControl *sender) {
-            [weakSelf.actions updateUsageDisplayMode:sender.selectedSegment == 1 ? @"api" : @"subscription"
-                forKey:key];
-        }];
-        [self.reloaders addObject:^{
-            mode.selectedSegment = [[NSUserDefaults.standardUserDefaults stringForKey:key]
-                isEqualToString:@"api"] ? 1 : 0;
-        }];
-        [usageRows addObject:[self rowWithTitle:provider[0] controls:@[mode]]];
-    }
-    [self addSectionWithTitle:L(@"Usage Display")
-        symbol:@"chart.bar.fill" color:NSColor.systemBlueColor rows:usageRows footer:nil];
-
-    // 系统通知：打开时要先拿到系统授权，失败就弹回关闭。
-    NSMutableArray<NSView *> *notificationRows = [NSMutableArray array];
-    for (NSArray<NSString *> *option in @[@[L(@"Task done"), NotificationCompletionKey],
-                                         @[L(@"Task failed"), NotificationFailureKey],
-                                         @[L(@"Awaiting approval"), NotificationApprovalKey],
-                                         @[L(@"Stalled"), NotificationStallKey]]) {
-        NSString *key = option[1];
-        NSSwitch *control = [self switchWithValue:^BOOL { return CCPetsPrefBool(key); }
-            action:^(NSSwitch *sender) {
-            [weakSelf.actions updateNotification:key enabled:sender.state == NSControlStateValueOn
-                completion:^(BOOL enabled) {
-                sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
-            }];
-        }];
-        [notificationRows addObject:[self rowWithTitle:option[0] controls:@[control]]];
-    }
-    [self addSectionWithTitle:L(@"Notifications")
-        symbol:@"bell.badge.fill" color:NSColor.systemRedColor rows:notificationRows footer:nil];
 
     // 碎碎念
-    NSPopUpButton *frequency = [self popUpWithOptions:@[
+    NSSegmentedControl *frequency = [self segmentedWithOptions:@[
         @[L(@"Rarely"), @"low"], @[L(@"Normal"), @"normal"], @[L(@"Often"), @"high"], @[L(@"Chatty"), @"chatty"]]
         selected:^id { return [NSUserDefaults.standardUserDefaults stringForKey:PetSpeechFrequencyKey] ?: @"normal"; }
         action:^(NSString *value) { [weakSelf.actions updateSpeechFrequency:value]; }];
@@ -309,29 +301,171 @@ static void RevealFolder(NSString *path) {
         @[L(@"Pet-specific Lines"), PetPhrasesSourcePet], @[L(@"Default Lines"), PetPhrasesSourceDefault]]
         selected:^id { return PetPhrasesSource(); }
         action:^(NSString *value) { [weakSelf.actions updatePhrasesSource:value]; }];
-    NSButton *editLines = [NSButton buttonWithTitle:L(@"Edit Lines…") target:nil action:nil];
-    editLines.controlSize = NSControlSizeSmall;
-    [self bind:editLines to:^(id sender) { [weakSelf.actions editPhrasesFile:sender]; }];
-    // 让桌面上的宠物当场说一句，换了台词来源能马上听到区别。
-    NSButton *tryLine = [NSButton buttonWithTitle:L(@"Try a Line") target:nil action:nil];
-    tryLine.controlSize = NSControlSizeSmall;
-    [self bind:tryLine to:^(id sender) {
-        NSString *text = [weakSelf.actions sampleSpeechLine];
-        if (text.length == 0) return;
-        [weakSelf.actions presentSpeechText:text];
+
+    // 先抽一句给用户看，满意再让桌面上的宠物说：换了台词来源能马上听到区别。
+    NSTextField *sample = CCPetsLabel(@"", 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
+    [sample setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    self.sampleLine = sample;
+    NSButton *say = [self smallButtonWithTitle:L(@"Say It") action:^{
+        NSString *text = weakSelf.sampleLine.toolTip;
+        if (text.length == 0) text = [weakSelf.actions sampleSpeechLine];
+        if (text.length > 0) [weakSelf.actions presentSpeechText:text];
+        [weakSelf drawSampleLine];
     }];
-    [self addSectionWithTitle:L(@"Chatter")
-        symbol:@"bubble.left.fill" color:NSColor.systemGreenColor rows:@[
-        [self switchRowWithTitle:L(@"Enable chatter") key:PetSpeechEnabledKey
+    NSButton *edit = [self smallButtonWithTitle:L(@"Edit Lines…") action:^{ [weakSelf.actions editPhrasesFile:nil]; }];
+    [self drawSampleLine];
+    [self.reloaders addObject:^{ [weakSelf drawSampleLine]; }];
+
+    [self.form addGroupWithTitle:L(@"Chatter") rows:@[
+        [self switchRowWithTitle:L(@"Let the pet talk on its own") subtitle:nil key:PetSpeechEnabledKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateSpeechEnabled:enabled]; }],
-        [self rowWithTitle:L(@"Frequency") controls:@[frequency]],
-        [self rowWithTitle:L(@"Line Source") controls:@[source, tryLine, editLines]],
+        [CCPetsFormBuilder rowWithTitle:L(@"Frequency") controls:@[frequency]],
+        [CCPetsFormBuilder rowWithTitle:L(@"Line Source") controls:@[source]],
+        [CCPetsFormBuilder rowWithTitle:L(@"Try a Line") controls:@[sample, say, edit]],
+    ] footer:nil];
+}
+
+- (void)drawSampleLine {
+    NSString *text = [self.actions sampleSpeechLine];
+    self.sampleLine.toolTip = text;
+    self.sampleLine.stringValue = text.length > 0 ? [NSString stringWithFormat:L(@"“%@”"), text] : @"";
+}
+
+// 宠物卡片：精灵图 + 名字 + 来源。最后一张是"添加宠物"，打开素材文件夹。
+- (void)rebuildPicker {
+    for (NSView *view in [self.pickerRows.arrangedSubviews copy]) {
+        [self.pickerRows removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    [self.petTiles removeAllObjects];
+    [self.petSprites removeAllObjects];
+    NSArray<NSDictionary *> *options = [self.actions petPickerOptions] ?: @[];
+    NSMutableArray<NSView *> *tiles = [NSMutableArray array];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *option in options) {
+        NSString *petID = option[@"id"];
+        CCPetsSpriteView *sprite = [[CCPetsSpriteView alloc] initWithFrame:NSZeroRect];
+        CCPetsTileView *tile = [self tileWithTop:sprite title:option[@"name"]
+            subtitle:[option[@"builtin"] boolValue] ? L(@"Built-in") : L(@"Your folder")];
+        tile.onClick = ^{ [weakSelf.actions switchPetToID:petID]; };
+        tile.toolTip = option[@"name"];
+        self.petTiles[petID] = tile;
+        self.petSprites[petID] = sprite;
+        [tiles addObject:tile];
+        [self loadSheetForOption:option intoSprite:sprite];
+    }
+    NSTextField *plus = CCPetsLabel(@"+", 30, NSFontWeightLight, CCPetsTertiaryInkColor());
+    plus.alignment = NSTextAlignmentCenter;
+    CCPetsTileView *add = [self tileWithTop:plus title:L(@"Add a Pet") subtitle:L(@"cc-pets pet add <name>")];
+    add.onClick = ^{ RevealFolder(OwnPetsDirectory()); };
+    add.toolTip = L(@"Opens your pets folder. Put a sprite sheet in its own folder there, or run cc-pets pet add <name>.");
+    [tiles addObject:add];
+
+    for (NSUInteger start = 0; start < tiles.count; start += PetPickerColumns) {
+        NSMutableArray<NSView *> *rowViews = [NSMutableArray array];
+        for (NSUInteger index = start; index < start + PetPickerColumns; index++) {
+            // 末行不满时用空视图占位，卡片宽度和上面几行对齐。
+            [rowViews addObject:index < tiles.count ? tiles[index] : [NSView new]];
+        }
+        NSStackView *row = [NSStackView stackViewWithViews:rowViews];
+        row.distribution = NSStackViewDistributionFillEqually;
+        row.spacing = 10;
+        row.alignment = NSLayoutAttributeTop;
+        row.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.pickerRows addArrangedSubview:row];
+        [row.widthAnchor constraintEqualToAnchor:self.pickerRows.widthAnchor].active = YES;
+    }
+    [self updatePetSelection];
+}
+
+- (CCPetsTileView *)tileWithTop:(NSView *)top title:(NSString *)title subtitle:(NSString *)subtitle {
+    CCPetsTileView *tile = [CCPetsTileView new];
+    NSTextField *name = CCPetsLabel(title, 12, NSFontWeightSemibold, CCPetsInkColor());
+    NSTextField *detail = CCPetsLabel(subtitle, 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    for (NSTextField *label in @[name, detail]) {
+        label.alignment = NSTextAlignmentCenter;
+        [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+    }
+    for (NSView *view in @[top, name, detail]) {
+        view.translatesAutoresizingMaskIntoConstraints = NO;
+        [tile addSubview:view];
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        // 素材格子是 140×150，按同样比例缩小。
+        [top.topAnchor constraintEqualToAnchor:tile.topAnchor constant:12],
+        [top.centerXAnchor constraintEqualToAnchor:tile.centerXAnchor],
+        [top.widthAnchor constraintEqualToConstant:66],
+        [top.heightAnchor constraintEqualToConstant:72],
+        [name.topAnchor constraintEqualToAnchor:top.bottomAnchor constant:6],
+        [name.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor constant:8],
+        [name.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor constant:-8],
+        [detail.topAnchor constraintEqualToAnchor:name.bottomAnchor constant:1],
+        [detail.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor constant:8],
+        [detail.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor constant:-8],
+        [detail.bottomAnchor constraintEqualToAnchor:tile.bottomAnchor constant:-12],
+    ]];
+    return tile;
+}
+
+// 精灵图解码要几十毫秒一张，Codex 导入的宠物可能有几十只：每张放到下一轮主线程再解，
+// 页面先出来，图一张张补上。解码器会读屏幕倍率，所以留在主线程。
+- (void)loadSheetForOption:(NSDictionary *)option intoSprite:(CCPetsSpriteView *)sprite {
+    NSString *path = option[@"path"];
+    NSInteger rowCount = [option[@"rowCount"] integerValue] ?: 9;
+    NSImage *cached = self.sheetCache[path];
+    if (cached) {
+        [sprite setSheet:cached rowCount:rowCount];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    __weak CCPetsSpriteView *weakSprite = sprite;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!weakSelf || !weakSprite || path.length == 0) return;
+        NSImage *sheet = LoadPetSpriteImage(path, NSMakeSize(66, 72), rowCount);
+        if (!sheet) return;
+        weakSelf.sheetCache[path] = sheet;
+        [weakSprite setSheet:sheet rowCount:rowCount];
+    });
+}
+
+- (void)updatePetSelection {
+    NSString *current = [self.actions currentPetID];
+    [self.petTiles enumerateKeysAndObjectsUsingBlock:^(NSString *petID, CCPetsTileView *tile, BOOL *stop) {
+        BOOL selected = [petID isEqualToString:current];
+        tile.selected = selected;
+        // 只让选中的那只动，其余停在第一帧。
+        self.petSprites[petID].playing = selected;
+    }];
+}
+
+@end
+
+#pragma mark - 提醒与互动
+
+@implementation CCPetsAlertsPage
+
+- (NSString *)pageTitle {
+    return L(@"Alerts & Interaction");
+}
+
+- (NSString *)pageSubtitle {
+    return L(@"When to interrupt you, and how the pet reacts when you poke it.");
+}
+
+- (void)buildContent {
+    [self.form addGroupWithTitle:L(@"Notifications") rows:@[
+        [self notificationRowWithTitle:L(@"Awaiting approval") subtitle:L(@"An Agent is stuck on a permission prompt")
+            key:NotificationApprovalKey],
+        [self notificationRowWithTitle:L(@"Task failed") subtitle:nil key:NotificationFailureKey],
+        [self notificationRowWithTitle:L(@"Task done") subtitle:nil key:NotificationCompletionKey],
+        [self notificationRowWithTitle:L(@"Stalled") subtitle:L(@"The same step has been running too long")
+            key:NotificationStallKey],
     ] footer:nil];
 
-    // 点击互动
-    [self addSectionWithTitle:L(@"Click Reactions")
-        symbol:@"hand.tap.fill" color:NSColor.systemPinkColor rows:@[
-        [self switchRowWithTitle:L(@"Enable reactions") key:PetInteractionEnabledKey
+    [self.form addGroupWithTitle:L(@"Click Reactions") rows:@[
+        [self switchRowWithTitle:L(@"React when poked") subtitle:nil key:PetInteractionEnabledKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
             [actions updatePetInteractionEnabled:enabled];
         }],
@@ -348,50 +482,248 @@ static void RevealFolder(NSString *path) {
         }],
     ] footer:nil];
 
-    // 额度面板底部的系统指标
-    NSMutableArray<NSView *> *systemRows = [NSMutableArray array];
-    for (NSArray<NSString *> *option in @[@[L(@"CPU usage"), SystemCPUEnabledKey],
-                                         @[L(@"CPU temp"), SystemTemperatureEnabledKey],
-                                         @[L(@"Memory"), SystemMemoryEnabledKey]]) {
-        NSString *key = option[1];
-        [systemRows addObject:[self switchRowWithTitle:option[0] key:key
-            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
-            [actions updateSystemMetric:key enabled:enabled];
-        }]];
-    }
-    [self addSectionWithTitle:L(@"System Status")
-        symbol:@"cpu" color:NSColor.systemOrangeColor rows:systemRows footer:nil];
-
-    // 素材
-    [self addSectionWithTitle:L(@"Pet Sprites")
-        symbol:@"pawprint.fill" color:NSColor.systemTealColor rows:@[
-        [self switchRowWithTitle:L(@"Import Codex Pets") key:ImportCodexPetsKey
-            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateImportCodexPets:enabled]; }],
-        [self buttonRowWithTitle:L(@"Pet sprites folder") buttonTitle:L(@"Show in Finder")
-            action:^{ RevealFolder(OwnPetsDirectory()); }],
-    ] footer:nil];
-
-    // CC Bridge：只放只影响桌宠的两项；启用和免审批会改 Claude Code / Codex 的配置，仍在右键菜单里。
-    NSSwitch *bridgeNotify = [self switchWithValue:^BOOL { return CCPetsPrefBool(BridgeNotificationKey); }
-        action:^(NSSwitch *sender) {
-        [weakSelf.actions updateNotification:BridgeNotificationKey enabled:sender.state == NSControlStateValueOn
-            completion:^(BOOL enabled) {
-            sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
-        }];
-    }];
-    [self addSectionWithTitle:@"CC Bridge"
-        symbol:@"point.3.connected.trianglepath.dotted" color:NSColor.systemIndigoColor rows:@[
-        [self switchRowWithTitle:L(@"Badge") key:BridgeBadgeEnabledKey
+    // CC Bridge 这里只放只影响桌宠的两项；启用和免审批会改 Claude Code / Codex 的配置，仍在右键菜单里。
+    [self.form addGroupWithTitle:L(@"Desktop Status Card") rows:@[
+        [self switchRowWithTitle:L(@"Show Status Card") subtitle:L(@"The card next to the pet while an Agent is working")
+            key:StatusBubbleExpandedKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateStatusBubbleExpanded:enabled]; }],
+        [self switchRowWithTitle:L(@"CC Bridge unread badge") subtitle:nil key:BridgeBadgeEnabledKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateBridgeBadgeEnabled:enabled]; }],
-        [self rowWithTitle:L(@"Notify") controls:@[bridgeNotify]],
+        [self notificationRowWithTitle:L(@"CC Bridge message notifications")
+            subtitle:L(@"Only who sent it to whom, never the message") key:BridgeNotificationKey],
     ] footer:L(@"Enabling CC Bridge, auto-approve and other options that change Claude Code / Codex settings stay in the pet's right-click menu.")];
+}
 
-    // 高级
-    [self addSectionWithTitle:L(@"Advanced")
-        symbol:@"wrench.and.screwdriver.fill" color:NSColor.systemGrayColor rows:@[
-        [self buttonRowWithTitle:L(@"App data folder") buttonTitle:L(@"Show in Finder")
-            action:^{ RevealFolder(ApplicationSupportDirectory()); }],
+@end
+
+#pragma mark - 通用
+
+@interface CCPetsGeneralPage ()
+@property(nonatomic) NSView *glassPreviewDim;
+@end
+
+@implementation CCPetsGeneralPage
+
+- (NSString *)pageTitle {
+    return L(@"General");
+}
+
+- (NSString *)pageSubtitle {
+    return L(@"Language, panel appearance and data folders.");
+}
+
+// 主题卡片上方的小预览：三条横线代表面板里的文字行。
+- (NSView *)themePreviewLiquid:(BOOL)liquid {
+    NSView *preview = [NSView new];
+    preview.wantsLayer = YES;
+    preview.layer.cornerRadius = 6;
+    preview.layer.masksToBounds = YES;
+    if (liquid) {
+        CAGradientLayer *gradient = [CAGradientLayer layer];
+        gradient.colors = @[(id)[NSColor colorWithSRGBRed:0.43 green:0.56 blue:0.70 alpha:1].CGColor,
+                            (id)[NSColor colorWithSRGBRed:0.18 green:0.29 blue:0.42 alpha:1].CGColor,
+                            (id)[NSColor colorWithSRGBRed:0.25 green:0.37 blue:0.27 alpha:1].CGColor];
+        gradient.startPoint = CGPointMake(0, 1);
+        gradient.endPoint = CGPointMake(1, 0);
+        gradient.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
+        [preview.layer addSublayer:gradient];
+    } else {
+        preview.layer.backgroundColor = [NSColor colorWithSRGBRed:0.12 green:0.14 blue:0.16 alpha:1].CGColor;
+    }
+    NSArray<NSArray *> *bars = @[@[@1.0, liquid ? @0.55 : @0.25], @[@0.7, liquid ? @0.85 : @1.0], @[@0.45, liquid ? @0.55 : @0.25]];
+    NSView *previous = nil;
+    for (NSUInteger index = 0; index < bars.count; index++) {
+        NSView *bar = [NSView new];
+        bar.wantsLayer = YES;
+        bar.layer.cornerRadius = 2;
+        // 经典主题的第二条用强调青，和真正的经典面板一样。
+        bar.layer.backgroundColor = (!liquid && index == 1)
+            ? [NSColor colorWithSRGBRed:0.31 green:0.83 blue:0.90 alpha:1].CGColor
+            : [NSColor colorWithWhite:1 alpha:[bars[index][1] doubleValue]].CGColor;
+        bar.translatesAutoresizingMaskIntoConstraints = NO;
+        [preview addSubview:bar];
+        [NSLayoutConstraint activateConstraints:@[
+            [bar.leadingAnchor constraintEqualToAnchor:preview.leadingAnchor constant:10],
+            [bar.widthAnchor constraintEqualToAnchor:preview.widthAnchor multiplier:[bars[index][0] doubleValue]
+                constant:-20 * [bars[index][0] doubleValue]],
+            [bar.heightAnchor constraintEqualToConstant:4],
+            previous ? [bar.topAnchor constraintEqualToAnchor:previous.bottomAnchor constant:5]
+                     : [bar.topAnchor constraintEqualToAnchor:preview.topAnchor constant:18],
+        ]];
+        previous = bar;
+    }
+    if (liquid) {
+        // 压暗层：滑块拖动时跟着变深变浅。
+        NSView *dim = [NSView new];
+        dim.wantsLayer = YES;
+        dim.translatesAutoresizingMaskIntoConstraints = NO;
+        [preview addSubview:dim];
+        [NSLayoutConstraint activateConstraints:@[
+            [dim.leadingAnchor constraintEqualToAnchor:preview.leadingAnchor],
+            [dim.trailingAnchor constraintEqualToAnchor:preview.trailingAnchor],
+            [dim.topAnchor constraintEqualToAnchor:preview.topAnchor],
+            [dim.bottomAnchor constraintEqualToAnchor:preview.bottomAnchor],
+        ]];
+        self.glassPreviewDim = dim;
+    }
+    return preview;
+}
+
+- (CCPetsTileView *)themeTileLiquid:(BOOL)liquid {
+    CCPetsTileView *tile = [CCPetsTileView new];
+    NSView *preview = [self themePreviewLiquid:liquid];
+    NSTextField *title = CCPetsLabel(liquid ? @"Liquid Glass" : L(@"Classic"), 13, NSFontWeightSemibold, CCPetsInkColor());
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObjects:preview, title, nil];
+    NSTextField *note = nil;
+    if (liquid) {
+        note = CCPetsLabel(L(@"macOS 26 or later"), 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+        [views addObject:note];
+    }
+    for (NSView *view in views) {
+        view.translatesAutoresizingMaskIntoConstraints = NO;
+        [tile addSubview:view];
+    }
+    NSView *last = note ?: title;
+    [NSLayoutConstraint activateConstraints:@[
+        [preview.topAnchor constraintEqualToAnchor:tile.topAnchor constant:10],
+        [preview.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor constant:10],
+        [preview.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor constant:-10],
+        [preview.heightAnchor constraintEqualToConstant:62],
+        [title.topAnchor constraintEqualToAnchor:preview.bottomAnchor constant:10],
+        [title.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor constant:12],
+        [title.trailingAnchor constraintLessThanOrEqualToAnchor:tile.trailingAnchor constant:-12],
+        // 两张卡片等高（经典卡没有说明行），所以底边只约束"不超出"，多出的高度留在下面。
+        [last.bottomAnchor constraintLessThanOrEqualToAnchor:tile.bottomAnchor constant:-10],
+    ]];
+    if (note) {
+        [NSLayoutConstraint activateConstraints:@[
+            [note.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:1],
+            [note.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
+            [note.bottomAnchor constraintEqualToAnchor:tile.bottomAnchor constant:-10],
+        ]];
+    }
+    return tile;
+}
+
+- (void)buildContent {
+    __weak typeof(self) weakSelf = self;
+
+    NSMutableArray<NSArray *> *languages = [NSMutableArray arrayWithObject:@[L(@"System Default"), CCPetsLanguageSystem]];
+    for (NSString *language in CCPetsSupportedLanguages()) {
+        [languages addObject:@[CCPetsLanguageDisplayName(language), language]];
+    }
+    NSPopUpButton *language = [self popUpWithOptions:languages
+        selected:^id { return CCPetsLanguagePreference(); }
+        action:^(NSString *value) {
+        if ([value isEqualToString:CCPetsLanguagePreference()]) return;
+        // 主窗口收到语言变更会重建本页，别在控件自己的 action 里把它拆掉。
+        dispatch_async(dispatch_get_main_queue(), ^{ CCPetsSetLanguagePreference(value); });
+    }];
+    [self.form addGroupWithTitle:nil rows:@[[CCPetsFormBuilder rowWithTitle:L(@"Language") controls:@[language]]]
+        footer:nil];
+
+    // 浮层外观：两张主题卡片 + 玻璃压暗滑块。
+    [self.form addGroupTitle:L(@"Panel Appearance") note:nil];
+    CCPetsTileView *classic = [self themeTileLiquid:NO];
+    CCPetsTileView *liquid = [self themeTileLiquid:YES];
+    classic.onClick = ^{ [weakSelf.actions updatePanelTheme:@"classic"]; };
+    BOOL liquidAvailable = CCPetsLiquidGlassAvailable();
+    if (liquidAvailable) liquid.onClick = ^{ [weakSelf.actions updatePanelTheme:@"liquid"]; };
+    else liquid.alphaValue = 0.5;
+    NSStackView *themes = [NSStackView stackViewWithViews:@[classic, liquid]];
+    themes.distribution = NSStackViewDistributionFillEqually;
+    themes.alignment = NSLayoutAttributeTop;
+    themes.spacing = 10;
+    [self.form addView:themes];
+    [classic.heightAnchor constraintEqualToAnchor:liquid.heightAnchor].active = YES;
+
+    NSSlider *dim = [self sliderWithMinimum:0 maximum:CCPetsGlassDimMaximum width:200];
+    NSTextField *dimLabel = [self sliderValueLabel];
+    [self bind:dim to:^(NSSlider *sender) {
+        NSInteger value = (NSInteger)lround(sender.doubleValue);
+        dimLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)value];
+        [weakSelf showGlassDim:value];
+        [weakSelf.actions updateGlassDimLevel:@(value)];
+    }];
+    NSView *dimRow = [CCPetsFormBuilder rowWithTitle:L(@"Glass Dimming")
+        subtitle:L(@"Raise it when a bright wallpaper makes text hard to read") controls:@[dim, dimLabel]];
+    [self.reloaders addObject:^{
+        BOOL isLiquid = [CCPetsPanelTheme() isEqualToString:@"liquid"] && liquidAvailable;
+        classic.selected = !isLiquid;
+        liquid.selected = isLiquid;
+        NSInteger level = CCPetsGlassDimLevel();
+        dim.doubleValue = level;
+        dimLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)level];
+        // 压暗只作用于原生玻璃，经典主题下没有这层。
+        dim.enabled = isLiquid;
+        [weakSelf showGlassDim:level];
+    }];
+    [self.form addGroupWithTitle:nil rows:@[dimRow] footer:nil];
+
+    // 悬停面板：每家一个胶囊，点一下在订阅额度和 Token 用量之间切换，和右键菜单同一个样子。
+    [self.form addGroupTitle:L(@"Hover Panel") note:L(@"Click a pill to switch")];
+    NSMutableArray<NSView *> *panelRows = [NSMutableArray array];
+    for (NSArray<NSString *> *provider in @[@[@"Claude", ClaudeUsageDisplayModeKey], @[@"Codex", CodexUsageDisplayModeKey]]) {
+        NSString *key = provider[1];
+        CCPetsPillButton *pill = [CCPetsPillButton new];
+        [pill setAccessibilityLabel:[NSString stringWithFormat:L(@"%@ usage display"), provider[0]]];
+        NSView *row = [CCPetsFormBuilder rowWithTitle:provider[0] subtitle:@" " controls:@[pill]];
+        NSTextField *detail = [self subtitleLabelInRow:row];
+        [self bind:pill to:^(id sender) {
+            BOOL api = [[NSUserDefaults.standardUserDefaults stringForKey:key] isEqualToString:@"api"];
+            [weakSelf.actions updateUsageDisplayMode:api ? @"subscription" : @"api" forKey:key];
+        }];
+        [self.reloaders addObject:^{
+            BOOL api = [[NSUserDefaults.standardUserDefaults stringForKey:key] isEqualToString:@"api"];
+            pill.title = api ? L(@"API") : L(@"Plan");
+            // 订阅用绿、用量用蓝，和右键菜单里的胶囊一致。
+            pill.fillColor = api ? CCPetsChartColor(6) : CCPetsChartColor(5);
+            detail.stringValue = api ? L(@"Token usage: today's new and cached tokens")
+                : L(@"Plan quota: what's left of the 5-hour and weekly limits");
+        }];
+        [panelRows addObject:row];
+    }
+    // 三项可以任意组合：用"可多选"的分段控件，一行放得下，也和上面的分段控件一个样子。
+    NSArray<NSString *> *metricKeys = @[SystemCPUEnabledKey, SystemTemperatureEnabledKey, SystemMemoryEnabledKey];
+    NSSegmentedControl *metrics = [NSSegmentedControl segmentedControlWithLabels:@[@"CPU", L(@"Temperature"), L(@"Memory")]
+        trackingMode:NSSegmentSwitchTrackingSelectAny target:nil action:nil];
+    metrics.controlSize = NSControlSizeSmall;
+    metrics.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    [self bind:metrics to:^(NSSegmentedControl *sender) {
+        NSInteger segment = sender.selectedSegment;
+        if (segment < 0 || segment >= (NSInteger)metricKeys.count) return;
+        [weakSelf.actions updateSystemMetric:metricKeys[(NSUInteger)segment] enabled:[sender isSelectedForSegment:segment]];
+    }];
+    [self.reloaders addObject:^{
+        for (NSUInteger index = 0; index < metricKeys.count; index++) {
+            [metrics setSelected:CCPetsPrefBool(metricKeys[index]) forSegment:(NSInteger)index];
+        }
+    }];
+    [panelRows addObject:[CCPetsFormBuilder rowWithTitle:L(@"System Status") controls:@[metrics]]];
+    [self.form addGroupWithTitle:nil rows:panelRows footer:nil];
+
+    [self.form addGroupWithTitle:L(@"Data") rows:@[
+        [CCPetsFormBuilder rowWithTitle:L(@"Pet sprites folder") subtitle:[self displayPath:OwnPetsDirectory()]
+            controls:@[[self smallButtonWithTitle:L(@"Show in Finder") action:^{ RevealFolder(OwnPetsDirectory()); }]]],
+        [CCPetsFormBuilder rowWithTitle:L(@"App data folder") subtitle:[self displayPath:ApplicationSupportDirectory()]
+            controls:@[[self smallButtonWithTitle:L(@"Show in Finder") action:^{ RevealFolder(ApplicationSupportDirectory()); }]]],
     ] footer:nil];
+}
+
+- (NSString *)displayPath:(NSString *)path {
+    return path.stringByAbbreviatingWithTildeInPath;
+}
+
+// rowWithTitle:subtitle: 里的说明标签，胶囊切换时要跟着改文字。
+- (NSTextField *)subtitleLabelInRow:(NSView *)row {
+    NSStackView *stack = (NSStackView *)row;
+    NSStackView *titles = (NSStackView *)stack.arrangedSubviews.firstObject;
+    if (![titles isKindOfClass:NSStackView.class]) return nil;
+    return (NSTextField *)titles.arrangedSubviews.lastObject;
+}
+
+- (void)showGlassDim:(NSInteger)level {
+    self.glassPreviewDim.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:level / 100.0].CGColor;
 }
 
 @end

@@ -1,5 +1,4 @@
 #import "CCPetsDiagnosticsPage.h"
-#import "CCPetsCLISupport.h"
 #import "CCPetsDoctor.h"
 #import "CCPetsFormBuilder.h"
 #import "CCPetsL10n.h"
@@ -10,36 +9,61 @@ static void CopyToPasteboard(NSString *text) {
     [NSPasteboard.generalPasteboard setString:text forType:NSPasteboardTypeString];
 }
 
-// 级别对应的图标和颜色。
-static NSString *LevelSymbol(NSString *level) {
-    NSDictionary *symbols = @{@"ok": @"checkmark.circle.fill", @"warn": @"exclamationmark.triangle.fill",
-                              @"fail": @"xmark.octagon.fill", @"info": @"info.circle"};
-    return symbols[level] ?: symbols[@"info"];
+#pragma mark - 结果缓存
+
+NSNotificationName const CCPetsDiagnosticsDidChangeNotification = @"CCPetsDiagnosticsDidChange";
+static NSArray<NSDictionary *> *DiagnosticsSections;
+static NSDate *DiagnosticsCheckedAt;
+static BOOL DiagnosticsRunning;
+static const NSTimeInterval DiagnosticsFreshness = 600;
+
+@implementation CCPetsDiagnosticsStore
+
++ (NSArray<NSDictionary *> *)sections {
+    return DiagnosticsSections;
 }
 
-static NSColor *LevelColor(NSString *level) {
-    if ([level isEqualToString:@"ok"]) return NSColor.systemGreenColor;
-    if ([level isEqualToString:@"warn"]) return NSColor.systemOrangeColor;
-    if ([level isEqualToString:@"fail"]) return NSColor.systemRedColor;
-    return NSColor.systemGrayColor;
++ (BOOL)running {
+    return DiagnosticsRunning;
 }
 
-// 一组里最严重的级别，决定分组标题的图标。
-static NSString *WorstLevel(NSArray<NSDictionary *> *results) {
-    NSString *worst = @"info";
-    for (NSDictionary *result in results) {
-        NSString *level = result[@"level"];
-        if ([level isEqualToString:@"fail"]) return @"fail";
-        if ([level isEqualToString:@"warn"]) worst = @"warn";
-        else if ([level isEqualToString:@"ok"] && ![worst isEqualToString:@"warn"]) worst = @"ok";
++ (NSDate *)checkedAt {
+    return DiagnosticsCheckedAt;
+}
+
++ (NSUInteger)issueCount {
+    NSUInteger count = 0;
+    for (NSDictionary *section in DiagnosticsSections) {
+        for (NSDictionary *result in section[@"results"]) {
+            if ([result[@"level"] isEqualToString:@"warn"] || [result[@"level"] isEqualToString:@"fail"]) count++;
+        }
     }
-    return worst;
+    return count;
 }
 
-static NSString *SectionSymbol(NSString *level) {
-    NSDictionary *symbols = @{@"ok": @"checkmark", @"warn": @"exclamationmark", @"fail": @"xmark", @"info": @"info"};
-    return symbols[level];
++ (void)refreshIfStale {
+    if (DiagnosticsSections && -DiagnosticsCheckedAt.timeIntervalSinceNow < DiagnosticsFreshness) return;
+    [self refresh];
 }
+
++ (void)refresh {
+    if (DiagnosticsRunning) return;
+    DiagnosticsRunning = YES;
+    [NSNotificationCenter.defaultCenter postNotificationName:CCPetsDiagnosticsDidChangeNotification object:nil];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSArray<NSDictionary *> *sections = CCPetsDoctorSections();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            DiagnosticsSections = sections;
+            DiagnosticsCheckedAt = NSDate.date;
+            DiagnosticsRunning = NO;
+            [NSNotificationCenter.defaultCenter postNotificationName:CCPetsDiagnosticsDidChangeNotification object:nil];
+        });
+    });
+}
+
+@end
+
+#pragma mark - 页面
 
 // 控件的 target 只能是对象，用它把 action 转成 block。
 @interface CCPetsDiagnosticsHandler : NSObject
@@ -55,14 +79,12 @@ static NSString *SectionSymbol(NSString *level) {
 
 @interface CCPetsDiagnosticsPage ()
 @property(nonatomic) CCPetsFormBuilder *form;
-@property(nonatomic) NSTextField *summaryLabel;
 @property(nonatomic) NSProgressIndicator *spinner;
 @property(nonatomic) NSButton *recheckButton;
 @property(nonatomic) NSButton *reportButton;
 @property(nonatomic) NSMutableArray<CCPetsDiagnosticsHandler *> *handlers;
-@property(nonatomic) NSArray<NSDictionary *> *sections;
-// 每次检查加一；晚到的旧结果（连点重新检查、页面已换掉）靠它丢弃。
-@property(nonatomic) NSUInteger generation;
+// 正常项默认折叠；展开状态跨重新检查保留。
+@property(nonatomic) BOOL showsPassed;
 @end
 
 @implementation CCPetsDiagnosticsPage
@@ -70,6 +92,7 @@ static NSString *SectionSymbol(NSString *level) {
 - (NSButton *)buttonWithTitle:(NSString *)title action:(void (^)(NSButton *sender))action {
     NSButton *button = [NSButton buttonWithTitle:title target:nil action:nil];
     button.controlSize = NSControlSizeSmall;
+    button.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
     CCPetsDiagnosticsHandler *handler = [CCPetsDiagnosticsHandler new];
     handler.block = ^(id sender) { action(sender); };
     [self.handlers addObject:handler];
@@ -80,177 +103,233 @@ static NSString *SectionSymbol(NSString *level) {
 
 - (void)loadView {
     self.handlers = [NSMutableArray array];
-    self.form = [CCPetsFormBuilder new];
-
-    self.summaryLabel = [NSTextField labelWithString:L(@"Checking…")];
-    self.summaryLabel.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightMedium];
-    self.summaryLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.summaryLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
-        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    self.form = [[CCPetsFormBuilder alloc] initWithTitle:L(@"Diagnostics") subtitle:L(@"Checking…")];
 
     NSProgressIndicator *spinner = [NSProgressIndicator new];
     spinner.style = NSProgressIndicatorStyleSpinning;
     spinner.controlSize = NSControlSizeSmall;
     spinner.displayedWhenStopped = NO;
     self.spinner = spinner;
-
     __weak typeof(self) weakSelf = self;
-    self.recheckButton = [self buttonWithTitle:L(@"Re-check") action:^(NSButton *sender) { [weakSelf runChecks]; }];
-    self.reportButton = [self buttonWithTitle:L(@"Copy Report") action:^(NSButton *sender) {
-        [weakSelf copyReport:sender];
+    self.reportButton = [self buttonWithTitle:L(@"Copy Report") action:^(NSButton *sender) { [weakSelf copyReport:sender]; }];
+    self.recheckButton = [self buttonWithTitle:L(@"Re-check") action:^(NSButton *sender) {
+        [CCPetsDiagnosticsStore refresh];
     }];
+    [self.form setAccessoryViews:@[spinner, self.reportButton, self.recheckButton]];
+    self.view = self.form.view;
 
-    NSView *spacer = [NSView new];
-    [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSStackView *header = [NSStackView stackViewWithViews:
-        @[self.summaryLabel, spacer, spinner, self.recheckButton, self.reportButton]];
-    header.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    header.alignment = NSLayoutAttributeCenterY;
-    header.spacing = 8;
-    header.edgeInsets = NSEdgeInsetsMake(14, 28, 10, 28);
-    header.translatesAutoresizingMaskIntoConstraints = NO;
-
-    NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 560)];
-    NSScrollView *scroll = self.form.scrollView;
-    scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:header];
-    [root addSubview:scroll];
-    [NSLayoutConstraint activateConstraints:@[
-        [header.topAnchor constraintEqualToAnchor:root.topAnchor],
-        [header.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [header.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [scroll.topAnchor constraintEqualToAnchor:header.bottomAnchor],
-        [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
-    ]];
-    self.view = root;
-    [self runChecks];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(storeDidChange:)
+        name:CCPetsDiagnosticsDidChangeNotification object:nil];
+    [self render];
+    [CCPetsDiagnosticsStore refreshIfStale];
 }
 
 - (void)dealloc {
-    // 已经在跑的检查取消不了，但页面没了就没人接结果；generation 变了回调会直接丢弃。
-    self.generation++;
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
-- (void)runChecks {
-    NSUInteger generation = ++self.generation;
-    [self.spinner startAnimation:nil];
-    self.recheckButton.enabled = NO;
-    self.reportButton.enabled = NO;
-    self.summaryLabel.stringValue = L(@"Checking…");
-    __weak typeof(self) weakSelf = self;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSArray<NSDictionary *> *sections = CCPetsDoctorSections();
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CCPetsDiagnosticsPage *page = weakSelf;
-            if (!page || page.generation != generation) return;
-            [page showSections:sections];
-        });
-    });
+- (void)storeDidChange:(NSNotification *)notification {
+    [self render];
 }
 
-- (NSUInteger)countOfLevel:(NSString *)level {
-    NSUInteger count = 0;
-    for (NSDictionary *section in self.sections) {
+- (NSArray<NSDictionary *> *)resultsWithLevels:(NSArray<NSString *> *)levels {
+    NSMutableArray<NSDictionary *> *matches = [NSMutableArray array];
+    for (NSDictionary *section in CCPetsDiagnosticsStore.sections) {
         for (NSDictionary *result in section[@"results"]) {
-            if ([result[@"level"] isEqualToString:level]) count++;
+            if (![levels containsObject:result[@"level"]]) continue;
+            NSMutableDictionary *entry = [result mutableCopy];
+            entry[@"area"] = section[@"title"];
+            [matches addObject:entry];
         }
     }
-    return count;
+    return matches;
 }
 
-- (void)showSections:(NSArray<NSDictionary *> *)sections {
-    self.sections = sections;
-    [self.spinner stopAnimation:nil];
-    self.recheckButton.enabled = YES;
-    self.reportButton.enabled = YES;
-
-    NSUInteger warn = [self countOfLevel:@"warn"], fail = [self countOfLevel:@"fail"];
-    self.summaryLabel.stringValue = [@[
-        CCPetsInterpolate(L(@"{count} OK"), @{@"count": @([self countOfLevel:@"ok"])}),
-        CCPetsInterpolate(warn == 1 ? L(@"{count} warning") : L(@"{count} warnings"), @{@"count": @(warn)}),
-        CCPetsInterpolate(fail == 1 ? L(@"{count} error") : L(@"{count} errors"), @{@"count": @(fail)}),
-    ] componentsJoinedByString:@" · "];
-
-    [self.form removeAllSections];
-    for (NSUInteger index = 0; index < sections.count; index++) {
-        NSDictionary *section = sections[index];
-        NSMutableArray<NSView *> *rows = [NSMutableArray array];
-        for (NSDictionary *result in section[@"results"]) [rows addObject:[self rowForResult:result]];
-        NSString *worst = WorstLevel(section[@"results"]);
-        [self.form addSectionWithID:[NSString stringWithFormat:@"%lu", (unsigned long)index]
-            title:section[@"title"] symbol:SectionSymbol(worst) color:LevelColor(worst) rows:rows footer:nil];
+- (void)render {
+    BOOL running = CCPetsDiagnosticsStore.running;
+    if (running) [self.spinner startAnimation:nil];
+    else [self.spinner stopAnimation:nil];
+    self.recheckButton.enabled = !running;
+    NSArray<NSDictionary *> *sections = CCPetsDiagnosticsStore.sections;
+    self.reportButton.enabled = sections.count > 0;
+    [self.form removeAllContent];
+    if (!sections) {
+        self.form.subtitleLabel.stringValue = L(@"Checking…");
+        return;
     }
-    [self.form scrollToSectionWithID:nil];
+
+    // 失败排在警告前面：失败是"现在就不工作"，警告是"可能出问题"。
+    NSArray<NSDictionary *> *issues = [[self resultsWithLevels:@[@"fail"]]
+        arrayByAddingObjectsFromArray:[self resultsWithLevels:@[@"warn"]]];
+    NSArray<NSDictionary *> *passed = [self resultsWithLevels:@[@"ok"]];
+    NSArray<NSDictionary *> *notes = [self resultsWithLevels:@[@"info"]];
+    NSUInteger total = issues.count + passed.count + notes.count;
+    NSString *checked = running ? L(@"Checking…") : [NSString stringWithFormat:L(@"Last checked %@"),
+        [NSDateFormatter localizedStringFromDate:CCPetsDiagnosticsStore.checkedAt
+            dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle]];
+    self.form.subtitleLabel.stringValue = [NSString stringWithFormat:L(@"%1$@ · %2$lu checks"), checked,
+        (unsigned long)total];
+
+    [self.form addView:[self healthBannerForIssues:issues]];
+    for (NSDictionary *issue in issues) [self.form addView:[self issueCard:issue]];
+    if (passed.count > 0) [self.form addView:[self passedCard:passed]];
+    for (NSDictionary *note in notes) {
+        [self.form addFootnote:[NSString stringWithFormat:L(@"Note: %@"), note[@"title"]]];
+    }
 }
 
-// 级别图标 + 标题（可换行、可选中复制）；有修复建议时下面一行显示命令，右侧放"复制命令"。
-- (NSView *)rowForResult:(NSDictionary *)result {
-    NSString *level = result[@"level"];
-    NSImageView *icon = [NSImageView imageViewWithImage:
-        [NSImage imageWithSystemSymbolName:LevelSymbol(level) accessibilityDescription:level] ?: [NSImage new]];
-    icon.contentTintColor = LevelColor(level);
+// 顶部一句话结论：有几项要处理、怎么修。
+- (NSView *)healthBannerForIssues:(NSArray<NSDictionary *> *)issues {
+    BOOL failing = NO;
+    for (NSDictionary *issue in issues) if ([issue[@"level"] isEqualToString:@"fail"]) failing = YES;
+    CCPetsStatusKind kind = issues.count == 0 ? CCPetsStatusOK : (failing ? CCPetsStatusError : CCPetsStatusWarn);
+    NSString *symbol = issues.count == 0 ? @"checkmark" : (failing ? @"xmark" : @"exclamationmark");
+    NSImageView *icon = [NSImageView imageViewWithImage:[[NSImage imageWithSystemSymbolName:symbol
+        accessibilityDescription:nil] imageWithSymbolConfiguration:[NSImageSymbolConfiguration
+        configurationWithPointSize:15 weight:NSFontWeightBold]] ?: [NSImage new]];
+    icon.contentTintColor = CCPetsStatusColor(kind);
+    CCPetsColorDot *badge = [[CCPetsColorDot alloc] initWithColor:CCPetsStatusBackgroundColor(kind) diameter:38];
     icon.translatesAutoresizingMaskIntoConstraints = NO;
-    [icon.widthAnchor constraintEqualToConstant:18].active = YES;
-    [icon.heightAnchor constraintEqualToConstant:18].active = YES;
+    [badge addSubview:icon];
+    [NSLayoutConstraint activateConstraints:@[
+        [icon.centerXAnchor constraintEqualToAnchor:badge.centerXAnchor],
+        [icon.centerYAnchor constraintEqualToAnchor:badge.centerYAnchor],
+    ]];
 
-    NSTextField *title = [NSTextField wrappingLabelWithString:result[@"title"]];
+    NSString *title = issues.count == 0 ? L(@"Everything looks good")
+        : (issues.count == 1 ? L(@"1 item needs attention")
+            : [NSString stringWithFormat:L(@"%lu items need attention"), (unsigned long)issues.count]);
+    NSString *detail = issues.count == 0 ? L(@"Hooks, the status line and the command line tools are all in place.")
+        : L(@"Fixing these changes your shell and Claude Code / Codex settings, so the commands are shown here for you to run.");
+    NSTextField *titleLabel = CCPetsLabel(title, 15, NSFontWeightBold, CCPetsInkColor());
+    NSTextField *detailLabel = CCPetsWrappingLabel(detail, 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
+    NSStackView *texts = [NSStackView stackViewWithViews:@[titleLabel, detailLabel]];
+    texts.orientation = NSUserInterfaceLayoutOrientationVertical;
+    texts.alignment = NSLayoutAttributeLeading;
+    texts.spacing = 3;
+
+    CCPetsCardView *card = [CCPetsCardView new];
+    for (NSView *view in @[badge, texts]) {
+        view.translatesAutoresizingMaskIntoConstraints = NO;
+        [card addSubview:view];
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        [badge.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
+        [badge.centerYAnchor constraintEqualToAnchor:card.centerYAnchor],
+        [texts.leadingAnchor constraintEqualToAnchor:badge.trailingAnchor constant:14],
+        [texts.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
+        [texts.topAnchor constraintEqualToAnchor:card.topAnchor constant:14],
+        [texts.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-14],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:66],
+    ]];
+    return card;
+}
+
+// 一条问题：左侧级别色条，所属模块，标题，修复命令 + 复制。
+- (NSView *)issueCard:(NSDictionary *)issue {
+    BOOL failing = [issue[@"level"] isEqualToString:@"fail"];
+    CCPetsCardView *card = [CCPetsCardView new];
+    card.stripeColor = CCPetsStatusColor(failing ? CCPetsStatusError : CCPetsStatusWarn);
+    NSTextField *area = CCPetsLabel(issue[@"area"], 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    NSTextField *title = CCPetsWrappingLabel(issue[@"title"], 13, NSFontWeightSemibold, CCPetsInkColor());
     title.selectable = YES;
-    [title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
-        forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSMutableArray<NSView *> *texts = [NSMutableArray arrayWithObject:title];
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObjects:area, title, nil];
 
-    NSString *fix = result[@"fix"];
+    NSString *fix = issue[@"fix"];
     if (fix.length > 0) {
-        // 命令都不长，单行显示；换行的标签在行内自动布局里高度会少算一截。
-        NSTextField *command = [NSTextField labelWithString:fix];
+        NSTextField *command = CCPetsLabel(fix, 11, NSFontWeightRegular, CCPetsInkColor());
+        command.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
         command.selectable = YES;
         command.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        command.font = [NSFont monospacedSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
-        command.textColor = NSColor.secondaryLabelColor;
         [command setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
             forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [texts addObject:command];
-    }
-    NSStackView *textStack = [NSStackView stackViewWithViews:texts];
-    textStack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    textStack.alignment = NSLayoutAttributeLeading;
-    textStack.spacing = 2;
-
-    // 用约束直接排，而不是 NSStackView 的 edgeInsets：后者在含换行标签的行里会吃掉下边距。
-    NSView *row = [NSView new];
-    textStack.translatesAutoresizingMaskIntoConstraints = NO;
-    [row addSubview:icon];
-    [row addSubview:textStack];
-    NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
-        [icon.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
-        [icon.topAnchor constraintEqualToAnchor:row.topAnchor constant:11],
-        [textStack.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:10],
-        [textStack.topAnchor constraintEqualToAnchor:row.topAnchor constant:10],
-        [textStack.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-10],
-    ]];
-    if (fix.length > 0) {
+        CCPetsCardView *code = [CCPetsCardView new];
+        code.cornerRadius = 6;
+        code.fillColor = CCPetsBackgroundColor();
+        command.translatesAutoresizingMaskIntoConstraints = NO;
+        [code addSubview:command];
         __weak typeof(self) weakSelf = self;
         NSButton *copy = [self buttonWithTitle:L(@"Copy Command") action:^(NSButton *sender) {
             CopyToPasteboard(fix);
             [weakSelf flashCopied:sender original:L(@"Copy Command")];
         }];
-        copy.translatesAutoresizingMaskIntoConstraints = NO;
         [copy setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [copy setContentCompressionResistancePriority:NSLayoutPriorityRequired
-            forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [row addSubview:copy];
-        [constraints addObjectsFromArray:@[
-            [copy.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14],
-            [copy.topAnchor constraintEqualToAnchor:row.topAnchor constant:9],
-            [textStack.trailingAnchor constraintEqualToAnchor:copy.leadingAnchor constant:-10],
+        NSStackView *line = [NSStackView stackViewWithViews:@[code, copy]];
+        line.spacing = 8;
+        line.alignment = NSLayoutAttributeCenterY;
+        [NSLayoutConstraint activateConstraints:@[
+            [command.leadingAnchor constraintEqualToAnchor:code.leadingAnchor constant:8],
+            [command.trailingAnchor constraintEqualToAnchor:code.trailingAnchor constant:-8],
+            [command.topAnchor constraintEqualToAnchor:code.topAnchor constant:5],
+            [command.bottomAnchor constraintEqualToAnchor:code.bottomAnchor constant:-5],
         ]];
-    } else {
-        [constraints addObject:[textStack.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14]];
+        [views addObject:line];
     }
-    [NSLayoutConstraint activateConstraints:constraints];
-    return row;
+    NSStackView *stack = [NSStackView stackViewWithViews:views];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 4;
+    [stack setCustomSpacing:8 afterView:title];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:11],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-12],
+        [title.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
+    ]];
+    if (views.count > 2) [views.lastObject.widthAnchor constraintLessThanOrEqualToAnchor:stack.widthAnchor].active = YES;
+    [stack setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
+    return card;
+}
+
+// 正常项折叠成一行"✓ 11 项正常"，点开看清单。
+- (NSView *)passedCard:(NSArray<NSDictionary *> *)passed {
+    NSButton *toggle = [self buttonWithTitle:@"" action:^(NSButton *sender) {}];
+    toggle.bordered = NO;
+    toggle.imagePosition = NSImageLeft;
+    toggle.image = [NSImage imageWithSystemSymbolName:self.showsPassed ? @"chevron.down" : @"chevron.right"
+        accessibilityDescription:nil];
+    toggle.contentTintColor = CCPetsTertiaryInkColor();
+    toggle.attributedTitle = [[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"  %@",
+        passed.count == 1 ? L(@"1 check passed") : [NSString stringWithFormat:L(@"%lu checks passed"),
+            (unsigned long)passed.count]] attributes:@{
+        NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: CCPetsStatusColor(CCPetsStatusOK)}];
+    __weak typeof(self) weakSelf = self;
+    CCPetsDiagnosticsHandler *handler = self.handlers.lastObject;
+    handler.block = ^(id sender) {
+        weakSelf.showsPassed = !weakSelf.showsPassed;
+        [weakSelf render];
+    };
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:toggle];
+    if (self.showsPassed) {
+        for (NSDictionary *result in passed) {
+            NSTextField *line = CCPetsWrappingLabel([NSString stringWithFormat:@"%@ · %@", result[@"area"],
+                result[@"title"]], 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
+            line.selectable = YES;
+            [views addObject:line];
+        }
+    }
+    NSStackView *stack = [NSStackView stackViewWithViews:views];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 6;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    CCPetsCardView *card = [CCPetsCardView new];
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:10],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-10],
+    ]];
+    for (NSView *view in views) {
+        if (view != toggle) [view.leadingAnchor constraintEqualToAnchor:stack.leadingAnchor constant:22].active = YES;
+        if (view != toggle) [view.trailingAnchor constraintLessThanOrEqualToAnchor:stack.trailingAnchor].active = YES;
+    }
+    return card;
 }
 
 // 点了之后按钮上短暂显示"已复制"，不用再弹别的提示。
@@ -263,8 +342,9 @@ static NSString *SectionSymbol(NSString *level) {
 }
 
 - (void)copyReport:(NSButton *)sender {
-    if (self.sections.count == 0) return;
-    CopyToPasteboard(CCPetsDoctorReport(self.sections));
+    NSArray<NSDictionary *> *sections = CCPetsDiagnosticsStore.sections;
+    if (sections.count == 0) return;
+    CopyToPasteboard(CCPetsDoctorReport(sections));
     [self flashCopied:sender original:L(@"Copy Report")];
 }
 

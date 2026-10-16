@@ -584,7 +584,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSString *tip = ladder[rank][1];
     if (demotedByFact) tip = L(@"Burning fast");
     else if (projectedRank >= 0 && rank == (NSUInteger)projectedRank) tip = projectedTip;
-    return @{@"label": label, @"tip": tip, @"color": ladder[rank][2]};
+    return @{@"label": label, @"tip": tip, @"color": ladder[rank][2], @"level": @(rank)};
 }
 - (void)drawProvider:(NSString *)name usage:(NSDictionary *)usage usedKey:(NSString *)usedKey
     color:(NSColor *)color cardRect:(NSRect)card {

@@ -142,6 +142,10 @@
     snapshot[@"status"] = self.hasAgentStatus && self.statusTitleLabel.stringValue.length > 0
         ? self.statusTitleLabel.stringValue : L(@"Idle");
     snapshot[@"statusColor"] = [self statusColorForState:state];
+    // 宠物口吻的那句（状态卡副行），概览页拿来当宠物头上的气泡。
+    if (self.hasAgentStatus && self.statusDetailLabel.stringValue.length > 0) {
+        snapshot[@"detail"] = self.statusDetailLabel.stringValue;
+    }
     snapshot[@"approvals"] = @([self pendingApprovalSessionRecords].count);
     NSUInteger sessions = 0;
     for (NSDictionary *record in self.agentSessionRecords.allValues) {

@@ -150,6 +150,19 @@
     [NSUserDefaults.standardUserDefaults setObject:petID forKey:PetSelectedSpriteKey];
     [self notePetCardChanged];
 }
+// 主窗口宠物页的选择列表：只给展示要的字段，素材由页面在后台解码。
+- (NSArray<NSDictionary *> *)petPickerOptions {
+    NSMutableArray<NSDictionary *> *options = [NSMutableArray array];
+    for (NSDictionary *option in [self petOptions]) {
+        [options addObject:@{@"id": option[@"id"], @"name": option[@"name"] ?: @"", @"path": option[@"path"] ?: @"",
+                             @"rowCount": option[@"spriteRowCount"] ?: @9,
+                             @"builtin": @([option[@"id"] hasPrefix:@"builtin:"])}];
+    }
+    return options;
+}
+- (NSString *)currentPetID {
+    return self.petView.currentPetID;
+}
 - (BOOL)deletePetWithID:(NSString *)petID {
     if (![petID hasPrefix:@"external:"]) return NO;
     NSArray<NSDictionary *> *options = [self petOptions];

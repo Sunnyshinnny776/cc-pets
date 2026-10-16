@@ -10,6 +10,7 @@
 #import "CCPetsPetSize.h"
 #import "CCPetsPreferences.h"
 #import "CCPetsMainWindow.h"
+#import "CCPetsWorkbench.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
@@ -275,9 +276,21 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
     pending:(NSDictionary<NSString *, NSNumber *> *)pending;
 @end
 
+// 主窗口工作台几页的数据快照，见 CCPetsWorkbench.h。
+@interface AppDelegate (Workbench)
+- (NSArray<NSDictionary *> *)workbenchSessions;
+- (NSDictionary *)workbenchMessages;
+- (NSArray<NSDictionary *> *)workbenchQuotas;
+- (void)focusWorkbenchSessionWithID:(NSString *)sessionID;
+- (void)focusBridgeSessionWithID:(NSString *)sessionID;
+- (void)markWorkbenchMessagesSeen;
+@end
+
 // 宠物素材发现、切换与删除
 @interface AppDelegate (Pets)
 - (void)switchPetToID:(NSString *)petID;
+- (NSArray<NSDictionary *> *)petPickerOptions;
+- (NSString *)currentPetID;
 - (BOOL)deletePetWithID:(NSString *)petID;
 - (NSDictionary *)petManifestInDirectory:(NSString *)directory;
 - (NSInteger)spriteVersionInDirectory:(NSString *)directory fallbackDirectory:(NSString *)fallbackDirectory;

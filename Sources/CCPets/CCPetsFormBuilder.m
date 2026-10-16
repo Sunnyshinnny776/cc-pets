@@ -11,28 +11,53 @@
 }
 @end
 
-// 分组卡片的底色：浅色下比窗口底亮一档，深色下比窗口底浅一档，和系统设置一致。
-static NSColor *FormCardColor(void) {
-    return [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
-        BOOL dark = [[appearance bestMatchFromAppearancesWithNames:
-            @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-        return dark ? [NSColor colorWithWhite:1 alpha:0.05] : [NSColor colorWithWhite:1 alpha:0.75];
-    }];
-}
+// 内容最宽 780pt：窗口拉得很宽时，表单和表格不跟着摊成一长条，行内左右两端离得太远不好对照。
+static const CGFloat FormMaximumWidth = 780;
+static const CGFloat FormSideInset = 28;
 
 @interface CCPetsFormBuilder ()
+@property(nonatomic) NSView *view;
 @property(nonatomic) NSScrollView *scrollView;
 @property(nonatomic) NSStackView *stack;
-@property(nonatomic) NSMutableArray<NSDictionary *> *entries;
-@property(nonatomic) NSMutableDictionary<NSString *, NSView *> *headers;
+@property(nonatomic) NSTextField *subtitleLabel;
+@property(nonatomic) NSStackView *accessories;
 @end
 
 @implementation CCPetsFormBuilder
 
 - (instancetype)init {
+    return [self initWithTitle:@"" subtitle:@""];
+}
+
+- (instancetype)initWithTitle:(NSString *)title subtitle:(NSString *)subtitle {
     if ((self = [super init])) {
-        self.entries = [NSMutableArray array];
-        self.headers = [NSMutableDictionary dictionary];
+        NSTextField *titleLabel = CCPetsLabel(title, 22, NSFontWeightBold, CCPetsInkColor());
+        NSTextField *subtitleLabel = CCPetsLabel(subtitle, 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
+        [titleLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [subtitleLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        self.subtitleLabel = subtitleLabel;
+        NSStackView *titles = [NSStackView stackViewWithViews:@[titleLabel, subtitleLabel]];
+        titles.orientation = NSUserInterfaceLayoutOrientationVertical;
+        titles.alignment = NSLayoutAttributeLeading;
+        titles.spacing = 2;
+
+        NSStackView *accessories = [NSStackView stackViewWithViews:@[]];
+        accessories.spacing = 8;
+        accessories.alignment = NSLayoutAttributeCenterY;
+        [accessories setContentHuggingPriority:NSLayoutPriorityRequired
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [accessories setContentCompressionResistancePriority:NSLayoutPriorityRequired
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        self.accessories = accessories;
+
+        NSView *header = [NSView new];
+        NSView *rule = [CCPetsFormBuilder separator];
+        for (NSView *view in @[titles, accessories, rule]) {
+            view.translatesAutoresizingMaskIntoConstraints = NO;
+            [header addSubview:view];
+        }
 
         NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 560, 560)];
         scroll.hasVerticalScroller = YES;
@@ -46,64 +71,119 @@ static NSColor *FormCardColor(void) {
         NSStackView *stack = [NSStackView stackViewWithViews:@[]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.alignment = NSLayoutAttributeLeading;
-        stack.spacing = 8;
+        stack.spacing = 16;
         stack.translatesAutoresizingMaskIntoConstraints = NO;
         [document addSubview:stack];
+
+        NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 640, 560)];
+        header.translatesAutoresizingMaskIntoConstraints = NO;
+        scroll.translatesAutoresizingMaskIntoConstraints = NO;
+        [root addSubview:header];
+        [root addSubview:scroll];
+
+        NSLayoutConstraint *fullWidth = [stack.widthAnchor constraintEqualToAnchor:document.widthAnchor
+            constant:-2 * FormSideInset];
+        fullWidth.priority = NSLayoutPriorityDefaultHigh;
         [NSLayoutConstraint activateConstraints:@[
+            [header.topAnchor constraintEqualToAnchor:root.topAnchor],
+            [header.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [header.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [titles.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:FormSideInset],
+            [titles.topAnchor constraintEqualToAnchor:header.topAnchor constant:6],
+            [titles.bottomAnchor constraintEqualToAnchor:header.bottomAnchor constant:-14],
+            [accessories.leadingAnchor constraintGreaterThanOrEqualToAnchor:titles.trailingAnchor constant:16],
+            [accessories.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-FormSideInset],
+            [accessories.centerYAnchor constraintEqualToAnchor:titles.centerYAnchor],
+            [rule.leadingAnchor constraintEqualToAnchor:header.leadingAnchor],
+            [rule.trailingAnchor constraintEqualToAnchor:header.trailingAnchor],
+            [rule.bottomAnchor constraintEqualToAnchor:header.bottomAnchor],
+
+            [scroll.topAnchor constraintEqualToAnchor:header.bottomAnchor],
+            [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
             [document.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor],
             [document.trailingAnchor constraintEqualToAnchor:clip.trailingAnchor],
             [document.topAnchor constraintEqualToAnchor:clip.topAnchor],
-            [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor constant:28],
-            [stack.trailingAnchor constraintEqualToAnchor:document.trailingAnchor constant:-28],
-            [stack.topAnchor constraintEqualToAnchor:document.topAnchor constant:20],
+            [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor constant:FormSideInset],
+            [stack.trailingAnchor constraintLessThanOrEqualToAnchor:document.trailingAnchor constant:-FormSideInset],
+            [stack.widthAnchor constraintLessThanOrEqualToConstant:FormMaximumWidth],
+            fullWidth,
+            [stack.topAnchor constraintEqualToAnchor:document.topAnchor constant:18],
             [stack.bottomAnchor constraintEqualToAnchor:document.bottomAnchor constant:-28],
         ]];
+        self.view = root;
         self.scrollView = scroll;
         self.stack = stack;
     }
     return self;
 }
 
-- (NSArray<NSDictionary *> *)sectionEntries {
-    return self.entries;
+- (void)setAccessoryViews:(NSArray<NSView *> *)views {
+    for (NSView *view in [self.accessories.arrangedSubviews copy]) {
+        [self.accessories removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    for (NSView *view in views) [self.accessories addArrangedSubview:view];
+}
+
++ (NSView *)separator {
+    CCPetsLineView *line = [CCPetsLineView new];
+    line.translatesAutoresizingMaskIntoConstraints = NO;
+    [line.heightAnchor constraintEqualToConstant:1].active = YES;
+    return line;
 }
 
 + (NSView *)rowWithTitle:(NSString *)title controls:(NSArray<NSView *> *)controls {
-    NSTextField *label = [NSTextField labelWithString:title];
-    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    return [self rowWithTitle:title subtitle:nil controls:controls];
+}
+
++ (NSView *)rowWithTitle:(NSString *)title subtitle:(NSString *)subtitle controls:(NSArray<NSView *> *)controls {
+    NSTextField *label = CCPetsLabel(title, 13, NSFontWeightRegular, CCPetsInkColor());
     [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
         forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSView *titleView = label;
+    if (subtitle.length > 0) {
+        NSTextField *detail = CCPetsLabel(subtitle, 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+        [detail setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        NSStackView *titles = [NSStackView stackViewWithViews:@[label, detail]];
+        titles.orientation = NSUserInterfaceLayoutOrientationVertical;
+        titles.alignment = NSLayoutAttributeLeading;
+        titles.spacing = 1;
+        [titles setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        titleView = titles;
+    }
     NSView *spacer = [NSView new];
     [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSStackView *row = [NSStackView stackViewWithViews:[@[label, spacer] arrayByAddingObjectsFromArray:controls]];
+    NSStackView *row = [NSStackView stackViewWithViews:[@[titleView, spacer] arrayByAddingObjectsFromArray:controls]];
     row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     row.alignment = NSLayoutAttributeCenterY;
     row.spacing = 8;
     row.edgeInsets = NSEdgeInsetsMake(8, 14, 8, 14);
-    [row.heightAnchor constraintGreaterThanOrEqualToConstant:40].active = YES;
+    [row.heightAnchor constraintGreaterThanOrEqualToConstant:subtitle.length > 0 ? 48 : 40].active = YES;
     return row;
 }
 
-// 分组标题前的彩色图标块和侧边栏同一套（CCPetsSymbolTile），一眼能分出是哪一组。
-- (NSView *)addSectionWithID:(NSString *)sectionID title:(NSString *)title symbol:(NSString *)symbol
-    color:(NSColor *)color rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
-    NSTextField *label = [NSTextField labelWithString:title];
-    label.font = [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightSemibold];
-    NSImageView *icon = [NSImageView imageViewWithImage:CCPetsSymbolTile(symbol, color, 22)];
-    [icon.widthAnchor constraintEqualToConstant:22].active = YES;
-    [icon.heightAnchor constraintEqualToConstant:22].active = YES;
-    NSStackView *header = [NSStackView stackViewWithViews:@[icon, label]];
+- (void)addGroupTitle:(NSString *)title note:(NSString *)note {
+    NSTextField *label = CCPetsLabel(title, 13, NSFontWeightSemibold, CCPetsInkColor());
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:label];
+    if (note.length > 0) [views addObject:CCPetsLabel(note, 11, NSFontWeightRegular, CCPetsTertiaryInkColor())];
+    NSStackView *header = [NSStackView stackViewWithViews:views];
     header.spacing = 8;
-    header.alignment = NSLayoutAttributeCenterY;
+    header.alignment = NSLayoutAttributeFirstBaseline;
+    header.edgeInsets = NSEdgeInsetsMake(0, 2, 0, 0);
+    // 分组标题和它下面的卡片贴近一些，和上一组拉开：一眼看出谁属于谁。
     if (self.stack.arrangedSubviews.count > 0) {
-        [self.stack setCustomSpacing:24 afterView:self.stack.arrangedSubviews.lastObject];
+        [self.stack setCustomSpacing:22 afterView:self.stack.arrangedSubviews.lastObject];
     }
     [self.stack addArrangedSubview:header];
-    [self.stack setCustomSpacing:10 afterView:header];
-    if (sectionID) {
-        [self.entries addObject:@{@"id": sectionID, @"title": title, @"symbol": symbol, @"color": color}];
-        self.headers[sectionID] = header;
-    }
+    [self.stack setCustomSpacing:8 afterView:header];
+}
+
+- (NSView *)addGroupWithTitle:(NSString *)title rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
+    if (title.length > 0) [self addGroupTitle:title note:nil];
 
     NSStackView *content = [NSStackView stackViewWithViews:@[]];
     content.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -111,76 +191,54 @@ static NSColor *FormCardColor(void) {
     content.translatesAutoresizingMaskIntoConstraints = NO;
     for (NSView *row in rows) {
         if (content.arrangedSubviews.count > 0) {
-            NSBox *separator = [NSBox new];
-            separator.boxType = NSBoxSeparator;
+            NSView *separator = [CCPetsFormBuilder separator];
             [content addArrangedSubview:separator];
             [separator.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14].active = YES;
-            [separator.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14].active = YES;
+            [separator.trailingAnchor constraintEqualToAnchor:content.trailingAnchor].active = YES;
         }
         [content addArrangedSubview:row];
         [row.leadingAnchor constraintEqualToAnchor:content.leadingAnchor].active = YES;
         [row.trailingAnchor constraintEqualToAnchor:content.trailingAnchor].active = YES;
     }
 
-    NSBox *card = [NSBox new];
-    card.boxType = NSBoxCustom;
-    card.titlePosition = NSNoTitle;
-    card.cornerRadius = 8;
-    card.borderWidth = 1;
-    card.borderColor = NSColor.separatorColor;
-    card.fillColor = FormCardColor();
-    card.contentViewMargins = NSZeroSize;
+    CCPetsCardView *card = [CCPetsCardView new];
     card.translatesAutoresizingMaskIntoConstraints = NO;
-    [card.contentView addSubview:content];
+    [card addSubview:content];
     [NSLayoutConstraint activateConstraints:@[
-        [content.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor],
-        [content.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor],
-        [content.topAnchor constraintEqualToAnchor:card.contentView.topAnchor],
-        [content.bottomAnchor constraintEqualToAnchor:card.contentView.bottomAnchor],
+        [content.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [content.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [content.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [content.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
     ]];
-    [self.stack addArrangedSubview:card];
-    [card.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor].active = YES;
-    [card.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor].active = YES;
-
-    if (footer.length > 0) {
-        NSTextField *note = [NSTextField wrappingLabelWithString:footer];
-        note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        note.textColor = NSColor.secondaryLabelColor;
-        note.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.stack addArrangedSubview:note];
-        [note.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor constant:4].active = YES;
-        [note.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor constant:-4].active = YES;
-    }
-    return header;
+    [self addView:card];
+    if (footer.length > 0) [self addFootnote:footer];
+    return card;
 }
 
-- (void)removeAllSections {
+- (void)addView:(NSView *)view {
+    view.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.stack addArrangedSubview:view];
+    [view.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor].active = YES;
+    [view.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor].active = YES;
+}
+
+- (NSTextField *)addFootnote:(NSString *)text {
+    NSTextField *note = CCPetsWrappingLabel(text, 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    if (self.stack.arrangedSubviews.count > 0) {
+        [self.stack setCustomSpacing:8 afterView:self.stack.arrangedSubviews.lastObject];
+    }
+    note.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.stack addArrangedSubview:note];
+    [note.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor constant:2].active = YES;
+    [note.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor constant:-2].active = YES;
+    return note;
+}
+
+- (void)removeAllContent {
     for (NSView *view in [self.stack.arrangedSubviews copy]) {
         [self.stack removeArrangedSubview:view];
         [view removeFromSuperview];
     }
-    [self.entries removeAllObjects];
-    [self.headers removeAllObjects];
-}
-
-- (void)scrollToSectionWithID:(NSString *)sectionID {
-    NSScrollView *scroll = self.scrollView;
-    NSView *document = scroll.documentView;
-    [document layoutSubtreeIfNeeded];
-    NSView *header = sectionID ? self.headers[sectionID] : nil;
-    CGFloat target = 0;
-    if (header) {
-        // 标题上方留一点空隙，别贴着窗口顶沿；超出可滚范围的（最后几段）停在底部。
-        target = [document convertRect:header.bounds fromView:header].origin.y - 16;
-        CGFloat maximum = MAX(0, NSHeight(document.frame) - NSHeight(scroll.contentView.bounds));
-        target = MIN(MAX(0, target), maximum);
-    }
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
-        context.duration = 0.25;
-        [scroll.contentView.animator setBoundsOrigin:NSMakePoint(0, target)];
-    } completionHandler:^{
-        [scroll reflectScrolledClipView:scroll.contentView];
-    }];
 }
 
 @end

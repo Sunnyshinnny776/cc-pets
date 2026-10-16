@@ -27,10 +27,25 @@
 - (NSString *)sampleSpeechLine;
 // 让桌宠当场说这句（和台词编辑器的"试说一句"同一条路）。
 - (void)presentSpeechText:(NSString *)text;
+// 可选的宠物：id、name、path（精灵图）、rowCount、builtin（是否包内自带）。
+- (NSArray<NSDictionary *> *)petPickerOptions;
+- (NSString *)currentPetID;
+- (void)switchPetToID:(NSString *)petID;
 @end
 
-// 主窗口的「设置」页：右键菜单里的设置按组摊开，外加菜单里放不下的连续调节和文件夹入口。
-// 控件状态一律现读 defaults；收到 CCPetsPreferencesDidChangeNotification（比如在右键菜单里
-// 改了）就整体重读一遍，两边始终一致。
-@interface CCPetsSettingsPage : NSViewController <CCPetsMainPageSections>
+// 设置拆成三页，共用这个基类：控件状态一律现读 defaults；收到 CCPetsPreferencesDidChangeNotification
+// （比如在右键菜单里改了）就整体重读一遍，两边始终一致。
+@interface CCPetsSettingsPageBase : NSViewController
+@end
+
+// 宠物：选哪只、多大、碎碎念。
+@interface CCPetsPetPage : CCPetsSettingsPageBase
+@end
+
+// 提醒与互动：系统通知、点击互动、桌面状态卡与 CC Bridge 角标。
+@interface CCPetsAlertsPage : CCPetsSettingsPageBase
+@end
+
+// 通用：语言、浮层外观（主题、玻璃压暗）、悬停面板显示什么、数据文件夹。
+@interface CCPetsGeneralPage : CCPetsSettingsPageBase
 @end
