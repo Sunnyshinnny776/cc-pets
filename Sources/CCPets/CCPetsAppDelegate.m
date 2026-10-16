@@ -1,6 +1,7 @@
 // AppDelegate 主干：启动、退出、窗口跟随。各功能模块在 CCPetsAppDelegate+<模块>.m 里，
 // 共享常量和跨文件的方法声明见 CCPetsAppDelegate+Private.h。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsOpenCommand.h"
 
 @implementation CCPetsBubbleContainerView
 @end
@@ -125,6 +126,10 @@
 - (void)openMainWindow:(id)sender {
     [CCPetsMainWindowController presentPage:nil];
 }
+- (void)openWindowRequested:(NSNotification *)notification {
+    NSString *page = notification.userInfo[@"page"];
+    [CCPetsMainWindowController presentPage:[page isKindOfClass:NSString.class] && page.length > 0 ? page : nil];
+}
 - (NSDictionary *)petCardSnapshot {
     NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
     snapshot[@"sheet"] = self.petView.sheet;
@@ -160,6 +165,11 @@
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     // 没有主菜单的话，台词编辑器里 ⌘C/⌘V/⌘A/⌘Z 全部没反应。
     [self installMainMenu];
+    // `cc-pets open` 在桌宠已运行时靠这条通知开窗，不走 reopen 事件：每个终端启动 CLI 都会
+    // `open -g` 一次桌宠，借 reopen 开窗会让每开一个终端就弹一次主窗口。
+    [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(openWindowRequested:)
+        name:CCPetsOpenWindowNotificationName() object:nil
+        suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
     // 台词全在这个文件里，代码里没有第二份。首次启动先从默认词库拷一份出来，
     // 否则新装的桌宠一句话都不会说。
     PetPhrasesEnsureFileExists();
@@ -498,6 +508,9 @@
         name:NSWorkspaceScreensDidWakeNotification object:nil];
     // 启动先让界面和事件流就位，再联网检查更新，别和启动抢时间。
     [self performSelector:@selector(silentCheckForUpdate) withObject:nil afterDelay:5.0];
+    if (self.launchWindowPage) {
+        [CCPetsMainWindowController presentPage:self.launchWindowPage.length > 0 ? self.launchWindowPage : nil];
+    }
 }
 // CLI 启动时桌宠若已在运行，`open -g` 不会重新启动它，只会发一个 reopen 事件过来。
 // 借这个时机同样静默检查一次更新（silentCheckForUpdate 自己做节流）。

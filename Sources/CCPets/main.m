@@ -12,6 +12,7 @@
 #import "CCPetsIntegrations.h"
 #import "CCPetsBridgeCLI.h"
 #import "CCPetsDoctor.h"
+#import "CCPetsOpenCommand.h"
 #import "CCPetsPetStore.h"
 #import "CCPetsCLISupport.h"
 #import "CCPetsTerminalFocus.h"
@@ -28,6 +29,11 @@ int main(int argc, const char *argv[]) {
             NSMutableArray<NSString *> *arguments = [NSMutableArray array];
             for (int index = 1; index < argc; index++) [arguments addObject:@(argv[index])];
             return CCPetsDoctorMain(arguments);
+        }
+        if (argc > 1 && strcmp(argv[1], "open") == 0) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCPetsOpenMain(arguments);
         }
         if (argc > 1 && strcmp(argv[1], "pet") == 0) {
             NSMutableArray<NSString *> *arguments = [NSMutableArray array];
@@ -152,7 +158,7 @@ int main(int argc, const char *argv[]) {
         // 单横线的 -psn_* / -NS* / -Apple* 是系统和 Xcode 启动 App 时自己加的。
         for (int index = 1; index < argc; index++) {
             if (strncmp(argv[index], "--", 2) != 0) continue;
-            static const char *launchFlags[] = {"--managed", "--standalone", "--preview-dashboard"};
+            static const char *launchFlags[] = {"--managed", "--standalone", "--preview-dashboard", "--open-window"};
             BOOL known = NO;
             for (size_t flag = 0; flag < sizeof(launchFlags) / sizeof(launchFlags[0]); flag++) {
                 if (strcmp(argv[index], launchFlags[flag]) == 0) known = YES;
@@ -173,6 +179,12 @@ int main(int argc, const char *argv[]) {
         NSApplication *app = NSApplication.sharedApplication;
         AppDelegate *delegate = [AppDelegate new];
         app.delegate = delegate;
+        // --open-window [page]：page 省略时开上次看的页面。
+        for (int index = 1; index < argc; index++) {
+            if (strcmp(argv[index], "--open-window") != 0) continue;
+            BOOL hasPage = index + 1 < argc && argv[index + 1][0] != '-';
+            delegate.launchWindowPage = hasPage ? @(argv[index + 1]) : @"";
+        }
         [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
         [app run];
         (void)lock;

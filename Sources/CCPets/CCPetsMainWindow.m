@@ -20,6 +20,12 @@ static NSArray<NSDictionary *> *MainWindowPages(void) {
     ];
 }
 
+NSArray<NSString *> *CCPetsMainWindowPageIDs(void) {
+    NSMutableArray<NSString *> *ids = [NSMutableArray array];
+    for (NSDictionary *entry in MainWindowPages()) [ids addObject:entry[@"id"]];
+    return ids;
+}
+
 static NSDictionary *MainWindowPageWithID(NSString *page) {
     for (NSDictionary *entry in MainWindowPages()) {
         if ([entry[@"id"] isEqualToString:page]) return entry;

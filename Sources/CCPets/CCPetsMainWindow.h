@@ -12,6 +12,9 @@
 extern NSString *const CCPetsMainWindowPageSettings;
 extern NSString *const CCPetsMainWindowPageDiagnostics;
 
+// 所有页面标识，按侧边栏顺序。`cc-pets open <page>` 用它校验参数。
+NSArray<NSString *> *CCPetsMainWindowPageIDs(void);
+
 // 侧边栏顶部的宠物名片要的数据。由 AppDelegate 提供，窗口只读不写。
 // 键：sheet（NSImage 精灵图）、rowCount、name、state（Agent 状态，无会话时 idle）、
 // status（状态文字）、statusColor（NSColor）、sessions（在线会话数）、approvals（待审批数）。

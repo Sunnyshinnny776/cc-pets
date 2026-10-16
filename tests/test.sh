@@ -1401,6 +1401,36 @@ grep -q "当前终端的 PATH 里没有 shim 目录" "${DOCTOR_TMP}/no-path.txt"
 # 走 bin/cc-pets 入口，并出现在帮助里。
 doctor_env "${PROJECT_DIR}/bin/cc-pets" paths --json | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
 "${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets doctor"
+
+# ---- cc-pets open：从终端打开主窗口 ----
+# 帮助里有；页面参数在发通知 / 拉起 App 之前就校验，拼错的页面不该启动任何东西。
+"${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets open"
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "settings"
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "diagnostics"
+if doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open no-such-page >/dev/null 2>&1; then
+  print -u2 "未知页面应以非零退出"
+  exit 1
+fi
+# 桌宠没在运行且找不到 App：报错退出，不乱启动。复制一份二进制到 .build/release 之外，
+# 免得它按相对位置找到真正的开发版 App 并把它拉起来。
+cp "${PROJECT_DIR}/.build/release/cc-pets" "${DOCTOR_TMP}/bin/cc-pets-copy"
+if doctor_env "${DOCTOR_TMP}/bin/cc-pets-copy" open settings >/dev/null 2>&1; then
+  print -u2 "桌宠未运行且没有 App 时 cc-pets open 应以非零退出"
+  exit 1
+fi
+# 桌宠在运行（锁被占用）：只发通知，直接成功退出，不去找 App。
+python3 - "${DOCTOR_TMP}/state/cc-pets-$(id -u).lock" "${DOCTOR_TMP}/bin/cc-pets-copy" <<'PY'
+import fcntl, subprocess, sys
+lock = open(sys.argv[1], "a+")
+fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+import os
+env = dict(os.environ)
+env.update({"CC_PETS_STATE_DIR": os.path.dirname(sys.argv[1]),
+            "CC_PETS_APPLICATIONS_DIR": "/nonexistent"})
+sys.exit(subprocess.run([sys.argv[2], "open", "diagnostics"], env=env).returncode)
+PY
+# AppDelegate 侧：用带 uid 的分布式通知，而不是 reopen 事件。
+grep -q "CCPetsOpenWindowNotificationName" Sources/CCPets/CCPetsAppDelegate.m
 # 结构化结果：主窗口诊断页直接用 CCPetsDoctorSections()，不经过 CLI 文本。
 # doctor 牵涉的模块太多，按全部源码（去掉 main.m）编进 harness。
 DOCTOR_SECTIONS_SOURCES=("${PROJECT_DIR}"/Sources/CCPets/*.m(N))
