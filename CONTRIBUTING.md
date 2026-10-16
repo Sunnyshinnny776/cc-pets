@@ -30,13 +30,17 @@ UI text is written in English in the source, and that text is the key into every
 other language's table:
 
 - Objective-C: wrap user-visible strings in `L(@"…")` (`Sources/CCPets/CCPetsL10n.h`).
-  Use `%1$@` / `%2$@` when a translation needs a different argument order.
-- Node.js: use `t("…", { name })` from `scripts/i18n.mjs` with `{name}` placeholders.
-- zsh: use `cc_pets_t "…" name="$value"` from `scripts/i18n.zsh`. The text must be a
-  literal; put variables in `{name}` placeholders, never directly in the text.
+  Use `%1$@` / `%2$@` when a translation needs a different argument order. Command-line
+  output can instead use `{name}` placeholders filled by `CCPetsInterpolate(L(@"…"), @{…})`.
+- zsh: use `cc_pets_t "…" name="$value"` from `scripts/i18n.zsh`, which looks the text up
+  through the native `cc-pets --localize`. The text must be a literal; put variables in
+  `{name}` placeholders, never directly in the text.
+
+The app, the command-line tools and the zsh scripts share one table per language:
+`Resources/<language>.lproj/Localizable.strings`.
 
 When you add or change an English string, update its key in every table.
-`node scripts/check-l10n.mjs` (also part of `npm test`) reports missing, stale and
+`node tests/check-l10n.mjs` (also part of `npm test`) reports missing, stale and
 mismatched-placeholder entries for each language.
 
 ### Adding a language
@@ -50,11 +54,10 @@ Adding a language only adds files; no code changes are needed. For a language `x
    heading of that language's section in GitHub release notes; separate alternatives
    with `|`).
 2. `Resources/xx.lproj/InfoPlist.strings`: translate `NSAppleEventsUsageDescription`.
-3. `scripts/locales/xx.json`: translate the CLI table, copied from `zh-Hans.json`.
-4. Optional: `Resources/phrases.default.xx.txt` with default pet lines, translated from
+3. Optional: `Resources/phrases.default.xx.txt` with default pet lines, translated from
    `phrases.default.en.txt`. Without it the pet falls back to the English lines.
 
-`node scripts/check-l10n.mjs --missing xx` lists the keys still to translate. The app
+`node tests/check-l10n.mjs --missing xx` lists the keys still to translate. The app
 discovers languages from the `.lproj` directories, `build.sh` writes
 `CFBundleLocalizations` from them, and `package.json` already includes them by pattern.
 

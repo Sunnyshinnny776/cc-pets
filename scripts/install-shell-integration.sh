@@ -11,25 +11,26 @@ SHIM_DIR="${CC_PETS_SHIM_DIR:-${HOME}/.cc-pets/shims}"
 SHIM_START_MARKER="# >>> cc-pets-shims >>>"
 SHIM_END_MARKER="# <<< cc-pets-shims <<<"
 
+# 安装本身不需要 Node。npm 装包时 node 所在目录（nvm 之类）里通常也有 claude / codex，
+# 补进 PATH，下面探测 CLI、注册 MCP 才找得到它们。
 NODE_EXECUTABLE="${npm_node_execpath:-}"
 if [[ -z "${NODE_EXECUTABLE}" || ! -x "${NODE_EXECUTABLE}" ]]; then
   NODE_EXECUTABLE="$(command -v node || true)"
 fi
-if [[ -z "${NODE_EXECUTABLE}" || ! -x "${NODE_EXECUTABLE}" ]]; then
-  print -u2 "$(cc_pets_t "Install failed: no executable Node.js found.")"
-  exit 1
+if [[ -n "${NODE_EXECUTABLE}" && -x "${NODE_EXECUTABLE}" ]]; then
+  export PATH="${NODE_EXECUTABLE:h}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 fi
-export PATH="${NODE_EXECUTABLE:h}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 
-"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/uninstall-integrations.mjs" --prepare-install "${SHELL_RC}"
 "${PROJECT_DIR}/scripts/build.sh"
+PET_BINARY="${PROJECT_DIR}/.build/release/cc-pets"
+# 先迁移改名前留下的旧条目和 alias 段落，当前版本的集成留给下面原位覆盖。
+"${PET_BINARY}" --uninstall-integrations --prepare-install "${SHELL_RC}"
 "${PROJECT_DIR}/scripts/install-app.sh"
-"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/install-codex-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets"
-"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" \
-  "${PROJECT_DIR}/.build/release/cc-pets"
-"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/configure-updater.mjs"
+"${PET_BINARY}" --install-codex-hooks "${PET_BINARY}"
+"${PET_BINARY}" --install-claude-hooks "${PET_BINARY}"
+"${PET_BINARY}" --configure-updater
 # CC Bridge 默认关闭；用户开启过的话，包路径可能随升级变化，按原选项重写一遍集成。
-"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/bridge/cli.mjs" refresh || \
+"${PET_BINARY}" bridge refresh || \
   print -u2 "$(cc_pets_t "Failed to refresh the CC Bridge integration; retry later with cc-pets bridge enable.")"
 
 PET_APP="${PROJECT_DIR}/.build/release/CC Pets.app"

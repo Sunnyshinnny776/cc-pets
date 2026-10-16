@@ -3,7 +3,7 @@
 
 NSString *const PetPhrasesSourcePet = @"pet";
 NSString *const PetPhrasesSourceDefault = @"default";
-static NSString *const PetPhrasesSourceKey = @"CCPetsPhrasesSource";
+NSString *const PetPhrasesSourceKey = @"CCPetsPhrasesSource";
 
 NSString *PetPhrasesSource(void) {
     NSString *source = [NSUserDefaults.standardUserDefaults stringForKey:PetPhrasesSourceKey];
@@ -117,7 +117,7 @@ NSString *PetPhrasesKeyForPetID(NSString *petID) {
         scheme = [petID substringToIndex:colon.location];
         name = [petID substringFromIndex:colon.location + 1];
     }
-    // 内置素材的 petID 是文件名，扩展名对用户没有任何意义，留着只会让 builtin-默认.webp.txt
+    // 内置素材的 petID 是文件名，扩展名对用户没有任何意义，留着只会让 builtin-ByteMochi.webp.txt
     // 这种双扩展名看起来像出了错。
     if ([scheme isEqualToString:@"builtin"]) {
         NSString *extension = name.pathExtension.lowercaseString;
@@ -137,6 +137,23 @@ NSString *PetPhrasesFilePathForPetID(NSString *petID) {
     if (key.length == 0) return nil;
     return [PetPhrasesPetDirectory() stringByAppendingPathComponent:
         [key stringByAppendingPathExtension:@"txt"]];
+}
+
+NSString *const PetSelectedSpriteKey = @"CCPetsSelectedSprite";
+
+void PetMigrateRenamedBuiltinSprite(NSUserDefaults *defaults) {
+    NSString *const legacyID = @"builtin:默认.webp";
+    NSString *const currentID = @"builtin:ByteMochi.webp";
+    NSString *selected = [defaults stringForKey:PetSelectedSpriteKey];
+    if ([selected isEqualToString:legacyID] || [selected isEqualToString:@"默认.webp"]) {
+        [defaults setObject:currentID forKey:PetSelectedSpriteKey];
+    }
+    NSString *legacyPath = PetPhrasesFilePathForPetID(legacyID);
+    NSString *currentPath = PetPhrasesFilePathForPetID(currentID);
+    NSFileManager *files = NSFileManager.defaultManager;
+    if ([files fileExistsAtPath:legacyPath] && ![files fileExistsAtPath:currentPath]) {
+        [files moveItemAtPath:legacyPath toPath:currentPath error:nil];
+    }
 }
 
 // 当前宠物。取词层唯一的外部状态，见头文件里为什么不走参数。

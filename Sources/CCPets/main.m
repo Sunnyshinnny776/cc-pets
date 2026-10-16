@@ -9,6 +9,12 @@
 #import "CCPetsUsage.h"
 #import "CCPetsVersion.h"
 #import "CCPetsCleanup.h"
+#import "CCPetsIntegrations.h"
+#import "CCPetsBridgeCLI.h"
+#import "CCPetsDoctor.h"
+#import "CCPetsOpenCommand.h"
+#import "CCPetsPetStore.h"
+#import "CCPetsCLISupport.h"
 #import "CCPetsTerminalFocus.h"
 #import <sys/file.h>
 #import <sys/stat.h>
@@ -17,6 +23,41 @@
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        // 下面这些都是命令行入口，输出语言跟终端走；真正启动桌宠前再切回 App 的语言规则。
+        CCPetsUseCommandLineLanguage(YES);
+        if (argc > 1 && (strcmp(argv[1], "doctor") == 0 || strcmp(argv[1], "paths") == 0)) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 1; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCPetsDoctorMain(arguments);
+        }
+        if (argc > 1 && strcmp(argv[1], "open") == 0) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCPetsOpenMain(arguments);
+        }
+        if (argc > 1 && strcmp(argv[1], "pet") == 0) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCPetsPetStoreMain(arguments);
+        }
+        if (argc > 1 && strcmp(argv[1], "--configure-updater") == 0) return ConfigureUpdater();
+        // zsh 脚本的文案（scripts/i18n.zsh）：--localize <英文原文> [name=value …]，与 App 共用一张表。
+        if (argc > 2 && strcmp(argv[1], "--localize") == 0) {
+            NSMutableDictionary<NSString *, NSString *> *values = [NSMutableDictionary dictionary];
+            for (int index = 3; index < argc; index++) {
+                NSString *pair = @(argv[index]);
+                NSRange equals = [pair rangeOfString:@"="];
+                if (equals.location == NSNotFound) values[pair] = @"";
+                else values[[pair substringToIndex:equals.location]] = [pair substringFromIndex:NSMaxRange(equals)];
+            }
+            puts(CCPetsInterpolate(CCPetsLocalized(@(argv[2])), values).UTF8String);
+            return EXIT_SUCCESS;
+        }
+        if (argc > 1 && strcmp(argv[1], "bridge") == 0) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCBridgeCommandMain(arguments);
+        }
         if (argc > 1 && (strcmp(argv[1], "--version") == 0 ||
                          strcmp(argv[1], "-version") == 0 ||
                          strcmp(argv[1], "-v") == 0)) {
@@ -48,6 +89,19 @@ int main(int argc, const char *argv[]) {
                          strcmp(argv[1], "provider-event") == 0)) return RecordProviderEvent();
         if (argc > 1 && strcmp(argv[1], "--claude-usage") == 0) return RecordClaudeUsage();
         if (argc > 1 && strcmp(argv[1], "--codex-launch") == 0) return RegisterCodexLaunch();
+        // 安装器调用：--install-claude-hooks / --install-codex-hooks <包目录>/.build/release/cc-pets。
+        if (argc > 1 && strcmp(argv[1], "--install-claude-hooks") == 0) {
+            return InstallClaudeHooks(argc > 2 ? @(argv[2]) : nil);
+        }
+        if (argc > 1 && strcmp(argv[1], "--install-codex-hooks") == 0) {
+            return InstallCodexHooks(argc > 2 ? @(argv[2]) : nil);
+        }
+        // --uninstall-integrations [--prepare-install] [<shellRC>]
+        if (argc > 1 && strcmp(argv[1], "--uninstall-integrations") == 0) {
+            BOOL preparing = argc > 2 && strcmp(argv[2], "--prepare-install") == 0;
+            int index = preparing ? 3 : 2;
+            return UninstallIntegrations(preparing, argc > index ? @(argv[index]) : nil);
+        }
         if (argc > 1 && strcmp(argv[1], "--clean") == 0) return CleanCCPetsData(NO);
         if (argc > 1 && strcmp(argv[1], "--purge-data") == 0) return CleanCCPetsData(YES);
         if (argc > 1 && strcmp(argv[1], "--paths") == 0) {
@@ -104,7 +158,7 @@ int main(int argc, const char *argv[]) {
         // 单横线的 -psn_* / -NS* / -Apple* 是系统和 Xcode 启动 App 时自己加的。
         for (int index = 1; index < argc; index++) {
             if (strncmp(argv[index], "--", 2) != 0) continue;
-            static const char *launchFlags[] = {"--managed", "--standalone", "--preview-dashboard"};
+            static const char *launchFlags[] = {"--managed", "--standalone", "--preview-dashboard", "--open-window"};
             BOOL known = NO;
             for (size_t flag = 0; flag < sizeof(launchFlags) / sizeof(launchFlags[0]); flag++) {
                 if (strcmp(argv[index], launchFlags[flag]) == 0) known = YES;
@@ -115,6 +169,7 @@ int main(int argc, const char *argv[]) {
             return 2;
         }
 
+        CCPetsUseCommandLineLanguage(NO);
         NSString *lockName = [NSString stringWithFormat:@"cc-pets-%u.lock", getuid()];
         NSString *lockPath = [PetStateDirectory() stringByAppendingPathComponent:lockName];
         int lock = open(lockPath.fileSystemRepresentation, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
@@ -124,6 +179,12 @@ int main(int argc, const char *argv[]) {
         NSApplication *app = NSApplication.sharedApplication;
         AppDelegate *delegate = [AppDelegate new];
         app.delegate = delegate;
+        // --open-window [page]：page 省略时开上次看的页面。
+        for (int index = 1; index < argc; index++) {
+            if (strcmp(argv[index], "--open-window") != 0) continue;
+            BOOL hasPage = index + 1 < argc && argv[index + 1][0] != '-';
+            delegate.launchWindowPage = hasPage ? @(argv[index + 1]) : @"";
+        }
         [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
         [app run];
         (void)lock;

@@ -123,7 +123,7 @@
         [NSApp activateIgnoringOtherApps:YES];
         NSAlert *alert = [NSAlert new];
         alert.messageText = L(@"No Pet Sprites Found");
-        alert.informativeText = L(@"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex pets” in the right-click menu. Then click “Rescan”.");
+        alert.informativeText = L(@"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex Pets” on the Pet page of the CC Pets window. Then click “Rescan”.");
         [alert addButtonWithTitle:L(@"Rescan")];
         [alert addButtonWithTitle:L(@"Open Pets Folder")];
         [alert addButtonWithTitle:L(@"Quit")];
@@ -147,7 +147,21 @@
     if (!image) return;
     [self.petView applySheet:image petID:petID rowCount:spriteRowCount];
     PetPhrasesSetCurrentPetID(petID);
-    [NSUserDefaults.standardUserDefaults setObject:petID forKey:@"CCPetsSelectedSprite"];
+    [NSUserDefaults.standardUserDefaults setObject:petID forKey:PetSelectedSpriteKey];
+    [self notePetCardChanged];
+}
+// 主窗口宠物页的选择列表：只给展示要的字段，素材由页面在后台解码。
+- (NSArray<NSDictionary *> *)petPickerOptions {
+    NSMutableArray<NSDictionary *> *options = [NSMutableArray array];
+    for (NSDictionary *option in [self petOptions]) {
+        [options addObject:@{@"id": option[@"id"], @"name": option[@"name"] ?: @"", @"path": option[@"path"] ?: @"",
+                             @"rowCount": option[@"spriteRowCount"] ?: @9,
+                             @"builtin": @([option[@"id"] hasPrefix:@"builtin:"])}];
+    }
+    return options;
+}
+- (NSString *)currentPetID {
+    return self.petView.currentPetID;
 }
 - (BOOL)deletePetWithID:(NSString *)petID {
     if (![petID hasPrefix:@"external:"]) return NO;
@@ -177,7 +191,7 @@
         if (fallback) [self switchPetToID:fallback[@"id"]];
         else {
             PetPhrasesSetCurrentPetID(nil);
-            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"CCPetsSelectedSprite"];
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:PetSelectedSpriteKey];
         }
     }
     return YES;

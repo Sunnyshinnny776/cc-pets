@@ -40,6 +40,9 @@ export CC_PETS_TEST_MARK="test-$$"
 # app bundle，所以统一指过去。英文输出由下面的多语言测试单独覆盖。
 export CC_PETS_LANGUAGE=zh-Hans
 export CC_PETS_LOCALIZATION_DIR="${PROJECT_DIR}/Resources"
+# 在 Claude Code 会话里跑测试时会继承会话级的 CLAUDE_CONFIG_DIR。记录端按它选额度文件，
+# 桌宠端只认默认目录，两边对不上就读不到用例写的额度窗口。需要它的用例各自在命令前设置。
+unset CLAUDE_CONFIG_DIR
 
 # 额度快照的 resets_at 必须落在当前窗口里（见 CCPetsUsage.m 的 QuotaWindowLooksCurrent），
 # 写死的时间戳一旦成为过去就会被合理地拒收，用例会在某天突然全红。统一按运行时刻算。
@@ -197,7 +200,7 @@ UPDATE_NPM_PATH="${npm_execpath:-$(command -v npm)}"
 CC_PETS_APPLICATION_SUPPORT_DIR="${UPDATER_TMP}" \
   CC_PETS_APPLICATIONS_DIR="${UPDATER_TMP}/Applications" \
   npm_node_execpath="${UPDATE_NODE_PATH}" npm_execpath="${UPDATE_NPM_PATH}" \
-  node "${PROJECT_DIR}/scripts/configure-updater.mjs"
+  "${PROJECT_DIR}/.build/release/cc-pets" --configure-updater
 [[ "$(stat -f '%Lp' "${UPDATER_TMP}/updater.json")" == "600" ]]
 node -e '
   const fs = require("fs");
@@ -314,10 +317,10 @@ if grep -q 'if (self.statusPanel.isVisible) return;' "${PET_SOURCES[@]}"; then
 fi
 # 借走状态卡副行说完闲话必须还回去，否则副行会一直挂着闲话像卡死了。
 grep -q 'restoreStatusDetail' "${PET_SOURCES[@]}"
-# 频率四档要同时出现在档位表和右键菜单里，少一头就是"菜单里能选但没效果"。
+# 频率四档要同时出现在档位表和主窗口设置页里，少一头就是"界面上能选但没效果"。
 for freq in low normal high chatty; do
-  if ! grep -q "\"${freq}\"" "${PROJECT_DIR}/Sources/CCPets/PetView.m"; then
-    print -u2 "右键菜单缺少碎碎念频率档位 ${freq}"
+  if ! grep -q "\"${freq}\"" "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"; then
+    print -u2 "设置页缺少碎碎念频率档位 ${freq}"
     exit 1
   fi
 done
@@ -394,9 +397,67 @@ print "桌宠只扫自身素材目录测试通过"
 
 PET_ALIAS_TMP="$(mktemp -d /tmp/cc-pets-alias-test.XXXXXX)"
 mkdir -p "${PET_ALIAS_TMP}/波霸"
-CC_PETS_PETS_DIR="${PET_ALIAS_TMP}" node "${PROJECT_DIR}/scripts/pet-store.mjs" remove 波霸 >/dev/null
+CC_PETS_PETS_DIR="${PET_ALIAS_TMP}" "${PROJECT_DIR}/bin/cc-pets" pet remove 波霸 >/dev/null
 [[ ! -e "${PET_ALIAS_TMP}/波霸" ]]
 print "桌宠素材中文别名测试通过"
+
+# cc-pets pet：清单走本地文件（CC_PETS_MANIFEST_URL_PETDEX），不碰网络。
+PET_STORE_TMP="$(mktemp -d /tmp/cc-pets-pet-store-test.XXXXXX)"
+print -r -- '{"pets":[
+  {"slug":"boba","displayName":"Boba Tea","submittedBy":"alice","petJsonUrl":"https://assets.petdex.dev/boba/pet.json","spritesheetUrl":"https://assets.petdex.dev/boba/sheet.webp"},
+  {"slug":"otter","displayName":"Otter","petJsonUrl":"https://evil.example.com/pet.json","spritesheetUrl":"https://evil.example.com/sheet.webp"},
+  {"slug":"../escape","petJsonUrl":"https://assets.petdex.dev/x.json","spritesheetUrl":"https://assets.petdex.dev/x.webp"}
+]}' > "${PET_STORE_TMP}/manifest.json"
+pet_store() {
+  env CC_PETS_PETS_DIR="${PET_STORE_TMP}/pets" CC_PETS_HOME="${PET_STORE_TMP}/home" \
+    CC_PETS_MANIFEST_URL_PETDEX="file://${PET_STORE_TMP}/manifest.json" \
+    "${PROJECT_DIR}/.build/release/cc-pets" pet "$@"
+}
+pet_store search tea | grep -q 'boba'
+[[ -f "${PET_STORE_TMP}/home/cache/manifest-petdex.json" ]]
+if pet_store search nothing-matches >/dev/null 2>&1; then
+  print -u2 "搜不到时应以非零退出"
+  exit 1
+fi
+# 清单指向白名单之外的 host、slug 带路径穿越：都不能落盘。
+if pet_store add otter >"${PET_STORE_TMP}/otter.txt" 2>&1; then
+  print -u2 "不受信任的素材地址不应安装成功"
+  exit 1
+fi
+grep -q 'evil.example.com' "${PET_STORE_TMP}/otter.txt"
+if pet_store add ../escape >/dev/null 2>&1; then
+  print -u2 "带路径穿越的 slug 不应安装成功"
+  exit 1
+fi
+[[ ! -e "${PET_STORE_TMP}/pets/otter" && ! -e "${PET_STORE_TMP}/escape" ]]
+if pet_store add boba --as 'bad/name' >/dev/null 2>&1; then
+  print -u2 "非法的 --as 名字应拒绝"
+  exit 1
+fi
+# 已有同名目录（不是 cc-pets 装的）不能闷声覆盖。
+mkdir -p "${PET_STORE_TMP}/pets/boba"
+print keep > "${PET_STORE_TMP}/pets/boba/mine.txt"
+if pet_store add boba >"${PET_STORE_TMP}/boba.txt" 2>&1; then
+  print -u2 "同名目录已存在时不应覆盖"
+  exit 1
+fi
+grep -q -- '--as boba-petdex' "${PET_STORE_TMP}/boba.txt"
+[[ -f "${PET_STORE_TMP}/pets/boba/mine.txt" ]]
+mkdir -p "${PET_STORE_TMP}/pets/茶茶"
+print -r -- '{"source":"petdex","slug":"boba"}' > "${PET_STORE_TMP}/pets/茶茶/.source.json"
+pet_store list > "${PET_STORE_TMP}/list.txt"
+grep -q 'PetDex' "${PET_STORE_TMP}/list.txt"
+grep -q '茶茶.*petdex:boba' "${PET_STORE_TMP}/list.txt"
+grep -q '本地素材' "${PET_STORE_TMP}/list.txt"
+pet_store source | grep -q 'petdex'
+[[ "$(pet_store dir)" == "${PET_STORE_TMP}/pets" ]]
+pet_store remove 茶茶 | grep -q '来自 petdex'
+[[ ! -e "${PET_STORE_TMP}/pets/茶茶" ]]
+if pet_store nope >/dev/null 2>&1; then
+  print -u2 "未知子命令应以非零退出"
+  exit 1
+fi
+print "cc-pets pet 素材仓库测试通过"
 
 TOKEN_USAGE_TMP="$(mktemp -d /tmp/cc-pets-token-usage-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
@@ -547,7 +608,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/tests/image-loader-harness.m" \
   -o "${IMAGE_LOADER_TMP}/image-loader-test"
 "${IMAGE_LOADER_TMP}/image-loader-test" \
-  "${PROJECT_DIR}/Sources/CCPets/Resources/默认.webp"
+  "${PROJECT_DIR}/Sources/CCPets/Resources/ByteMochi.webp"
 
 # 系统低功耗和减少动态效果会降低空闲动画频率。
 grep -q 'NSProcessInfoPowerStateDidChangeNotification' "${PET_SOURCES[@]}"
@@ -830,8 +891,8 @@ node -e '
   };
   fs.writeFileSync(process.argv[1], JSON.stringify(config));
 ' "${CLAUDE_TMP}/settings.json" "${CLAUDE_STATUS_SCRIPT}"
-CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
-CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -859,14 +920,34 @@ node -e '
 ' "${CLAUDE_INJECTED_USAGE_TMP}"
 print "Claude Code Hooks 合并与幂等测试通过"
 
+# 原生安装器回写用户配置时必须保留键顺序和 JSON.stringify(…, null, 2) 的格式；
+# 数字保留原文字面量，大整数不会像 JSON.parse 那样丢精度。
+CODEX_ORDER_TMP="$(mktemp -d /tmp/cc-pets-codex-order-test.XXXXXX)"
+print -r -- '{"zeta":{"中文":"a/b \u0001","n":[1.5,12345678901234567890],"e":[],"o":{}},"alpha":true,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"existing"}]}]},"omega":null}' \
+  > "${CODEX_ORDER_TMP}/hooks.json"
+CODEX_HOME="${CODEX_ORDER_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-codex-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+node -e '
+  const fs = require("fs");
+  const text = fs.readFileSync(process.argv[1], "utf8");
+  const config = JSON.parse(text);
+  if (Object.keys(config).join(",") !== "zeta,alpha,hooks,omega") process.exit(1);
+  if (!text.includes("12345678901234567890")) process.exit(2);
+  if (text.replace("12345678901234567890", "12345678901234567000") !== `${JSON.stringify(config, null, 2)}\n`) process.exit(3);
+  if (config.zeta["中文"] !== "a/b \u0001") process.exit(4);
+  if (config.hooks.Stop[0].hooks[0].command !== "existing") process.exit(5);
+  if (Object.values(config.hooks).flat().length !== 9) process.exit(6);
+  if ((fs.statSync(process.argv[1]).mode & 0o777) !== 0o600) process.exit(7);
+' "${CODEX_ORDER_TMP}/hooks.json"
+print "原生 Hooks 安装器保序回写测试通过"
+
 # 第三方状态栏（`bun x ccstatusline` 之类带参数的命令行）没法就地插 prelude。statusline 是
 # Claude 额度的唯一来源，改不了就等于这些用户永远拿不到额度，因此要回退到包装器：
 # command 换成 claude-statusline-with-pet + base64 原命令，采集完再把原命令照常执行。
 CLAUDE_WRAPPED_TMP="$(mktemp -d /tmp/cc-pets-claude-wrapped-status-test.XXXXXX)"
 print -r -- '{"statusLine":{"type":"command","command":"print -n third-party-status","refreshInterval":30}}' \
   > "${CLAUDE_WRAPPED_TMP}/settings.json"
-CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
-CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -895,7 +976,7 @@ node -e '
   if (cache.five_hour.used_percentage !== 31.5) process.exit(1);
 ' "${CLAUDE_WRAPPED_USAGE_TMP}"
 CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" CODEX_HOME="${CLAUDE_WRAPPED_TMP}/codex" \
-  node "${PROJECT_DIR}/scripts/uninstall-integrations.mjs" >/dev/null
+  "${PROJECT_DIR}/.build/release/cc-pets" --uninstall-integrations >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -906,7 +987,7 @@ print "Claude Code 第三方 status line 包装接入与卸载还原测试通过
 
 CLAUDE_EMPTY_TMP="$(mktemp -d /tmp/cc-pets-claude-empty-status-test.XXXXXX)"
 print -r -- '{}' > "${CLAUDE_EMPTY_TMP}/settings.json"
-CLAUDE_CONFIG_DIR="${CLAUDE_EMPTY_TMP}" node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+CLAUDE_CONFIG_DIR="${CLAUDE_EMPTY_TMP}" "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -914,7 +995,7 @@ node -e '
   if (!fs.readFileSync(process.argv[2], "utf8").includes("# CC Pets created this status line script")) process.exit(1);
 ' "${CLAUDE_EMPTY_TMP}/settings.json" "${CLAUDE_EMPTY_TMP}/statusline-command.sh"
 CLAUDE_CONFIG_DIR="${CLAUDE_EMPTY_TMP}" CODEX_HOME="${CLAUDE_EMPTY_TMP}/codex" \
-  node "${PROJECT_DIR}/scripts/uninstall-integrations.mjs" >/dev/null
+  "${PROJECT_DIR}/.build/release/cc-pets" --uninstall-integrations >/dev/null
 node -e '
   const fs = require("fs");
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -1260,8 +1341,8 @@ doctor_env() {
     "$@"
 }
 
-# paths --json：路径来自原生 --paths，环境变量覆盖生效，不存在的条目 bytes 为 null。
-doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" paths --json > "${DOCTOR_TMP}/paths.json"
+# paths --json：环境变量覆盖生效，不存在的条目 bytes 为 null。
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" paths --json > "${DOCTOR_TMP}/paths.json"
 node -e '
   const document = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const items = Object.fromEntries(document.groups.flatMap((group) => group.items).map((item) => [item.label, item]));
@@ -1273,10 +1354,10 @@ node -e '
   if (items["额度历史"].bytes !== null) process.exit(5);
   if (items["应用数据目录"].bytes !== 0) process.exit(6);
 ' "${DOCTOR_TMP}/paths.json" "${DOCTOR_TMP}"
-doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" paths | grep -q "用户内容（clean 与 --purge 都保留）"
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" paths | grep -q "用户内容（clean 与 --purge 都保留）"
 
 # 什么都没装：Hooks 缺失算错误，退出码 1，并给出修复命令。
-if doctor_env node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/empty.txt"; then
+if doctor_env "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/empty.txt"; then
   print -u2 "未安装集成时 doctor 应以非零退出"
   exit 1
 fi
@@ -1285,8 +1366,8 @@ grep -q "❌ Codex Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
 grep -q "→ cc-pets install" "${DOCTOR_TMP}/empty.txt"
 
 # 装好 Hooks、status line 与 shim 后全部通过；doctor 不得修改任何配置。
-doctor_env node "${PROJECT_DIR}/scripts/install-claude-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
-doctor_env node "${PROJECT_DIR}/scripts/install-codex-hooks.mjs" "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" --install-claude-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" --install-codex-hooks "${PROJECT_DIR}/.build/release/cc-pets" >/dev/null
 mkdir -p "${DOCTOR_TMP}/shims"
 ln -s "${PROJECT_DIR}/bin/codex-with-pet" "${DOCTOR_TMP}/shims/codex"
 ln -s "${PROJECT_DIR}/bin/claude-with-pet" "${DOCTOR_TMP}/shims/claude"
@@ -1294,7 +1375,7 @@ print -r -- '# >>> cc-pets-shims >>>
 # <<< cc-pets-shims <<<' > "${DOCTOR_TMP}/zdot/.zshrc"
 DOCTOR_SNAPSHOT="$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex/hooks.json" | shasum)"
 doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
-  node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/installed.txt"
+  "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ Claude Code Hooks 已安装（14 个事件）" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ Codex Hooks 已安装（8 个事件）" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ Claude status line 已接入额度采集" "${DOCTOR_TMP}/installed.txt"
@@ -1312,17 +1393,76 @@ node -e '
   fs.writeFileSync(file, JSON.stringify(config));
 ' "${DOCTOR_TMP}/codex/hooks.json"
 doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
-  node "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/stale.txt"
+  "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/stale.txt"
 grep -q "⚠️  Codex Hooks 中有 1 条指向其他位置的 cc-pets" "${DOCTOR_TMP}/stale.txt"
 
 # 当前终端还没加载 shim：提示 source 而不是报错。
 doctor_env PATH="/usr/bin:/bin" \
-  "$(command -v node)" "${PROJECT_DIR}/scripts/doctor.mjs" doctor > "${DOCTOR_TMP}/no-path.txt"
+  "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/no-path.txt"
 grep -q "当前终端的 PATH 里没有 shim 目录" "${DOCTOR_TMP}/no-path.txt"
 
 # 走 bin/cc-pets 入口，并出现在帮助里。
 doctor_env "${PROJECT_DIR}/bin/cc-pets" paths --json | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
 "${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets doctor"
+
+# ---- cc-pets open：从终端打开主窗口 ----
+# 帮助里有；页面参数在发通知 / 拉起 App 之前就校验，拼错的页面不该启动任何东西。
+"${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets open"
+for page in overview sessions usage pet alerts general diagnostics; do
+  doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "${page}"
+done
+if doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open no-such-page >/dev/null 2>&1; then
+  print -u2 "未知页面应以非零退出"
+  exit 1
+fi
+# 设置拆成三页之前只有一个 settings 页；旧名字还认，换成「宠物」页再往下传，不在帮助里列出。
+grep -q '\[page isEqualToString:@"settings"\]) return CCPetsMainWindowPagePet' \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsMainWindow.m"
+grep -q 'CCPetsMainWindowResolvePage(page)' "${PROJECT_DIR}/Sources/CCPets/CCPetsOpenCommand.m"
+# 桌宠没在运行且找不到 App：报错退出，不乱启动。复制一份二进制到 .build/release 之外，
+# 免得它按相对位置找到真正的开发版 App 并把它拉起来。
+cp "${PROJECT_DIR}/.build/release/cc-pets" "${DOCTOR_TMP}/bin/cc-pets-copy"
+if doctor_env "${DOCTOR_TMP}/bin/cc-pets-copy" open settings >/dev/null 2>&1; then
+  print -u2 "桌宠未运行且没有 App 时 cc-pets open 应以非零退出"
+  exit 1
+fi
+# 桌宠在运行（锁被占用）：只发通知，直接成功退出，不去找 App。
+python3 - "${DOCTOR_TMP}/state/cc-pets-$(id -u).lock" "${DOCTOR_TMP}/bin/cc-pets-copy" <<'PY'
+import fcntl, subprocess, sys
+lock = open(sys.argv[1], "a+")
+fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+import os
+env = dict(os.environ)
+env.update({"CC_PETS_STATE_DIR": os.path.dirname(sys.argv[1]),
+            "CC_PETS_APPLICATIONS_DIR": "/nonexistent"})
+sys.exit(subprocess.run([sys.argv[2], "open", "diagnostics"], env=env).returncode)
+PY
+# 点 Dock 图标恢复最小化的主窗口，但 `open -g` 发来的 reopen（每开一个终端一次）不能把窗口弹出来：
+# 只有 App 被激活（点 Dock 会激活，open -g 不会）时才恢复。
+grep -A8 'applicationShouldHandleReopen' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m" \
+  | grep -q 'if (NSApp.isActive) \[CCPetsMainWindowController restoreFromDock\]'
+# AppDelegate 侧：用带 uid 的分布式通知，而不是 reopen 事件。
+grep -q "CCPetsOpenWindowNotificationName" Sources/CCPets/CCPetsAppDelegate.m
+# 结构化结果：主窗口诊断页直接用 CCPetsDoctorSections()，不经过 CLI 文本。
+# doctor 牵涉的模块太多，按全部源码（去掉 main.m）编进 harness。
+DOCTOR_SECTIONS_SOURCES=("${PROJECT_DIR}"/Sources/CCPets/*.m(N))
+DOCTOR_SECTIONS_SOURCES=("${(@)DOCTOR_SECTIONS_SOURCES:#*/main.m}")
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -DCC_PETS_VERSION="\"0.0.0-test\"" \
+  -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
+  -framework QuartzCore -framework UserNotifications \
+  "${DOCTOR_SECTIONS_SOURCES[@]}" \
+  "${PROJECT_DIR}/tests/doctor-sections-harness.m" \
+  -o "${DOCTOR_TMP}/doctor-sections-test"
+doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test"
+# 主窗口里的诊断跑在桌宠进程中，PATH 是桌宠启动时继承的（被 npm 拉起时 node 目录会插在最前），
+# 和终端无关。PATH 顺序那一项在那里只能给提示，不能照着报警告。
+DOCTOR_SHADOW="${DOCTOR_TMP}/shadow-node-bin"
+mkdir -p "${DOCTOR_SHADOW}"
+print -r -- '#!/bin/sh' > "${DOCTOR_SHADOW}/codex"
+chmod +x "${DOCTOR_SHADOW}/codex"
+doctor_env PATH="${DOCTOR_SHADOW}:${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test" shadow "${DOCTOR_SHADOW}"
 print "doctor 与 paths 只读诊断测试通过"
 
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"
@@ -1344,7 +1484,7 @@ mkdir -p "${DECOY_TMP}/codex" "${DECOY_TMP}/claude"
 print -r -- '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"CODEX_PET_AGENT_HOOK=1 /other/tool --hook"}]}]}}' > "${DECOY_TMP}/codex/hooks.json"
 print -r -- '{"statusLine":{"type":"command","command":"CLAUDE_PET_STATUS_LINE=1 /other/status-tool"},"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"CLAUDE_PET_AGENT_HOOK=1 /other/tool --hook"}]}]}}' > "${DECOY_TMP}/claude/settings.json"
 CODEX_HOME="${DECOY_TMP}/codex" CLAUDE_CONFIG_DIR="${DECOY_TMP}/claude" \
-  node "${PROJECT_DIR}/scripts/uninstall-integrations.mjs" >/dev/null
+  "${PROJECT_DIR}/.build/release/cc-pets" --uninstall-integrations >/dev/null
 node -e '
   const fs = require("fs");
   const codex = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -1671,14 +1811,17 @@ zsh -n "${PROJECT_DIR}/scripts/install-shell-integration.sh"
 zsh -n "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh"
 zsh -n "${PROJECT_DIR}/scripts/install-app.sh"
 zsh -n "${PROJECT_DIR}/scripts/uninstall-app.sh"
-node --check "${PROJECT_DIR}/scripts/uninstall-integrations.mjs"
-node --check "${PROJECT_DIR}/scripts/configure-updater.mjs"
 grep -Fq 'NODE_EXECUTABLE="${npm_node_execpath:-}"' \
   "${PROJECT_DIR}/scripts/install-shell-integration.sh"
 grep -Fq 'export PATH="${NODE_EXECUTABLE:h}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"' \
   "${PROJECT_DIR}/scripts/install-shell-integration.sh"
-grep -Fq '"${NODE_EXECUTABLE}" "${PROJECT_DIR}/scripts/configure-updater.mjs"' \
+grep -Fq '"${PET_BINARY}" --configure-updater' \
   "${PROJECT_DIR}/scripts/install-shell-integration.sh"
+# 安装、卸载、构建都不再依赖 Node：脚本里不能再出现对 node 可执行文件的调用。
+if grep -nE '(^|[^_A-Za-z])node[[:space:]]+"|NODE_EXECUTABLE}" "' "${PROJECT_DIR}"/scripts/*.sh "${PROJECT_DIR}"/scripts/*.zsh "${PROJECT_DIR}"/bin/*; then
+  print -u2 "安装 / 卸载 / 构建脚本不应再调用 node"
+  exit 1
+fi
 [[ "$(node -p "require('${PROJECT_DIR}/package.json').scripts.postinstall")" == "./scripts/install-shell-integration.sh" ]]
 [[ "$(node -p "require('${PROJECT_DIR}/package.json').scripts.version")" == "npm test" ]]
 print "npm 安装后自动初始化测试通过"
@@ -1875,6 +2018,41 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
 grep -q 'for (NSString \*bundleID in TerminalFocusBundleCandidates(target))' \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m"
 
+# 设置写入口：右键菜单和主窗口设置页共用的钳制、默认值与变更广播。
+PREFERENCES_TMP="$(mktemp -d /tmp/cc-pets-preferences-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Cocoa \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPreferences.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPetSize.m" \
+  "${PROJECT_DIR}/tests/preferences-harness.m" \
+  -o "${PREFERENCES_TMP}/preferences-test"
+"${PREFERENCES_TMP}/preferences-test"
+# 设置页按 CCPetsSettingsActions 调 AppDelegate，但 AppDelegate 没在声明上采纳这个协议
+# （方法分散在多个 category，采纳会触发编译告警）。逐条核对协议里的方法确实在私有头里声明过，
+# 否则改了签名只会在用户点开关时以 unrecognized selector 崩掉。
+while IFS= read -r declaration; do
+  if ! grep -Fq -- "${declaration}" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Private.h"; then
+    print -u2 "CCPetsSettingsActions 的方法未在 AppDelegate 中声明：${declaration}"
+    exit 1
+  fi
+done < <(sed -n '/^@protocol CCPetsSettingsActions/,/^@end/p' \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.h" | grep '^- (')
+# 工作台几页的数据协议同理。
+while IFS= read -r declaration; do
+  if ! grep -Fq -- "${declaration}" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Private.h"; then
+    print -u2 "CCPetsWorkbenchSource 的方法未在 AppDelegate 中声明：${declaration}"
+    exit 1
+  fi
+done < <(sed -n '/^@protocol CCPetsWorkbenchSource/,/^@end/p' \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsWorkbench.h" | grep '^- (')
+# 菜单 action 不许再绕过写入口直接写 defaults，否则设置页收不到变更广播。
+if grep -nE 'standardUserDefaults (setBool|setObject|setInteger|setDouble)' \
+    "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"; then
+  print -u2 "CCPetsAppDelegate+Settings.m 绕过了 CCPetsPreferences 直接写 defaults"
+  exit 1
+fi
+
 UPDATE_RETRY_TMP="$(mktemp -d /tmp/cc-pets-update-retry-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
@@ -1903,7 +2081,14 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
 print "更新说明解析测试通过"
 
 # 多语言。源码里的英文原文就是各语言表的 key，改了原文忘了改表，那种语言就会漏出英文。
-node "${PROJECT_DIR}/scripts/check-l10n.mjs"
+node "${PROJECT_DIR}/tests/check-l10n.mjs"
+# 带下划线的占位符（{MCP_NAME}、{MAX_TTL_MINUTES}）曾因正则不认 _ 而原样漏到输出里。
+for language in en zh-Hans; do
+  LOCALIZED="$(CC_PETS_LANGUAGE="${language}" "${PROJECT_DIR}/.build/release/cc-pets" --localize \
+    "Codex MCP registered: {MCP_NAME}" MCP_NAME=cc-bridge)"
+  [[ "${LOCALIZED}" == *cc-bridge && "${LOCALIZED}" != *"{"* ]]
+done
+print "CLI 多语言占位符替换测试通过"
 L10N_TMP="$(mktemp -d /tmp/cc-pets-l10n-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
@@ -1923,33 +2108,30 @@ print -r -- '"Language Name" = "日本語";
 "Quit CC Pets" = "終了";' > "${L10N_TMP}/res/ja.lproj/Localizable.strings"
 CC_PETS_LANGUAGE=ja_JP.UTF-8 CC_PETS_LOCALIZATION_DIR="${L10N_TMP}/res" \
   "${L10N_TMP}/l10n-test" "${PROJECT_DIR}/Resources" added-language
-# Node 端：环境变量优先，其次是桌宠写下的 ~/.cc-pets/language，两种语言都要能出来。
+# 命令行输出：环境变量优先，其次是桌宠写下的 ~/.cc-pets/language，再其次是 locale 环境变量。
 mkdir -p "${L10N_TMP}/home"
 print zh-Hans > "${L10N_TMP}/home/language"
-[[ "$(cd "${PROJECT_DIR}" && CC_PETS_LANGUAGE= CC_PETS_HOME="${L10N_TMP}/home" LANG=en_US.UTF-8 \
-  node --input-type=module -e 'import { t } from "./scripts/i18n.mjs"; console.log(t("No sessions online."))')" == "没有在线会话。" ]]
+[[ "$(CC_PETS_LANGUAGE= CC_PETS_HOME="${L10N_TMP}/home" LANG=en_US.UTF-8 \
+  "${PROJECT_DIR}/.build/release/cc-pets" --localize "No sessions online.")" == "没有在线会话。" ]]
 print en > "${L10N_TMP}/home/language"
-[[ "$(cd "${PROJECT_DIR}" && CC_PETS_LANGUAGE= CC_PETS_HOME="${L10N_TMP}/home" LANG=zh_CN.UTF-8 \
-  node --input-type=module -e 'import { t } from "./scripts/i18n.mjs"; console.log(t("{name} hooks not installed", { name: "Codex" }))')" == "Codex hooks not installed" ]]
-# Node 的语言匹配规则与 App 一致：完整标识或前缀优先，再只比主语言。
-(cd "${PROJECT_DIR}" && node --input-type=module -e '
-  import { matchLanguage } from "./scripts/i18n.mjs";
-  const supported = ["en", "ja", "zh-Hans"];
-  const cases = [["zh_CN.UTF-8", "zh-Hans"], ["zh-Hans-CN", "zh-Hans"], ["zh-Hant-TW", "zh-Hans"],
-    ["ja_JP", "ja"], ["fr_FR", ""], ["C", ""]];
-  for (const [input, expected] of cases) {
-    if (matchLanguage(input, supported) !== expected) throw new Error(`${input} → ${matchLanguage(input, supported)}`);
-  }')
+[[ "$(CC_PETS_LANGUAGE= CC_PETS_HOME="${L10N_TMP}/home" LANG=zh_CN.UTF-8 \
+  "${PROJECT_DIR}/.build/release/cc-pets" --localize "{name} hooks not installed" name=Codex)" == "Codex hooks not installed" ]]
+rm -f "${L10N_TMP}/home/language"
+for locale in zh_CN.UTF-8 zh-Hans-CN zh-Hant-TW; do
+  [[ "$(CC_PETS_LANGUAGE= LC_ALL= LC_MESSAGES= CC_PETS_HOME="${L10N_TMP}/home" LANG="${locale}" \
+    "${PROJECT_DIR}/.build/release/cc-pets" --localize "No sessions online.")" == "没有在线会话。" ]]
+done
+[[ "$(CC_PETS_LANGUAGE=en_US "${PROJECT_DIR}/.build/release/cc-pets" --localize "No sessions online.")" == "No sessions online." ]]
 CC_PETS_LANGUAGE=en "${PROJECT_DIR}/bin/cc-pets" --help | grep -q '^Usage: cc-pets'
 CC_PETS_LANGUAGE=zh-Hans "${PROJECT_DIR}/bin/cc-pets" --help | grep -q '^用法：cc-pets'
-# zsh 脚本走同一张表：英文在 zsh 里直接替换占位符，其他语言交给 node。
+# zsh 脚本走同一张表，查表交给原生程序；原生程序还没构建时退回英文。
 [[ "$(CC_PETS_LANGUAGE=en zsh -c "source '${PROJECT_DIR}/scripts/i18n.zsh'; cc_pets_t 'App removed: {targetApp}' targetApp=/x")" == "App removed: /x" ]]
 [[ "$(CC_PETS_LANGUAGE=zh_CN.UTF-8 zsh -c "source '${PROJECT_DIR}/scripts/i18n.zsh'; cc_pets_t 'App removed: {targetApp}' targetApp=/x")" == "已删除应用: /x" ]]
-CC_PETS_LANGUAGE=en node "${PROJECT_DIR}/scripts/bridge/cli.mjs" --help 2>&1 | grep -q 'Usage: cc-pets bridge'
-# 语言菜单是"跟随系统"加上自动发现的语言，不能退回写死的列表；菜单项还得真的接到设置上。
-grep -q 'CCPetsLanguageSystem' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -q 'for (NSString \*language in CCPetsSupportedLanguages())' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -q 'setLanguagePreferenceFromMenu:' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"
+CC_PETS_LANGUAGE=en "${PROJECT_DIR}/bin/cc-pets" bridge --help 2>&1 | grep -q 'Usage: cc-pets bridge'
+# 语言选项是"跟随系统"加上自动发现的语言，不能退回写死的列表；选项还得真的接到设置上。
+grep -q 'CCPetsLanguageSystem' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
+grep -q 'for (NSString \*language in CCPetsSupportedLanguages())' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
+grep -q 'CCPetsSetLanguagePreference(value)' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/zh-Hans.lproj/Localizable.strings" ]]
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.en.txt" ]]
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.zh-Hans.txt" ]]
@@ -1961,6 +2143,21 @@ print "多语言测试通过"
 
 # CC Bridge 自带隔离（临时状态目录、假 claude / codex 进程、假 codex queue），
 # 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。
+BRIDGE_UNITS_TMP="$(mktemp -d /tmp/cc-pets-bridge-units-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -framework Foundation \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridge.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridgeCore.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridgeSetup.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridgeStore.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsCLISupport.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsJSON.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PROJECT_DIR}/tests/bridge-units-harness.m" \
+  -o "${BRIDGE_UNITS_TMP}/bridge-units-test"
+"${BRIDGE_UNITS_TMP}/bridge-units-test" "${BRIDGE_UNITS_TMP}"
 node "${PROJECT_DIR}/tests/bridge-harness.mjs"
 print "CC Bridge 测试通过"
 

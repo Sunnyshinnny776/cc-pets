@@ -63,17 +63,26 @@ NSString *PetPhrasesFilePath(void);
 //
 // 专属目录：~/.cc-pets/speech/。可用 CC_PETS_PHRASES_PET_DIR 覆盖（测试用）。
 NSString *PetPhrasesPetDirectory(void);
-// petID（builtin:默认.webp / external:哆啦A梦）转成文件名用的 key。
+// petID（builtin:ByteMochi.webp / external:团子）转成文件名用的 key。
 //
 // petID 里的冒号、素材名里的斜杠都不能直接进文件名，内置素材的 .webp 后缀留着也只是
-// 噪音，所以统一规整成 builtin-默认 / external-哆啦A梦。中文原样保留——用户要能在
+// 噪音，所以统一规整成 builtin-ByteMochi / external-团子。中文原样保留——用户要能在
 // Finder 里一眼认出哪份是哪只的，转义成百分号编码就白瞎了。
 NSString *PetPhrasesKeyForPetID(NSString *petID);
 // 某只宠物的专属词库路径。petID 为空返回 nil。
 NSString *PetPhrasesFilePathForPetID(NSString *petID);
 
+// 选中宠物的偏好键。值是 petID；很早的版本存的是不带 builtin: 前缀的内置文件名。
+extern NSString *const PetSelectedSpriteKey;
+// 内置素材从 默认.webp 改名为 ByteMochi.webp（2.2.1 之后）。petID 由文件名派生，改名后旧 ID 找不到，
+// 选了内置宠物的用户会被退回到列表第一只（外部素材排在前面），为它写的专属台词也不再生效。
+// 启动时调用一次：把选中的宠物改成新 ID；旧的专属台词文件改名过去，新文件已存在时不覆盖。
+// 幂等，没有旧状态时什么都不做。
+void PetMigrateRenamedBuiltinSprite(NSUserDefaults *defaults);
+
 // 全局台词来源偏好，切换宠物和重启后仍保留。未设置时保持原来的专属优先行为。
 // 专属模式按小节回落到通用词库；默认模式只读通用词库，不改写任何台词文件。
+extern NSString *const PetPhrasesSourceKey;
 extern NSString *const PetPhrasesSourcePet;
 extern NSString *const PetPhrasesSourceDefault;
 NSString *PetPhrasesSource(void);

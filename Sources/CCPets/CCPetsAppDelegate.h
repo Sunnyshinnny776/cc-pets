@@ -76,6 +76,8 @@
 @property NSMutableSet<NSString *> *stallNotifiedSessionKeys;
 @property QuotaDashboardView *quotaView;
 @property BOOL managedByCLI;
+// 启动参数 --open-window [page] 带来的：启动完成后打开主窗口。nil 表示不开；空串表示开上次看的页面。
+@property(copy) NSString *launchWindowPage;
 @property BOOL pocketHovering;
 @property BOOL dashboardHovering;
 @property BOOL petDragging;

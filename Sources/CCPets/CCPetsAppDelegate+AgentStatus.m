@@ -182,10 +182,12 @@
 // 勾选 = 显示气泡。没有 agent 状态时也允许改，这样用户可以提前设好偏好，
 // 而不必等下一次会话开始。
 - (void)toggleStatusBubbleFromMenu:(NSButton *)sender {
-    self.statusBubbleExpanded = !self.statusBubbleExpanded;
-    [NSUserDefaults.standardUserDefaults setBool:self.statusBubbleExpanded
-        forKey:StatusBubbleExpandedKey];
+    [self updateStatusBubbleExpanded:!self.statusBubbleExpanded];
     sender.state = self.statusBubbleExpanded ? NSControlStateValueOn : NSControlStateValueOff;
+}
+- (void)updateStatusBubbleExpanded:(BOOL)expanded {
+    self.statusBubbleExpanded = expanded;
+    CCPetsPrefSetBool(StatusBubbleExpandedKey, expanded);
     if (self.statusBubbleExpanded && self.hasAgentStatus) {
         [self positionAgentStatus];
         [self.statusPanel orderFrontRegardless];
@@ -225,6 +227,7 @@
     [self resizeStatusCardToFitText];
     [self layoutApprovalBadge];
     [self positionAgentStatus];
+    [self notePetCardChanged];
     if (self.statusBubbleExpanded) {
         [self.statusPanel orderFrontRegardless];
         // 卡片一出现就收掉独立气泡：两者都是宠物在说话，同时挂着就是重影。
@@ -363,6 +366,7 @@
     for (NSString *key in self.agentSessionRecords.allKeys) {
         if (![self isAgentSessionRecordLive:self.agentSessionRecords[key]]) {
             [self.agentSessionRecords removeObjectForKey:key];
+            [self notePetCardChanged];
         }
     }
 }
@@ -371,6 +375,7 @@
     if (key.length == 0) return;
     if (!self.agentSessionRecords) self.agentSessionRecords = [NSMutableDictionary dictionary];
     self.agentSessionRecords[key] = record;
+    [self notePetCardChanged];
     if (self.agentSessionRecords.count <= AgentSessionRecordLimit) return;
     NSArray<NSDictionary *> *oldestFirst = [self.agentSessionRecords.allValues
         sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
@@ -483,6 +488,8 @@
         PetApprovalBadgeSize, PetApprovalBadgeSize);
 }
 - (void)refreshApprovalBadge {
+    // 收起状态卡（hideAgentStatus）也走这里，名片要跟着回到待机，放在角标判空之前。
+    [self notePetCardChanged];
     CCPetsApprovalBadgeView *badge = (CCPetsApprovalBadgeView *)self.approvalBadgeView;
     if (!badge) return;
     badge.count = [self pendingApprovalSessionRecords].count;

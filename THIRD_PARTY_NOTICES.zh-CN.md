@@ -2,7 +2,7 @@
 
 [English](./THIRD_PARTY_NOTICES.md) | 简体中文
 
-CC Pets 发布包不捆绑 PetDex 下载的角色素材。内置的 `默认.webp` 是专为本项目创建的
+CC Pets 发布包不捆绑 PetDex 下载的角色素材。内置的 `ByteMochi.webp` 是专为本项目创建的
 原创默认素材，与任何现有动漫、游戏或商业吉祥物无关，并与项目代码一同按 MIT License 分发。
 
 程序会在运行时尝试读取用户本机已安装的 Codex/ChatGPT 和 Claude 应用图标，仅用于界面识别；

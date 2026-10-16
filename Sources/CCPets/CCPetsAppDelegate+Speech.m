@@ -6,10 +6,8 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
 
 @implementation AppDelegate (Speech)
 - (BOOL)speechEnabled {
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     // 缺省开启；用户可在右键菜单里关掉。
-    id value = [defaults objectForKey:@"CCPetsSpeechEnabled"];
-    return value == nil ? YES : [value boolValue];
+    return CCPetsPrefBool(PetSpeechEnabledKey);
 }
 // 当前档位。现读，右键菜单里改完立刻生效不用重启。
 - (PetSpeechRate)speechRate {
@@ -147,6 +145,8 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     self.speechPanel.level = NSFloatingWindowLevel;
     self.speechPanel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
         NSWindowCollectionBehaviorFullScreenAuxiliary;
+    // 和桌宠、状态卡一样不随 App 失焦隐藏。主窗口打开期间 App 是 Regular，会频繁失焦。
+    self.speechPanel.hidesOnDeactivate = NO;
     // 气泡不抢焦点、不接受点击：它是纯播报，挡住宠物就本末倒置了。
     self.speechPanel.ignoresMouseEvents = YES;
 
@@ -209,6 +209,10 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     self.speechCooldownUntil = now + [self speechCooldownSeconds];
 
     [self presentSpeechText:text];
+}
+// 设置页"试说一句"和预览台用：只取词，不记预算、不进冷却，说不说由调用方决定。
+- (NSString *)sampleSpeechLine {
+    return PetPhraseForTag(PetPhraseTagIdle, [self speechSlots]);
 }
 // 话往哪儿显示只在这一处决定：有状态卡就并进它的副行，没有才起独立气泡。
 // 调试触发也必须走这里——否则看到的是现实中不会出现的画面（两个泡叠着）。

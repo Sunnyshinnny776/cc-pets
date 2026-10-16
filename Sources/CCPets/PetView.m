@@ -16,11 +16,6 @@
 // 单独 extern 而不 import 那个头文件，是因为它反过来 import 了 PetView.h。
 extern NSString *const PetSpeechFrequencyKey;
 
-NSString *const PetInteractionEnabledKey = @"CCPetsInteractionEnabled";
-NSString *const PetInteractionHeartThresholdKey = @"CCPetsInteractionHeartThreshold";
-NSString *const PetInteractionAnnoyedThresholdKey = @"CCPetsInteractionAnnoyedThreshold";
-NSString *const PetInteractionIntervalKey = @"CCPetsInteractionInterval";
-
 // 按下后位移超过这个距离才判定为拖动，之内视为点击。
 static const CGFloat PetDragThreshold = 3.0;
 // 菜单里自绘行的宽度：主菜单要撑满 menu.minimumWidth，子菜单按自身内容收窄，
@@ -1627,12 +1622,6 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         action:@selector(toggleStatusBubbleFromMenu:)
         width:PetMenuRowWidth
         tag:0];
-    [self addPersistentSwitchToMenu:menu
-        title:L(@"Import Codex Pets")
-        checked:[NSUserDefaults.standardUserDefaults boolForKey:ImportCodexPetsKey]
-        action:@selector(toggleImportCodexPets:)
-        width:PetMenuRowWidth
-        tag:0];
     NSMenuItem *usageModeItem = [menu addItemWithTitle:L(@"Usage Display") action:nil keyEquivalent:@""];
     NSMenu *usageModeMenu = [NSMenu new];
     [self addUsageModeControlToMenu:usageModeMenu provider:@"Codex"
@@ -1663,7 +1652,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     };
     NSDictionary<NSNumber *, NSString *> *dimTitles = @{
         @0: L(@"Clear (0%)"), @15: L(@"Light (15%)"), @25: L(@"Standard (25%)"), @45: L(@"Legible (45%)")};
-    NSInteger selectedDim = CCPetsGlassDimLevel();
+    // 主窗口里可以调成任意值，菜单只有四档：勾选最接近的那档。
+    NSInteger selectedDim = CCPetsNearestGlassDimLevel(CCPetsGlassDimLevel());
     for (NSNumber *level in CCPetsGlassDimLevels()) {
         NSMenuItem *item = [MenuChoiceRowView addToMenu:themeMenu title:dimTitles[level] group:@"dim"
             representedObject:level checked:level.integerValue == selectedDim
@@ -1674,125 +1664,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         row.enabled = dimApplies();
     }
     themeItem.submenu = themeMenu;
-    NSMenuItem *notificationItem = [menu addItemWithTitle:L(@"Notifications") action:nil keyEquivalent:@""];
-    NSMenu *notificationMenu = [NSMenu new];
-    NSArray<NSDictionary *> *notificationOptions = @[
-        @{@"title": L(@"Task done"), @"key": NotificationCompletionKey, @"tag": @1},
-        @{@"title": L(@"Task failed"), @"key": NotificationFailureKey, @"tag": @2},
-        @{@"title": L(@"Awaiting approval"), @"key": NotificationApprovalKey, @"tag": @3},
-        @{@"title": L(@"Stalled"), @"key": NotificationStallKey, @"tag": @4}
-    ];
-    for (NSDictionary *option in notificationOptions) {
-        [self addPersistentSwitchToMenu:notificationMenu
-            title:option[@"title"]
-            checked:[NSUserDefaults.standardUserDefaults boolForKey:option[@"key"]]
-            action:@selector(toggleNotification:)
-            width:PetSubmenuRowWidth
-            tag:[option[@"tag"] integerValue]];
-    }
-    notificationItem.submenu = notificationMenu;
+    // 启用和免审批会改 Claude Code / Codex 的配置，主窗口还没有对应入口，先留在这里。
     [self addBridgeMenuToMenu:menu];
-    NSMenuItem *interactionItem = [menu addItemWithTitle:L(@"Click Reactions") action:nil keyEquivalent:@""];
-    NSMenu *interactionMenu = [NSMenu new];
-    [self addPersistentSwitchToMenu:interactionMenu
-        title:L(@"Enable reactions")
-        checked:[NSUserDefaults.standardUserDefaults boolForKey:PetInteractionEnabledKey]
-        action:@selector(togglePetInteraction:)
-        width:PetSubmenuRowWidth
-        tag:1];
-    NSArray<NSDictionary *> *interactionGroups = @[
-        @{@"title": L(@"Hearts After"), @"key": PetInteractionHeartThresholdKey,
-          @"action": NSStringFromSelector(@selector(setPetInteractionHeartThreshold:)),
-          @"values": @[@3, @5, @7], @"suffix": L(@" clicks")},
-        @{@"title": L(@"Annoyed After"), @"key": PetInteractionAnnoyedThresholdKey,
-          @"action": NSStringFromSelector(@selector(setPetInteractionAnnoyedThreshold:)),
-          @"values": @[@10, @12, @15], @"suffix": L(@" clicks")},
-        @{@"title": L(@"Click Window"), @"key": PetInteractionIntervalKey,
-          @"action": NSStringFromSelector(@selector(setPetInteractionInterval:)),
-          @"values": @[@0.8, @1.2, @1.8], @"suffix": L(@" s")},
-    ];
-    for (NSDictionary *group in interactionGroups) {
-        NSMenuItem *groupItem = [interactionMenu addItemWithTitle:group[@"title"]
-            action:nil keyEquivalent:@""];
-        NSMenu *options = [NSMenu new];
-        NSNumber *current = [NSUserDefaults.standardUserDefaults objectForKey:group[@"key"]];
-        for (NSNumber *value in group[@"values"]) {
-            NSString *number = value.doubleValue == value.integerValue ?
-                [NSString stringWithFormat:@"%ld", (long)value.integerValue] :
-                [NSString stringWithFormat:@"%.1f", value.doubleValue];
-            [MenuChoiceRowView addToMenu:options
-                title:[number stringByAppendingString:group[@"suffix"]] group:group[@"key"]
-                representedObject:value checked:fabs(current.doubleValue - value.doubleValue) < 0.001
-                target:NSApp.delegate action:NSSelectorFromString(group[@"action"])
-                width:PetSubmenuRowWidth];
-        }
-        groupItem.submenu = options;
-    }
-    [interactionMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *editInteractionPhrases = [interactionMenu addItemWithTitle:L(@"Edit Reaction Lines…")
-        action:@selector(editPhrasesFile:) keyEquivalent:@""];
-    editInteractionPhrases.target = NSApp.delegate;
-    interactionItem.submenu = interactionMenu;
-    NSMenuItem *systemStatusItem = [menu addItemWithTitle:L(@"System Status") action:nil keyEquivalent:@""];
-    NSMenu *systemStatusMenu = [NSMenu new];
-    NSArray<NSDictionary *> *systemStatusOptions = @[
-        @{@"title": L(@"CPU usage"), @"key": SystemCPUEnabledKey, @"tag": @1},
-        @{@"title": L(@"CPU temp"), @"key": SystemTemperatureEnabledKey, @"tag": @2},
-        @{@"title": L(@"Memory"), @"key": SystemMemoryEnabledKey, @"tag": @3}
-    ];
-    for (NSDictionary *option in systemStatusOptions) {
-        [self addPersistentSwitchToMenu:systemStatusMenu
-            title:option[@"title"]
-            checked:[NSUserDefaults.standardUserDefaults boolForKey:option[@"key"]]
-            action:@selector(toggleSystemMetric:)
-            width:PetSubmenuRowWidth
-            tag:[option[@"tag"] integerValue]];
-    }
-    systemStatusItem.submenu = systemStatusMenu;
-    NSMenuItem *speechItem = [menu addItemWithTitle:L(@"Chatter") action:nil keyEquivalent:@""];
-    NSMenu *speechMenu = [NSMenu new];
-    id speechValue = [NSUserDefaults.standardUserDefaults objectForKey:@"CCPetsSpeechEnabled"];
-    [self addPersistentSwitchToMenu:speechMenu
-        title:L(@"Enable chatter")
-        checked:speechValue == nil ? YES : [speechValue boolValue]
-        action:@selector(toggleSpeech:)
-        width:PetSubmenuRowWidth
-        tag:1];
-    // 频率是四道闸的组合，单调任何一道都不会真的变频繁，所以只给一个档位。
-    // 单选行负责互斥勾选，鼠标点击后保持菜单展开。
-    NSMenuItem *frequencyItem = [speechMenu addItemWithTitle:L(@"Frequency") action:nil keyEquivalent:@""];
-    NSMenu *frequencyMenu = [NSMenu new];
-    NSString *frequency = [NSUserDefaults.standardUserDefaults
-        stringForKey:PetSpeechFrequencyKey] ?: @"normal";
-    NSArray<NSDictionary *> *frequencyOptions = @[
-        @{@"title": L(@"Rarely"), @"value": @"low"},
-        @{@"title": L(@"Normal"), @"value": @"normal"},
-        @{@"title": L(@"Often"), @"value": @"high"},
-        @{@"title": L(@"Chatty"), @"value": @"chatty"},
-    ];
-    for (NSDictionary *option in frequencyOptions) {
-        [MenuChoiceRowView addToMenu:frequencyMenu title:option[@"title"] group:@"speechFrequency"
-            representedObject:option[@"value"] checked:[frequency isEqualToString:option[@"value"]]
-            target:NSApp.delegate action:@selector(setSpeechFrequency:) width:PetSubmenuRowWidth];
-    }
-    frequencyItem.submenu = frequencyMenu;
-    NSMenuItem *sourceItem = [speechMenu addItemWithTitle:L(@"Line Source")
-        action:nil keyEquivalent:@""];
-    NSMenu *sourceMenu = [NSMenu new];
-    NSString *source = PetPhrasesSource();
-    for (NSArray<NSString *> *option in @[
-        @[L(@"Pet-specific Lines"), PetPhrasesSourcePet],
-        @[L(@"Default Lines"), PetPhrasesSourceDefault]]) {
-        [MenuChoiceRowView addToMenu:sourceMenu title:option[0] group:@"phrasesSource"
-            representedObject:option[1] checked:[source isEqualToString:option[1]]
-            target:NSApp.delegate action:@selector(setPhrasesSource:) width:PetSubmenuRowWidth];
-    }
-    sourceItem.submenu = sourceMenu;
-    // 没有这个入口，九成用户不会知道台词可以自己改。
-    NSMenuItem *editPhrases = [speechMenu addItemWithTitle:L(@"Edit Lines…")
-        action:@selector(editPhrasesFile:) keyEquivalent:@""];
-    editPhrases.target = NSApp.delegate;
-    speechItem.submenu = speechMenu;
     // 检查更新和关于收进「帮助」；有新版本时在顶层临时多一项「更新到 x.y.z…」，一步就能更新，
     // 不必展开子菜单。气泡和角标错过了，这里仍是醒目的入口。
     NSString *pendingVersion = self.pendingUpdateVersionRequested ? self.pendingUpdateVersionRequested() : nil;
@@ -1802,25 +1675,6 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
             action:@selector(showPendingUpdate:) keyEquivalent:@""];
         installItem.target = NSApp.delegate;
     }
-    // 语言名用各自的写法，不跟着界面语言翻译：切错了语言的人也要认得出回去的那一项。
-    NSMenuItem *languageItem = [menu addItemWithTitle:L(@"Language") action:nil keyEquivalent:@""];
-    NSMenu *languageMenu = [NSMenu new];
-    NSString *languagePreference = CCPetsLanguagePreference();
-    NSMutableArray<NSArray<NSString *> *> *languageOptions =
-        [NSMutableArray arrayWithObject:@[L(@"System Default"), CCPetsLanguageSystem]];
-    // 有哪些语言由打包进来的 .lproj 决定，加一种语言不用改这里。
-    for (NSString *language in CCPetsSupportedLanguages()) {
-        [languageOptions addObject:@[CCPetsLanguageDisplayName(language), language]];
-    }
-    for (NSArray<NSString *> *option in languageOptions) {
-        NSMenuItem *item = [languageMenu addItemWithTitle:option[0]
-            action:@selector(setLanguagePreferenceFromMenu:) keyEquivalent:@""];
-        item.target = NSApp.delegate;
-        item.representedObject = option[1];
-        item.state = [languagePreference isEqualToString:option[1]] ?
-            NSControlStateValueOn : NSControlStateValueOff;
-    }
-    languageItem.submenu = languageMenu;
     NSMenuItem *helpItem = [menu addItemWithTitle:L(@"Help") action:nil keyEquivalent:@""];
     NSMenu *helpMenu = [NSMenu new];
     NSMenuItem *updateItem = [helpMenu addItemWithTitle:L(@"Check for Updates…") action:@selector(checkForUpdates:) keyEquivalent:@""];
@@ -1829,6 +1683,10 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     aboutItem.target = NSApp.delegate;
     helpItem.submenu = helpMenu;
     [menu addItem:NSMenuItem.separatorItem];
+    // 主窗口：右键菜单装不下的设置和数据。⌘, 只是提示，和普通 App 的「设置…」一个位置一个键。
+    NSMenuItem *openItem = [menu addItemWithTitle:L(@"Open CC Pets…")
+        action:@selector(openMainWindow:) keyEquivalent:@","];
+    openItem.target = NSApp.delegate;
     NSMenuItem *quitItem = [menu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"];
     quitItem.target = NSApp;
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];

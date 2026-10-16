@@ -39,6 +39,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property BOOL codexShowsAPIUsage;
 @property BOOL claudeShowsAPIUsage;
 - (BOOL)isProviderOnline:(NSString *)name;
+// 本周额度的节奏判断，主窗口概览页的额度卡和面板用同一份。返回 label、tip、color，
+// 有数据时还有 level（0 充足 / 1 平稳 / 2 需关注 / 3 高风险）。
+- (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed
+    color:(NSColor *)providerColor;
 @property NSImage *codexLogo;
 @property NSImage *claudeLogo;
 @property(copy) void (^hoverChanged)(BOOL hovering);

@@ -787,6 +787,34 @@ static NSString *DayBucketKey(NSTimeInterval dayStart) {
     return [NSString stringWithFormat:@"%.0f", dayStart];
 }
 
+// 带模型的摘要条目的版本。2 起会话摘要多了 modelDays / model（按模型归属的日桶）。
+// 只有用量页（trackModels）要这两样：旧条目没法凭已有字段补出来，只能整篇重读——版本对不上就当没缓存。
+// 悬停面板不看模型，也不检查版本，升级后它的缓存照旧可用，不会在主线程上把会话全部重读一遍。
+static const NSInteger TokenSummaryVersion = 2;
+
+// 不是真实模型：Claude Code 给本地注入的消息打的占位名，没有对应的用量。
+static BOOL IsPseudoModelName(NSString *model) {
+    return model.length == 0 || [model hasPrefix:@"<"];
+}
+
+// 每个回合开头 Codex 会写一行 turn_context，model 在它的 payload 里，和 token_count 不在同一行。
+// 这行很大（带着整份沙箱 / 权限配置），先用标记过滤，只有命中的才值得做 JSON 解析。
+static NSString *ModelFromTurnContextLine(NSData *lineData) {
+    static NSData *marker;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        marker = [@"\"type\":\"turn_context\"" dataUsingEncoding:NSUTF8StringEncoding];
+    });
+    if ([lineData rangeOfData:marker options:0 range:NSMakeRange(0, lineData.length)].location ==
+        NSNotFound) return nil;
+    id root = [NSJSONSerialization JSONObjectWithData:lineData options:0 error:nil];
+    if (![root isKindOfClass:NSDictionary.class]) return nil;
+    if (![root[@"type"] isEqual:@"turn_context"]) return nil;
+    NSDictionary *payload = [root[@"payload"] isKindOfClass:NSDictionary.class] ? root[@"payload"] : nil;
+    NSString *model = [payload[@"model"] isKindOfClass:NSString.class] ? payload[@"model"] : nil;
+    return IsPseudoModelName(model) ? nil : model;
+}
+
 static NSDictionary *TokenCountsBySubtracting(NSDictionary *totals, NSDictionary *baseline);
 
 // 分段必须整篇扫描（末行 total 不再够用），因此改成按偏移增量追读：活跃会话每轮只解析
@@ -795,10 +823,15 @@ static NSDictionary *TokenCountsBySubtracting(NSDictionary *totals, NSDictionary
 // 解析时顺手把每条记录的增量摊到它所属的自然日（summary[@"days"]）。API 视图要画一个月的
 // 日曲线，如果改成按天各扫一遍窗口，跨天会话会被 PartialTokenTotals 整篇重读 31 次——
 // 实测本机每次刷新要多花 130ms，全落在主线程上，悬停时连拖动都会卡住。
-static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache) {
+//
+// trackModels 只给用量页（后台线程）用：按 turn_context 把增量再分到模型名下。悬停面板走主线程、
+// 用不到模型，关掉后不碰 turn_context 行，省掉逐行查标记和对大行的 JSON 解析。
+static NSDictionary *TokenSessionSummaryTracking(NSURL *url, NSMutableDictionary *cache,
+    BOOL trackModels) {
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:url.path error:nil];
     unsigned long long size = [attributes[NSFileSize] unsignedLongLongValue];
     NSDictionary *cached = cache[url.path];
+    if (trackModels && cached && [cached[@"v"] integerValue] != TokenSummaryVersion) cached = nil;
     // 没有 token_count 的会话（旧格式、被截断、刚创建）也会留下缓存条目，否则每一轮都要
     // 把整篇重读一遍。文件长大后 size 变化自然会让缓存失效。
     if (cached && [cached[@"size"] unsignedLongLongValue] == size) {
@@ -809,6 +842,11 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
     NSMutableArray<NSDictionary *> *segments = [NSMutableArray array];
     NSMutableArray<NSNumber *> *requestTimestamps = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSMutableDictionary *> *days = [NSMutableDictionary dictionary];
+    // 日 -> 模型 -> 用量。模型跟着"当时生效的 turn_context"走：会话中途 /model 切换后，
+    // 后面的增量归新模型。追读时 currentModel 要跟着缓存一起续上，否则从中间续读的那段没人认领。
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSMutableDictionary *> *> *modelDays =
+        [NSMutableDictionary dictionary];
+    __block NSString *currentModel = nil;
     __block NSNumber *start = nil;
     __block NSTimeInterval last = 0;
     __block NSDictionary *lastRequestTotal = nil;
@@ -832,6 +870,17 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
             }
             lastRequestTotal = [cached[@"lastRequestTotal"] isKindOfClass:NSDictionary.class]
                 ? cached[@"lastRequestTotal"] : nil;
+            currentModel = trackModels && [cached[@"model"] isKindOfClass:NSString.class]
+                ? cached[@"model"] : nil;
+            NSDictionary *cachedModelDays = trackModels &&
+                [cached[@"modelDays"] isKindOfClass:NSDictionary.class] ? cached[@"modelDays"] : nil;
+            for (NSString *dayKey in cachedModelDays) {
+                NSMutableDictionary *perModel = [NSMutableDictionary dictionary];
+                for (NSString *model in cachedModelDays[dayKey]) {
+                    perModel[model] = [cachedModelDays[dayKey][model] mutableCopy];
+                }
+                modelDays[dayKey] = perModel;
+            }
         }
     }
 
@@ -848,6 +897,11 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
         if (!start) {
             NSTimeInterval timestamp = LineTimestamp(line);
             if (timestamp > 0) start = @(timestamp);
+        }
+        NSString *turnModel = trackModels ? ModelFromTurnContextLine(line) : nil;
+        if (turnModel) {
+            currentModel = turnModel;
+            return;
         }
         NSDictionary *record = TokenRecordFromLine(line);
         NSDictionary *total = record[@"total"];
@@ -877,6 +931,24 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
         if (newRequest) {
             bucket[@"request_count"] = @([bucket[@"request_count"] unsignedLongLongValue] + 1);
         }
+        // 同一份增量再按模型记一遍。没见过 turn_context 就记在 unknown 名下，总量对得上。
+        if (trackModels) {
+            NSMutableDictionary<NSString *, NSMutableDictionary *> *perModel = modelDays[dayKey];
+            if (!perModel) {
+                perModel = [NSMutableDictionary dictionary];
+                modelDays[dayKey] = perModel;
+            }
+            NSString *modelName = currentModel ?: @"unknown";
+            NSMutableDictionary *modelBucket = perModel[modelName];
+            if (!modelBucket) {
+                modelBucket = [NSMutableDictionary dictionary];
+                perModel[modelName] = modelBucket;
+            }
+            AddTokenCounts(modelBucket, increment);
+            if (newRequest) {
+                modelBucket[@"request_count"] = @([modelBucket[@"request_count"] unsignedLongLongValue] + 1);
+            }
+        }
         lastRequestTotal = total;
         NSDictionary *previous = segments.lastObject;
         if (!previous || TokenTotalsDidReset(total, previous)) [segments addObject:total];
@@ -885,6 +957,9 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
     [handle closeFile];
 
     NSMutableDictionary *summary = [@{@"size": @(size), @"offset": @(offset + consumed)} mutableCopy];
+    // 不跟踪模型的条目不打版本：它没有 modelDays，用量页读到时要当没缓存、整篇重读。
+    if (trackModels) summary[@"v"] = @(TokenSummaryVersion);
+    if (currentModel) summary[@"model"] = currentModel;
     if (start) summary[@"start"] = start;
     if (segments.count > 0) {
         summary[@"segments"] = [segments copy];
@@ -895,10 +970,21 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
         NSMutableDictionary *frozenDays = [NSMutableDictionary dictionaryWithCapacity:days.count];
         for (NSString *key in days) frozenDays[key] = [days[key] copy];
         summary[@"days"] = [frozenDays copy];
+        NSMutableDictionary *frozenModelDays = [NSMutableDictionary dictionaryWithCapacity:modelDays.count];
+        for (NSString *dayKey in modelDays) {
+            NSMutableDictionary *perModel = [NSMutableDictionary dictionary];
+            for (NSString *model in modelDays[dayKey]) perModel[model] = [modelDays[dayKey][model] copy];
+            frozenModelDays[dayKey] = [perModel copy];
+        }
+        if (trackModels) summary[@"modelDays"] = [frozenModelDays copy];
         if (lastRequestTotal) summary[@"lastRequestTotal"] = lastRequestTotal;
     }
     cache[url.path] = summary;
     return (start && summary[@"total"]) ? summary : nil;
+}
+
+static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache) {
+    return TokenSessionSummaryTracking(url, cache, NO);
 }
 
 // 累计值相减，而不是累加窗口内的 last_token_usage：Codex 会把同一份 token_count
@@ -1685,6 +1771,7 @@ static const NSUInteger MaximumPinnedSessions = 8;
 // 各带一份递增的 usage 快照，所以去重是**逐字段取最大值合并**而不是丢弃后续行，
 // 详见 ClaudeTokenTotals。
 
+// model 是 ClaudeModelNames 里的下标，不直接存名字：记录是定长的二进制块，常驻内存、整块落盘。
 typedef struct {
     double timestamp;
     uint64_t identity;
@@ -1692,10 +1779,46 @@ typedef struct {
     unsigned long long output;
     unsigned long long cacheRead;
     unsigned long long cacheWrite;
+    uint32_t model;
+    uint32_t reserved;
 } ClaudeTokenRecord;
 
-// 去重键存 64 位散列而不是原字符串：近 7 天约 5.5k 条记录，散列后每条 48 字节、
-// 常驻不到 300KB；64 位空间下这个量级的碰撞概率约 1e-12，可以忽略。
+// 记录缓存条目的版本。2 起记录多了 model 字段，结构体变长，旧条目按旧步长存的，
+// 不能当新的读——版本对不上就整篇重来。
+static const NSInteger ClaudeRecordCacheVersion = 2;
+// 缓存里的保留键：模型名表。键不是路径，清理失效路径时要跳过它。
+static NSString *const ClaudeModelTableKey = @"~models";
+static const uint32_t ClaudeUnknownModel = UINT32_MAX;
+
+// 模型名表只增不减，下标一旦发出去就不能变（记录里存的就是下标）。
+static NSArray<NSString *> *ClaudeModelNames(NSDictionary *cache) {
+    NSDictionary *table = [cache[ClaudeModelTableKey] isKindOfClass:NSDictionary.class]
+        ? cache[ClaudeModelTableKey] : nil;
+    return [table[@"names"] isKindOfClass:NSArray.class] ? table[@"names"] : @[];
+}
+
+// 清掉已经不在扫描范围里的文件条目。模型名表不是路径，必须留着：删了它，已有记录里存的
+// 下标就对不上名字了。
+static void PruneClaudeRecordCache(NSMutableDictionary *cache, NSSet<NSString *> *livePaths) {
+    for (NSString *path in cache.allKeys) {
+        if ([path isEqualToString:ClaudeModelTableKey]) continue;
+        if (![livePaths containsObject:path]) [cache removeObjectForKey:path];
+    }
+}
+
+static uint32_t ClaudeModelIndex(NSMutableDictionary *cache, NSString *model) {
+    if (model.length == 0) return ClaudeUnknownModel;
+    NSArray<NSString *> *names = ClaudeModelNames(cache);
+    NSUInteger index = [names indexOfObject:model];
+    if (index != NSNotFound) return (uint32_t)index;
+    // 换成不可变副本再存：落盘读回的容器可变性不可靠（见 MakeCachedRecordsMutable 的注释）。
+    cache[ClaudeModelTableKey] = @{@"names": [names arrayByAddingObject:model]};
+    return (uint32_t)names.count;
+}
+
+// 去重键存 64 位散列而不是原字符串：近 7 天约 5.5k 条记录，散列后每条 56 字节（含模型下标）、
+// 常驻约 300KB；64 位空间下这个量级的碰撞概率约 1e-12，可以忽略。用量页另有一份 90 天的
+// 记录缓存（claude-models），大小随天数大致线性增长，同量级下是这份的十几倍。
 static uint64_t ClaudeIdentityHash(NSString *first, NSString *second) {
     uint64_t hash = 1469598103934665603ULL;
     for (NSString *part in @[first ?: @"", @"\n", second ?: @""]) {
@@ -1714,7 +1837,7 @@ static unsigned long long ClaudeCount(NSDictionary *usage, NSString *key) {
 }
 
 // message.usage 的顶层就是该次请求的聚合值，内层 iterations 是明细，不能再加一遍。
-static BOOL ClaudeRecordFromLine(NSData *lineData, ClaudeTokenRecord *record) {
+static BOOL ClaudeRecordFromLine(NSData *lineData, ClaudeTokenRecord *record, NSString **outModel) {
     if (lineData.length == 0) return NO;
     static NSData *marker;
     static dispatch_once_t once;
@@ -1748,6 +1871,7 @@ static BOOL ClaudeRecordFromLine(NSData *lineData, ClaudeTokenRecord *record) {
     record->output = ClaudeCount(usage, @"output_tokens");
     record->cacheRead = ClaudeCount(usage, @"cache_read_input_tokens");
     record->cacheWrite = ClaudeCount(usage, @"cache_creation_input_tokens");
+    if (outModel) *outModel = [message[@"model"] isKindOfClass:NSString.class] ? message[@"model"] : nil;
     return YES;
 }
 
@@ -1828,6 +1952,7 @@ static NSData *ClaudeRecordsForFile(NSURL *url, NSMutableDictionary *cache) {
         error:nil];
     unsigned long long size = [attributes[NSFileSize] unsignedLongLongValue];
     NSDictionary *cached = cache[url.path];
+    if (cached && [cached[@"v"] integerValue] != ClaudeRecordCacheVersion) cached = nil;
     unsigned long long offset = [cached[@"offset"] unsignedLongLongValue];
     // 这里可以直接原地追加：可变性由 MakeCachedRecordsMutable 在缓存读回时统一保证。
     // 不要退回成 isKindOfClass:NSMutableData 判断——NSData 是类簇，落盘缓存解析出的
@@ -1843,7 +1968,8 @@ static NSData *ClaudeRecordsForFile(NSURL *url, NSMutableDictionary *cache) {
         // 正常情况下 records 就是缓存里那一份，不必回写；只有上面因偏移失效重建过
         // （文件被清空到 0 字节）才是新对象，这时写回去，免得下一轮又重建一遍。
         if (records != cached[@"records"]) {
-            cache[url.path] = @{@"offset": @(offset), @"records": records};
+            cache[url.path] = @{@"offset": @(offset), @"records": records,
+                                @"v": @(ClaudeRecordCacheVersion)};
         }
         return records;
     }
@@ -1860,15 +1986,20 @@ static NSData *ClaudeRecordsForFile(NSURL *url, NSMutableDictionary *cache) {
     for (NSUInteger index = 0; index < fresh.length; index++) {
         if (bytes[index] != '\n') continue;
         ClaudeTokenRecord record = {0};
+        NSString *model = nil;
         if (index > lineStart && ClaudeRecordFromLine(
-                [fresh subdataWithRange:NSMakeRange(lineStart, index - lineStart)], &record)) {
+                [fresh subdataWithRange:NSMakeRange(lineStart, index - lineStart)], &record, &model) &&
+            // <synthetic> 之类的占位模型是本地注入的消息，没有真实用量，不进统计。
+            !(model.length > 0 && IsPseudoModelName(model))) {
+            record.model = ClaudeModelIndex(cache, model);
             [records appendBytes:&record length:sizeof(record)];
         }
         lineStart = index + 1;
         consumed = lineStart;
     }
     // 只推进到最后一个换行符，未写完的尾行留到下一轮，避免把半行当成坏数据丢掉。
-    cache[url.path] = @{@"offset": @(offset + consumed), @"records": records};
+    cache[url.path] = @{@"offset": @(offset + consumed), @"records": records,
+                        @"v": @(ClaudeRecordCacheVersion)};
     return records;
 }
 
@@ -1877,7 +2008,7 @@ static NSData *ClaudeRecordsForFile(NSURL *url, NSMutableDictionary *cache) {
 // （6→235、3→1870），首行取到的是流式过程中的中间值。因此同 identity 的多行必须逐字段
 // 取最大值合并，只保留第一条会少算——全量口径下少算 16060 个 output token。
 // 取 max 而不是"取最后一行"：fork/resume 会把旧行复制进新文件，跨文件的行序没有保证。
-static NSDictionary *ClaudeTokenTotals(NSArray<NSData *> *recordSets, NSTimeInterval start,
+static NSData *ClaudeMergedRecords(NSArray<NSData *> *recordSets, NSTimeInterval start,
     NSTimeInterval end) {
     NSMutableDictionary<NSNumber *, NSNumber *> *slots = [NSMutableDictionary dictionary];
     NSMutableData *merged = [NSMutableData data];
@@ -1901,8 +2032,16 @@ static NSDictionary *ClaudeTokenTotals(NSArray<NSData *> *recordSets, NSTimeInte
             target->output = MAX(target->output, record->output);
             target->cacheRead = MAX(target->cacheRead, record->cacheRead);
             target->cacheWrite = MAX(target->cacheWrite, record->cacheWrite);
+            // 同一次请求只可能是一个模型；先出现的行没带 model（unknown）时，用后面带的补上。
+            if (target->model == ClaudeUnknownModel) target->model = record->model;
         }
     }
+    return merged;
+}
+
+static NSDictionary *ClaudeTokenTotals(NSArray<NSData *> *recordSets, NSTimeInterval start,
+    NSTimeInterval end) {
+    NSData *merged = ClaudeMergedRecords(recordSets, start, end);
     unsigned long long input = 0, output = 0, cacheRead = 0, cacheWrite = 0;
     const ClaudeTokenRecord *unique = merged.bytes;
     for (NSUInteger index = 0; index < merged.length / sizeof(ClaudeTokenRecord); index++) {
@@ -1996,9 +2135,7 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
         NSData *records = ClaudeRecordsForFile(url, self.recordCache);
         if (records.length > 0) [recordSets addObject:records];
     }
-    for (NSString *path in self.recordCache.allKeys) {
-        if (![livePaths containsObject:path]) [self.recordCache removeObjectForKey:path];
-    }
+    PruneClaudeRecordCache(self.recordCache, livePaths);
     NSTimeInterval savedAt = NSDate.date.timeIntervalSince1970;
     if (self.persistsCache && savedAt - self.recordCacheSavedAt >= TokenCacheSaveInterval) {
         self.recordCacheSavedAt = savedAt;
@@ -2067,3 +2204,275 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
     return [self refresh];
 }
 @end
+
+#pragma mark - 按模型的用量
+
+// 面向 UI 的统一口径：四栏互不重叠，加起来就是总 Token。
+//   input      非缓存输入
+//   cacheRead  缓存命中读
+//   cacheWrite 缓存写入
+//   output     输出
+//   reasoning  输出里的推理 token（Codex 才有，是 output 的子集，不另外加）
+//   requests   请求数
+// 两家原始口径不同：Claude 的 input_tokens 不含缓存；Codex 的 cached_input_tokens 是
+// input_tokens 的子集（input + output = total），所以 Codex 要先减掉缓存命中的部分。
+static NSDictionary *ModelCountsMake(unsigned long long input, unsigned long long cacheRead,
+    unsigned long long cacheWrite, unsigned long long output, unsigned long long reasoning,
+    unsigned long long requests) {
+    return @{@"input": @(input), @"cacheRead": @(cacheRead), @"cacheWrite": @(cacheWrite),
+             @"output": @(output), @"reasoning": @(reasoning), @"requests": @(requests)};
+}
+
+static NSArray<NSString *> *ModelCountKeys(void) {
+    return @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests"];
+}
+
+static void AddModelCounts(NSMutableDictionary *target, NSDictionary *counts) {
+    for (NSString *key in ModelCountKeys()) {
+        target[key] = @([target[key] unsignedLongLongValue] + [counts[key] unsignedLongLongValue]);
+    }
+}
+
+unsigned long long CCPetsTotalTokens(NSDictionary *counts) {
+    return [counts[@"input"] unsignedLongLongValue] + [counts[@"cacheRead"] unsignedLongLongValue] +
+        [counts[@"cacheWrite"] unsignedLongLongValue] + [counts[@"output"] unsignedLongLongValue];
+}
+
+static NSDictionary *ModelCountsFromCodexBucket(NSDictionary *bucket) {
+    unsigned long long input = [bucket[@"input_tokens"] unsignedLongLongValue];
+    unsigned long long cached = [bucket[@"cached_input_tokens"] unsignedLongLongValue];
+    return ModelCountsMake(input >= cached ? input - cached : 0, cached,
+        [bucket[@"cache_write_input_tokens"] unsignedLongLongValue],
+        [bucket[@"output_tokens"] unsignedLongLongValue],
+        [bucket[@"reasoning_output_tokens"] unsignedLongLongValue],
+        [bucket[@"request_count"] unsignedLongLongValue]);
+}
+
+// [start, end) 里每个自然日的零点。
+static NSArray<NSNumber *> *ModelUsageDayStarts(NSTimeInterval start, NSTimeInterval end) {
+    NSCalendar *calendar = NSCalendar.currentCalendar;
+    NSMutableArray<NSNumber *> *days = [NSMutableArray array];
+    NSDate *cursor = [calendar startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:start]];
+    while (cursor.timeIntervalSince1970 < end) {
+        if (cursor.timeIntervalSince1970 >= start) [days addObject:@(cursor.timeIntervalSince1970)];
+        NSDate *next = [calendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:cursor options:0];
+        if (!next) break;
+        cursor = next;
+    }
+    return days;
+}
+
+// 按模型用量里"某一天"的键：当前时区下的日期 yyyy-MM-dd，不用零点时间戳。零点时间戳跟着
+// 时区走，换了时区后同一天的键就变了——会话摘要缓存里的日桶和归档都是按当时的时区存的，
+// 新时区下拿新零点去取会全部落空。先加 12 小时再取日期：旧时区的零点在偏差 ±12 小时以内的
+// 新时区里仍然落在同一天，夏令时那一小时也一样。
+static NSString *DayLabel(NSTimeInterval dayStart) {
+    NSDateComponents *components = [NSCalendar.currentCalendar
+        components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay
+        fromDate:[NSDate dateWithTimeIntervalSince1970:dayStart + 43200]];
+    return [NSString stringWithFormat:@"%04ld-%02ld-%02ld", (long)components.year,
+        (long)components.month, (long)components.day];
+}
+
+// 日 -> 模型 -> 用量（统一口径），日是 DayLabel。Codex 直接取会话摘要里按模型分好的日桶；
+// 摘要里的键是解析时那个时区的零点，在这里统一换成日期。
+static NSDictionary<NSString *, NSDictionary *> *CodexModelDays(NSTimeInterval start,
+    NSTimeInterval end, NSMutableDictionary *cache) {
+    NSArray<NSURL *> *urls = RecentCodexSessionURLs(CodexSessionsURL(), start);
+    NSString *startLabel = DayLabel(start);
+    NSString *endLabel = DayLabel(end);
+    NSMutableDictionary<NSString *, NSMutableDictionary *> *result = [NSMutableDictionary dictionary];
+    for (NSURL *url in urls) {
+        NSDictionary *summary = TokenSessionSummaryTracking(url, cache, YES);
+        NSDictionary *modelDays = [summary[@"modelDays"] isKindOfClass:NSDictionary.class]
+            ? summary[@"modelDays"] : nil;
+        for (NSString *dayKey in modelDays) {
+            NSString *label = DayLabel(dayKey.doubleValue);
+            // yyyy-MM-dd 按字典序就是按时间序。
+            if ([label compare:startLabel] == NSOrderedAscending ||
+                [label compare:endLabel] != NSOrderedAscending) continue;
+            NSMutableDictionary *perModel = result[label];
+            if (!perModel) {
+                perModel = [NSMutableDictionary dictionary];
+                result[label] = perModel;
+            }
+            for (NSString *model in modelDays[dayKey]) {
+                NSMutableDictionary *counts = perModel[model];
+                if (!counts) {
+                    counts = [NSMutableDictionary dictionary];
+                    perModel[model] = counts;
+                }
+                AddModelCounts(counts, ModelCountsFromCodexBucket(modelDays[dayKey][model]));
+            }
+        }
+    }
+    // 窗口之外的会话缓存和 partial 分片没人再读，顺手清掉。
+    PruneTokenCache(cache, urls, [NSSet set]);
+    return result;
+}
+
+// Claude：先按请求去重（跨文件、同请求多行取逐字段最大值），再按"日 × 模型"落桶，日是 DayLabel。
+static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval start,
+    NSTimeInterval end, NSMutableDictionary *cache) {
+    NSArray<NSURL *> *urls = RecentClaudeTranscriptURLs(ClaudeProjectsURL(), start);
+    NSMutableArray<NSData *> *recordSets = [NSMutableArray arrayWithCapacity:urls.count];
+    NSMutableSet<NSString *> *livePaths = [NSMutableSet setWithCapacity:urls.count];
+    for (NSURL *url in urls) {
+        [livePaths addObject:url.path];
+        NSData *records = ClaudeRecordsForFile(url, cache);
+        if (records.length > 0) [recordSets addObject:records];
+    }
+    PruneClaudeRecordCache(cache, livePaths);
+    NSArray<NSString *> *names = ClaudeModelNames(cache);
+    NSData *merged = ClaudeMergedRecords(recordSets, start, end);
+    const ClaudeTokenRecord *records = merged.bytes;
+    NSCalendar *calendar = NSCalendar.currentCalendar;
+    NSMutableDictionary<NSString *, NSMutableDictionary *> *result = [NSMutableDictionary dictionary];
+    NSTimeInterval bucketStart = 0, bucketEnd = 0, bucketLabelStart = 0;
+    NSString *bucketLabel = nil;
+    for (NSUInteger index = 0; index < merged.length / sizeof(ClaudeTokenRecord); index++) {
+        const ClaudeTokenRecord *record = &records[index];
+        // 合并后的记录不是按时间排的，日边界缓存只在恰好命中时有用，不命中就重算。
+        if (record->timestamp < bucketStart || record->timestamp >= bucketEnd) {
+            NSDate *dayStart = [calendar startOfDayForDate:
+                [NSDate dateWithTimeIntervalSince1970:record->timestamp]];
+            NSDate *next = [calendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:dayStart options:0];
+            bucketStart = dayStart.timeIntervalSince1970;
+            bucketEnd = (next ?: [dayStart dateByAddingTimeInterval:86400]).timeIntervalSince1970;
+        }
+        if (!bucketLabel || bucketLabelStart != bucketStart) {
+            bucketLabel = DayLabel(bucketStart);
+            bucketLabelStart = bucketStart;
+        }
+        NSMutableDictionary *perModel = result[bucketLabel];
+        if (!perModel) {
+            perModel = [NSMutableDictionary dictionary];
+            result[bucketLabel] = perModel;
+        }
+        NSString *model = record->model < names.count ? names[record->model] : @"unknown";
+        NSMutableDictionary *counts = perModel[model];
+        if (!counts) {
+            counts = [NSMutableDictionary dictionary];
+            perModel[model] = counts;
+        }
+        AddModelCounts(counts, ModelCountsMake(record->input, record->cacheRead, record->cacheWrite,
+            record->output, 0, 1));
+    }
+    return result;
+}
+
+// 历史按日留一份，因为源头会清：Claude Code 默认约 30 天后清理转录，那之后这些天只能靠这份。
+// 每个已经过去的自然日，先比整天的 Token 总量：源头现在数出来的不比存下的少，说明源头没被清，
+// 它就是一次完整的重算，整天换成它——同一份用量换了模型名（unknown 后来认出了模型）时，
+// 旧名字跟着整天被替掉，不会和新名字各留一份。数出来的更少才说明源头被清了一部分，这时按模型
+// 各取大的再合并：被清掉的模型靠归档补上，还在的照样取新值。今天还没结束，不进归档。
+static unsigned long long ModelDayTokens(NSDictionary *models) {
+    unsigned long long total = 0;
+    for (NSString *model in models) total += CCPetsTotalTokens(models[model]);
+    return total;
+}
+
+static NSString *const ModelArchiveSchemaKey = @"schema";
+// 2 起归档的键是 DayLabel（日期），1 是日零点的时间戳字符串。
+static const NSInteger ModelArchiveSchemaVersion = 2;
+// 用量页最长看 90 天（CCPetsUsagePage.m 的 UsageMaximumRangeDays），归档只需要覆盖这么多，
+// 再留几天余量。读取只取请求区间里的日子，留得更久也没有路径能读到。两边要一起改。
+static const NSInteger ModelArchiveRetentionDays = 100;
+
+// 版本 1 的归档不能直接丢：源头被清掉的那些天只剩这一份。把时间戳键换成日期就能接着用。
+static NSMutableDictionary *LoadModelArchive(NSString *path, BOOL *outMigrated) {
+    NSMutableDictionary *archive = LoadTokenSummaryCache(path);
+    NSDictionary *schema = [archive[ModelArchiveSchemaKey] isKindOfClass:NSDictionary.class]
+        ? archive[ModelArchiveSchemaKey] : nil;
+    NSInteger version = [schema[@"version"] integerValue];
+    if (version == 1 && [archive[@"days"] isKindOfClass:NSDictionary.class]) {
+        NSDictionary *oldDays = archive[@"days"];
+        NSMutableDictionary *days = [NSMutableDictionary dictionaryWithCapacity:oldDays.count];
+        for (NSString *key in oldDays) {
+            if (![oldDays[key] isKindOfClass:NSDictionary.class]) continue;
+            NSString *label = DayLabel(key.doubleValue);
+            // 两个旧键落到同一天只可能是时区跳得离谱，留总量大的那份。
+            if (!days[label] || ModelDayTokens(oldDays[key]) > ModelDayTokens(days[label])) {
+                days[label] = oldDays[key];
+            }
+        }
+        archive[@"days"] = days;
+        if (outMigrated) *outMigrated = YES;
+    } else if (version != ModelArchiveSchemaVersion) {
+        [archive removeAllObjects];
+    }
+    archive[ModelArchiveSchemaKey] = @{@"version": @(ModelArchiveSchemaVersion)};
+    if (![archive[@"days"] isKindOfClass:NSDictionary.class]) archive[@"days"] = @{};
+    return archive;
+}
+
+NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeInterval end) {
+    BOOL isClaude = [provider isEqualToString:@"claude"];
+    if (!isClaude && ![provider isEqualToString:@"codex"]) return nil;
+    NSString *source = isClaude ? ClaudeProjectsURL().path : CodexSessionsURL().path;
+    NSString *cachePath = TokenSummaryCachePath(
+        isClaude ? @"claude-models" : @"codex-models", source);
+    NSString *archivePath = TokenSummaryCachePath(
+        isClaude ? @"claude-model-days" : @"codex-model-days", source);
+    NSMutableDictionary *cache = LoadTokenSummaryCache(cachePath);
+    if (isClaude) MakeCachedRecordsMutable(cache);
+    BOOL archiveChanged = NO;
+    NSMutableDictionary *archive = LoadModelArchive(archivePath, &archiveChanged);
+
+    NSDictionary<NSString *, NSDictionary *> *fresh = isClaude
+        ? ClaudeModelDays(start, end, cache) : CodexModelDays(start, end, cache);
+
+    NSMutableDictionary *archivedDays = [archive[@"days"] mutableCopy];
+    NSTimeInterval todayStart = [NSCalendar.currentCalendar
+        startOfDayForDate:NSDate.date].timeIntervalSince1970;
+    NSMutableArray<NSDictionary *> *daily = [NSMutableArray array];
+    NSMutableDictionary<NSString *, NSMutableDictionary *> *totals = [NSMutableDictionary dictionary];
+    for (NSNumber *dayStart in ModelUsageDayStarts(start, end)) {
+        NSString *key = DayLabel(dayStart.doubleValue);
+        NSDictionary *models = fresh[key] ?: @{};
+        if (dayStart.doubleValue < todayStart) {
+            NSDictionary *stored = [archivedDays[key] isKindOfClass:NSDictionary.class]
+                ? archivedDays[key] : @{};
+            NSMutableDictionary *combined = nil;
+            if (ModelDayTokens(models) >= ModelDayTokens(stored)) {
+                combined = [models mutableCopy];
+            } else {
+                combined = [stored mutableCopy];
+                for (NSString *model in models) {
+                    NSDictionary *existing = combined[model];
+                    if (!existing || CCPetsTotalTokens(models[model]) >= CCPetsTotalTokens(existing)) {
+                        combined[model] = models[model];
+                    }
+                }
+            }
+            if (![combined isEqualToDictionary:stored] && combined.count > 0) {
+                archivedDays[key] = combined;
+                archiveChanged = YES;
+            }
+            models = combined;
+        }
+        [daily addObject:@{@"timestamp": dayStart, @"models": models}];
+        for (NSString *model in models) {
+            NSMutableDictionary *sum = totals[model];
+            if (!sum) {
+                sum = [NSMutableDictionary dictionary];
+                totals[model] = sum;
+            }
+            AddModelCounts(sum, models[model]);
+        }
+    }
+    // 只留近 ModelArchiveRetentionDays 天。键是 yyyy-MM-dd，字典序就是时间序。
+    NSDate *oldestDate = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay
+        value:-ModelArchiveRetentionDays toDate:[NSDate dateWithTimeIntervalSince1970:todayStart] options:0];
+    NSString *oldest = DayLabel(oldestDate.timeIntervalSince1970);
+    for (NSString *key in archivedDays.allKeys) {
+        if ([key compare:oldest] == NSOrderedAscending) {
+            [archivedDays removeObjectForKey:key];
+            archiveChanged = YES;
+        }
+    }
+    archive[@"days"] = archivedDays;
+    SaveTokenSummaryCache(cache, cachePath);
+    if (archiveChanged) SaveTokenSummaryCache(archive, archivePath);
+    return @{@"models": totals, @"daily": daily};
+}

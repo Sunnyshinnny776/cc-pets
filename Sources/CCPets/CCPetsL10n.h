@@ -7,7 +7,7 @@
 // - 其他语言查 <语言>.lproj/Localizable.strings，查不到就退回英文原文。
 // 英文是源语言：漏翻的条目显示英文，比让别的语言用户看到某种第三语言好接受；
 // 新语言也从英文译。代价是改了英文原文要同步改各语言表的 key，
-// scripts/check-l10n.mjs 会把漏掉的报出来。
+// tests/check-l10n.mjs 会把漏掉的报出来。
 //
 // 带参数的文案照常写 %@ / %ld；参数顺序和译文语序不同时，两边都用 %1$@ / %2$@ 标位置。
 //
@@ -40,6 +40,8 @@ void CCPetsSetLanguagePreference(NSString *preference);
 // 环境变量 CC_PETS_LANGUAGE 优先（测试用，也方便临时切换），其次是偏好，最后跟随系统：
 // 系统首选语言里第一个能匹配上的说了算，都匹配不上就用源语言。
 NSString *CCPetsCurrentLanguage(void);
+// 命令行子命令用：语言按 CC_PETS_LANGUAGE → ~/.cc-pets/language → LC_ALL / LC_MESSAGES / LANG → 系统 决定。
+void CCPetsUseCommandLineLanguage(BOOL enabled);
 BOOL CCPetsLanguageIsSource(void);
 // 按给定的支持列表解析，不读任何全局状态，测试用。匹配规则：先找完全一致或前缀一致的
 // （zh-Hans-CN → zh-Hans），再退到只比主语言（zh-Hant → zh-Hans、ja_JP → ja）。

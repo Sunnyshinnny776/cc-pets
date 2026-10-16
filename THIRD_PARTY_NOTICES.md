@@ -3,7 +3,7 @@
 English | [简体中文](./THIRD_PARTY_NOTICES.zh-CN.md)
 
 The CC Pets distribution does not bundle character assets downloaded from PetDex.
-The built-in `默认.webp` is an original default asset created for this project. It
+The built-in `ByteMochi.webp` is an original default asset created for this project. It
 is unrelated to any existing anime, game, or commercial mascot and is distributed
 with the project code under the MIT License.
 

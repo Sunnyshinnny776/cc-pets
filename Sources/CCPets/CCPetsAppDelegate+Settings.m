@@ -1,14 +1,17 @@
 // 右键菜单里的各项设置开关。
+//
+// 每项分两层：菜单控件的 action（setXxx: / toggleXxx:）只从 sender 上取值、回写勾选状态；
+// 真正写设置并让界面生效的是 updateXxx:，不认识任何菜单控件，主窗口设置页直接调它。
+// 写 defaults 一律经过 CCPetsPreferences，两边才拿得到同一套钳制和变更广播。
 #import "CCPetsAppDelegate+Private.h"
-#import <math.h>
 
 @implementation AppDelegate (Settings)
 - (void)setPetSizeFromSlider:(NSSlider *)sender {
-    double scale = round(sender.doubleValue * 100) / 100;
-    if (!isfinite(scale)) return;
-    scale = MAX(CCPetsPetMinimumScale, MIN(CCPetsPetMaximumScale, scale));
-    sender.doubleValue = scale;
-    [NSUserDefaults.standardUserDefaults setDouble:scale forKey:CCPetsPetScaleKey];
+    [self updatePetScale:sender.doubleValue];
+    sender.doubleValue = CCPetsPetScalePreference();
+}
+- (void)updatePetScale:(double)scale {
+    if (!CCPetsPrefSetObject(CCPetsPetScaleKey, @(scale))) return;
     [self applyPetSizePreference];
 }
 - (void)applyPetSizePreference {
@@ -33,12 +36,6 @@
     [self.speechPanel.contentView displayIfNeeded];
     [self petWindowDidMove:nil];
 }
-- (NSString *)systemMetricKeyForTag:(NSInteger)tag {
-    if (tag == 1) return SystemCPUEnabledKey;
-    if (tag == 2) return SystemTemperatureEnabledKey;
-    if (tag == 3) return SystemMemoryEnabledKey;
-    return nil;
-}
 - (void)applySystemMetricPreferences {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     self.quotaView.systemCPUEnabled = [defaults boolForKey:SystemCPUEnabledKey];
@@ -60,28 +57,27 @@
         : (sender.tag == 2 ? ClaudeUsageDisplayModeKey : nil);
     NSString *mode = sender.state == NSControlStateValueOn ? @"api" : @"subscription";
     if (!key) return;
-    [NSUserDefaults.standardUserDefaults setObject:mode forKey:key];
+    [self updateUsageDisplayMode:mode forKey:key];
+}
+- (void)updateUsageDisplayMode:(NSString *)mode forKey:(NSString *)key {
+    if (![@[CodexUsageDisplayModeKey, ClaudeUsageDisplayModeKey] containsObject:key] ||
+        ![@[@"api", @"subscription"] containsObject:mode]) return;
+    CCPetsPrefSetObject(key, mode);
     [self applyUsageDisplayModePreferences];
     // 展示模式决定了会话要回溯多远（订阅 8 天 / API 到上月月初），切换之后必须重新聚合，
     // 否则刚打开 API 视图时手里只有一段按 8 天窗口扫出来的数据。
     [self refreshUsage:nil];
 }
-- (void)toggleSystemMetric:(NSButton *)sender {
-    NSString *key = [self systemMetricKeyForTag:sender.tag];
-    if (!key) return;
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    BOOL enabled = ![defaults boolForKey:key];
-    [defaults setBool:enabled forKey:key];
-    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+- (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled {
+    if (![@[SystemCPUEnabledKey, SystemTemperatureEnabledKey, SystemMemoryEnabledKey]
+            containsObject:key]) return;
+    CCPetsPrefSetBool(key, enabled);
     [self applySystemMetricPreferences];
     [self updateSystemMetricsTimer];
 }
 // 开关打开时立刻导入一次，不用等下次启动——用户点开关就是想现在看到那些素材。
-- (void)toggleImportCodexPets:(NSButton *)sender {
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    BOOL enabled = ![defaults boolForKey:ImportCodexPetsKey];
-    [defaults setBool:enabled forKey:ImportCodexPetsKey];
-    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+- (void)updateImportCodexPets:(BOOL)enabled {
+    CCPetsPrefSetBool(ImportCodexPetsKey, enabled);
     if (!enabled) return;
     NSUInteger imported = ImportCodexPets();
     if (imported == 0) return;
@@ -95,18 +91,13 @@
     [alert addButtonWithTitle:L(@"OK")];
     [alert runModal];
 }
-- (NSString *)notificationKeyForTag:(NSInteger)tag {
-    if (tag == 1) return NotificationCompletionKey;
-    if (tag == 2) return NotificationFailureKey;
-    if (tag == 3) return NotificationApprovalKey;
-    if (tag == 4) return NotificationStallKey;
-    return nil;
-}
 // sender 是菜单里的 MenuChoiceRowView，勾选状态由它自己更新。
 - (void)setPanelTheme:(MenuChoiceRowView *)sender {
-    NSString *theme = sender.representedObject;
+    [self updatePanelTheme:sender.representedObject];
+}
+- (void)updatePanelTheme:(NSString *)theme {
     if (![@[@"classic", @"liquid"] containsObject:theme]) return;
-    [NSUserDefaults.standardUserDefaults setObject:theme forKey:CCPetsPanelThemeKey];
+    CCPetsPrefSetObject(CCPetsPanelThemeKey, theme);
     [self.statusGlass applyTheme];
     [self.speechGlass applyTheme];
     [self.quotaGlass applyTheme];
@@ -141,9 +132,14 @@
     [self applyUpdateBadgeStyle];
 }
 - (void)setGlassDimLevel:(MenuChoiceRowView *)sender {
-    NSNumber *level = sender.representedObject;
-    if (![CCPetsGlassDimLevels() containsObject:level]) return;
-    [NSUserDefaults.standardUserDefaults setObject:level forKey:CCPetsGlassDimKey];
+    [self updateGlassDimLevel:sender.representedObject];
+}
+- (void)updateGlassDimLevel:(NSNumber *)level {
+    // 主窗口的滑块是连续值，菜单是四档；两边都走这里，统一取整并夹在 0–45。
+    if (![level isKindOfClass:NSNumber.class] || isnan(level.doubleValue)) return;
+    NSInteger value = MAX((NSInteger)0, MIN(CCPetsGlassDimMaximum, (NSInteger)lround(level.doubleValue)));
+    if ([[NSUserDefaults.standardUserDefaults objectForKey:CCPetsGlassDimKey] isEqual:@(value)]) return;
+    CCPetsPrefSetObject(CCPetsGlassDimKey, @(value));
     [self.quotaGlass applyDimLevel];
     [self.statusGlass applyDimLevel];
     [self.speechGlass applyDimLevel];
@@ -151,55 +147,34 @@
     self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
     self.quotaView.needsDisplay = YES;
 }
-- (void)toggleSpeech:(NSButton *)sender {
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    id current = [defaults objectForKey:@"CCPetsSpeechEnabled"];
-    BOOL enabled = current == nil ? YES : [current boolValue];
-    [defaults setBool:!enabled forKey:@"CCPetsSpeechEnabled"];
-    sender.state = !enabled ? NSControlStateValueOn : NSControlStateValueOff;
+- (void)updateSpeechEnabled:(BOOL)enabled {
+    CCPetsPrefSetBool(PetSpeechEnabledKey, enabled);
     // 更新提示不算碎碎念，关掉碎碎念时不收它。
-    if (enabled && !self.updateBubbleVisible) [self hideSpeechBubble];
+    if (!enabled && !self.updateBubbleVisible) [self hideSpeechBubble];
 }
-- (void)togglePetInteraction:(NSButton *)sender {
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    BOOL enabled = ![defaults boolForKey:PetInteractionEnabledKey];
-    [defaults setBool:enabled forKey:PetInteractionEnabledKey];
-    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+- (void)updatePetInteractionEnabled:(BOOL)enabled {
+    CCPetsPrefSetBool(PetInteractionEnabledKey, enabled);
 }
-- (void)setPetInteractionHeartThreshold:(MenuChoiceRowView *)sender {
-    NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
-        sender.representedObject : @3;
-    [NSUserDefaults.standardUserDefaults setInteger:MAX((NSInteger)2, value.integerValue)
-        forKey:PetInteractionHeartThresholdKey];
-}
-- (void)setPetInteractionAnnoyedThreshold:(MenuChoiceRowView *)sender {
-    NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
-        sender.representedObject : @10;
-    NSInteger heart = MAX((NSInteger)2, [NSUserDefaults.standardUserDefaults
-        integerForKey:PetInteractionHeartThresholdKey]);
-    [NSUserDefaults.standardUserDefaults setInteger:MAX(heart + 1, value.integerValue)
-        forKey:PetInteractionAnnoyedThresholdKey];
-}
-- (void)setPetInteractionInterval:(MenuChoiceRowView *)sender {
-    NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
-        sender.representedObject : @1.2;
-    [NSUserDefaults.standardUserDefaults setDouble:MAX(0.4, MIN(3.0, value.doubleValue))
-        forKey:PetInteractionIntervalKey];
+// 阈值和间隔都是点击时现读的，写进去即生效；范围钳制在 CCPetsPrefNormalizedValue。
+- (void)updatePetInteractionValue:(NSNumber *)value forKey:(NSString *)key {
+    if (![@[PetInteractionHeartThresholdKey, PetInteractionAnnoyedThresholdKey,
+            PetInteractionIntervalKey] containsObject:key]) return;
+    CCPetsPrefSetObject(key, value);
 }
 // 频率档位。改完立刻生效——四道闸都是现读的，不缓存。
 // 顺手把冷却清掉，否则刚调高档位还要等完上一档的冷却才见效，会让人以为没生效。
-- (void)setSpeechFrequency:(MenuChoiceRowView *)sender {
-    NSString *value = [sender.representedObject isKindOfClass:NSString.class] ?
-        sender.representedObject : PetSpeechFrequencyNormal;
-    [NSUserDefaults.standardUserDefaults setObject:value forKey:PetSpeechFrequencyKey];
+- (void)updateSpeechFrequency:(NSString *)value {
+    if (![@[PetSpeechFrequencyLow, PetSpeechFrequencyNormal, PetSpeechFrequencyHigh,
+            PetSpeechFrequencyChatty] containsObject:value]) value = PetSpeechFrequencyNormal;
+    CCPetsPrefSetObject(PetSpeechFrequencyKey, value);
     self.speechCooldownUntil = 0;
     self.lastIdleSpeechCheck = 0;
 }
-- (void)setPhrasesSource:(MenuChoiceRowView *)sender {
-    NSString *source = sender.representedObject;
+- (void)updatePhrasesSource:(NSString *)source {
     if (![@[PetPhrasesSourcePet, PetPhrasesSourceDefault] containsObject:source] ||
         [source isEqualToString:PetPhrasesSource()]) return;
     PetPhrasesSetSource(source);
+    CCPetsPrefPostChange(PetPhrasesSourceKey);
     NSString *tag = self.lastPetVoiceTag;
     self.lastPetVoiceTag = nil;
     self.lastPetVoiceText = nil;
@@ -232,42 +207,34 @@
     }];
     [PetPhrasesEditorController present];
 }
-- (void)toggleNotification:(NSButton *)sender {
-    NSString *key = [self notificationKeyForTag:sender.tag];
-    if (!key) return;
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    if ([defaults boolForKey:key]) {
-        [defaults setBool:NO forKey:key];
-        sender.state = NSControlStateValueOff;
+// 系统通知四项和 CC Bridge 送达通知共用：打开前先向系统申请通知权限，没拿到就保持关闭并说明
+// 原因。completion 在主线程回调，参数是最终是否开启，调用方据此回写自己的开关。
+- (void)updateNotification:(NSString *)key enabled:(BOOL)enabled
+    completion:(void (^)(BOOL enabled))completion {
+    if (![@[NotificationCompletionKey, NotificationFailureKey, NotificationApprovalKey,
+            NotificationStallKey, BridgeNotificationKey] containsObject:key]) return;
+    if (!enabled) {
+        CCPetsPrefSetBool(key, NO);
+        if (completion) completion(NO);
         return;
     }
     [UNUserNotificationCenter.currentNotificationCenter
         requestAuthorizationWithOptions:UNAuthorizationOptionAlert | UNAuthorizationOptionSound
         completionHandler:^(BOOL granted, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (granted) {
-                [defaults setBool:YES forKey:key];
-                sender.state = NSControlStateValueOn;
-            } else {
-                sender.state = NSControlStateValueOff;
-                NSString *message = error.localizedDescription ?:
-                    L(@"Allow notifications in System Settings → Notifications → CC Pets, then try again.");
-                [self showAlertWithTitle:L(@"Can't Enable Notifications") message:message];
-            }
+            if (granted) CCPetsPrefSetBool(key, YES);
+            if (completion) completion(granted);
+            if (granted) return;
+            NSString *message = error.localizedDescription ?:
+                L(@"Allow notifications in System Settings → Notifications → CC Pets, then try again.");
+            [self showAlertWithTitle:L(@"Can't Enable Notifications") message:message];
         });
     }];
-}
-// 菜单每次右键现建，切换后下次打开就是新语言；这里只刷新常驻的界面。
-- (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender {
-    NSString *preference = [sender.representedObject isKindOfClass:NSString.class] ?
-        sender.representedObject : CCPetsLanguageSystem;
-    if ([preference isEqualToString:CCPetsLanguagePreference()]) return;
-    CCPetsSetLanguagePreference(preference);
 }
 - (void)languageDidChange:(NSNotification *)notification {
     PetPhrasesAdoptLanguageDefaults();
     NSApp.mainMenu = nil;
-    [self installEditMenu];
+    [self installMainMenu];
     self.quotaView.needsDisplay = YES;
     // 状态卡标题和副行都是按状态现算的，按最后的状态重排一遍。工具名没留，
     // 工具态会暂时退成"正在使用工具"，下一条事件就会补回来。

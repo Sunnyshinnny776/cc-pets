@@ -1,6 +1,7 @@
 // AppDelegate 主干：启动、退出、窗口跟随。各功能模块在 CCPetsAppDelegate+<模块>.m 里，
 // 共享常量和跨文件的方法声明见 CCPetsAppDelegate+Private.h。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsOpenCommand.h"
 
 @implementation CCPetsBubbleContainerView
 @end
@@ -64,24 +65,33 @@
     [alert addButtonWithTitle:L(@"OK")];
     [alert runModal];
 }
-// 建一个只有"编辑"的主菜单。
+// 主菜单：应用、编辑、窗口三项。
 //
 // ⌘C/⌘V/⌘A/⌘Z 不是 NSTextView 自己处理的：按键先走 NSApp.mainMenu 的
 // performKeyEquivalent:，命中菜单项之后才沿响应者链发 copy: / paste: 这些消息。
-// 这个 app 是 LSUIElement，之前从没设过主菜单，所以台词编辑器里这些快捷键全部落空。
+// 这个 app 是 LSUIElement，以前没设主菜单时，台词编辑器里这些快捷键全部落空。
 //
-// LSUIElement 等价于 NSApplicationActivationPolicyAccessory，按定义不显示自己的菜单栏，
-// 所以这个菜单只是一张快捷键路由表，用户看不见它。桌宠面板是 NSNonactivatingPanel，
-// 点它根本不激活 app，更碰不到这里。
+// 平时是 Accessory，菜单栏不显示，这份菜单只是一张快捷键路由表；主窗口打开期间切成 Regular，
+// 它就是用户看到的菜单栏。第一项按 AppKit 约定当作应用菜单，标题不显示，显示的是 App 名。
+// 桌宠面板是 NSNonactivatingPanel，点它根本不激活 app，碰不到这里。
 //
-// action 一律留给响应者链（target 为 nil），谁是第一响应者谁处理——写死 target 的话
-// 编辑器之外的文本框就用不上了。
-- (void)installEditMenu {
+// 编辑项的 action 一律留给响应者链（target 为 nil），谁是第一响应者谁处理——写死 target 的话
+// 编辑器之外的文本框就用不上了。没有「隐藏」：hide: 会把桌宠浮窗一起藏起来。
+- (void)installMainMenu {
     if (NSApp.mainMenu) return;
     NSMenu *mainMenu = [NSMenu new];
+
+    NSMenuItem *appItem = [mainMenu addItemWithTitle:@"CC Pets" action:nil keyEquivalent:@""];
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"CC Pets"];
+    [appMenu addItemWithTitle:L(@"About CC Pets") action:@selector(showAboutPanel:) keyEquivalent:@""].target = self;
+    [appMenu addItem:NSMenuItem.separatorItem];
+    [appMenu addItemWithTitle:L(@"Settings…") action:@selector(openMainWindow:) keyEquivalent:@","].target = self;
+    [appMenu addItem:NSMenuItem.separatorItem];
+    [appMenu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"].target = NSApp;
+    appItem.submenu = appMenu;
+
     NSMenuItem *editItem = [mainMenu addItemWithTitle:L(@"Edit") action:nil keyEquivalent:@""];
     NSMenu *editMenu = [[NSMenu alloc] initWithTitle:L(@"Edit")];
-
     NSArray<NSArray *> *entries = @[
         @[L(@"Undo"), NSStringFromSelector(@selector(undo:)), @"z", @(NSEventModifierFlagCommand)],
         @[L(@"Redo"), NSStringFromSelector(@selector(redo:)), @"z",
@@ -103,11 +113,67 @@
         item.keyEquivalentModifierMask = (NSEventModifierFlags)[entry[3] unsignedIntegerValue];
     }
     editItem.submenu = editMenu;
+
+    NSMenuItem *windowItem = [mainMenu addItemWithTitle:L(@"Window") action:nil keyEquivalent:@""];
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:L(@"Window")];
+    [windowMenu addItemWithTitle:L(@"Minimize") action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+    [windowMenu addItemWithTitle:L(@"Close") action:@selector(performClose:) keyEquivalent:@"w"];
+    windowItem.submenu = windowMenu;
+    NSApp.windowsMenu = windowMenu;
+
     NSApp.mainMenu = mainMenu;
+}
+- (void)openMainWindow:(id)sender {
+    [CCPetsMainWindowController presentPage:nil];
+}
+- (void)openWindowRequested:(NSNotification *)notification {
+    NSString *page = notification.userInfo[@"page"];
+    [CCPetsMainWindowController presentPage:[page isKindOfClass:NSString.class] && page.length > 0 ? page : nil];
+}
+- (NSDictionary *)petCardSnapshot {
+    NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
+    snapshot[@"sheet"] = self.petView.sheet;
+    snapshot[@"rowCount"] = @(self.petView.spriteRowCount);
+    NSDictionary *option = [self petOptionWithID:self.petView.currentPetID inOptions:[self petOptions]];
+    snapshot[@"name"] = [option[@"name"] isKindOfClass:NSString.class] ? option[@"name"] : nil;
+    NSString *state = self.hasAgentStatus && self.lastStatusState.length > 0 ? self.lastStatusState : @"idle";
+    snapshot[@"state"] = state;
+    // 和状态卡标题同一句（"Claude · 思考中"），没有会话时就是待机。
+    snapshot[@"status"] = self.hasAgentStatus && self.statusTitleLabel.stringValue.length > 0
+        ? self.statusTitleLabel.stringValue : L(@"Idle");
+    snapshot[@"statusColor"] = [self statusColorForState:state];
+    // 宠物口吻的那句（状态卡副行），概览页拿来当宠物头上的气泡。
+    if (self.hasAgentStatus && self.statusDetailLabel.stringValue.length > 0) {
+        snapshot[@"detail"] = self.statusDetailLabel.stringValue;
+    }
+    snapshot[@"approvals"] = @([self pendingApprovalSessionRecords].count);
+    NSUInteger sessions = 0;
+    for (NSDictionary *record in self.agentSessionRecords.allValues) {
+        if ([self isAgentSessionRecordLive:record]) sessions++;
+    }
+    snapshot[@"sessions"] = @(sessions);
+    return snapshot;
+}
+// 合并到下一轮 runloop 再发：一条 Agent 事件会同时改状态、会话和审批，没必要让名片刷三遍；
+// 而且取快照时会顺带清理离线会话，清理又会走到这里，同步发会在刷新途中再触发刷新。
+- (void)notePetCardChanged {
+    static BOOL pending;
+    if (pending) return;
+    pending = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        pending = NO;
+        [NSNotificationCenter.defaultCenter postNotificationName:CCPetsPetCardDidChangeNotification
+            object:nil];
+    });
 }
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     // 没有主菜单的话，台词编辑器里 ⌘C/⌘V/⌘A/⌘Z 全部没反应。
-    [self installEditMenu];
+    [self installMainMenu];
+    // `cc-pets open` 在桌宠已运行时靠这条通知开窗，不走 reopen 事件：每个终端启动 CLI 都会
+    // `open -g` 一次桌宠，借 reopen 开窗会让每开一个终端就弹一次主窗口。
+    [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(openWindowRequested:)
+        name:CCPetsOpenWindowNotificationName() object:nil
+        suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
     // 台词全在这个文件里，代码里没有第二份。首次启动先从默认词库拷一份出来，
     // 否则新装的桌宠一句话都不会说。
     PetPhrasesEnsureFileExists();
@@ -157,7 +223,8 @@
         [defaults setBool:YES forKey:StatusBubblePreferenceV2Key];
     }
     self.statusBubbleExpanded = [defaults boolForKey:StatusBubbleExpandedKey];
-    NSString *selected = [defaults stringForKey:@"CCPetsSelectedSprite"];
+    PetMigrateRenamedBuiltinSprite(defaults);
+    NSString *selected = [defaults stringForKey:PetSelectedSpriteKey];
     if (selected.length > 0 && ![selected containsString:@":"]) selected = [@"builtin:" stringByAppendingString:selected];
     NSDictionary *selectedOption = [self petOptionWithID:selected inOptions:petOptions] ?: petOptions.firstObject;
     selected = selectedOption[@"id"];
@@ -445,11 +512,22 @@
         name:NSWorkspaceScreensDidWakeNotification object:nil];
     // 启动先让界面和事件流就位，再联网检查更新，别和启动抢时间。
     [self performSelector:@selector(silentCheckForUpdate) withObject:nil afterDelay:5.0];
+    if (self.launchWindowPage) {
+        [CCPetsMainWindowController presentPage:self.launchWindowPage.length > 0 ? self.launchWindowPage : nil];
+    }
 }
 // CLI 启动时桌宠若已在运行，`open -g` 不会重新启动它，只会发一个 reopen 事件过来。
 // 借这个时机同样静默检查一次更新（silentCheckForUpdate 自己做节流）。
+//
+// 主窗口最小化后点 Dock 图标，来的也是 reopen。要把窗口恢复出来，但不能对 `open -g` 这么做：
+// 每开一个终端都会发一次，窗口会被反复弹出来。两者的区别是点 Dock 会激活 App、`open -g` 不会，
+// 所以等到下一轮 runloop（激活已经完成）再看 App 是否在前台。返回 NO：系统默认的处理会去开
+// "新窗口"，桌宠没有那种窗口。
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
     [self silentCheckForUpdate];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (NSApp.isActive) [CCPetsMainWindowController restoreFromDock];
+    });
     return NO;
 }
 - (void)screensDidSleep:(NSNotification *)notification {

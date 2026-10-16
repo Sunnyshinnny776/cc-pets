@@ -156,10 +156,38 @@ static NSArray<NSString *> *CCPetsSystemLanguages(void) {
     return NSLocale.preferredLanguages;
 }
 
+static BOOL CCPetsCommandLineMode;
+
+void CCPetsUseCommandLineLanguage(BOOL enabled) {
+    @synchronized(CCPetsLanguageKey) {
+        CCPetsCommandLineMode = enabled;
+        CCPetsCachedLanguage = nil;
+    }
+}
+
+// 命令行：桌宠写下的语言文件优先（终端输出与桌宠界面同一种语言），其次是 locale 环境变量，最后跟随系统。
+// 裸跑的二进制和 App 用的不是同一个 defaults 域，读不到 App 里选的语言偏好，所以不看偏好。
+static NSString *CCPetsCommandLineLanguage(NSArray<NSString *> *supported) {
+    NSString *file = [NSString stringWithContentsOfFile:CCPetsLanguageFilePath() encoding:NSUTF8StringEncoding error:nil];
+    NSString *match = CCPetsMatchLanguage([file stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet], supported);
+    if (match) return match;
+    NSDictionary<NSString *, NSString *> *environment = NSProcessInfo.processInfo.environment;
+    for (NSString *name in @[@"LC_ALL", @"LC_MESSAGES", @"LANG"]) {
+        match = CCPetsMatchLanguage(environment[name], supported);
+        if (match) return match;
+    }
+    return CCPetsResolveLanguageAmong(CCPetsLanguageSystem, CCPetsSystemLanguages(), supported);
+}
+
 NSString *CCPetsCurrentLanguage(void) {
     @synchronized(CCPetsLanguageKey) {
         if (CCPetsCachedLanguage) return CCPetsCachedLanguage;
         NSString *override = NSProcessInfo.processInfo.environment[@"CC_PETS_LANGUAGE"];
+        if (CCPetsCommandLineMode) {
+            CCPetsCachedLanguage = CCPetsMatchLanguage(override, CCPetsSupportedLanguages()) ?:
+                CCPetsCommandLineLanguage(CCPetsSupportedLanguages());
+            return CCPetsCachedLanguage;
+        }
         NSString *preference = override.length > 0 ? override : CCPetsLanguagePreference();
         CCPetsCachedLanguage = CCPetsResolveLanguageAmong(preference, CCPetsSystemLanguages(),
             CCPetsSupportedLanguages());
@@ -182,7 +210,8 @@ NSString *CCPetsLocalized(NSString *text) {
 NSString *CCPetsLanguageFilePath(void) {
     NSString *home = NSProcessInfo.processInfo.environment[@"CC_PETS_HOME"];
     if (home.length == 0) {
-        home = [NSHomeDirectory() stringByAppendingPathComponent:@".cc-pets"];
+        NSString *userHome = NSProcessInfo.processInfo.environment[@"HOME"];
+        home = [(userHome.length > 0 ? userHome : NSHomeDirectory()) stringByAppendingPathComponent:@".cc-pets"];
     }
     return [home.stringByStandardizingPath stringByAppendingPathComponent:@"language"];
 }

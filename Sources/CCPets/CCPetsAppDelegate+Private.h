@@ -8,6 +8,9 @@
 #import "CCPetsQuotaHistory.h"
 #import "CCPetsImageLoader.h"
 #import "CCPetsPetSize.h"
+#import "CCPetsPreferences.h"
+#import "CCPetsMainWindow.h"
+#import "CCPetsWorkbench.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
@@ -143,10 +146,13 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 @property(nonatomic) NSColor *fillColor;
 @end
 
-@interface AppDelegate ()
+// 主窗口侧边栏的宠物名片从这里取数据，见 CCPetsMainWindow.h。
+@interface AppDelegate () <CCPetsPetCardSource>
 - (NSString *)applicationSupportDirectory;
+- (void)notePetCardChanged;
 - (void)showAlertWithTitle:(NSString *)title message:(NSString *)message;
-- (void)installEditMenu;
+- (void)installMainMenu;
+- (void)openMainWindow:(id)sender;
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag;
 - (void)screensDidSleep:(NSNotification *)notification;
@@ -155,32 +161,33 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)applicationWillTerminate:(NSNotification *)notification;
 @end
 
-// 右键菜单里的各项设置开关
+// 右键菜单里的各项设置开关。setXxx: / toggleXxx: 是菜单控件的 action；updateXxx: 不依赖
+// 控件，写设置并让界面生效，主窗口设置页直接调用。
 @interface AppDelegate (Settings)
+- (void)updatePetScale:(double)scale;
+- (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled;
+- (void)updateUsageDisplayMode:(NSString *)mode forKey:(NSString *)key;
+- (void)updateImportCodexPets:(BOOL)enabled;
+- (void)updatePanelTheme:(NSString *)theme;
+- (void)updateGlassDimLevel:(NSNumber *)level;
+- (void)updateSpeechEnabled:(BOOL)enabled;
+- (void)updatePetInteractionEnabled:(BOOL)enabled;
+- (void)updatePetInteractionValue:(NSNumber *)value forKey:(NSString *)key;
+- (void)updateSpeechFrequency:(NSString *)value;
+- (void)updatePhrasesSource:(NSString *)source;
+- (void)updateNotification:(NSString *)key enabled:(BOOL)enabled
+    completion:(void (^)(BOOL enabled))completion;
 - (void)applyPetSizePreference;
 - (void)setPetSizeFromSlider:(NSSlider *)sender;
-- (void)toggleSystemMetric:(NSButton *)sender;
 - (void)setUsageDisplayModeFromControl:(NSButton *)sender;
-- (NSString *)systemMetricKeyForTag:(NSInteger)tag;
 - (void)applySystemMetricPreferences;
 - (void)applyUsageDisplayModePreferences;
-- (void)toggleImportCodexPets:(NSButton *)sender;
 - (void)showImportedCodexPetsAlert:(NSUInteger)imported;
-- (NSString *)notificationKeyForTag:(NSInteger)tag;
 - (void)setPanelTheme:(MenuChoiceRowView *)sender;
 - (void)applyBubbleTextStyle;
 - (void)setGlassDimLevel:(MenuChoiceRowView *)sender;
-- (void)toggleSpeech:(NSButton *)sender;
-- (void)togglePetInteraction:(NSButton *)sender;
-- (void)setPetInteractionHeartThreshold:(MenuChoiceRowView *)sender;
-- (void)setPetInteractionAnnoyedThreshold:(MenuChoiceRowView *)sender;
-- (void)setPetInteractionInterval:(MenuChoiceRowView *)sender;
-- (void)setSpeechFrequency:(MenuChoiceRowView *)sender;
-- (void)setPhrasesSource:(MenuChoiceRowView *)sender;
 - (void)editPhrasesFile:(id)sender;
-- (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender;
 - (void)languageDidChange:(NSNotification *)notification;
-- (void)toggleNotification:(NSButton *)sender;
 @end
 
 // Agent 状态卡、会话列表、审批与卡住提醒、终端回跳、系统通知
@@ -189,6 +196,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)showAgentStatusForRecord:(NSDictionary *)record;
 - (void)prunePendingApprovalRecords;
 - (void)toggleStatusBubbleFromMenu:(NSButton *)sender;
+- (void)updateStatusBubbleExpanded:(BOOL)expanded;
 - (void)sendNotificationWithTitle:(NSString *)title body:(NSString *)body;
 - (void)notifyForRecord:(NSDictionary *)record;
 - (NSString *)statusTextForState:(NSString *)state tool:(NSString *)tool;
@@ -242,6 +250,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)toggleBridgeWake:(NSButton *)sender;
 - (void)toggleBridgeEditGuard:(NSButton *)sender;
 - (void)toggleBridgeBadge:(NSButton *)sender;
+- (void)updateBridgeBadgeEnabled:(BOOL)enabled;
 - (void)toggleBridgeNotification:(NSButton *)sender;
 - (void)refreshBridgeState:(NSTimer *)timer;
 - (void)notifyNewBridgeDeliveries;
@@ -254,9 +263,21 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
     pending:(NSDictionary<NSString *, NSNumber *> *)pending;
 @end
 
+// 主窗口工作台几页的数据快照，见 CCPetsWorkbench.h。
+@interface AppDelegate (Workbench)
+- (NSArray<NSDictionary *> *)workbenchSessions;
+- (NSDictionary *)workbenchMessages;
+- (NSArray<NSDictionary *> *)workbenchQuotas;
+- (void)focusWorkbenchSessionWithID:(NSString *)sessionID;
+- (void)focusBridgeSessionWithID:(NSString *)sessionID;
+- (void)markWorkbenchMessagesSeen;
+@end
+
 // 宠物素材发现、切换与删除
 @interface AppDelegate (Pets)
 - (void)switchPetToID:(NSString *)petID;
+- (NSArray<NSDictionary *> *)petPickerOptions;
+- (NSString *)currentPetID;
 - (BOOL)deletePetWithID:(NSString *)petID;
 - (NSDictionary *)petManifestInDirectory:(NSString *)directory;
 - (NSInteger)spriteVersionInDirectory:(NSString *)directory fallbackDirectory:(NSString *)fallbackDirectory;
@@ -319,6 +340,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)positionSpeechPanel;
 - (void)speakWithTag:(NSString *)tag;
 - (void)presentSpeechText:(NSString *)text;
+- (NSString *)sampleSpeechLine;
 - (void)restoreStatusDetail;
 - (void)showSpeechBubbleWithText:(NSString *)text;
 - (void)showSpeechBubbleWithText:(NSString *)text dwell:(NSTimeInterval)dwell;

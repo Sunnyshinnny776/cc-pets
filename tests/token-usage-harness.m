@@ -680,6 +680,247 @@ int main(void) {
             return EXIT_FAILURE;
         }
         puts("Claude Code 同一请求多行 usage 快照合并测试通过");
+
+        // ---- 按模型的用量（CCPetsModelUsage）----
+        // 换一套全新的目录：前面的用例往同一个 home 里写了没有模型信息的会话，会混进来。
+        NSString *modelRoot = [home.stringByDeletingLastPathComponent
+            stringByAppendingPathComponent:@"model-usage"];
+        NSString *modelCodexHome = [modelRoot stringByAppendingPathComponent:@"codex"];
+        NSString *modelClaudeHome = [modelRoot stringByAppendingPathComponent:@"claude"];
+        NSString *modelSupport = [modelRoot stringByAppendingPathComponent:@"support"];
+        setenv("CC_PETS_CODEX_HOME", modelCodexHome.fileSystemRepresentation, 1);
+        setenv("CC_PETS_CLAUDE_CONFIG_DIR", modelClaudeHome.fileSystemRepresentation, 1);
+        setenv("CC_PETS_APPLICATION_SUPPORT_DIR", modelSupport.fileSystemRepresentation, 1);
+        NSCalendar *calendar = NSCalendar.currentCalendar;
+        NSDate *tomorrowStart = [calendar dateByAddingUnit:NSCalendarUnitDay value:1
+            toDate:[calendar startOfDayForDate:NSDate.date] options:0];
+        NSDate *rangeStart = [calendar dateByAddingUnit:NSCalendarUnitDay value:-3 toDate:tomorrowStart
+            options:0];
+        // 昨天中午：已经结束的自然日才进归档，今天还没结束。
+        NSDate *yesterdayNoon = [calendar dateByAddingUnit:NSCalendarUnitHour value:12
+            toDate:[calendar dateByAddingUnit:NSCalendarUnitDay value:-1
+                toDate:[calendar startOfDayForDate:NSDate.date] options:0] options:0];
+        NSTimeInterval noon = yesterdayNoon.timeIntervalSince1970;
+        NSTimeInterval (^rangeStartTime)(void) = ^{ return rangeStart.timeIntervalSince1970; };
+        NSDictionary *(^modelUsage)(NSString *) = ^(NSString *provider) {
+            return CCPetsModelUsage(provider, rangeStartTime(), tomorrowStart.timeIntervalSince1970);
+        };
+        BOOL (^countsMatch)(NSDictionary *, unsigned long long, unsigned long long, unsigned long long,
+            unsigned long long, unsigned long long) = ^(NSDictionary *counts, unsigned long long input,
+            unsigned long long cacheRead, unsigned long long cacheWrite, unsigned long long output,
+            unsigned long long requests) {
+            return (BOOL)([counts[@"input"] unsignedLongLongValue] == input &&
+                [counts[@"cacheRead"] unsignedLongLongValue] == cacheRead &&
+                [counts[@"cacheWrite"] unsignedLongLongValue] == cacheWrite &&
+                [counts[@"output"] unsignedLongLongValue] == output &&
+                [counts[@"requests"] unsignedLongLongValue] == requests);
+        };
+
+        // Codex：model 在 turn_context 里，和 token_count 不在同一行；/model 切换后的增量归新模型。
+        NSData *(^turnContext)(NSTimeInterval, NSString *) = ^(NSTimeInterval at, NSString *model) {
+            return EventLine(@{@"timestamp": Timestamp(at), @"type": @"turn_context",
+                @"payload": @{@"turn_id": @"t", @"model": model, @"cwd": @"/tmp"}});
+        };
+        NSString *modelDirectory = [modelCodexHome stringByAppendingPathComponent:[NSString
+            stringWithFormat:@"sessions/%@", [dayFormatter stringFromDate:yesterdayNoon]]];
+        [NSFileManager.defaultManager createDirectoryAtPath:modelDirectory
+            withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *modelSession = [modelDirectory stringByAppendingPathComponent:@"rollout-models.jsonl"];
+        NSMutableData *modelLog = [NSMutableData data];
+        [modelLog appendData:turnContext(noon, @"gpt-a")];
+        [modelLog appendData:TokenEvent(noon + 1, 100, 40, 10, NO, 0, 0, 1)];
+        [modelLog appendData:TokenEvent(noon + 2, 100, 40, 10, NO, 0, 0, 1)];   // 重复写入，不能算两次
+        [modelLog appendData:TokenEvent(noon + 3, 300, 100, 30, NO, 0, 0, 1)];
+        [modelLog appendData:turnContext(noon + 4, @"gpt-b")];
+        [modelLog appendData:TokenEvent(noon + 5, 500, 150, 70, NO, 0, 0, 1)];
+        [modelLog writeToFile:modelSession atomically:YES];
+        NSDictionary *codexModels = modelUsage(@"codex")[@"models"];
+        // Codex 的 cached_input_tokens 是 input_tokens 的子集：非缓存输入 = input - cached。
+        if (codexModels.count != 2 ||
+            !countsMatch(codexModels[@"gpt-a"], 60 + 140, 100, 0, 30, 2) ||
+            !countsMatch(codexModels[@"gpt-b"], 150, 50, 0, 40, 1)) {
+            NSLog(@"Codex 按模型归属不正确: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        // 追读：新增的 token_count 前面没有新的 turn_context，要接着上次落盘时的模型。
+        NSFileHandle *modelHandle = [NSFileHandle fileHandleForWritingAtPath:modelSession];
+        [modelHandle seekToEndOfFile];
+        [modelHandle writeData:TokenEvent(noon + 6, 600, 150, 80, NO, 0, 0, 1)];
+        [modelHandle closeFile];
+        codexModels = modelUsage(@"codex")[@"models"];
+        if (!countsMatch(codexModels[@"gpt-b"], 250, 50, 0, 50, 2) ||
+            !countsMatch(codexModels[@"gpt-a"], 200, 100, 0, 30, 2)) {
+            NSLog(@"Codex 续读应保持模型上下文: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        NSArray *codexDaily = modelUsage(@"codex")[@"daily"];
+        // 区间是 [前天, 昨天, 今天] 三天，数据在昨天。
+        if (codexDaily.count != 3 || [codexDaily[1][@"models"] count] != 2 ||
+            [codexDaily.lastObject[@"models"] count] != 0) {
+            NSLog(@"Codex 日序列应每天一项、没数据的天为空: %@", codexDaily);
+            return EXIT_FAILURE;
+        }
+        puts("Codex 按模型归属、切模型与续读保持模型上下文测试通过");
+
+        // 源头被清理后，已经过去的日子靠归档保留。
+        [NSFileManager.defaultManager removeItemAtPath:modelSession error:nil];
+        codexModels = modelUsage(@"codex")[@"models"];
+        if (!countsMatch(codexModels[@"gpt-b"], 250, 50, 0, 50, 2) ||
+            !countsMatch(codexModels[@"gpt-a"], 200, 100, 0, 30, 2)) {
+            NSLog(@"会话文件被清理后，过去的日子应从归档读出: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        puts("按模型用量的按日归档测试通过");
+
+        // 旧版本缓存（没有 v 字段、也没有按模型的日桶）不能当新的用：它声称自己已经读完整个
+        // 文件，照单全收就会得到空结果。版本对不上必须整篇重读。
+        NSString *legacySession = [modelDirectory stringByAppendingPathComponent:@"rollout-legacy.jsonl"];
+        NSMutableData *legacyLog = [NSMutableData data];
+        [legacyLog appendData:turnContext(noon + 10, @"gpt-legacy")];
+        [legacyLog appendData:TokenEvent(noon + 11, 70, 20, 5, NO, 0, 0, 1)];
+        [legacyLog writeToFile:legacySession atomically:YES];
+        unsigned long long legacySize = [[NSFileManager.defaultManager attributesOfItemAtPath:legacySession
+            error:nil][NSFileSize] unsignedLongLongValue];
+        NSString *codexCachePath = TokenSummaryCachePath(@"codex-models",
+            [modelCodexHome stringByAppendingPathComponent:@"sessions"]);
+        NSMutableDictionary *staleCache = [NSMutableDictionary dictionaryWithContentsOfFile:codexCachePath]
+            ?: [NSMutableDictionary dictionary];
+        NSDictionary *emptyTotals = @{@"input_tokens": @0, @"cached_input_tokens": @0,
+            @"cache_write_input_tokens": @0, @"output_tokens": @0, @"reasoning_output_tokens": @0,
+            @"total_tokens": @0};
+        staleCache[legacySession] = @{@"size": @(legacySize), @"offset": @(legacySize),
+            @"start": @(noon), @"end": @(noon + 11), @"segments": @[emptyTotals], @"total": emptyTotals,
+            @"requestTimestamps": @[], @"days": @{}};
+        [[NSPropertyListSerialization dataWithPropertyList:staleCache
+            format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil] writeToFile:codexCachePath
+            atomically:YES];
+        codexModels = modelUsage(@"codex")[@"models"];
+        if (!countsMatch(codexModels[@"gpt-legacy"], 50, 20, 0, 5, 1)) {
+            NSLog(@"旧版本的会话摘要缓存应整篇重读: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        puts("Codex 旧缓存迁移（整篇重读）测试通过");
+
+        // 换时区：归档和会话摘要里的日子都是按旧时区存的，新时区下照样要读得到。
+        // gpt-a / gpt-b 的会话已经删了，只剩归档；gpt-legacy 还在，走摘要缓存里的旧日桶。
+        NSTimeZone *originalZone = NSTimeZone.defaultTimeZone;
+        NSInteger shiftedOffset = MIN(originalZone.secondsFromGMT + 3 * 3600, 14 * 3600);
+        NSTimeZone.defaultTimeZone = [NSTimeZone timeZoneForSecondsFromGMT:shiftedOffset];
+        NSDate *shiftedTomorrow = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay value:1
+            toDate:[NSCalendar.currentCalendar startOfDayForDate:NSDate.date] options:0];
+        NSDate *shiftedStart = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay value:-3
+            toDate:shiftedTomorrow options:0];
+        codexModels = CCPetsModelUsage(@"codex", shiftedStart.timeIntervalSince1970,
+            shiftedTomorrow.timeIntervalSince1970)[@"models"];
+        NSTimeZone.defaultTimeZone = originalZone;
+        if (!countsMatch(codexModels[@"gpt-a"], 200, 100, 0, 30, 2) ||
+            !countsMatch(codexModels[@"gpt-b"], 250, 50, 0, 50, 2) ||
+            !countsMatch(codexModels[@"gpt-legacy"], 50, 20, 0, 5, 1)) {
+            NSLog(@"换时区后，归档和会话摘要里的日子都应读得到: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        puts("按模型用量换时区后归档仍可读测试通过");
+
+        // 版本 1 的归档键是日零点的时间戳，升级后要换成日期接着用，不能整份丢掉。
+        NSString *codexArchivePath = TokenSummaryCachePath(@"codex-model-days",
+            [modelCodexHome stringByAppendingPathComponent:@"sessions"]);
+        NSDictionary *oldArchive = @{@"schema": @{@"version": @1}, @"days": @{
+            [NSString stringWithFormat:@"%.0f", rangeStartTime()]: @{@"gpt-old": @{@"input": @1,
+                @"cacheRead": @2, @"cacheWrite": @3, @"output": @4, @"reasoning": @0, @"requests": @1}}}};
+        [[NSPropertyListSerialization dataWithPropertyList:oldArchive
+            format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil] writeToFile:codexArchivePath
+            atomically:YES];
+        codexModels = modelUsage(@"codex")[@"models"];
+        if (!countsMatch(codexModels[@"gpt-old"], 1, 2, 3, 4, 1)) {
+            NSLog(@"版本 1 的归档应迁移成按日期的键: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        puts("按模型归档版本迁移测试通过");
+
+        // Claude：每行 message.model；占位模型 <synthetic> 不计；跨文件、同请求多行去重照旧。
+        NSData *(^modelLine)(NSTimeInterval, NSString *, NSString *, NSString *, unsigned long long,
+            unsigned long long, unsigned long long, unsigned long long) =
+            ^(NSTimeInterval at, NSString *model, NSString *identifier, NSString *request,
+              unsigned long long in, unsigned long long out, unsigned long long read,
+              unsigned long long write) {
+            NSMutableDictionary *message = [@{@"id": identifier, @"usage": @{
+                @"input_tokens": @(in), @"output_tokens": @(out),
+                @"cache_read_input_tokens": @(read), @"cache_creation_input_tokens": @(write)}} mutableCopy];
+            if (model) message[@"model"] = model;
+            return EventLine(@{@"type": @"assistant", @"timestamp": Timestamp(at),
+                @"requestId": request, @"message": message});
+        };
+        NSString *modelProject = [modelClaudeHome stringByAppendingPathComponent:@"projects/-Users-m"];
+        [NSFileManager.defaultManager createDirectoryAtPath:modelProject
+            withIntermediateDirectories:YES attributes:nil error:nil];
+        NSMutableData *claudeLog = [NSMutableData data];
+        [claudeLog appendData:modelLine(noon, @"claude-a", @"c1", @"r1", 1, 2, 3, 4)];
+        [claudeLog appendData:modelLine(noon, @"claude-a", @"c1", @"r1", 1, 5, 3, 4)];   // 同一请求，output 递增
+        [claudeLog appendData:modelLine(noon + 1, @"claude-b", @"c2", @"r2", 10, 20, 30, 40)];
+        [claudeLog appendData:modelLine(noon + 2, @"<synthetic>", @"c3", @"r3", 99, 99, 99, 99)];
+        NSString *claudeSession = [modelProject stringByAppendingPathComponent:@"m.jsonl"];
+        [claudeLog writeToFile:claudeSession atomically:YES];
+        // fork：把旧行原样复制进新文件，不能重复计入。
+        [modelLine(noon, @"claude-a", @"c1", @"r1", 1, 5, 3, 4)
+            writeToFile:[modelProject stringByAppendingPathComponent:@"fork.jsonl"] atomically:YES];
+        NSDictionary *claudeModels = modelUsage(@"claude")[@"models"];
+        if (claudeModels.count != 2 || claudeModels[@"<synthetic>"] ||
+            !countsMatch(claudeModels[@"claude-a"], 1, 3, 4, 5, 1) ||
+            !countsMatch(claudeModels[@"claude-b"], 10, 30, 40, 20, 1)) {
+            NSLog(@"Claude 按模型归属不正确: %@", claudeModels);
+            return EXIT_FAILURE;
+        }
+        puts("Claude Code 按模型归属、去重与占位模型过滤测试通过");
+
+        // 旧缓存的记录块是旧步长（没有 model 字段）存的，不能按新步长去读。
+        NSString *legacyClaude = [modelProject stringByAppendingPathComponent:@"legacy.jsonl"];
+        [modelLine(noon + 20, @"claude-legacy", @"c9", @"r9", 7, 8, 9, 10)
+            writeToFile:legacyClaude atomically:YES];
+        unsigned long long legacyClaudeSize = [[NSFileManager.defaultManager
+            attributesOfItemAtPath:legacyClaude error:nil][NSFileSize] unsignedLongLongValue];
+        NSString *claudeCachePath = TokenSummaryCachePath(@"claude-models",
+            [modelClaudeHome stringByAppendingPathComponent:@"projects"]);
+        NSMutableDictionary *staleClaude = [NSMutableDictionary dictionaryWithContentsOfFile:claudeCachePath]
+            ?: [NSMutableDictionary dictionary];
+        staleClaude[legacyClaude] = @{@"offset": @(legacyClaudeSize),
+            @"records": [NSMutableData dataWithLength:48]};
+        [[NSPropertyListSerialization dataWithPropertyList:staleClaude
+            format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil] writeToFile:claudeCachePath
+            atomically:YES];
+        claudeModels = modelUsage(@"claude")[@"models"];
+        if (!countsMatch(claudeModels[@"claude-legacy"], 7, 9, 10, 8, 1)) {
+            NSLog(@"Claude 旧版本的记录缓存应整篇重读: %@", claudeModels);
+            return EXIT_FAILURE;
+        }
+        puts("Claude Code 旧缓存迁移（整篇重读）测试通过");
+
+        // 悬停面板那套统计不受影响：模型字段只是多带的，口径没变。
+        setenv("CC_PETS_CLAUDE_CONFIG_DIR", modelClaudeHome.fileSystemRepresentation, 1);
+        NSDictionary *panelTotals = LatestClaudeUsage()[@"tokenUsage"][@"week"];
+        // claude-a 1+5+3+4 + claude-b 100 + claude-legacy 34，<synthetic> 不计。
+        if ([panelTotals[@"total_tokens"] unsignedLongLongValue] != 13 + 100 + 34) {
+            NSLog(@"面板口径的 Claude 总量不对: %@", panelTotals);
+            return EXIT_FAILURE;
+        }
+        puts("按模型改造后面板口径不变测试通过");
+
+        // 归档里同一份用量换了模型名：先归档时请求还没认出模型（unknown），后来别的文件里出现了
+        // 带 model 的同一请求。源头没被清，整天换成重算结果，unknown 不能和新名字各留一份。
+        [modelLine(noon + 30, nil, @"c10", @"r10", 2, 3, 4, 5)
+            writeToFile:[modelProject stringByAppendingPathComponent:@"rename.jsonl"] atomically:YES];
+        claudeModels = modelUsage(@"claude")[@"models"];
+        if (!countsMatch(claudeModels[@"unknown"], 2, 4, 5, 3, 1)) {
+            NSLog(@"没有 model 的请求应先记在 unknown 名下: %@", claudeModels);
+            return EXIT_FAILURE;
+        }
+        [modelLine(noon + 30, @"claude-c", @"c10", @"r10", 2, 3, 4, 5)
+            writeToFile:[modelProject stringByAppendingPathComponent:@"rename-fork.jsonl"] atomically:YES];
+        claudeModels = modelUsage(@"claude")[@"models"];
+        if (claudeModels[@"unknown"] || !countsMatch(claudeModels[@"claude-c"], 2, 4, 5, 3, 1)) {
+            NSLog(@"改名后的用量不应在归档里重复计入: %@", claudeModels);
+            return EXIT_FAILURE;
+        }
+        puts("按模型归档改名不重复计数测试通过");
     }
     return EXIT_SUCCESS;
 }

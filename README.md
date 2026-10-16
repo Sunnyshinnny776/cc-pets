@@ -56,12 +56,14 @@ English — v2.2.0 quota panel and Language menu:
   override shared sections; default lines use only the editable shared speech file. The
   selection persists across pet changes and restarts, with pet-specific lines selected initially.
 - Includes one original pet and can download compatible assets from PetDex.
+- Opens a regular main window with an overview, your sessions and CC Bridge messages, token usage by model, every setting and built-in diagnostics (see [Main window](#main-window)).
 - Uses native AppKit with no Electron runtime.
 
 ## Requirements
 
 - macOS 13 or later
-- Node.js 18 or later
+- Node.js 18 or later, for npm only: it installs and updates CC Pets, while the app and
+  its `cc-pets` commands, hooks and CC Bridge run natively
 - Codex CLI and/or Claude Code CLI installed and signed in
 - zsh
 - Xcode Command Line Tools (`xcode-select --install`)
@@ -151,6 +153,7 @@ cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
 cc-pets doctor                # Check the installation and integrations, with fixes.
+cc-pets open [page]           # Open the main window (pages: overview, sessions, usage, pet, alerts, general, diagnostics).
 cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
@@ -199,6 +202,59 @@ printf '%s' '{"schemaVersion":1,"provider":"MyAgent","state":"thinking"}' \
 See [Provider protocol](./PROVIDER_PROTOCOL.md). The protocol does not accept
 prompts, command text, file contents, or model output.
 
+## Main window
+
+Besides the right-click menu and the hover quota panel, CC Pets has a regular app
+window for your sessions, usage and settings. Open it from the right-click menu
+(**Open CC Pets…**), the app menu, or the terminal:
+
+```bash
+cc-pets open               # the page you used last
+cc-pets open overview
+cc-pets open sessions
+cc-pets open usage
+cc-pets open general       # also: pet, alerts, diagnostics
+```
+
+<p align="center">
+  <img src="docs/images/main-window.en.png" width="70%" alt="CC Pets main window with the pet card and the Settings page">
+</p>
+
+- **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
+  (Overview, Sessions & Messages, Usage, Pet) and **General** (Alerts,
+  Settings). Diagnostics sits at the bottom with a badge when something needs fixing.
+- **Overview** — the pet and what it is doing, today's total usage with input, output, cached input and requests,
+  a notice when diagnostics found problems, and your Claude / Codex plan quota as rings
+  (5-hour and weekly remaining, reset times, weekly pace).
+- **Sessions & Messages** — the Agent sessions online right now (sessions waiting for
+  approval first, each with **Go to Terminal**) and CC Bridge traffic: messages waiting in
+  an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
+- **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The same
+  five numbers as the overview lead the page: total usage (input + cache write + output +
+  cached input), input, output, cached input with its hit rate, and requests. The daily bar
+  chart stacks models in fixed colors and can switch between those five measures; click a model in the legend or the table to see only that
+  model, and hover a bar for that day's numbers. Everything is counted from local session
+  logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
+  old transcripts.
+- **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
+  picker, size, chatter, click reactions and Codex import; Alerts: notifications, the status
+  card and system status; Settings: language, panel appearance and data folders), plus finer controls such as the click-reaction thresholds and a
+  continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
+  desktop pet immediately, and changes made in the menu show up here. Options that rewrite
+  Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
+  right-click menu. The right-click menu keeps only the everyday items: Pets, Pet Size,
+  Show Status Card, Usage Display, Panel Theme and CC Bridge.
+- **Diagnostics** — the same checks as `cc-pets doctor`, problems first: each with its area,
+  the suggested fix command and a copy button. Passing checks fold into one line. The PATH
+  order check only points you to `cc-pets doctor` in a terminal, since the pet's own PATH
+  isn't your terminal's.
+  **Re-check** and **Copy Report** (paths are shown as `~`, so it is safe to paste into an
+  issue). It only reads; run the fix commands yourself.
+
+The window is created when you open it and released when you close it, and nothing runs in
+the background while it is closed. The Dock icon and menu bar appear only while it is open;
+clicking the Dock icon brings a minimized window back.
+
 ## Pet interaction
 
 | Interaction | Response |
@@ -209,7 +265,7 @@ prompts, command text, file contents, or model output.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, size, notification, Help (update check and About), and exit menu |
+| Right-click | Pets, size, status card, usage display, panel theme, CC Bridge, Help, open the window, and quit |
 
 **Pet Size** in the right-click menu offers a 50%–200% slider with a live percentage
 and **Reset Size** to return to 100%. The pet scales around its feet, and its size
@@ -228,7 +284,7 @@ look more transparent; higher levels keep text readable over light backgrounds.
 
 ### Language
 
-The **Language** submenu offers **System Default** plus every bundled language,
+The **Language** option on the window's **Settings** page offers **System Default** plus every bundled language,
 currently **English** and **简体中文**. System Default follows the first supported
 entry in macOS's preferred languages and falls back to English. Menus and panels switch right away; system
 buttons in dialogs follow after the next launch. The choice is written to
@@ -240,7 +296,7 @@ language, see [Adding a language](./CONTRIBUTING.md#adding-a-language).
 
 The pet switcher scans only built-in assets and `~/.cc-pets/pets/`. It does not
 scan `~/.petdex/pets/` or `~/.codex/pets/`. To use assets installed by Codex,
-enable **Import Codex pets** in the app's right-click menu; CC Pets copies valid
+enable **Import Codex Pets** on the window's **Pet** page; CC Pets copies valid
 assets into its own directory without overwriting names already present.
 
 External assets use their directory name in the menu. The app caches the list and
@@ -288,8 +344,8 @@ days, and records at most once every 15 minutes.
 
 ## Speech
 
-The pet's speech comes from `~/.cc-pets/speech.txt`. Open **Speech → Edit lines…**
-in the right-click menu to edit, validate, preview, or restore it. Lines are grouped
+The pet's speech comes from `~/.cc-pets/speech.txt`. Open **Chatter → Edit Lines…**
+on the window's **Pet** page to edit, validate, preview, or restore it. Lines are grouped
 under stable situation tags such as `[idle]`, `[done]`, and `[state_thinking]`.
 Each line is limited to 30 characters if it contains Chinese, Japanese, or Korean
 text, and to 40 characters otherwise.
@@ -299,7 +355,7 @@ Supported live placeholders are `{quota5h}`, `{resetTime}`, `{toolName}`,
 is unavailable.
 
 Per-pet overrides live at `~/.cc-pets/speech/<pet-name>.txt` (the built-in asset
-uses `builtin-默认.txt`). A missing section falls back to global speech; a present
+uses `builtin-ByteMochi.txt`). A missing section falls back to global speech; a present
 section replaces that global section; an empty present section keeps the pet silent
 for that situation.
 
@@ -321,7 +377,7 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown
 ## Pet assets
 
 This project does not operate an asset registry. The repository and npm package
-contain one original built-in asset, ByteMochi (`默认.webp`), distributed under the
+contain one original built-in asset, ByteMochi (`ByteMochi.webp`), distributed under the
 MIT License. All other assets are downloaded by the user to
 `~/.cc-pets/pets/<name>/` and are not part of this repository or npm package.
 
@@ -332,7 +388,7 @@ licenses, copyrights, and terms remain with their respective authors and platfor
 
 ```bash
 cc-pets pet search otter
-cc-pets pet add boba doraemon
+cc-pets pet add boba otterumells
 cc-pets pet add petdex:boba --as boba-petdex
 cc-pets pet list
 cc-pets pet remove boba
@@ -347,8 +403,8 @@ consecutive `..` sequences.
 
 ### Importing Codex assets
 
-CC Pets never renders directly from `~/.codex/pets/`. Enable **Import Codex pets**
-to copy assets containing `spritesheet.webp` or `spritesheet.png` into
+CC Pets never renders directly from `~/.codex/pets/`. Enable **Import Codex Pets** on the
+window's **Pet** page to copy assets containing `spritesheet.webp` or `spritesheet.png` into
 `~/.cc-pets/pets/`. Existing names are skipped, imports are idempotent, and disabling
 the option does not delete previously copied files.
 

@@ -21,6 +21,7 @@ print_usage() {
   cc-pets build              Rebuild
   cc-pets clean              Clear caches (quit the pet first)
   cc-pets doctor             Check the installation and integrations, with suggested fixes
+  cc-pets open [page]        Open the main window (pages: overview, sessions, usage, pet, alerts, general, diagnostics)
   cc-pets paths [--json]     List where settings, caches and data live, and their sizes
   cc-pets pet <command>      Manage pet sprites; see cc-pets pet help
   cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help
@@ -43,17 +44,18 @@ if [[ "${1:-}" == "install" ]]; then
 fi
 
 if [[ "${1:-}" == "pet" ]]; then
-  shift
-  exec node "${PROJECT_DIR}/scripts/pet-store.mjs" "$@"
+  [[ -x "${PET_BIN}" ]] || "${PROJECT_DIR}/scripts/build.sh" >/dev/null
+  exec "${PET_BIN}" "$@"
 fi
 
 if [[ "${1:-}" == "bridge" ]]; then
-  shift
-  exec node "${PROJECT_DIR}/scripts/bridge/cli.mjs" "$@"
+  [[ -x "${PET_BIN}" ]] || "${PROJECT_DIR}/scripts/build.sh" >/dev/null
+  exec "${PET_BIN}" "$@"
 fi
 
-if [[ "${1:-}" == "doctor" || "${1:-}" == "paths" ]]; then
-  exec node "${PROJECT_DIR}/scripts/doctor.mjs" "$@"
+if [[ "${1:-}" == "doctor" || "${1:-}" == "paths" || "${1:-}" == "open" ]]; then
+  [[ -x "${PET_BIN}" ]] || "${PROJECT_DIR}/scripts/build.sh" >/dev/null
+  exec "${PET_BIN}" "$@"
 fi
 
 if [[ "${1:-}" == "uninstall" ]]; then
