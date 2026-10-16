@@ -292,6 +292,13 @@ static id WindowCloseObserver;
     self.selectingProgrammatically = NO;
 }
 
+// 列宽要跟着侧边栏走：autoresizing 只在表格本身变宽时才调整列，初始列宽比侧边栏窄时，
+// 稍长一点的标题（Diagnostics）会被截成 "Diagnos…"。
+- (void)viewDidLayout {
+    [super viewDidLayout];
+    [self.tableView sizeLastColumnToFit];
+}
+
 - (void)reload {
     [self.card reload];
     NSInteger selected = self.tableView.selectedRow;
