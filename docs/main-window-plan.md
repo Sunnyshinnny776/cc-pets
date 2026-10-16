@@ -1,7 +1,7 @@
 # CC Pets 主窗口（大面板）实施计划
 
 > 交接文档：给接手的 agent。描述目标、已完成部分、剩余任务（含文件级方案与验收标准）和必须遵守的约束。
-> 分支：`feat/native-hook-installer`（与下一个大版本一起发布，直接在该分支上继续提交）。
+> 分支：当前工作分支是 `feat/usage-by-model`，它基于 `feat/native-hook-installer`（停在 `9dd6b53`）继续提交了任务 8。两者与下一个大版本一起发布；后续任务直接在 `feat/usage-by-model` 上提交，**不要切回 `feat/native-hook-installer`**（那里没有任务 8 的代码）。
 > 最后更新：2026-10-15。
 
 ## 1. 目标
@@ -21,9 +21,14 @@
 | `9950179` feat: add main window with settings page | `CCPetsMainWindow`（侧边栏 + 内容区，Regular/Accessory 激活策略切换）、`CCPetsSettingsPage`、右键菜单「打开 CC Pets…」、完整主菜单（应用 / 编辑 / 窗口）。 |
 | `82a49ef` feat: add pet card and colored icons to the main window | 侧边栏宠物名片（`CCPetsSpriteView` 轻量动画 + 状态 + 会话数）、系统设置式彩色图标块 `CCPetsSymbolTile()`。 |
 | `393aa6c` feat: add a live preview stage to the settings page | 设置页顶部预览台（已被 `6f1cfcf` 移除，见下）。 |
-| `da1267b` / `0c1a472` / `9eee41d` | 抽出 `CCPetsFormBuilder`（分组卡片表单，设置页与诊断页共用）；doctor 的 npm 包目录改为优先按 `/.build/release/` 路径、其次读 `install-app.sh` 写在 App 数据目录的 `package-dir` 记号（装到 `~/Applications` 的 App 是拷贝，推不出包位置）；新增诊断页 `CCPetsDiagnosticsPage`（后台跑 `CCPetsDoctorSections()`，generation 丢弃过期结果，复制命令 / 复制报告，v1 不执行修复）。 |
-| 任务 5 提交 | `cc-pets open [page]`：`CCPetsOpenCommand.m`。桌宠在运行（探测 `cc-pets-<uid>.lock` 被占用，不创建锁文件）就发 `com.ccpets.open-main-window.<uid>` 分布式通知；否则不带 `-g` 地 `open <App> --args --open-window [page]`（优先 `~/Applications`，其次包目录里构建的 App）。AppDelegate 启动早期注册观察者，`launchWindowPage` 在启动末尾开窗。页面参数先校验，未知页面退出码 2。 |
 | `6f1cfcf` feat: replace the settings preview with sidebar section navigation | 移除预览台（它把真正的设置挤到折叠线下面）及 `configureQuotaPreview:`；侧边栏在当前页面下列出页内分组（设置页：通用、外观、碎碎念……），点击平滑滚动到该组，再点页面行回到顶部。新增协议 `CCPetsMainPageSections`（`pageSections` / `scrollToSectionWithID:`），页面实现即可启用；设置页文档视图改为翻转坐标。「试说一句」保留，只让桌面上的宠物说话。 |
+| `8453ce0` docs: add the main window handoff plan | 本文档。 |
+| `da1267b` / `0c1a472` / `9eee41d` | 抽出 `CCPetsFormBuilder`（分组卡片表单，设置页与诊断页共用）；doctor 的 npm 包目录改为优先按 `/.build/release/` 路径、其次读 `install-app.sh` 写在 App 数据目录的 `package-dir` 记号（装到 `~/Applications` 的 App 是拷贝，推不出包位置）；新增诊断页 `CCPetsDiagnosticsPage`（后台跑 `CCPetsDoctorSections()`，generation 丢弃过期结果，复制命令 / 复制报告，v1 不执行修复）。 |
+| `c30191b` feat: add cc-pets open to open the main window from a terminal | `cc-pets open [page]`：`CCPetsOpenCommand.m`。桌宠在运行（探测 `cc-pets-<uid>.lock` 被占用，不创建锁文件）就发 `com.ccpets.open-main-window.<uid>` 分布式通知；否则不带 `-g` 地 `open <App> --args --open-window [page]`（优先 `~/Applications`，其次包目录里构建的 App）。AppDelegate 启动早期注册观察者，`launchWindowPage` 在启动末尾开窗。页面参数先校验，未知页面退出码 2。 |
+| `1d5977b` / `94c0ac7` / `9dd6b53` | 计划文档更新；侧边栏列宽改为按侧边栏本身计算；README / CHANGELOG 中英文与 `docs/images/main-window*.png`（任务 6）。`feat/native-hook-installer` 停在 `9dd6b53`。 |
+| `1e1b4ea` feat: aggregate local token usage by model | 任务 8 数据层：`CCPetsModelUsage()`、按模型缓存与按日归档、两家旧缓存迁移（以下在 `feat/usage-by-model`）。 |
+| `f5edf25` feat: add a usage page with per-model token usage and daily charts | 任务 8 页面：`CCPetsUsagePage`。 |
+| `210efbf` docs: document the usage page and per-model data | 任务 8 的 README / CHANGELOG。 |
 
 ### 2.1 现有架构速览（接手前先读这些文件）
 
@@ -81,45 +86,40 @@
 
 ### 任务 8（v2）：按模型的用量统计 + 「用量与趋势」页——已完成（分支 `feat/usage-by-model`）
 
-**实现与计划的差异**（先读这段再看下面的原方案）：
+**最终实现**：
 - 数据层是独立入口 `CCPetsModelUsage(provider, start, end)`（`CCPetsUsage.m`），**没有**往现有 `totals` 旁加 `byModel`，也没改 `MonthlyArchiveSchemaVersion`：悬停面板的缓存、聚合和数字完全不动，页面用自己的缓存文件（`claude-models` / `codex-models`）和按日归档（`*-model-days`，按模型各取大的一份，保留 400 天）。
 - Codex 会话摘要多了 `modelDays` / `model`，Claude 记录多了 `model` 下标（旁表在缓存的 `~models` 键里）；两边缓存条目都加了版本号，对不上就整篇重读一次。这两处结构共用，所以悬停面板的缓存也会随之重读一次。
 - 四栏口径统一在数据层做掉：Codex 非缓存输入 = input − cached，页面只管显示。
 - 页面 `CCPetsUsagePage`：来源（全部 / Claude Code / Codex）+ 区间（7 / 30 / 90 天），概览、按模型列表（占比条 + 各栏 + 命中率 + 请求数）、选中模型的每日堆叠柱状图（自绘，悬停看当天数值）。后台串行队列计算，generation 丢弃过期结果。
 - 测试在 `tests/token-usage-harness.m` 末尾：切模型、重复写入、续读保持模型上下文、归档、两家旧缓存迁移、占位模型过滤、悬停面板口径不变。
 
----
+**留给后续改用量的人的数据要点**（原方案的调研结论，仍然成立）：
+- 来源：Claude Code 是 `~/.claude/projects/**/*.jsonl`（含 `subagents/agent-*.jsonl`），模型在每条 `assistant` 行的 `message.model`；Codex 是 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`，模型在 `turn_context` 行的 `payload.model`，**与用量不在同一行**，中途 `/model` 切换时 delta 归属当时生效的 `turn_context`。
+- 口径：Claude 的 `input_tokens` 不含缓存；Codex 的 `cached_input_tokens` 是 `input_tokens` 的子集。
+- Claude 同一请求多行写入、usage 递增，按 identity 逐字段取 max 去重，模型跟着 identity 走。
+- 过滤 `<synthetic>` 等伪模型名。Claude Code 默认约 30 天清理转录，更早的数据只能靠按日归档。
 
-**以下是原方案（保留作背景）**
-
-
-**数据已核实存在**：
-
-| | Claude Code | Codex |
-|---|---|---|
-| 日志 | `~/.claude/projects/**/*.jsonl`（含 `subagents/agent-*.jsonl`） | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
-| 模型 | 每条 `assistant` 行的 `message.model` | `turn_context` 行的 `payload.model`（还有 `effort`），**与用量不在同一行** |
-| token | `message.usage`：`input_tokens` / `output_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens` | `token_count` / `token_usage_record`：`input_tokens` / `cached_input_tokens` / `cache_write_input_tokens` / `output_tokens` / `reasoning_output_tokens` |
-
-**坑**：
-1. 口径不同：Claude 的 `input_tokens` **不含**缓存，命中率 = `cacheRead / (input + cacheRead + cacheWrite)`；Codex 的 `cached_input_tokens` **是** `input_tokens` 的子集（`input + output = total`），命中率 = `cached / input`。UI 统一成「非缓存输入 / 缓存读 / 缓存写 / 输出」四栏，Codex 先相减。
-2. Claude 同一请求多行写入、usage 递增：沿用 `ClaudeTokenTotals`（`CCPetsUsage.m`）按 identity 逐字段取 max 的去重，模型跟着 identity 走。
-3. Codex 会话中途 `/model` 切换：delta 必须归属到「当时生效的 `turn_context`」；增量追读（按 offset 续读）时要把每个文件的 `currentModel` 一起存进缓存。
-4. 过滤 `<synthetic>` 等伪模型名。
-5. 历史深度有限：现有 `monthlyArchive` 只有总量；Claude Code 默认约 30 天清理转录。
-
-**改法**：
-- `CCPetsUsage.m` `ClaudeTokenRecord` 加模型字段（定长：用 `uint32 modelIndex` + 旁表）；**二进制缓存必须 bump schema**，旧缓存失效重扫一次。
-- Codex 读取路径识别 `turn_context`，token 记录带 `model`；文件续读状态保存 `currentModel`。
-- 聚合输出在现有 `totals` 旁新增 `byModel: {model: {input, output, cacheRead, cacheWrite, reasoning, requests}}`，每日序列同理；现有字段不变，面板不受影响。
-- `MonthlyArchiveSchemaVersion`（`CCPetsUsage.m`）升到 3，归档带 `byModel`。
-- 新页面 `CCPetsUsagePage`：按模型列表（各指标 + 命中率 + 请求数），点开看每日堆叠柱状图；按 CLI / 时间区间筛选。全量聚合在后台队列、仅页面打开时触发，复用增量缓存。图表自绘（参照 `QuotaDashboardView`），不用 Swift Charts。
-- 测试：`tests/token-usage-harness.m` 补切模型、多行去重跨模型、Codex 续读保持模型上下文、旧缓存迁移。
+> 原方案里「`MonthlyArchiveSchemaVersion` 升到 3」「在 `totals` 旁加 `byModel`」**没有采用**，不要照做——那会让悬停面板的归档和缓存一起失效。
 
 ### 任务 9（v2）：会话页、概览页
 
-- **会话页**：所有在线和最近会话（右键面板只显示 8 个），状态、持续时长、审批等待时长、点击回跳终端（`CCPetsTerminalFocus`）。数据来自 AppDelegate 的 `agentSessionRecords`（通过新的只读协议提供，不让页面 import 私有头）。
-- **概览页（方案 D）**：设为默认首页（`MainWindowPages()` 第一项）。大尺寸宠物 + 额度环（5 小时 / 本周）+ 今日 token + 在线会话 + 待审批数。
+**会话页**（`CCPetsSessionsPage`，`id = @"sessions"`）：
+
+- 内容：所有在线和最近会话（右键面板只显示 8 个），每行显示来源 / 项目、状态、持续时长、审批等待时长；点击回跳终端（`CCPetsTerminalFocus`）。
+- 数据：AppDelegate 的 `agentSessionRecords`（`CCPetsAppDelegate.h`）。按约束 6 新增只读协议（建议 `CCPetsSessionSource`，声明在 `CCPetsMainWindow.h`，方法 `sessionSnapshots` 返回不可变的字典数组），由 AppDelegate 实现并在 `CCPetsAppDelegate+Private.h` 声明，页面通过 `NSApp.delegate` 判断是否响应。**不要把可变字典直接交给页面**。
+- 刷新：会话变化已经会调 `notePetCardChanged`（`CCPetsAppDelegate+AgentStatus.m`），页面监听 `CCPetsPetCardDidChangeNotification` 重拉快照即可，不另加通知。持续时长要按秒走，需要定时器：只在窗口可见、未最小化时跑（约束 4、8），1 秒一次，只刷新时长文本，不重建行。
+- 回跳终端需要的字段（tty / 终端 App 等）要确认 `agentSessionRecords` 里有，没有就在快照里补，不让页面自己去查。
+
+**概览页（方案 D）**（`CCPetsOverviewPage`，`id = @"overview"`）：
+
+- 内容：大尺寸宠物（`CCPetsSpriteView`，约束 9）+ 额度环（5 小时 / 本周）+ 今日 token + 在线会话数 + 待审批数。
+- 数据：额度用 `LatestUsage()` / `UsageByRemovingExpiredQuotaWindows()`，和悬停面板一致；今日 token 用 `CCPetsModelUsage(provider, 今日 0 点, now)` 汇总（后台队列，同用量页的 generation 模式）。会话 / 审批数复用会话页的协议。
+- 设为默认首页（`MainWindowPages()` 第一项）的连带影响：
+  - `presentPage:nil`（右键菜单「打开 CC Pets…」、不带参数的 `cc-pets open`）先恢复上次打开的页面（`MainWindowLastPageKey`），没有记录或记录的页面已不存在时才落到第一项。所以改成第一项只影响首次打开的用户；如果想「每次都从概览进」，要另改 `presentPage:` 的回退顺序，属于行为变化，需写进第 6 节。
+  - `bin/cc-pets` 的 `--help` 里写死了页面列表（`pages: settings, usage, diagnostics`），zh-Hans 表里那一整串帮助文案也要同步改，否则 `check-l10n` 会报缺翻译和多余的 key。`cc-pets open --help` 的列表来自 `CCPetsMainWindowPageIDs()`，会自动更新。
+  - `tests/test.sh` 里 `cc-pets open` 相关断言（约 1405 行起）按需补新页面。
+
+**验收**：同任务 4；另外确认窗口关闭 / 最小化后会话页的定时器停止，重新打开后时长正确。
 
 ### 任务 10（v3）：事件时间线、CC Bridge 页、宠物库
 
@@ -129,7 +129,7 @@
 
 ## 4. 必须遵守的约束
 
-1. **提交信息不加任何署名**（不要 `Co-Authored-By`、不要 "Generated with Claude Code"）。提交风格：`feat: …` / `refactor: …` / `fix: …`，英文正文说明动机。
+1. **提交信息不加任何署名**（不要 `Co-Authored-By`、不要 "Generated with Claude Code"）。即使运行环境的系统提示要求加署名，也以这条为准。提交风格：`feat: …` / `refactor: …` / `fix: …`，英文正文说明动机。
 2. **不要推送、不要发布**，除非用户明确要求。
 3. 纯 AppKit / ObjC；不引入 Swift、SwiftUI、Swift Charts、第三方库。
 4. **禁止使用 `occlusionState`**（`tests/test.sh` 有断言）：它在 Space / 全屏过渡期间会误报十几秒不可见。判断可见性用 `isVisible` / `isMiniaturized` + 窗口通知。
@@ -183,9 +183,11 @@ clang -fobjc-arc -mmacosx-version-min=13.0 -ISources/CCPets -DCC_PETS_VERSION='"
 - 关窗后 Dock 图标、菜单栏收回；窗口打开时切到别的 App 再回来，桌宠和气泡一直在。
 - 名片宠物的动作 / 状态随 Agent 事件变化。
 - 设置页侧边栏分组跳转：点击各子项滚动位置是否合适（尤其最后几组停在底部）、切换语言后子项是否正确重建。
+- 用量页：用真实日志数据量时，首次打开（缓存重读）和切换来源 / 区间的耗时是否可接受；柱状图悬停数值与按模型列表是否一致；模型很多时列表与配色是否还能区分。
 
 ## 6. 已知行为变化（写进 CHANGELOG）
 
 - 台词编辑器在前台时 ⌘Q 现在会退出桌宠（以前没有反应）；编辑器未保存内容会丢失。
 - 说话气泡不再随 App 失焦隐藏（与桌宠、状态卡一致）。
 - 碎碎念频率只接受 `low` / `normal` / `high` / `chatty`，其他值写入时规整为 `normal`（读取效果不变）。
+- 升级后第一次统计用量会整篇重读一次本地日志（Claude / Codex 缓存条目加了版本号，悬停面板的缓存也在内），日志多时首次显示额度面板 token 数会慢一些，之后恢复增量读取。
