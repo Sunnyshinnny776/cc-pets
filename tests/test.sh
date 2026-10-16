@@ -1401,6 +1401,19 @@ grep -q "当前终端的 PATH 里没有 shim 目录" "${DOCTOR_TMP}/no-path.txt"
 # 走 bin/cc-pets 入口，并出现在帮助里。
 doctor_env "${PROJECT_DIR}/bin/cc-pets" paths --json | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
 "${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets doctor"
+# 结构化结果：主窗口诊断页直接用 CCPetsDoctorSections()，不经过 CLI 文本。
+# doctor 牵涉的模块太多，按全部源码（去掉 main.m）编进 harness。
+DOCTOR_SECTIONS_SOURCES=("${PROJECT_DIR}"/Sources/CCPets/*.m(N))
+DOCTOR_SECTIONS_SOURCES=("${(@)DOCTOR_SECTIONS_SOURCES:#*/main.m}")
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  -I"${PROJECT_DIR}/Sources/CCPets" \
+  -DCC_PETS_VERSION="\"0.0.0-test\"" \
+  -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
+  -framework QuartzCore -framework UserNotifications \
+  "${DOCTOR_SECTIONS_SOURCES[@]}" \
+  "${PROJECT_DIR}/tests/doctor-sections-harness.m" \
+  -o "${DOCTOR_TMP}/doctor-sections-test"
+doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test"
 print "doctor 与 paths 只读诊断测试通过"
 
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"

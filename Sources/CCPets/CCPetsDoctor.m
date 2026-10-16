@@ -337,7 +337,7 @@ static NSString *FormatAge(NSTimeInterval seconds) {
     return hours < 48 ? LF(L(@"{hours} h ago"), @{@"hours": @(hours)}) : LF(L(@"{days} days ago"), @{@"days": @(llround(hours / 24.0))});
 }
 
-static int RunDoctor(void) {
+NSArray<NSDictionary *> *CCPetsDoctorSections(void) {
     NSDictionary *native = NativePaths();
     NSMutableArray<NSDictionary *> *sections = [NSMutableArray array];
     BOOL claudeDetected = CCPetsClaudeCLIInstalled();
@@ -416,27 +416,50 @@ static int RunDoctor(void) {
         [sections addObject:@{@"title": @"CC Bridge", @"results": bridge}];
     }
 
-    struct utsname system;
-    uname(&system);
-    CCPetsPrintLine(stdout, LF(L(@"CC Pets diagnostics (npm package {packageVersion}, {platform} {release})"),
-        (@{@"packageVersion": packageVersion, @"platform": @"darwin", @"release": @(system.release)})));
-    NSDictionary<NSString *, NSString *> *icons = @{@"ok": @"✅", @"warn": @"⚠️ ", @"fail": @"❌", @"info": @"ℹ️ "};
-    NSCountedSet<NSString *> *counts = [NSCountedSet set];
+    return sections;
+}
+
+static NSUInteger CountResults(NSArray<NSDictionary *> *sections, NSString *level) {
+    NSUInteger count = 0;
     for (NSDictionary *section in sections) {
-        CCPetsPrintLine(stdout, [@"\n" stringByAppendingString:section[@"title"]]);
         for (NSDictionary *result in section[@"results"]) {
-            [counts addObject:result[@"level"]];
-            CCPetsPrintLine(stdout, [NSString stringWithFormat:@"  %@ %@", icons[result[@"level"]], result[@"title"]]);
-            if (result[@"fix"]) CCPetsPrintLine(stdout, [NSString stringWithFormat:@"     → %@", result[@"fix"]]);
+            if ([result[@"level"] isEqualToString:level]) count++;
         }
     }
-    NSUInteger warn = [counts countForObject:@"warn"], fail = [counts countForObject:@"fail"];
+    return count;
+}
+
+BOOL CCPetsDoctorHasFailures(NSArray<NSDictionary *> *sections) {
+    return CountResults(sections, @"fail") > 0;
+}
+
+NSString *CCPetsDoctorReport(NSArray<NSDictionary *> *sections) {
+    struct utsname system;
+    uname(&system);
+    NSMutableArray<NSString *> *lines = [NSMutableArray arrayWithObject:
+        LF(L(@"CC Pets diagnostics (npm package {packageVersion}, {platform} {release})"),
+        (@{@"packageVersion": PackageVersion(), @"platform": @"darwin", @"release": @(system.release)}))];
+    NSDictionary<NSString *, NSString *> *icons = @{@"ok": @"✅", @"warn": @"⚠️ ", @"fail": @"❌", @"info": @"ℹ️ "};
+    for (NSDictionary *section in sections) {
+        [lines addObject:[@"\n" stringByAppendingString:section[@"title"]]];
+        for (NSDictionary *result in section[@"results"]) {
+            [lines addObject:[NSString stringWithFormat:@"  %@ %@", icons[result[@"level"]], result[@"title"]]];
+            if (result[@"fix"]) [lines addObject:[NSString stringWithFormat:@"     → %@", result[@"fix"]]];
+        }
+    }
+    NSUInteger warn = CountResults(sections, @"warn"), fail = CountResults(sections, @"fail");
     NSString *warnings = warn != 1 ? LF(L(@"{count} warnings"), @{@"count": @(warn)}) : LF(L(@"{count} warning"), @{@"count": @(warn)});
     NSString *errors = fail != 1 ? LF(L(@"{count} errors"), @{@"count": @(fail)}) : LF(L(@"{count} error"), @{@"count": @(fail)});
-    CCPetsPrintLine(stdout, LF(L(@"\nResult: {ok} OK, {warnings}, {errors}."),
-        (@{@"ok": @([counts countForObject:@"ok"]), @"warnings": warnings, @"errors": errors})));
-    if (fail + warn > 0) CCPetsPrintLine(stdout, L(@"Most problems are fixed by cc-pets install; see cc-pets paths for data locations."));
-    return fail > 0 ? 1 : 0;
+    [lines addObject:LF(L(@"\nResult: {ok} OK, {warnings}, {errors}."),
+        (@{@"ok": @(CountResults(sections, @"ok")), @"warnings": warnings, @"errors": errors}))];
+    if (fail + warn > 0) [lines addObject:L(@"Most problems are fixed by cc-pets install; see cc-pets paths for data locations.")];
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+static int RunDoctor(void) {
+    NSArray<NSDictionary *> *sections = CCPetsDoctorSections();
+    CCPetsPrintLine(stdout, CCPetsDoctorReport(sections));
+    return CCPetsDoctorHasFailures(sections) ? 1 : 0;
 }
 
 int CCPetsDoctorMain(NSArray<NSString *> *arguments) {
