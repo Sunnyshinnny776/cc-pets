@@ -2,9 +2,11 @@
 #import "CCPetsL10n.h"
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsSettingsPage.h"
+#import "CCPetsUsagePage.h"
 #import "CCPetsUIStyle.h"
 
 NSString *const CCPetsMainWindowPageSettings = @"settings";
+NSString *const CCPetsMainWindowPageUsage = @"usage";
 NSString *const CCPetsMainWindowPageDiagnostics = @"diagnostics";
 NSNotificationName const CCPetsPetCardDidChangeNotification = @"CCPetsPetCardDidChange";
 static NSString *const MainWindowLastPageKey = @"CCPetsMainWindowLastPage";
@@ -15,6 +17,8 @@ static NSArray<NSDictionary *> *MainWindowPages(void) {
     return @[
         @{@"id": CCPetsMainWindowPageSettings, @"title": L(@"Settings"), @"symbol": @"gearshape.fill",
           @"color": NSColor.systemGrayColor, @"class": CCPetsSettingsPage.class},
+        @{@"id": CCPetsMainWindowPageUsage, @"title": L(@"Usage"), @"symbol": @"chart.bar.xaxis",
+          @"color": NSColor.systemBlueColor, @"class": CCPetsUsagePage.class},
         @{@"id": CCPetsMainWindowPageDiagnostics, @"title": L(@"Diagnostics"), @"symbol": @"stethoscope",
           @"color": NSColor.systemGreenColor, @"class": CCPetsDiagnosticsPage.class},
     ];

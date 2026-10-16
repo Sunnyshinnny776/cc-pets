@@ -10,6 +10,7 @@
 
 // 页面标识，也是 `cc-pets open <page>` 的参数。
 extern NSString *const CCPetsMainWindowPageSettings;
+extern NSString *const CCPetsMainWindowPageUsage;
 extern NSString *const CCPetsMainWindowPageDiagnostics;
 
 // 所有页面标识，按侧边栏顺序。`cc-pets open <page>` 用它校验参数。

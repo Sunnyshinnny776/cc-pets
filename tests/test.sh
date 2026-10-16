@@ -1406,6 +1406,7 @@ doctor_env "${PROJECT_DIR}/bin/cc-pets" paths --json | node -e 'JSON.parse(requi
 # 帮助里有；页面参数在发通知 / 拉起 App 之前就校验，拼错的页面不该启动任何东西。
 "${PROJECT_DIR}/bin/cc-pets" --help | grep -q "cc-pets open"
 doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "settings"
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "usage"
 doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open --help | grep -q "diagnostics"
 if doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open no-such-page >/dev/null 2>&1; then
   print -u2 "未知页面应以非零退出"
