@@ -46,6 +46,6 @@
 @interface CCPetsAlertsPage : CCPetsSettingsPageBase
 @end
 
-// 通用：语言、浮层外观（主题、玻璃压暗）、悬停面板显示什么、数据文件夹。
+// 通用：语言、主窗口外观（跟随系统 / 浅色 / 深色）、浮层外观（主题、玻璃压暗）、悬停面板显示什么、数据文件夹。
 @interface CCPetsGeneralPage : CCPetsSettingsPageBase
 @end

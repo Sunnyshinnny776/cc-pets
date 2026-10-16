@@ -10,6 +10,9 @@
 NSColor *CCPetsAccentColor(void);
 // 强调色上的文字。
 NSColor *CCPetsAccentInkColor(void);
+// 填色控件（开关轨道、分段控件选中段、滑块已划过的一段、默认按钮）的底色。上面压的是白字或白旋钮，
+// 深色下不能用发亮的 #4fd3e6（白字看不清），换成和系统蓝对白字对比度相当的 #1592a5；浅色同强调色。
+NSColor *CCPetsAccentFillColor(void);
 // 内容区底色、卡片底色、卡片描边与分隔线。
 NSColor *CCPetsBackgroundColor(void);
 NSColor *CCPetsCardColor(void);
@@ -73,6 +76,15 @@ NSTextField *CCPetsWrappingLabel(NSString *text, CGFloat size, NSFontWeight weig
 // 填色胶囊按钮：悬停面板「订阅 / 用量」那种一点就切换的开关，和右键菜单里的样子一致。
 @interface CCPetsPillButton : NSButton
 @property(nonatomic) NSColor *fillColor;
+@end
+
+// 系统控件默认用系统强调色（蓝），和主窗口的青色对不上。分段控件、滑块、默认按钮
+// 都有公开的改色属性，统一由这里换成 CCPetsAccentFillColor。其他类型的控件不处理。
+void CCPetsApplyAccent(NSControl *control);
+
+// 开关：外形和尺寸照小号 NSSwitch，打开时填青色。NSSwitch 只会用系统强调色（默认蓝），
+// 和侧边栏、卡片选中的青色对不上，又没有改色的接口，所以自己画。用法同 NSButton 的 state。
+@interface CCPetsSwitch : NSButton
 @end
 
 // 圆点 / 色块：图例、模型表、状态点。颜色可以是动态色，深浅色切换时自动重新解析。

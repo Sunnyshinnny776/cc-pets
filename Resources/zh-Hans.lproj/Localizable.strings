@@ -253,6 +253,10 @@
 "Update to %@…" = "更新到 %@…";
 "Language" = "语言";
 "System Default" = "跟随系统";
+"Light" = "浅色";
+"Dark" = "深色";
+"Window Appearance" = "窗口外观";
+"Only this window; the pet's panels follow Panel Appearance below" = "只作用于本窗口；桌宠的浮层看下面的「浮层外观」";
 "Help" = "帮助";
 "Check for Updates…" = "检查更新…";
 "About CC Pets" = "关于 CC Pets";

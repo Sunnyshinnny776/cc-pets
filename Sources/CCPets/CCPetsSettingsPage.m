@@ -94,10 +94,9 @@ static void RevealFolder(NSString *path) {
     control.action = @selector(invoke:);
 }
 
-- (NSSwitch *)switchWithValue:(BOOL (^)(void))value action:(void (^)(NSSwitch *control))action {
-    NSSwitch *control = [NSSwitch new];
-    control.controlSize = NSControlSizeSmall;
-    [self bind:control to:^(NSSwitch *sender) { action(sender); }];
+- (CCPetsSwitch *)switchWithValue:(BOOL (^)(void))value action:(void (^)(CCPetsSwitch *control))action {
+    CCPetsSwitch *control = [CCPetsSwitch new];
+    [self bind:control to:^(CCPetsSwitch *sender) { action(sender); }];
     [self.reloaders addObject:^{
         control.state = value() ? NSControlStateValueOn : NSControlStateValueOff;
     }];
@@ -108,8 +107,8 @@ static void RevealFolder(NSString *path) {
 - (NSView *)switchRowWithTitle:(NSString *)title subtitle:(NSString *)subtitle key:(NSString *)key
     apply:(void (^)(id<CCPetsSettingsActions> actions, BOOL enabled))apply {
     __weak typeof(self) weakSelf = self;
-    NSSwitch *control = [self switchWithValue:^BOOL { return CCPetsPrefBool(key); }
-        action:^(NSSwitch *sender) {
+    CCPetsSwitch *control = [self switchWithValue:^BOOL { return CCPetsPrefBool(key); }
+        action:^(CCPetsSwitch *sender) {
         apply(weakSelf.actions, sender.state == NSControlStateValueOn);
     }];
     return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:@[control]];
@@ -118,8 +117,8 @@ static void RevealFolder(NSString *path) {
 // 系统通知要先拿到授权，失败就弹回关闭，所以不能直接用 switchRow。
 - (NSView *)notificationRowWithTitle:(NSString *)title subtitle:(NSString *)subtitle key:(NSString *)key {
     __weak typeof(self) weakSelf = self;
-    NSSwitch *control = [self switchWithValue:^BOOL { return CCPetsPrefBool(key); }
-        action:^(NSSwitch *sender) {
+    CCPetsSwitch *control = [self switchWithValue:^BOOL { return CCPetsPrefBool(key); }
+        action:^(CCPetsSwitch *sender) {
         [weakSelf.actions updateNotification:key enabled:sender.state == NSControlStateValueOn
             completion:^(BOOL enabled) {
             sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
@@ -158,6 +157,7 @@ static void RevealFolder(NSString *path) {
         trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
     control.controlSize = NSControlSizeSmall;
     control.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    CCPetsApplyAccent(control);
     [self bind:control to:^(NSSegmentedControl *sender) {
         if (sender.selectedSegment >= 0) action(options[(NSUInteger)sender.selectedSegment][1]);
     }];
@@ -215,6 +215,7 @@ static void RevealFolder(NSString *path) {
     NSSlider *slider = [NSSlider sliderWithValue:minimum minValue:minimum maxValue:maximum target:nil action:nil];
     slider.continuous = YES;
     slider.controlSize = NSControlSizeSmall;
+    CCPetsApplyAccent(slider);
     [slider.widthAnchor constraintEqualToConstant:width].active = YES;
     return slider;
 }
@@ -620,8 +621,15 @@ static const NSUInteger PetPickerColumns = 4;
         // 主窗口收到语言变更会重建本页，别在控件自己的 action 里把它拆掉。
         dispatch_async(dispatch_get_main_queue(), ^{ CCPetsSetLanguagePreference(value); });
     }];
-    [self.form addGroupWithTitle:nil rows:@[[CCPetsFormBuilder rowWithTitle:L(@"Language") controls:@[language]]]
-        footer:nil];
+    NSSegmentedControl *appearance = [self segmentedWithOptions:@[
+        @[L(@"System Default"), @"system"], @[L(@"Light"), @"light"], @[L(@"Dark"), @"dark"]]
+        selected:^id { return CCPetsMainWindowAppearancePreference(); }
+        action:^(NSString *value) { CCPetsPrefSetObject(CCPetsMainWindowAppearanceKey, value); }];
+    [self.form addGroupWithTitle:nil rows:@[
+        [CCPetsFormBuilder rowWithTitle:L(@"Language") controls:@[language]],
+        [CCPetsFormBuilder rowWithTitle:L(@"Window Appearance")
+            subtitle:L(@"Only this window; the pet's panels follow Panel Appearance below") controls:@[appearance]],
+    ] footer:nil];
 
     // 浮层外观：两张主题卡片 + 玻璃压暗滑块。
     [self.form addGroupTitle:L(@"Panel Appearance") note:nil];
@@ -690,6 +698,7 @@ static const NSUInteger PetPickerColumns = 4;
         trackingMode:NSSegmentSwitchTrackingSelectAny target:nil action:nil];
     metrics.controlSize = NSControlSizeSmall;
     metrics.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    CCPetsApplyAccent(metrics);
     [self bind:metrics to:^(NSSegmentedControl *sender) {
         NSInteger segment = sender.selectedSegment;
         if (segment < 0 || segment >= (NSInteger)metricKeys.count) return;

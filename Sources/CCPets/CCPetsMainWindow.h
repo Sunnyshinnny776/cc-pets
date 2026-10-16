@@ -36,6 +36,12 @@ NSString *CCPetsMainWindowResolvePage(NSString *page);
 // 没有窗口时没人听，发一次只是一次空的广播。
 extern NSNotificationName const CCPetsPetCardDidChangeNotification;
 
+// 主窗口外观：system（跟随系统，默认）、light、dark。只管主窗口，桌宠的浮层不受影响。
+// 存在这个键里，改了之后已打开的主窗口当场切换。
+extern NSString *const CCPetsMainWindowAppearanceKey;
+// 当前取值，不认识的值按 system 处理。
+NSString *CCPetsMainWindowAppearancePreference(void);
+
 @interface CCPetsMainWindowController : NSWindowController
 
 // 打开（已开着就前置）并切到指定页面；page 为 nil 或不认识时打开上次看的页面。

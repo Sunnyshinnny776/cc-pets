@@ -1,5 +1,6 @@
 #import "CCPetsMainWindow.h"
 #import "CCPetsL10n.h"
+#import "CCPetsPreferences.h"
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsSettingsPage.h"
 #import "CCPetsUsagePage.h"
@@ -15,6 +16,20 @@ NSString *const CCPetsMainWindowPageGeneral = @"general";
 NSString *const CCPetsMainWindowPageDiagnostics = @"diagnostics";
 NSNotificationName const CCPetsPetCardDidChangeNotification = @"CCPetsPetCardDidChange";
 static NSString *const MainWindowLastPageKey = @"CCPetsMainWindowLastPage";
+NSString *const CCPetsMainWindowAppearanceKey = @"CCPetsMainWindowAppearance";
+
+NSString *CCPetsMainWindowAppearancePreference(void) {
+    NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:CCPetsMainWindowAppearanceKey];
+    return [@[@"light", @"dark"] containsObject:value] ? value : @"system";
+}
+
+// nil 表示跟随系统。
+static NSAppearance *MainWindowAppearance(void) {
+    NSString *value = CCPetsMainWindowAppearancePreference();
+    if ([value isEqualToString:@"light"]) return [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    if ([value isEqualToString:@"dark"]) return [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    return nil;
+}
 // 改版后默认窗口变大了（内容多了概览和表格）。换个名字，不沿用改版前记住的小窗口尺寸。
 static NSString *const MainWindowFrameName = @"CCPetsMainWindow.v2";
 
@@ -568,6 +583,7 @@ static id WindowCloseObserver;
         window.releasedWhenClosed = NO;
         window.minSize = NSMakeSize(760, 520);
         window.delegate = self;
+        window.appearance = MainWindowAppearance();
         window.titlebarAppearsTransparent = YES;
         window.titleVisibility = NSWindowTitleHidden;
         // 内容区的底色；标题栏透明，延伸到标题栏底下的部分也是这个颜色。
@@ -601,8 +617,16 @@ static id WindowCloseObserver;
 
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(languageDidChange:)
             name:CCPetsLanguageDidChangeNotification object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
+            name:CCPetsPreferencesDidChangeNotification object:nil];
     }
     return self;
+}
+
+// 颜色都是动态色，换了窗口外观会自己重新解析，不用重建页面。
+- (void)preferencesDidChange:(NSNotification *)notification {
+    if (![notification.userInfo[CCPetsPreferencesChangedKeyKey] isEqualToString:CCPetsMainWindowAppearanceKey]) return;
+    self.window.appearance = MainWindowAppearance();
 }
 
 - (void)dealloc {

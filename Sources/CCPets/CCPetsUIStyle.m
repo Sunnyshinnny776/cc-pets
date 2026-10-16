@@ -28,6 +28,7 @@ static NSColor *Dynamic(uint32_t light, CGFloat lightAlpha, uint32_t dark, CGFlo
 
 NSColor *CCPetsAccentColor(void) { CACHED_COLOR(Dynamic(0x0b8ea3, 1, 0x4fd3e6, 1)); }
 NSColor *CCPetsAccentInkColor(void) { CACHED_COLOR(Dynamic(0xffffff, 1, 0x062a31, 1)); }
+NSColor *CCPetsAccentFillColor(void) { CACHED_COLOR(Dynamic(0x0b8ea3, 1, 0x1592a5, 1)); }
 NSColor *CCPetsBackgroundColor(void) { CACHED_COLOR(Dynamic(0xf6f7f9, 1, 0x1a1d22, 1)); }
 NSColor *CCPetsCardColor(void) { CACHED_COLOR(Dynamic(0xffffff, 1, 0x24282e, 1)); }
 NSColor *CCPetsLineColor(void) { CACHED_COLOR(Dynamic(0xe3e6ec, 1, 0x33383f, 1)); }
@@ -353,6 +354,121 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 
 - (void)resetCursorRects {
     [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+}
+
+@end
+
+// 关闭时的底轨：半透明，压在卡片上和系统开关一个深浅。
+static NSColor *SwitchOffTrackColor(void) { CACHED_COLOR(Dynamic(0x000000, 0.1, 0xffffff, 0.16)); }
+
+// macOS 26 起系统开关换了样子：控件比轨道左右各宽 5pt、上下各高 2pt，旋钮是横向胶囊
+// （小号 44×20 的轨道配 26×16 的旋钮）。之前的系统是圆旋钮，轨道铺满控件。
+static BOOL SwitchUsesCapsuleKnob(void) {
+    if (@available(macOS 26.0, *)) return YES;
+    return NO;
+}
+
+void CCPetsApplyAccent(NSControl *control) {
+    if ([control isKindOfClass:NSSegmentedControl.class]) {
+        ((NSSegmentedControl *)control).selectedSegmentBezelColor = CCPetsAccentFillColor();
+    } else if ([control isKindOfClass:NSSlider.class]) {
+        ((NSSlider *)control).trackFillColor = CCPetsAccentFillColor();
+    } else if ([control isKindOfClass:NSButton.class]) {
+        // bezelColor 对普通按钮也生效，会把它整个染色；只给回车触发的默认按钮用。
+        NSButton *button = (NSButton *)control;
+        if ([button.keyEquivalent isEqualToString:@"\r"]) button.bezelColor = CCPetsAccentFillColor();
+    }
+}
+
+@implementation CCPetsSwitch
+
+// 控件尺寸照抄小号 NSSwitch，换掉之后表单行高、对齐都不变；不同系统版本上它的大小不一样，现量。
++ (NSSize)switchSize {
+    static NSSize size;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSSwitch *reference = [NSSwitch new];
+        reference.controlSize = NSControlSizeSmall;
+        size = reference.fittingSize;
+        if (size.width < 1 || size.height < 1) size = SwitchUsesCapsuleKnob() ? NSMakeSize(54, 24) : NSMakeSize(32, 18);
+    });
+    return size;
+}
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.bordered = NO;
+        self.title = @"";
+        self.buttonType = NSButtonTypeToggle;
+        [self setAccessibilityRole:NSAccessibilityCheckBoxRole];
+        [self setAccessibilitySubrole:NSAccessibilitySwitchSubrole];
+    }
+    return self;
+}
+
+- (NSSize)intrinsicContentSize {
+    return [CCPetsSwitch switchSize];
+}
+
+- (void)setState:(NSControlStateValue)state {
+    [super setState:state];
+    self.needsDisplay = YES;
+}
+
+- (void)setEnabled:(BOOL)enabled {
+    [super setEnabled:enabled];
+    self.needsDisplay = YES;
+}
+
+- (NSRect)trackRect {
+    NSSize size = [CCPetsSwitch switchSize];
+    if (SwitchUsesCapsuleKnob()) size = NSMakeSize(size.width - 10, size.height - 4);
+    return NSMakeRect(round(NSMidX(self.bounds) - size.width / 2.0), round(NSMidY(self.bounds) - size.height / 2.0),
+        size.width, size.height);
+}
+
+static NSBezierPath *CapsulePath(NSRect rect) {
+    CGFloat radius = NSHeight(rect) / 2.0;
+    return [NSBezierPath bezierPathWithRoundedRect:rect xRadius:radius yRadius:radius];
+}
+
+// drawRect 里系统已经按本视图的外观设好了当前外观，动态色直接用。
+- (void)drawRect:(NSRect)dirtyRect {
+    BOOL on = self.state == NSControlStateValueOn;
+    CGContextRef context = NSGraphicsContext.currentContext.CGContext;
+    CGContextSaveGState(context);
+    CGContextSetAlpha(context, self.enabled ? 1 : 0.45);
+
+    NSRect track = [self trackRect];
+    NSColor *trackColor = on ? CCPetsAccentFillColor() : SwitchOffTrackColor();
+    [trackColor setFill];
+    [CapsulePath(track) fill];
+    if (self.highlighted) {
+        [[NSColor colorWithWhite:0 alpha:0.12] setFill];
+        [CapsulePath(track) fill];
+    }
+
+    CGFloat inset = 2;
+    CGFloat knobHeight = NSHeight(track) - inset * 2;
+    CGFloat knobWidth = SwitchUsesCapsuleKnob() ? round(knobHeight * 26.0 / 16.0) : knobHeight;
+    CGFloat knobX = on ? NSMaxX(track) - inset - knobWidth : NSMinX(track) + inset;
+    NSRect knob = NSMakeRect(knobX, NSMinY(track) + inset, knobWidth, knobHeight);
+    NSShadow *shadow = [NSShadow new];
+    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.2];
+    shadow.shadowBlurRadius = 1.5;
+    shadow.shadowOffset = NSMakeSize(0, -0.5);
+    [shadow set];
+    [NSColor.whiteColor setFill];
+    [CapsulePath(knob) fill];
+    CGContextRestoreGState(context);
+}
+
+- (void)drawFocusRingMask {
+    [CapsulePath([self trackRect]) fill];
+}
+
+- (NSRect)focusRingMaskBounds {
+    return [self trackRect];
 }
 
 @end
