@@ -40,6 +40,9 @@ export CC_PETS_TEST_MARK="test-$$"
 # app bundle，所以统一指过去。英文输出由下面的多语言测试单独覆盖。
 export CC_PETS_LANGUAGE=zh-Hans
 export CC_PETS_LOCALIZATION_DIR="${PROJECT_DIR}/Resources"
+# 在 Claude Code 会话里跑测试时会继承会话级的 CLAUDE_CONFIG_DIR。记录端按它选额度文件，
+# 桌宠端只认默认目录，两边对不上就读不到用例写的额度窗口。需要它的用例各自在命令前设置。
+unset CLAUDE_CONFIG_DIR
 
 # 额度快照的 resets_at 必须落在当前窗口里（见 CCPetsUsage.m 的 QuotaWindowLooksCurrent），
 # 写死的时间戳一旦成为过去就会被合理地拒收，用例会在某天突然全红。统一按运行时刻算。
