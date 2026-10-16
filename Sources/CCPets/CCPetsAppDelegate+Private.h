@@ -9,6 +9,7 @@
 #import "CCPetsImageLoader.h"
 #import "CCPetsPetSize.h"
 #import "CCPetsPreferences.h"
+#import "CCPetsMainWindow.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsUsage.h"
@@ -147,7 +148,8 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 @interface AppDelegate ()
 - (NSString *)applicationSupportDirectory;
 - (void)showAlertWithTitle:(NSString *)title message:(NSString *)message;
-- (void)installEditMenu;
+- (void)installMainMenu;
+- (void)openMainWindow:(id)sender;
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag;
 - (void)screensDidSleep:(NSNotification *)notification;

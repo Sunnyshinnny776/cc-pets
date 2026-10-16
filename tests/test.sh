@@ -1979,6 +1979,16 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/tests/preferences-harness.m" \
   -o "${PREFERENCES_TMP}/preferences-test"
 "${PREFERENCES_TMP}/preferences-test"
+# 设置页按 CCPetsSettingsActions 调 AppDelegate，但 AppDelegate 没在声明上采纳这个协议
+# （方法分散在多个 category，采纳会触发编译告警）。逐条核对协议里的方法确实在私有头里声明过，
+# 否则改了签名只会在用户点开关时以 unrecognized selector 崩掉。
+while IFS= read -r declaration; do
+  if ! grep -Fq -- "${declaration}" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Private.h"; then
+    print -u2 "CCPetsSettingsActions 的方法未在 AppDelegate 中声明：${declaration}"
+    exit 1
+  fi
+done < <(sed -n '/^@protocol CCPetsSettingsActions/,/^@end/p' \
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.h" | grep '^- (')
 # 菜单 action 不许再绕过写入口直接写 defaults，否则设置页收不到变更广播。
 if grep -nE 'standardUserDefaults (setBool|setObject|setInteger|setDouble)' \
     "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"; then

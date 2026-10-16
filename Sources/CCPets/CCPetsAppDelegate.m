@@ -64,24 +64,33 @@
     [alert addButtonWithTitle:L(@"OK")];
     [alert runModal];
 }
-// 建一个只有"编辑"的主菜单。
+// 主菜单：应用、编辑、窗口三项。
 //
 // ⌘C/⌘V/⌘A/⌘Z 不是 NSTextView 自己处理的：按键先走 NSApp.mainMenu 的
 // performKeyEquivalent:，命中菜单项之后才沿响应者链发 copy: / paste: 这些消息。
-// 这个 app 是 LSUIElement，之前从没设过主菜单，所以台词编辑器里这些快捷键全部落空。
+// 这个 app 是 LSUIElement，以前没设主菜单时，台词编辑器里这些快捷键全部落空。
 //
-// LSUIElement 等价于 NSApplicationActivationPolicyAccessory，按定义不显示自己的菜单栏，
-// 所以这个菜单只是一张快捷键路由表，用户看不见它。桌宠面板是 NSNonactivatingPanel，
-// 点它根本不激活 app，更碰不到这里。
+// 平时是 Accessory，菜单栏不显示，这份菜单只是一张快捷键路由表；主窗口打开期间切成 Regular，
+// 它就是用户看到的菜单栏。第一项按 AppKit 约定当作应用菜单，标题不显示，显示的是 App 名。
+// 桌宠面板是 NSNonactivatingPanel，点它根本不激活 app，碰不到这里。
 //
-// action 一律留给响应者链（target 为 nil），谁是第一响应者谁处理——写死 target 的话
-// 编辑器之外的文本框就用不上了。
-- (void)installEditMenu {
+// 编辑项的 action 一律留给响应者链（target 为 nil），谁是第一响应者谁处理——写死 target 的话
+// 编辑器之外的文本框就用不上了。没有「隐藏」：hide: 会把桌宠浮窗一起藏起来。
+- (void)installMainMenu {
     if (NSApp.mainMenu) return;
     NSMenu *mainMenu = [NSMenu new];
+
+    NSMenuItem *appItem = [mainMenu addItemWithTitle:@"CC Pets" action:nil keyEquivalent:@""];
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"CC Pets"];
+    [appMenu addItemWithTitle:L(@"About CC Pets") action:@selector(showAboutPanel:) keyEquivalent:@""].target = self;
+    [appMenu addItem:NSMenuItem.separatorItem];
+    [appMenu addItemWithTitle:L(@"Settings…") action:@selector(openMainWindow:) keyEquivalent:@","].target = self;
+    [appMenu addItem:NSMenuItem.separatorItem];
+    [appMenu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"].target = NSApp;
+    appItem.submenu = appMenu;
+
     NSMenuItem *editItem = [mainMenu addItemWithTitle:L(@"Edit") action:nil keyEquivalent:@""];
     NSMenu *editMenu = [[NSMenu alloc] initWithTitle:L(@"Edit")];
-
     NSArray<NSArray *> *entries = @[
         @[L(@"Undo"), NSStringFromSelector(@selector(undo:)), @"z", @(NSEventModifierFlagCommand)],
         @[L(@"Redo"), NSStringFromSelector(@selector(redo:)), @"z",
@@ -103,11 +112,22 @@
         item.keyEquivalentModifierMask = (NSEventModifierFlags)[entry[3] unsignedIntegerValue];
     }
     editItem.submenu = editMenu;
+
+    NSMenuItem *windowItem = [mainMenu addItemWithTitle:L(@"Window") action:nil keyEquivalent:@""];
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:L(@"Window")];
+    [windowMenu addItemWithTitle:L(@"Minimize") action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+    [windowMenu addItemWithTitle:L(@"Close") action:@selector(performClose:) keyEquivalent:@"w"];
+    windowItem.submenu = windowMenu;
+    NSApp.windowsMenu = windowMenu;
+
     NSApp.mainMenu = mainMenu;
+}
+- (void)openMainWindow:(id)sender {
+    [CCPetsMainWindowController presentPage:nil];
 }
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     // 没有主菜单的话，台词编辑器里 ⌘C/⌘V/⌘A/⌘Z 全部没反应。
-    [self installEditMenu];
+    [self installMainMenu];
     // 台词全在这个文件里，代码里没有第二份。首次启动先从默认词库拷一份出来，
     // 否则新装的桌宠一句话都不会说。
     PetPhrasesEnsureFileExists();

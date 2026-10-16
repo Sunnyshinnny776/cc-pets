@@ -145,6 +145,8 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     self.speechPanel.level = NSFloatingWindowLevel;
     self.speechPanel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
         NSWindowCollectionBehaviorFullScreenAuxiliary;
+    // 和桌宠、状态卡一样不随 App 失焦隐藏。主窗口打开期间 App 是 Regular，会频繁失焦。
+    self.speechPanel.hidesOnDeactivate = NO;
     // 气泡不抢焦点、不接受点击：它是纯播报，挡住宠物就本末倒置了。
     self.speechPanel.ignoresMouseEvents = YES;
 
