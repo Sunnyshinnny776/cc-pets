@@ -13,6 +13,16 @@ truth for the version.
 - Rewritten `settings.json` / `hooks.json` keep their original key order and formatting, and numeric literals are preserved exactly (large integers no longer lose precision). Uninstalling no longer reformats a config file that had nothing of ours in it.
 - `cc-pets install` re-registers CC Bridge with the native binary; after upgrading, restart running Codex sessions and trust the updated hooks in `/hooks`.
 
+### Main window
+
+- Added a regular app window with a sidebar. Open it from the right-click menu (**Open CC Pets…**), the app menu or `cc-pets open [settings|diagnostics]`. The Dock icon and menu bar appear only while it is open; the window is created on open and released on close, and nothing runs while it is closed.
+- The sidebar shows an animated card for the current pet (status, online sessions, pending approvals). Under the selected page it lists that page's groups, and clicking one jumps straight to it.
+- **Settings** page: every right-click menu option in grouped cards, plus finer controls such as click-reaction thresholds. All settings now go through one preferences layer, so the desktop pet, the menu and the window stay in sync. Options that rewrite Claude Code / Codex configuration (enabling CC Bridge, auto-approve) remain in the right-click menu.
+- **Diagnostics** page: the same checks as `cc-pets doctor`, with a summary, copy buttons for suggested fix commands, **Re-check** and **Copy Report**. It is read-only.
+- Added `cc-pets open [page]`. If the pet is running it asks it to open the window; otherwise it launches the app and opens the window. Terminals launching Claude Code or Codex never pop the window up.
+- `cc-pets doctor` now also finds the npm package directory when run from the installed app, using a `package-dir` marker that `cc-pets install` leaves in the app data directory. Run `cc-pets install` once after upgrading.
+- Behavior changes: ⌘Q in the lines editor now quits the pet (it did nothing before), and unsaved text in the editor is lost; speech bubbles no longer hide when the app loses focus, matching the pet and status card; chatter frequency accepts only `low`, `normal`, `high` and `chatty`, and any other stored value is normalized to `normal` when written (reading behaves as before).
+
 ### Pets
 
 - The built-in pet is now named **ByteMochi** (its file was `默认.webp`). Upgrading keeps it selected and moves its pet-specific lines from `builtin-默认.txt` to `builtin-ByteMochi.txt`; an existing `builtin-ByteMochi.txt` is never overwritten.

@@ -56,6 +56,7 @@ English — v2.2.0 quota panel and Language menu:
   override shared sections; default lines use only the editable shared speech file. The
   selection persists across pet changes and restarts, with pet-specific lines selected initially.
 - Includes one original pet and can download compatible assets from PetDex.
+- Opens a regular main window with every setting, a live pet card and built-in diagnostics (see [Main window](#main-window)).
 - Uses native AppKit with no Electron runtime.
 
 ## Requirements
@@ -152,6 +153,7 @@ cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
 cc-pets doctor                # Check the installation and integrations, with fixes.
+cc-pets open [page]           # Open the main window (pages: settings, diagnostics).
 cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
@@ -199,6 +201,37 @@ printf '%s' '{"schemaVersion":1,"provider":"MyAgent","state":"thinking"}' \
 
 See [Provider protocol](./PROVIDER_PROTOCOL.md). The protocol does not accept
 prompts, command text, file contents, or model output.
+
+## Main window
+
+Besides the right-click menu and the hover quota panel, CC Pets has a regular app
+window for settings that are awkward to fit in a menu. Open it from the right-click
+menu (**Open CC Pets…**), the app menu, or the terminal:
+
+```bash
+cc-pets open               # the page you used last
+cc-pets open settings
+cc-pets open diagnostics
+```
+
+<p align="center">
+  <img src="docs/images/main-window.en.png" width="70%" alt="CC Pets main window with the pet card and the Settings page">
+</p>
+
+- **Sidebar** — an animated card for the current pet (status, online sessions, pending
+  approvals) and the pages. While a page is selected, its groups are listed underneath;
+  click one to jump straight to it instead of scrolling.
+- **Settings** — every option from the right-click menu grouped in one place, plus finer
+  controls such as the click-reaction thresholds. Changes apply to the desktop pet
+  immediately, and changes made in the menu show up here. Options that rewrite Claude
+  Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the right-click menu.
+- **Diagnostics** — the same checks as `cc-pets doctor`: a summary, one card per area, a
+  copy button for each suggested fix command, **Re-check** and **Copy Report** (paths are
+  shown as `~`, so it is safe to paste into an issue). It only reads; run the fix commands
+  yourself.
+
+The window is created when you open it and released when you close it, and nothing runs in
+the background while it is closed. The Dock icon and menu bar appear only while it is open.
 
 ## Pet interaction
 

@@ -68,7 +68,7 @@
   4. `bin/cc-pets`：把 `open` 转给原生二进制；`--help` 文案加一行（同时更新 zh-Hans 表中的帮助长串）。
 - 测试：`tests/test.sh` 至少断言 `cc-pets open --help`/未知页面的行为，以及 `bin/cc-pets --help` 含 `cc-pets open`。
 
-### 任务 6：文档与本地化收尾
+### 任务 6：文档与本地化收尾——已完成（README / CHANGELOG 中英文 + `docs/images/main-window*.png`；截图用隔离实例自拍：`CC Pets.app/Contents/MacOS/cc-pets` 配 `CC_PETS_STATE_DIR` 等环境变量，`screencapture -l<窗口号>`，不影响用户正在运行的桌宠）
 
 - `README.md` / `README.zh-CN.md`：新增「主窗口」小节（入口、页面、截图）。
 - `CHANGELOG.md` / `CHANGELOG.zh-CN.md`：Unreleased 段写入主窗口、设置页（含侧边栏分组跳转）、诊断页、`cc-pets open`。
