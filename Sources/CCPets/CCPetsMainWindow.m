@@ -39,7 +39,7 @@ static NSArray<NSDictionary *> *MainWindowPages(void) {
     return @[
         @{@"id": CCPetsMainWindowPageOverview, @"title": L(@"Overview"), @"symbol": @"house",
           @"group": @"workbench", @"class": CCPetsOverviewPage.class},
-        @{@"id": CCPetsMainWindowPageSessions, @"title": L(@"Sessions & Messages"), @"symbol": @"terminal",
+        @{@"id": CCPetsMainWindowPageSessions, @"title": L(@"Sessions"), @"symbol": @"terminal",
           @"group": @"workbench", @"class": CCPetsSessionsPage.class},
         @{@"id": CCPetsMainWindowPageUsage, @"title": L(@"Usage"), @"symbol": @"chart.bar",
           @"group": @"workbench", @"class": CCPetsUsagePage.class},

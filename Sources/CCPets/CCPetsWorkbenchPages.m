@@ -427,7 +427,7 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
 @implementation CCPetsSessionsPage
 
 - (void)loadView {
-    self.form = [[CCPetsFormBuilder alloc] initWithTitle:L(@"Sessions & Messages") subtitle:@""];
+    self.form = [[CCPetsFormBuilder alloc] initWithTitle:L(@"Sessions") subtitle:@""];
     self.view = self.form.view;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(dataDidChange:)
         name:CCPetsPetCardDidChangeNotification object:nil];
