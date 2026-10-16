@@ -145,8 +145,10 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 @property(nonatomic) NSColor *fillColor;
 @end
 
-@interface AppDelegate ()
+// 主窗口侧边栏的宠物名片从这里取数据，见 CCPetsMainWindow.h。
+@interface AppDelegate () <CCPetsPetCardSource>
 - (NSString *)applicationSupportDirectory;
+- (void)notePetCardChanged;
 - (void)showAlertWithTitle:(NSString *)title message:(NSString *)message;
 - (void)installMainMenu;
 - (void)openMainWindow:(id)sender;

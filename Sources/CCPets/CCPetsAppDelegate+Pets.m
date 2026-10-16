@@ -148,6 +148,7 @@
     [self.petView applySheet:image petID:petID rowCount:spriteRowCount];
     PetPhrasesSetCurrentPetID(petID);
     [NSUserDefaults.standardUserDefaults setObject:petID forKey:PetSelectedSpriteKey];
+    [self notePetCardChanged];
 }
 - (BOOL)deletePetWithID:(NSString *)petID {
     if (![petID hasPrefix:@"external:"]) return NO;

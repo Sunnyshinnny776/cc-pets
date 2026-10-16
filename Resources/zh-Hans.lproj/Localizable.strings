@@ -705,3 +705,8 @@
 "Enabling CC Bridge, auto-approve and other options that change Claude Code / Codex settings stay in the pet's right-click menu." = "启用 CC Bridge、免审批等会改动 Claude Code / Codex 配置的选项仍在桌宠右键菜单里。";
 "Advanced" = "高级";
 "App data folder" = "应用数据文件夹";
+"1 session online" = "1 个会话在线";
+"%ld sessions online" = "%ld 个会话在线";
+"1 awaiting approval" = "1 个待审批";
+"%ld awaiting approval" = "%ld 个待审批";
+"No active sessions" = "暂无会话";

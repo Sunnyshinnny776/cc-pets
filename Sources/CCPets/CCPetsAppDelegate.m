@@ -125,6 +125,38 @@
 - (void)openMainWindow:(id)sender {
     [CCPetsMainWindowController presentPage:nil];
 }
+- (NSDictionary *)petCardSnapshot {
+    NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
+    snapshot[@"sheet"] = self.petView.sheet;
+    snapshot[@"rowCount"] = @(self.petView.spriteRowCount);
+    NSDictionary *option = [self petOptionWithID:self.petView.currentPetID inOptions:[self petOptions]];
+    snapshot[@"name"] = [option[@"name"] isKindOfClass:NSString.class] ? option[@"name"] : nil;
+    NSString *state = self.hasAgentStatus && self.lastStatusState.length > 0 ? self.lastStatusState : @"idle";
+    snapshot[@"state"] = state;
+    // 和状态卡标题同一句（"Claude · 思考中"），没有会话时就是待机。
+    snapshot[@"status"] = self.hasAgentStatus && self.statusTitleLabel.stringValue.length > 0
+        ? self.statusTitleLabel.stringValue : L(@"Idle");
+    snapshot[@"statusColor"] = [self statusColorForState:state];
+    snapshot[@"approvals"] = @([self pendingApprovalSessionRecords].count);
+    NSUInteger sessions = 0;
+    for (NSDictionary *record in self.agentSessionRecords.allValues) {
+        if ([self isAgentSessionRecordLive:record]) sessions++;
+    }
+    snapshot[@"sessions"] = @(sessions);
+    return snapshot;
+}
+// 合并到下一轮 runloop 再发：一条 Agent 事件会同时改状态、会话和审批，没必要让名片刷三遍；
+// 而且取快照时会顺带清理离线会话，清理又会走到这里，同步发会在刷新途中再触发刷新。
+- (void)notePetCardChanged {
+    static BOOL pending;
+    if (pending) return;
+    pending = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        pending = NO;
+        [NSNotificationCenter.defaultCenter postNotificationName:CCPetsPetCardDidChangeNotification
+            object:nil];
+    });
+}
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     // 没有主菜单的话，台词编辑器里 ⌘C/⌘V/⌘A/⌘Z 全部没反应。
     [self installMainMenu];

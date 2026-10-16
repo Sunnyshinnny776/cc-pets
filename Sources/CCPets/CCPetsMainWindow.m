@@ -1,16 +1,18 @@
 #import "CCPetsMainWindow.h"
 #import "CCPetsL10n.h"
 #import "CCPetsSettingsPage.h"
+#import "CCPetsUIStyle.h"
 
 NSString *const CCPetsMainWindowPageSettings = @"settings";
+NSNotificationName const CCPetsPetCardDidChangeNotification = @"CCPetsPetCardDidChange";
 static NSString *const MainWindowLastPageKey = @"CCPetsMainWindowLastPage";
 static NSString *const MainWindowFrameName = @"CCPetsMainWindow";
 
 // 侧边栏里的页面，按显示顺序。标题现取，切换语言后重建侧边栏即可。
 static NSArray<NSDictionary *> *MainWindowPages(void) {
     return @[
-        @{@"id": CCPetsMainWindowPageSettings, @"title": L(@"Settings"), @"symbol": @"gearshape",
-          @"class": CCPetsSettingsPage.class},
+        @{@"id": CCPetsMainWindowPageSettings, @"title": L(@"Settings"), @"symbol": @"gearshape.fill",
+          @"color": NSColor.systemGrayColor, @"class": CCPetsSettingsPage.class},
     ];
 }
 
@@ -32,8 +34,14 @@ static BOOL HasVisibleRegularWindow(void) {
     return NO;
 }
 
+// 侧边栏顶部的宠物名片：会动的当前宠物、名字、Agent 状态和在线会话数。
+@interface CCPetsPetCardView : NSView
+- (void)reload;
+@end
+
 @interface CCPetsMainSidebarController : NSViewController <NSTableViewDataSource, NSTableViewDelegate>
 @property(nonatomic) NSTableView *tableView;
+@property(nonatomic) CCPetsPetCardView *card;
 @property(nonatomic, copy) void (^selectionHandler)(NSString *page);
 - (void)selectPage:(NSString *)page;
 - (void)reload;
@@ -188,7 +196,7 @@ static id WindowCloseObserver;
     NSTableView *table = [[NSTableView alloc] initWithFrame:NSZeroRect];
     table.style = NSTableViewStyleSourceList;
     table.headerView = nil;
-    table.rowHeight = 28;
+    table.rowHeight = 32;
     table.dataSource = self;
     table.delegate = self;
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"page"];
@@ -198,15 +206,35 @@ static id WindowCloseObserver;
     table.columnAutoresizingStyle = NSTableViewFirstColumnOnlyAutoresizingStyle;
     self.tableView = table;
 
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 200, 560)];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 200, 400)];
     scroll.documentView = table;
     scroll.hasVerticalScroller = YES;
     scroll.autohidesScrollers = YES;
     scroll.drawsBackground = NO;
-    self.view = scroll;
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+
+    CCPetsPetCardView *card = [[CCPetsPetCardView alloc] initWithFrame:NSZeroRect];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    self.card = card;
+
+    NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 560)];
+    [root addSubview:card];
+    [root addSubview:scroll];
+    [NSLayoutConstraint activateConstraints:@[
+        // 名片从标题栏下沿开始，左右和列表项对齐。
+        [card.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor constant:4],
+        [card.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
+        [card.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
+        [scroll.topAnchor constraintEqualToAnchor:card.bottomAnchor constant:10],
+        [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+        [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+        [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+    ]];
+    self.view = root;
 }
 
 - (void)reload {
+    [self.card reload];
     NSInteger selected = self.tableView.selectedRow;
     [self.tableView reloadData];
     if (selected >= 0) {
@@ -250,14 +278,14 @@ static id WindowCloseObserver;
         [NSLayoutConstraint activateConstraints:@[
             [icon.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:4],
             [icon.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
-            [icon.widthAnchor constraintEqualToConstant:18],
+            [icon.widthAnchor constraintEqualToConstant:20],
+            [icon.heightAnchor constraintEqualToConstant:20],
             [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:8],
             [label.trailingAnchor constraintLessThanOrEqualToAnchor:cell.trailingAnchor constant:-4],
             [label.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
         ]];
     }
-    cell.imageView.image = [NSImage imageWithSystemSymbolName:entry[@"symbol"]
-        accessibilityDescription:entry[@"title"]];
+    cell.imageView.image = CCPetsSymbolTile(entry[@"symbol"], entry[@"color"], 20);
     cell.textField.stringValue = entry[@"title"];
     return cell;
 }
@@ -267,6 +295,123 @@ static id WindowCloseObserver;
     NSArray<NSDictionary *> *pages = MainWindowPages();
     if (row < 0 || row >= (NSInteger)pages.count) return;
     if (self.selectionHandler) self.selectionHandler(pages[(NSUInteger)row][@"id"]);
+}
+
+@end
+
+@interface CCPetsPetCardView ()
+@property(nonatomic) CCPetsSpriteView *sprite;
+@property(nonatomic) NSTextField *nameLabel;
+@property(nonatomic) NSView *statusDot;
+@property(nonatomic) NSTextField *statusLabel;
+@property(nonatomic) NSTextField *sessionsLabel;
+@property(nonatomic) NSColor *dotColor;
+@end
+
+@implementation CCPetsPetCardView
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.wantsLayer = YES;
+        self.layer.cornerRadius = 12;
+        self.layer.cornerCurve = kCACornerCurveContinuous;
+
+        CCPetsSpriteView *sprite = [[CCPetsSpriteView alloc] initWithFrame:NSZeroRect];
+        sprite.translatesAutoresizingMaskIntoConstraints = NO;
+        self.sprite = sprite;
+
+        NSTextField *name = [NSTextField labelWithString:@""];
+        name.font = [NSFont systemFontOfSize:14 weight:NSFontWeightSemibold];
+        name.alignment = NSTextAlignmentCenter;
+        name.lineBreakMode = NSLineBreakByTruncatingTail;
+        self.nameLabel = name;
+
+        NSView *dot = [NSView new];
+        dot.wantsLayer = YES;
+        dot.layer.cornerRadius = 3.5;
+        [dot.widthAnchor constraintEqualToConstant:7].active = YES;
+        [dot.heightAnchor constraintEqualToConstant:7].active = YES;
+        self.statusDot = dot;
+
+        NSTextField *status = [NSTextField labelWithString:@""];
+        status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        status.textColor = NSColor.secondaryLabelColor;
+        status.lineBreakMode = NSLineBreakByTruncatingTail;
+        [status setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        self.statusLabel = status;
+        NSStackView *statusRow = [NSStackView stackViewWithViews:@[dot, status]];
+        statusRow.spacing = 5;
+        statusRow.alignment = NSLayoutAttributeCenterY;
+
+        NSTextField *sessions = [NSTextField labelWithString:@""];
+        sessions.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        sessions.textColor = NSColor.tertiaryLabelColor;
+        sessions.alignment = NSTextAlignmentCenter;
+        self.sessionsLabel = sessions;
+
+        NSStackView *stack = [NSStackView stackViewWithViews:@[sprite, name, statusRow, sessions]];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.alignment = NSLayoutAttributeCenterX;
+        stack.spacing = 3;
+        [stack setCustomSpacing:6 afterView:sprite];
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:stack];
+        [NSLayoutConstraint activateConstraints:@[
+            // 素材格子是 140×150，按同样比例缩小。
+            [sprite.widthAnchor constraintEqualToConstant:84],
+            [sprite.heightAnchor constraintEqualToConstant:90],
+            [stack.topAnchor constraintEqualToAnchor:self.topAnchor constant:10],
+            [stack.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
+            [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.leadingAnchor constant:8],
+            [stack.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-8],
+            [stack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+            [name.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor constant:-16],
+            [statusRow.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor constant:-16],
+        ]];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload)
+            name:CCPetsPetCardDidChangeNotification object:nil];
+        [self reload];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+// 底色随深浅色变，放在 updateLayer 里才能在切换外观时重新解析。
+- (BOOL)wantsUpdateLayer {
+    return YES;
+}
+
+- (void)updateLayer {
+    BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:
+        @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+    self.layer.backgroundColor = [NSColor colorWithWhite:dark ? 1 : 0 alpha:dark ? 0.07 : 0.05].CGColor;
+    self.statusDot.layer.backgroundColor = (self.dotColor ?: NSColor.systemGrayColor).CGColor;
+}
+
+- (void)reload {
+    id source = NSApp.delegate;
+    NSDictionary *snapshot = [source conformsToProtocol:@protocol(CCPetsPetCardSource)]
+        ? [source petCardSnapshot] : nil;
+    [self.sprite setSheet:snapshot[@"sheet"] rowCount:[snapshot[@"rowCount"] integerValue] ?: 9];
+    self.sprite.state = snapshot[@"state"] ?: @"idle";
+    self.nameLabel.stringValue = snapshot[@"name"] ?: @"CC Pets";
+    self.statusLabel.stringValue = snapshot[@"status"] ?: L(@"Idle");
+    self.dotColor = [snapshot[@"statusColor"] isKindOfClass:NSColor.class] ? snapshot[@"statusColor"] : nil;
+    self.needsDisplay = YES;
+
+    NSInteger sessions = [snapshot[@"sessions"] integerValue];
+    NSInteger approvals = [snapshot[@"approvals"] integerValue];
+    NSString *text = sessions == 1 ? L(@"1 session online")
+        : [NSString stringWithFormat:L(@"%ld sessions online"), (long)sessions];
+    if (approvals > 0) {
+        text = [text stringByAppendingFormat:@" · %@", approvals == 1 ? L(@"1 awaiting approval")
+            : [NSString stringWithFormat:L(@"%ld awaiting approval"), (long)approvals]];
+    }
+    self.sessionsLabel.stringValue = sessions > 0 || approvals > 0 ? text : L(@"No active sessions");
 }
 
 @end

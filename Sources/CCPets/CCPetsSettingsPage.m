@@ -6,6 +6,7 @@
 #import "CCPetsPetSize.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPreferences.h"
+#import "CCPetsUIStyle.h"
 
 // 定义在 CCPetsAppDelegate+Speech.m；那边的头文件是 AppDelegate 私有的，这里单独 extern。
 extern NSString *const PetSpeechFrequencyKey;
@@ -205,13 +206,22 @@ static NSString *ClickCountText(NSInteger count) {
     return [self rowWithTitle:title controls:@[button]];
 }
 
-- (void)addSectionWithTitle:(NSString *)title rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
-    NSTextField *header = [NSTextField labelWithString:title];
-    header.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+// 分组标题前的彩色图标块和侧边栏同一套（CCPetsSymbolTile），一眼能分出是哪一组。
+- (void)addSectionWithTitle:(NSString *)title symbol:(NSString *)symbol color:(NSColor *)color
+    rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
+    NSTextField *label = [NSTextField labelWithString:title];
+    label.font = [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightSemibold];
+    NSImageView *icon = [NSImageView imageViewWithImage:CCPetsSymbolTile(symbol, color, 22)];
+    [icon.widthAnchor constraintEqualToConstant:22].active = YES;
+    [icon.heightAnchor constraintEqualToConstant:22].active = YES;
+    NSStackView *header = [NSStackView stackViewWithViews:@[icon, label]];
+    header.spacing = 8;
+    header.alignment = NSLayoutAttributeCenterY;
     if (self.stack.arrangedSubviews.count > 0) {
-        [self.stack setCustomSpacing:22 afterView:self.stack.arrangedSubviews.lastObject];
+        [self.stack setCustomSpacing:24 afterView:self.stack.arrangedSubviews.lastObject];
     }
     [self.stack addArrangedSubview:header];
+    [self.stack setCustomSpacing:10 afterView:header];
 
     NSStackView *content = [NSStackView stackViewWithViews:@[]];
     content.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -302,7 +312,8 @@ static void RevealFolder(NSString *path) {
         scaleLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)lround(value * 100)];
     }];
 
-    [self addSectionWithTitle:L(@"General") rows:@[
+    [self addSectionWithTitle:L(@"General")
+        symbol:@"gearshape.fill" color:NSColor.systemGrayColor rows:@[
         [self rowWithTitle:L(@"Language") controls:@[language]],
         [self rowWithTitle:L(@"Pet Size") controls:@[scale, scaleLabel]],
         [self switchRowWithTitle:L(@"Show Status Card") key:StatusBubbleExpandedKey
@@ -335,7 +346,8 @@ static void RevealFolder(NSString *path) {
         // 压暗只作用于原生玻璃，经典主题下没有这层。
         dim.enabled = liquid;
     }];
-    [self addSectionWithTitle:L(@"Appearance") rows:@[
+    [self addSectionWithTitle:L(@"Appearance")
+        symbol:@"paintbrush.fill" color:NSColor.systemPurpleColor rows:@[
         [self rowWithTitle:L(@"Panel Theme") controls:@[theme]],
         [self rowWithTitle:L(@"Glass Dimming") controls:@[dim]],
     ] footer:nil];
@@ -358,7 +370,8 @@ static void RevealFolder(NSString *path) {
         }];
         [usageRows addObject:[self rowWithTitle:provider[0] controls:@[mode]]];
     }
-    [self addSectionWithTitle:L(@"Usage Display") rows:usageRows footer:nil];
+    [self addSectionWithTitle:L(@"Usage Display")
+        symbol:@"chart.bar.fill" color:NSColor.systemBlueColor rows:usageRows footer:nil];
 
     // 系统通知：打开时要先拿到系统授权，失败就弹回关闭。
     NSMutableArray<NSView *> *notificationRows = [NSMutableArray array];
@@ -376,7 +389,8 @@ static void RevealFolder(NSString *path) {
         }];
         [notificationRows addObject:[self rowWithTitle:option[0] controls:@[control]]];
     }
-    [self addSectionWithTitle:L(@"Notifications") rows:notificationRows footer:nil];
+    [self addSectionWithTitle:L(@"Notifications")
+        symbol:@"bell.badge.fill" color:NSColor.systemRedColor rows:notificationRows footer:nil];
 
     // 碎碎念
     NSPopUpButton *frequency = [self popUpWithOptions:@[
@@ -390,7 +404,8 @@ static void RevealFolder(NSString *path) {
     NSButton *editLines = [NSButton buttonWithTitle:L(@"Edit Lines…") target:nil action:nil];
     editLines.controlSize = NSControlSizeSmall;
     [self bind:editLines to:^(id sender) { [weakSelf.actions editPhrasesFile:sender]; }];
-    [self addSectionWithTitle:L(@"Chatter") rows:@[
+    [self addSectionWithTitle:L(@"Chatter")
+        symbol:@"bubble.left.fill" color:NSColor.systemGreenColor rows:@[
         [self switchRowWithTitle:L(@"Enable chatter") key:PetSpeechEnabledKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateSpeechEnabled:enabled]; }],
         [self rowWithTitle:L(@"Frequency") controls:@[frequency]],
@@ -398,7 +413,8 @@ static void RevealFolder(NSString *path) {
     ] footer:nil];
 
     // 点击互动
-    [self addSectionWithTitle:L(@"Click Reactions") rows:@[
+    [self addSectionWithTitle:L(@"Click Reactions")
+        symbol:@"hand.tap.fill" color:NSColor.systemPinkColor rows:@[
         [self switchRowWithTitle:L(@"Enable reactions") key:PetInteractionEnabledKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
             [actions updatePetInteractionEnabled:enabled];
@@ -427,10 +443,12 @@ static void RevealFolder(NSString *path) {
             [actions updateSystemMetric:key enabled:enabled];
         }]];
     }
-    [self addSectionWithTitle:L(@"System Status") rows:systemRows footer:nil];
+    [self addSectionWithTitle:L(@"System Status")
+        symbol:@"cpu" color:NSColor.systemOrangeColor rows:systemRows footer:nil];
 
     // 素材
-    [self addSectionWithTitle:L(@"Pet Sprites") rows:@[
+    [self addSectionWithTitle:L(@"Pet Sprites")
+        symbol:@"pawprint.fill" color:NSColor.systemTealColor rows:@[
         [self switchRowWithTitle:L(@"Import Codex Pets") key:ImportCodexPetsKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateImportCodexPets:enabled]; }],
         [self buttonRowWithTitle:L(@"Pet sprites folder") buttonTitle:L(@"Show in Finder")
@@ -445,14 +463,16 @@ static void RevealFolder(NSString *path) {
             sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
         }];
     }];
-    [self addSectionWithTitle:@"CC Bridge" rows:@[
+    [self addSectionWithTitle:@"CC Bridge"
+        symbol:@"point.3.connected.trianglepath.dotted" color:NSColor.systemIndigoColor rows:@[
         [self switchRowWithTitle:L(@"Badge") key:BridgeBadgeEnabledKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateBridgeBadgeEnabled:enabled]; }],
         [self rowWithTitle:L(@"Notify") controls:@[bridgeNotify]],
     ] footer:L(@"Enabling CC Bridge, auto-approve and other options that change Claude Code / Codex settings stay in the pet's right-click menu.")];
 
     // 高级
-    [self addSectionWithTitle:L(@"Advanced") rows:@[
+    [self addSectionWithTitle:L(@"Advanced")
+        symbol:@"wrench.and.screwdriver.fill" color:NSColor.systemGrayColor rows:@[
         [self buttonRowWithTitle:L(@"App data folder") buttonTitle:L(@"Show in Finder")
             action:^{ RevealFolder(ApplicationSupportDirectory()); }],
     ] footer:nil];
