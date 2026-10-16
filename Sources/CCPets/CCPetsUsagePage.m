@@ -32,16 +32,24 @@ static unsigned long long TotalTokens(NSDictionary *counts) {
     return total;
 }
 
-// 1234 -> 1.2K，1234567 -> 1.23M：卡片里放不下一长串数字，精确值在悬停时给。
+// 1234 -> 1.23K，1234567 -> 1.23M：卡片里放不下一长串数字，精确值在悬停时给。
+// 先按三位有效数字舍入再定单位：999,950 直接格式化会得到 "1000K"，9,995 会得到 "10.00K"。
 static NSString *FormatTokens(unsigned long long value) {
     if (value < 1000) return [NSString stringWithFormat:@"%llu", value];
     double scaled = (double)value;
-    NSString *suffix = @"K";
-    scaled /= 1000;
-    if (scaled >= 1000) { scaled /= 1000; suffix = @"M"; }
-    if (scaled >= 1000) { scaled /= 1000; suffix = @"B"; }
+    NSUInteger unit = 0;
+    NSArray<NSString *> *suffixes = @[@"K", @"M", @"B", @"T"];
+    while (unit < suffixes.count) {
+        scaled /= 1000;
+        double rounded = scaled >= 100 ? round(scaled) : (scaled >= 10 ? round(scaled * 10) / 10 : round(scaled * 100) / 100);
+        if (rounded < 1000 || unit == suffixes.count - 1) {
+            scaled = rounded;
+            break;
+        }
+        unit++;
+    }
     return [NSString stringWithFormat:scaled >= 100 ? @"%.0f%@" : (scaled >= 10 ? @"%.1f%@" : @"%.2f%@"),
-        scaled, suffix];
+        scaled, suffixes[unit]];
 }
 
 // 命中率 = 缓存读 / 全部输入侧（非缓存输入 + 缓存读 + 缓存写）。两家的原始口径不同，
@@ -55,6 +63,16 @@ static NSString *HitRateText(NSDictionary *counts) {
 static NSString *ProviderTitle(NSString *provider) {
     return [provider isEqualToString:@"claude"] ? @"Claude Code" : @"Codex";
 }
+
+// 数据层把认不出模型的用量记在 "unknown" 名下（旧格式会话、没见过 turn_context 的续读段），
+// 这个名字是内部占位，显示时换成本地化文案。
+static NSString *ModelTitle(NSString *model) {
+    return [model isEqualToString:@"unknown"] ? L(@"Unknown Model") : model;
+}
+
+// 页面一次统计这么多天，切换 7 / 30 / 90 天只在本地截取，不再回数据层重算。
+// 数据层按请求的起点清理缓存，区间来回切会让 90 天里较早的会话缓存被删了又重读。
+static const NSInteger UsageMaximumRangeDays = 90;
 
 static NSMutableDictionary *SummedCounts(NSArray<NSDictionary *> *list) {
     NSMutableDictionary *sum = [NSMutableDictionary dictionary];
@@ -206,9 +224,12 @@ static double NiceMaximum(double value) {
 
     CGFloat slot = plot.size.width / count;
     CGFloat barWidth = MAX(2, MIN(28, slot * 0.68));
-    NSCalendar *calendar = NSCalendar.currentCalendar;
-    NSDateFormatter *formatter = [NSDateFormatter new];
-    formatter.dateFormat = @"M/d";
+    static NSDateFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        formatter = [NSDateFormatter new];
+        formatter.dateFormat = @"M/d";
+    });
     // 横轴只标几个日期，天数多了标满会挤成一团。
     NSUInteger labelStep = MAX(1, (NSUInteger)ceil(count / 6.0));
     for (NSUInteger index = 0; index < count; index++) {
@@ -236,7 +257,6 @@ static double NiceMaximum(double value) {
             }
         }
     }
-    (void)calendar;
 }
 
 - (NSInteger)indexForEvent:(NSEvent *)event {
@@ -280,7 +300,7 @@ static double NiceMaximum(double value) {
 @property(nonatomic) NSPopUpButton *rangeControl;
 @property(nonatomic) NSProgressIndicator *spinner;
 @property(nonatomic) NSMutableArray<CCPetsUsageHandler *> *handlers;
-// 当前区间的结果：provider -> CCPetsModelUsage 的返回值。
+// 最近 UsageMaximumRangeDays 天的结果：provider -> CCPetsModelUsage 的返回值。
 @property(nonatomic) NSDictionary<NSString *, NSDictionary *> *results;
 // 当前筛选下的模型条目：provider、model、counts、days（每天的 counts）。
 @property(nonatomic) NSArray<NSDictionary *> *entries;
@@ -324,7 +344,10 @@ static double NiceMaximum(double value) {
         range.lastItem.representedObject = days;
     }
     [range selectItemAtIndex:1];
-    [self bind:range to:^(id sender) { [weakSelf reload]; }];
+    [self bind:range to:^(id sender) {
+        weakSelf.selectedIndex = 0;
+        [weakSelf render];
+    }];
     self.rangeControl = range;
 
     NSProgressIndicator *spinner = [NSProgressIndicator new];
@@ -365,16 +388,15 @@ static double NiceMaximum(double value) {
     self.generation++;
 }
 
-// 区间是 [今天往前数 N-1 天的零点, 明天零点)，含今天。
+// 区间是 [今天往前数 N-1 天的零点, 明天零点)，含今天。始终统计最长的那档，显示时再截取。
 - (void)reload {
-    NSInteger days = [self.rangeControl.selectedItem.representedObject integerValue] ?: 30;
+    NSInteger days = UsageMaximumRangeDays;
     NSCalendar *calendar = NSCalendar.currentCalendar;
     NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:1
         toDate:[calendar startOfDayForDate:NSDate.date] options:0];
     NSDate *start = [calendar dateByAddingUnit:NSCalendarUnitDay value:-days toDate:end options:0];
     NSUInteger generation = ++self.generation;
     [self.spinner startAnimation:nil];
-    self.rangeControl.enabled = NO;
     __weak typeof(self) weakSelf = self;
     // 串行队列：快速连切区间时，后一次等前一次算完再开始，不会两份同时写同一批缓存文件。
     static dispatch_queue_t queue;
@@ -396,26 +418,36 @@ static double NiceMaximum(double value) {
             if (!page || page.generation != generation) return;
             page.results = results;
             [page.spinner stopAnimation:nil];
-            page.rangeControl.enabled = YES;
             [page render];
         });
     });
 }
 
-// 按当前筛选把结果整理成条目，按 Token 总量从大到小。
-- (NSArray<NSDictionary *> *)entriesForSource:(NSInteger)source {
+// 按当前筛选把结果整理成条目，按 Token 总量从大到小。区间合计由截取后的每日数据现加，
+// 不用数据层的 models（那是整整 90 天的）。
+- (NSArray<NSDictionary *> *)entriesForSource:(NSInteger)source rangeDays:(NSInteger)rangeDays {
     NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
     NSArray<NSString *> *providers = source == 1 ? @[@"claude"] : (source == 2 ? @[@"codex"] : @[@"claude", @"codex"]);
     for (NSString *provider in providers) {
-        NSDictionary *usage = self.results[provider];
-        NSDictionary *models = usage[@"models"];
-        for (NSString *model in models) {
-            NSMutableArray<NSDictionary *> *days = [NSMutableArray array];
-            for (NSDictionary *day in usage[@"daily"]) {
+        NSArray<NSDictionary *> *daily = self.results[provider][@"daily"];
+        if (daily.count > (NSUInteger)rangeDays) {
+            daily = [daily subarrayWithRange:NSMakeRange(daily.count - (NSUInteger)rangeDays, (NSUInteger)rangeDays)];
+        }
+        NSMutableDictionary<NSString *, NSMutableArray *> *perModel = [NSMutableDictionary dictionary];
+        for (NSDictionary *day in daily) {
+            for (NSString *model in day[@"models"]) {
+                if (!perModel[model]) perModel[model] = [NSMutableArray array];
+                [perModel[model] addObject:day[@"models"][model]];
+            }
+        }
+        for (NSString *model in perModel) {
+            NSDictionary *counts = SummedCounts(perModel[model]);
+            if (TotalTokens(counts) == 0 && Count(counts, @"requests") == 0) continue;
+            NSMutableArray<NSDictionary *> *days = [NSMutableArray arrayWithCapacity:daily.count];
+            for (NSDictionary *day in daily) {
                 [days addObject:@{@"timestamp": day[@"timestamp"], @"counts": day[@"models"][model] ?: @{}}];
             }
-            [entries addObject:@{@"provider": provider, @"model": model, @"counts": models[model],
-                                 @"days": days}];
+            [entries addObject:@{@"provider": provider, @"model": model, @"counts": counts, @"days": days}];
         }
     }
     [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
@@ -442,7 +474,7 @@ static double NiceMaximum(double value) {
 // 一个模型一行：名字 + 来源 + 总量，下面是四栏占比条，最下面是各栏数值和命中率。
 - (CCPetsUsageModelRow *)rowForEntry:(NSDictionary *)entry index:(NSInteger)index {
     NSDictionary *counts = entry[@"counts"];
-    NSTextField *name = [NSTextField labelWithString:entry[@"model"]];
+    NSTextField *name = [NSTextField labelWithString:ModelTitle(entry[@"model"])];
     name.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
     name.lineBreakMode = NSLineBreakByTruncatingMiddle;
     NSTextField *provider = [self smallLabel:ProviderTitle(entry[@"provider"]) color:NSColor.secondaryLabelColor];
@@ -497,9 +529,16 @@ static double NiceMaximum(double value) {
 
 - (void)render {
     NSInteger source = self.sourceControl.selectedSegment;
-    self.entries = [self entriesForSource:source];
+    NSInteger rangeDays = [self.rangeControl.selectedItem.representedObject integerValue] ?: 30;
+    self.entries = [self entriesForSource:source rangeDays:rangeDays];
     if (self.selectedIndex >= (NSInteger)self.entries.count) self.selectedIndex = 0;
     [self.form removeAllSections];
+    // 还没算完（打开页面后立刻切了来源）：先空着，转圈的指示器已经在说明在算，别闪一下"没有数据"。
+    if (!self.results) {
+        self.rows = @[];
+        self.chart = nil;
+        return;
+    }
 
     if (self.entries.count == 0) {
         NSTextField *empty = [NSTextField wrappingLabelWithString:L(@"No usage data in this period.")];
@@ -578,7 +617,7 @@ static double NiceMaximum(double value) {
     for (NSUInteger row = 0; row < self.rows.count; row++) self.rows[row].selected = ((NSInteger)row == index);
     NSDictionary *entry = self.entries[(NSUInteger)index];
     self.chart.days = entry[@"days"];
-    self.chartCaption.stringValue = [NSString stringWithFormat:@"%@ · %@", entry[@"model"],
+    self.chartCaption.stringValue = [NSString stringWithFormat:@"%@ · %@", ModelTitle(entry[@"model"]),
         ProviderTitle(entry[@"provider"])];
     self.chartDetail.stringValue = L(@"Hover a bar to see that day's numbers.");
 }

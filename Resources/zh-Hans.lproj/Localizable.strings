@@ -735,6 +735,7 @@
 "Daily Usage" = "每日用量";
 "Total" = "合计";
 "No usage data in this period." = "这段时间没有用量数据。";
+"Unknown Model" = "未知模型";
 "Counted from local session logs. Input excludes cached tokens; Codex cached tokens are subtracted from its input." = "数据来自本机会话日志。输入不含缓存；Codex 的缓存命中已从它的输入里扣除。";
 "Hover a bar to see that day's numbers." = "把鼠标移到柱子上查看当天的数值。";
 "1 request" = "1 次请求";

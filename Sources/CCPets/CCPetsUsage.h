@@ -44,4 +44,6 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 // requests。四栏 input + cacheRead + cacheWrite + output 互不重叠，等于总 Token。
 // 用自己的缓存和按日归档（Claude Code 默认约 30 天后清理转录，归档里留得更久），
 // 不碰桌宠悬停面板用的那套缓存。
+// 每次调用都会把缓存清理到只剩 [start, end) 涉及的会话文件，所以调用方应固定用同一个最长区间，
+// 短区间在结果里自己截取；区间来回切会让较早会话的缓存被删了又整篇重读。
 NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeInterval end);
