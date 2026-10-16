@@ -29,10 +29,10 @@ static NSArray<NSDictionary *> *MainWindowPages(void) {
         @{@"id": CCPetsMainWindowPageUsage, @"title": L(@"Usage"), @"symbol": @"chart.bar",
           @"group": @"workbench", @"class": CCPetsUsagePage.class},
         @{@"id": CCPetsMainWindowPagePet, @"title": L(@"Pet"), @"symbol": @"pawprint",
-          @"group": @"settings", @"class": CCPetsPetPage.class},
-        @{@"id": CCPetsMainWindowPageAlerts, @"title": L(@"Alerts & Interaction"), @"symbol": @"bell",
+          @"group": @"workbench", @"class": CCPetsPetPage.class},
+        @{@"id": CCPetsMainWindowPageAlerts, @"title": L(@"Alerts"), @"symbol": @"bell",
           @"group": @"settings", @"class": CCPetsAlertsPage.class},
-        @{@"id": CCPetsMainWindowPageGeneral, @"title": L(@"General"), @"symbol": @"gearshape",
+        @{@"id": CCPetsMainWindowPageGeneral, @"title": L(@"Settings"), @"symbol": @"gearshape",
           @"group": @"settings", @"class": CCPetsGeneralPage.class},
         @{@"id": CCPetsMainWindowPageDiagnostics, @"title": L(@"Diagnostics"), @"symbol": @"stethoscope",
           @"group": @"footer", @"class": CCPetsDiagnosticsPage.class},
@@ -73,11 +73,27 @@ static BOOL HasVisibleRegularWindow(void) {
 
 #pragma mark - 侧边栏部件
 
+// 侧边栏的中文标题字与字之间各加一个空格（"概 览"、"会 话"），两三个字的短标题排开后
+// 更像一列整齐的菜单。只处理全是汉字的标题：英文等其他语言原样显示。读屏仍用原标题。
+static NSString *SidebarDisplayTitle(NSString *title) {
+    if (title.length < 2) return title;
+    NSCharacterSet *han = [NSCharacterSet characterSetWithRange:NSMakeRange(0x4E00, 0x9FFF - 0x4E00 + 1)];
+    if ([title rangeOfCharacterFromSet:han.invertedSet].location != NSNotFound) return title;
+    NSMutableArray<NSString *> *characters = [NSMutableArray array];
+    [title enumerateSubstringsInRange:NSMakeRange(0, title.length) options:NSStringEnumerationByComposedCharacterSequences
+        usingBlock:^(NSString *character, NSRange range, NSRange enclosing, BOOL *stop) {
+        [characters addObject:character];
+    }];
+    return [characters componentsJoinedByString:@" "];
+}
+
 // 侧边栏里的一项：单色图标 + 标题 + 可选角标。选中时整行铺淡青底，图标和文字换成强调色。
 // 自己画而不用 source list 表格：选中色要跟主题走（表格只会用系统强调色），分组、底部钉住的
 // 诊断项也更好排。
 @interface CCPetsSidebarItem : NSView
 @property(nonatomic, copy) NSString *pageID;
+// 原标题；显示用的是加了空格的版本。
+@property(nonatomic, copy) NSString *title;
 @property(nonatomic) BOOL selected;
 @property(nonatomic) CCPetsCountBadge *badge;
 @property(nonatomic, copy) void (^onSelect)(NSString *pageID);
@@ -103,7 +119,8 @@ static BOOL HasVisibleRegularWindow(void) {
             imageWithSymbolConfiguration:configuration] ?: [NSImage new];
         NSImageView *icon = [NSImageView imageViewWithImage:image];
         icon.symbolConfiguration = configuration;
-        NSTextField *label = CCPetsLabel(page[@"title"], 13, NSFontWeightRegular, CCPetsInkColor());
+        NSTextField *label = CCPetsLabel(SidebarDisplayTitle(page[@"title"]), 13, NSFontWeightRegular, CCPetsInkColor());
+        self.title = page[@"title"];
         [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
             forOrientation:NSLayoutConstraintOrientationHorizontal];
         CCPetsCountBadge *badge = [CCPetsCountBadge new];
@@ -183,7 +200,7 @@ static BOOL HasVisibleRegularWindow(void) {
 }
 
 - (NSString *)accessibilityLabel {
-    return self.label.stringValue;
+    return self.title;
 }
 
 - (BOOL)isAccessibilitySelected {
@@ -296,7 +313,10 @@ static BOOL HasVisibleRegularWindow(void) {
 @property(nonatomic) NSView *footer;
 @property(nonatomic, copy) NSString *currentPage;
 @property(nonatomic, copy) void (^selectionHandler)(NSString *page);
+@property(nonatomic) NSArray<NSLayoutConstraint *> *leadingConstraints;
 - (void)selectPage:(NSString *)page;
+// 全屏时整列内容右移 shift pt（侧边栏同时加宽），退出时传 0。
+- (void)setContentShift:(CGFloat)shift;
 - (void)reload;
 @end
 
@@ -320,24 +340,30 @@ static BOOL HasVisibleRegularWindow(void) {
         view.translatesAutoresizingMaskIntoConstraints = NO;
         [root addSubview:view];
     }
+    NSLayoutConstraint *cardLeading = [card.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10];
+    NSLayoutConstraint *cardRuleLeading = [cardRule.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16];
+    NSLayoutConstraint *navigationLeading = [navigation.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10];
+    NSLayoutConstraint *footerRuleLeading = [footerRule.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16];
+    NSLayoutConstraint *footerLeading = [footer.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10];
+    self.leadingConstraints = @[cardLeading, cardRuleLeading, navigationLeading, footerRuleLeading, footerLeading];
     [NSLayoutConstraint activateConstraints:@[
         // 名片从标题栏下沿开始，左右和导航项对齐。
         [card.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor constant:2],
-        [card.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
+        cardLeading,
         [card.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
         [cardRule.topAnchor constraintEqualToAnchor:card.bottomAnchor constant:12],
-        [cardRule.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16],
+        cardRuleLeading,
         [cardRule.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-16],
         [cardRule.heightAnchor constraintEqualToConstant:1],
         [navigation.topAnchor constraintEqualToAnchor:cardRule.bottomAnchor constant:12],
-        [navigation.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
+        navigationLeading,
         [navigation.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
         [navigation.bottomAnchor constraintLessThanOrEqualToAnchor:footerRule.topAnchor constant:-8],
-        [footerRule.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16],
+        footerRuleLeading,
         [footerRule.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-16],
         [footerRule.heightAnchor constraintEqualToConstant:1],
         [footerRule.bottomAnchor constraintEqualToAnchor:footer.topAnchor constant:-8],
-        [footer.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10],
+        footerLeading,
         [footer.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
         [footer.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-10],
     ]];
@@ -354,7 +380,8 @@ static BOOL HasVisibleRegularWindow(void) {
 }
 
 - (NSTextField *)groupLabel:(NSString *)title {
-    NSTextField *label = CCPetsLabel(title, 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
+    NSTextField *label = CCPetsLabel(SidebarDisplayTitle(title), 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
+    label.accessibilityLabel = title;
     return label;
 }
 
@@ -367,7 +394,7 @@ static BOOL HasVisibleRegularWindow(void) {
     self.items = [NSMutableDictionary dictionary];
     __weak typeof(self) weakSelf = self;
     NSString *group = nil;
-    NSDictionary *groupTitles = @{@"workbench": L(@"Workbench"), @"settings": L(@"Settings")};
+    NSDictionary *groupTitles = @{@"workbench": L(@"Workbench"), @"settings": L(@"General")};
     for (NSDictionary *page in MainWindowPages()) {
         CCPetsSidebarItem *item = [[CCPetsSidebarItem alloc] initWithPage:page];
         item.onSelect = ^(NSString *pageID) {
@@ -419,6 +446,15 @@ static BOOL HasVisibleRegularWindow(void) {
     [self rebuildItems];
 }
 
+- (void)setContentShift:(CGFloat)shift {
+    [self view];
+    // 每条左边距的基准值：名片、导航、底部诊断 10pt，两条分隔线 16pt。
+    static const CGFloat bases[] = {10, 16, 10, 16, 10};
+    for (NSUInteger index = 0; index < self.leadingConstraints.count; index++) {
+        self.leadingConstraints[index].constant = bases[index] + shift;
+    }
+}
+
 - (void)selectPage:(NSString *)page {
     [self view];
     self.currentPage = page;
@@ -431,13 +467,28 @@ static BOOL HasVisibleRegularWindow(void) {
 
 #pragma mark - 窗口
 
+static const CGFloat PageTopLift = 36;
+
+static NSLayoutConstraint *PageTopConstraint(NSView *view, NSView *host) {
+    NSLayoutConstraint *top = [view.topAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.topAnchor
+        constant:-PageTopLift];
+    top.priority = NSLayoutPriorityDefaultHigh;
+    return top;
+}
+
 @interface CCPetsMainWindowController () <NSWindowDelegate>
 @property(nonatomic) NSSplitViewController *splitController;
 @property(nonatomic) CCPetsMainSidebarController *sidebar;
 @property(nonatomic) NSViewController *contentController;
 @property(nonatomic) NSViewController *pageController;
 @property(nonatomic, copy) NSString *currentPage;
+@property(nonatomic) NSSplitViewItem *sidebarItem;
+// 进全屏前侧边栏的宽度，退出时还原。
+@property(nonatomic) CGFloat windowedSidebarWidth;
 @end
+
+// 全屏时屏幕宽，侧边栏在常规宽度上加宽 10pt，内容右移 5pt，和铺满的内容区比例更协调。
+static const CGFloat SidebarFullScreenExtraWidth = 10, SidebarFullScreenShift = 5;
 
 static CCPetsMainWindowController *SharedMainWindow;
 static id WindowCloseObserver;
@@ -512,6 +563,7 @@ static id WindowCloseObserver;
         sidebarItem.minimumThickness = 200;
         sidebarItem.maximumThickness = 240;
         sidebarItem.canCollapse = NO;
+        self.sidebarItem = sidebarItem;
         [split addSplitViewItem:sidebarItem];
         NSSplitViewItem *contentItem = [NSSplitViewItem splitViewItemWithViewController:self.contentController];
         contentItem.minimumThickness = 520;
@@ -551,8 +603,11 @@ static id WindowCloseObserver;
     [NSLayoutConstraint activateConstraints:@[
         [view.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
         [view.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
-        // 窗口是 FullSizeContentView，内容区会延伸到标题栏底下；页面从安全区开始排，不压标题。
-        [view.topAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.topAnchor],
+        // 窗口是 FullSizeContentView，内容区会延伸到标题栏底下。空工具栏让安全区有 66pt，
+        // 页头标题上方显得太空，往上收 36pt（原空白 72pt 的一半）；红绿灯在侧边栏那一侧，压不到。
+        // 全屏时工具栏收起、安全区变成 0，这时至少离顶边 24pt，标题不贴着屏幕边。
+        [view.topAnchor constraintGreaterThanOrEqualToAnchor:host.topAnchor constant:24],
+        PageTopConstraint(view, host),
         [view.bottomAnchor constraintEqualToAnchor:host.bottomAnchor],
     ]];
     self.pageController = controller;
@@ -566,6 +621,26 @@ static id WindowCloseObserver;
     NSString *page = self.currentPage;
     self.currentPage = nil;
     [self showPage:page];
+}
+
+// 空工具栏只是为了让侧边栏延伸到标题栏。全屏时系统把它画成一条不透明的横条，
+// 压在页头上（标题被盖住），所以全屏期间收起，退出时再放回来。
+- (void)windowWillEnterFullScreen:(NSNotification *)notification {
+    self.window.toolbar.visible = NO;
+    CGFloat width = NSWidth(self.sidebar.view.frame);
+    self.windowedSidebarWidth = width > 0 ? width : 240;
+    CGFloat fullWidth = self.windowedSidebarWidth + SidebarFullScreenExtraWidth;
+    self.sidebarItem.maximumThickness = fullWidth;
+    self.sidebarItem.minimumThickness = fullWidth;
+    [self.sidebar setContentShift:SidebarFullScreenShift];
+}
+
+- (void)windowDidExitFullScreen:(NSNotification *)notification {
+    self.window.toolbar.visible = YES;
+    self.sidebarItem.minimumThickness = 200;
+    self.sidebarItem.maximumThickness = 240;
+    [self.splitController.splitView setPosition:self.windowedSidebarWidth ofDividerAtIndex:0];
+    [self.sidebar setContentShift:0];
 }
 
 - (void)windowWillClose:(NSNotification *)notification {

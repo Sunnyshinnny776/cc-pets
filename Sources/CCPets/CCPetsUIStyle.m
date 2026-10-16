@@ -135,6 +135,52 @@ NSTextField *CCPetsWrappingLabel(NSString *text, CGFloat size, NSFontWeight weig
     return label;
 }
 
+NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
+    NSMutableArray<NSView *> *cells = [NSMutableArray array];
+    for (NSArray<NSString *> *item in items) {
+        NSTextField *title = CCPetsLabel(item[0], 11, NSFontWeightRegular, CCPetsSecondaryInkColor());
+        NSTextField *value = CCPetsNumberLabel(item[1], 20, NSFontWeightBold, CCPetsInkColor());
+        NSTextField *detail = CCPetsLabel(item.count > 2 && item[2].length > 0 ? item[2] : @" ", 11,
+            NSFontWeightRegular, CCPetsTertiaryInkColor());
+        NSStackView *stack = [NSStackView stackViewWithViews:@[title, value, detail]];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.alignment = NSLayoutAttributeLeading;
+        stack.spacing = 3;
+        for (NSTextField *label in @[title, value, detail]) {
+            [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                forOrientation:NSLayoutConstraintOrientationHorizontal];
+        }
+        // 格宽不跟着数字长短走，数字变了也不会左右挪。
+        NSView *cell = [NSView new];
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [cell addSubview:stack];
+        CGFloat inset = cells.count == 0 ? 0 : 12;
+        [NSLayoutConstraint activateConstraints:@[
+            [stack.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:inset],
+            [stack.trailingAnchor constraintLessThanOrEqualToAnchor:cell.trailingAnchor constant:-4],
+            [stack.topAnchor constraintEqualToAnchor:cell.topAnchor],
+            [stack.bottomAnchor constraintEqualToAnchor:cell.bottomAnchor],
+        ]];
+        if (cells.count > 0) {
+            CCPetsLineView *rule = [CCPetsLineView new];
+            rule.translatesAutoresizingMaskIntoConstraints = NO;
+            [cell addSubview:rule];
+            [NSLayoutConstraint activateConstraints:@[
+                [rule.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor],
+                [rule.widthAnchor constraintEqualToConstant:1],
+                [rule.topAnchor constraintEqualToAnchor:cell.topAnchor constant:2],
+                [rule.bottomAnchor constraintEqualToAnchor:cell.bottomAnchor constant:-2],
+            ]];
+        }
+        [cells addObject:cell];
+    }
+    NSStackView *row = [NSStackView stackViewWithViews:cells];
+    row.distribution = NSStackViewDistributionFillEqually;
+    row.alignment = NSLayoutAttributeTop;
+    row.spacing = 12;
+    return row;
+}
+
 @implementation CCPetsCardView
 
 - (instancetype)initWithFrame:(NSRect)frame {

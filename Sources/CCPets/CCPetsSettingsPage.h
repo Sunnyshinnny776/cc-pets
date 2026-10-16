@@ -38,11 +38,11 @@
 @interface CCPetsSettingsPageBase : NSViewController
 @end
 
-// 宠物：选哪只、多大、碎碎念。
+// 宠物：选哪只、多大、碎碎念、戳它的反应。
 @interface CCPetsPetPage : CCPetsSettingsPageBase
 @end
 
-// 提醒与互动：系统通知、点击互动、桌面状态卡与 CC Bridge 角标。
+// 提醒：系统通知、桌面状态卡与 CC Bridge 角标。
 @interface CCPetsAlertsPage : CCPetsSettingsPageBase
 @end
 

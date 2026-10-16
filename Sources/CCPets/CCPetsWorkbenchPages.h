@@ -7,7 +7,7 @@
 @interface CCPetsOverviewPage : NSViewController
 @end
 
-// 会话与消息：在线的 Agent 会话（等审批的置顶，一键跳回终端），以及 CC Bridge 的消息往来。
+// 会话：在线的 Agent 会话（等审批的置顶，一键跳回终端），以及 CC Bridge 的消息往来。
 // 页面开着时每几秒重读一次快照（会话状态一变也会立刻刷新）；窗口不可见时停表。
 @interface CCPetsSessionsPage : NSViewController
 @end

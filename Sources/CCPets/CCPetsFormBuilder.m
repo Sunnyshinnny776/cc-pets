@@ -11,8 +11,8 @@
 }
 @end
 
-// 内容最宽 780pt：窗口拉得很宽时，表单和表格不跟着摊成一长条，行内左右两端离得太远不好对照。
-static const CGFloat FormMaximumWidth = 780;
+// 内容最宽 1120pt：窗口拉得很宽（包括全屏）时，表单和表格不跟着摊成一长条，行内左右两端离得太远不好对照。
+static const CGFloat FormMaximumWidth = 1120;
 static const CGFloat FormSideInset = 28;
 
 @interface CCPetsFormBuilder ()
@@ -81,18 +81,22 @@ static const CGFloat FormSideInset = 28;
         [root addSubview:header];
         [root addSubview:scroll];
 
+        // "尽量撑满"的优先级卡在两者之间：低于窗口缩放（NSLayoutPriorityWindowSizeStayPut = 500），
+        // 否则它加上宽度上限会反过来把窗口宽度锁死，全屏时两侧只能留黑边；又要高于内容的
+        // 贴合优先级（250），否则内容列只按自己最窄的宽度排，宽窗口里缩成中间一小条。
         NSLayoutConstraint *fullWidth = [stack.widthAnchor constraintEqualToAnchor:document.widthAnchor
             constant:-2 * FormSideInset];
-        fullWidth.priority = NSLayoutPriorityDefaultHigh;
+        fullWidth.priority = NSLayoutPriorityDragThatCannotResizeWindow;
         [NSLayoutConstraint activateConstraints:@[
             [header.topAnchor constraintEqualToAnchor:root.topAnchor],
             [header.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
             [header.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-            [titles.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:FormSideInset],
+            // 页头和下面的内容列左右对齐：窗口很宽时内容列居中，页头跟着居中。
+            [titles.leadingAnchor constraintEqualToAnchor:stack.leadingAnchor],
             [titles.topAnchor constraintEqualToAnchor:header.topAnchor constant:6],
             [titles.bottomAnchor constraintEqualToAnchor:header.bottomAnchor constant:-14],
             [accessories.leadingAnchor constraintGreaterThanOrEqualToAnchor:titles.trailingAnchor constant:16],
-            [accessories.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-FormSideInset],
+            [accessories.trailingAnchor constraintEqualToAnchor:stack.trailingAnchor],
             [accessories.centerYAnchor constraintEqualToAnchor:titles.centerYAnchor],
             [rule.leadingAnchor constraintEqualToAnchor:header.leadingAnchor],
             [rule.trailingAnchor constraintEqualToAnchor:header.trailingAnchor],
@@ -105,7 +109,8 @@ static const CGFloat FormSideInset = 28;
             [document.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor],
             [document.trailingAnchor constraintEqualToAnchor:clip.trailingAnchor],
             [document.topAnchor constraintEqualToAnchor:clip.topAnchor],
-            [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor constant:FormSideInset],
+            [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:document.leadingAnchor constant:FormSideInset],
+            [stack.centerXAnchor constraintEqualToAnchor:document.centerXAnchor],
             [stack.trailingAnchor constraintLessThanOrEqualToAnchor:document.trailingAnchor constant:-FormSideInset],
             [stack.widthAnchor constraintLessThanOrEqualToConstant:FormMaximumWidth],
             fullWidth,

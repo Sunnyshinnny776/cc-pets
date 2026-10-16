@@ -163,53 +163,32 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
 
 #pragma mark 宠物卡
 
-- (NSView *)statWithTitle:(NSString *)title value:(NSString *)value detail:(NSString *)detail {
-    NSTextField *titleLabel = CCPetsLabel(title, 11, NSFontWeightRegular, CCPetsSecondaryInkColor());
-    NSTextField *valueLabel = CCPetsNumberLabel(value, 24, NSFontWeightBold, CCPetsInkColor());
-    NSTextField *detailLabel = CCPetsLabel(detail, 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
-    NSStackView *stack = [NSStackView stackViewWithViews:@[titleLabel, valueLabel, detailLabel]];
-    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    stack.alignment = NSLayoutAttributeLeading;
-    stack.spacing = 2;
-    return stack;
-}
-
 // 今天的用量：取 90 天数据的最后一天（就是今天），两家相加。
-- (NSArray<NSView *> *)todayStats {
+- (NSArray<NSArray<NSString *> *> *)todayStats {
     NSDictionary *results = CCPetsUsageStore.results;
     if (!results) {
         NSString *waiting = L(@"Reading…");
-        return @[[self statWithTitle:L(@"New today") value:@"–" detail:waiting],
-                 [self statWithTitle:L(@"Cache read today") value:@"–" detail:waiting],
-                 [self statWithTitle:L(@"Requests today") value:@"–" detail:waiting]];
+        return @[@[L(@"Total today"), @"–", waiting],
+                 @[L(@"Input"), @"–", @""],
+                 @[L(@"Output"), @"–", @""],
+                 @[L(@"Cached Input"), @"–", @""],
+                 @[L(@"Requests"), @"–", @""]];
     }
-    unsigned long long input = 0, write = 0, output = 0, read = 0, requests = 0;
+    NSMutableArray<NSDictionary *> *days = [NSMutableArray array];
     NSMutableSet<NSString *> *models = [NSMutableSet set];
     for (NSString *provider in results) {
         NSDictionary *today = [results[provider][@"daily"] lastObject];
-        NSDictionary *totals = CCPetsUsageDayTotals(today);
-        input += [totals[@"input"] unsignedLongLongValue];
-        write += [totals[@"cacheWrite"] unsignedLongLongValue];
-        output += [totals[@"output"] unsignedLongLongValue];
-        read += [totals[@"cacheRead"] unsignedLongLongValue];
-        requests += [totals[@"requests"] unsignedLongLongValue];
+        [days addObject:CCPetsUsageDayTotals(today)];
         for (NSString *model in today[@"models"]) {
             if ([today[@"models"][model][@"requests"] unsignedLongLongValue] > 0) {
                 [models addObject:[provider stringByAppendingString:model]];
             }
         }
     }
-    unsigned long long side = input + write + read;
-    NSString *hit = side > 0 ? [NSString stringWithFormat:L(@"Hit rate %.0f%%"), 100.0 * read / side] : L(@"No cache reads yet");
-    return @[
-        [self statWithTitle:L(@"New today") value:CCPetsFormatTokens(input + write + output)
-            detail:L(@"Input + cache write + output")],
-        [self statWithTitle:L(@"Cache read today") value:CCPetsFormatTokens(read) detail:hit],
-        [self statWithTitle:L(@"Requests today") value:[NSString stringWithFormat:@"%llu", requests]
-            detail:models.count == 1 ? L(@"1 model") : [NSString stringWithFormat:L(@"%lu models"),
-                (unsigned long)models.count]],
-    ];
+    return CCPetsUsageMetricItems(L(@"Total today"), CCPetsUsageSum(days), models.count);
 }
+
+static const CGFloat HeroExtraPadding = 15;
 
 - (NSView *)heroCard {
     NSDictionary *snapshot = PetCardSnapshot();
@@ -251,25 +230,12 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
     NSStackView *nameLine = [NSStackView stackViewWithViews:@[name, chip]];
     nameLine.spacing = 8;
     nameLine.alignment = NSLayoutAttributeCenterY;
-    NSArray<NSView *> *stats = [self todayStats];
-    NSMutableArray<NSView *> *statViews = [NSMutableArray array];
-    for (NSView *stat in stats) {
-        if (statViews.count > 0) {
-            NSView *rule = [CCPetsLineView new];
-            rule.translatesAutoresizingMaskIntoConstraints = NO;
-            [rule.widthAnchor constraintEqualToConstant:1].active = YES;
-            [rule.heightAnchor constraintEqualToConstant:44].active = YES;
-            [statViews addObject:rule];
-        }
-        [statViews addObject:stat];
-    }
-    NSStackView *statRow = [NSStackView stackViewWithViews:statViews];
-    statRow.spacing = 16;
-    statRow.alignment = NSLayoutAttributeCenterY;
+    NSView *statRow = CCPetsMetricRow([self todayStats]);
     NSStackView *side = [NSStackView stackViewWithViews:@[nameLine, statRow]];
     side.orientation = NSUserInterfaceLayoutOrientationVertical;
     side.alignment = NSLayoutAttributeLeading;
-    side.spacing = 14;
+    // 数字这一排和名字之间 22pt；整组居中点同时下移一半，名字不动，只有数字往下 8pt。
+    side.spacing = 22;
     [views addObject:side];
 
     for (NSView *view in views) {
@@ -280,25 +246,27 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
         // 素材格子是 140×150，按同样比例放大一些当主角。
         [sprite.widthAnchor constraintEqualToConstant:122],
         [sprite.heightAnchor constraintEqualToConstant:131],
-        [sprite.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:40],
-        [sprite.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-18],
+        [sprite.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:32],
+        // 卡片上下各留 15pt 余量（比内容高 30pt），宠物和数字在卡片里居中，不显得挤。
+        [sprite.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-18 - HeroExtraPadding],
         [floor.centerXAnchor constraintEqualToAnchor:sprite.centerXAnchor],
         [floor.centerYAnchor constraintEqualToAnchor:sprite.bottomAnchor constant:-2],
         [floor.widthAnchor constraintEqualToConstant:84],
         [floor.heightAnchor constraintEqualToConstant:10],
-        [side.leadingAnchor constraintEqualToAnchor:sprite.trailingAnchor constant:40],
-        [side.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-20],
-        [side.centerYAnchor constraintEqualToAnchor:card.centerYAnchor],
+        [side.leadingAnchor constraintEqualToAnchor:sprite.trailingAnchor constant:32],
+        [side.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-24],
+        [statRow.widthAnchor constraintEqualToAnchor:side.widthAnchor],
+        [side.centerYAnchor constraintEqualToAnchor:card.centerYAnchor constant:4],
     ]];
     if (bubble) {
         [constraints addObjectsFromArray:@[
-            [bubble.topAnchor constraintEqualToAnchor:card.topAnchor constant:16],
+            [bubble.topAnchor constraintEqualToAnchor:card.topAnchor constant:16 + HeroExtraPadding],
             [bubble.centerXAnchor constraintEqualToAnchor:sprite.centerXAnchor constant:10],
             [bubble.leadingAnchor constraintGreaterThanOrEqualToAnchor:card.leadingAnchor constant:12],
             [sprite.topAnchor constraintEqualToAnchor:bubble.bottomAnchor constant:4],
         ]];
     } else {
-        [constraints addObject:[sprite.topAnchor constraintEqualToAnchor:card.topAnchor constant:22]];
+        [constraints addObject:[sprite.topAnchor constraintEqualToAnchor:card.topAnchor constant:22 + HeroExtraPadding]];
     }
     [NSLayoutConstraint activateConstraints:constraints];
     return card;
@@ -444,7 +412,7 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
 
 @end
 
-#pragma mark - 会话与消息
+#pragma mark - 会话
 
 // 会话表的列宽：状态胶囊、最近活动、按钮固定，会话名和当前在做平分剩下的。
 static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActionWidth = 82;
@@ -678,7 +646,7 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
         [leading.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
         [leading.widthAnchor constraintEqualToConstant:44],
         [title.leadingAnchor constraintEqualToAnchor:leading.trailingAnchor constant:8],
-        [title.widthAnchor constraintLessThanOrEqualToConstant:240],
+        [title.widthAnchor constraintLessThanOrEqualToConstant:320],
         [detail.leadingAnchor constraintEqualToAnchor:title.trailingAnchor constant:12],
         [detail.trailingAnchor constraintLessThanOrEqualToAnchor:right.leadingAnchor constant:-12],
         [right.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14],
@@ -695,9 +663,17 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
     [text appendAttributedString:[[NSAttributedString alloc] initWithString:@"  →  " attributes:@{
         NSFontAttributeName: [NSFont systemFontOfSize:12], NSForegroundColorAttributeName: CCPetsTertiaryInkColor()}]];
     [text appendAttributedString:[[NSAttributedString alloc] initWithString:to ?: @"" attributes:strong]];
+    // 富文本标签默认会折行；这里一律单行，名字太长就在末尾省略，不把"→ 收件人"挤到第二行。
+    // 抗压缩优先级比右边的说明高：位置不够时先让说明让位。
+    NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
+    paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
+    [text addAttribute:NSParagraphStyleAttributeName value:paragraph range:NSMakeRange(0, text.length)];
     NSTextField *label = [NSTextField labelWithAttributedString:text];
+    label.usesSingleLineMode = YES;
+    label.cell.wraps = NO;
+    label.maximumNumberOfLines = 1;
     label.lineBreakMode = NSLineBreakByTruncatingTail;
-    [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+    [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh
         forOrientation:NSLayoutConstraintOrientationHorizontal];
     return label;
 }

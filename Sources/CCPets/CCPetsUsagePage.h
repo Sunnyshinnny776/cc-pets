@@ -21,8 +21,11 @@ extern NSNotificationName const CCPetsUsageStoreDidChangeNotification;
 
 // 1234 -> 1.23K，1234567 -> 1.23M。
 NSString *CCPetsFormatTokens(unsigned long long value);
-// 新处理 = 非缓存输入 + 缓存写 + 输出：这次真正"新"进出模型的量。缓存读单列，不混进来，
-// 否则它会以百倍的量级把其余几项淹没。
-unsigned long long CCPetsNewTokens(NSDictionary *counts);
+// 总用量 = 输入（不含缓存）+ 缓存写 + 输出 + 缓存输入（缓存读）。四栏互不重叠，加起来就是全部 Token。
+unsigned long long CCPetsTotalTokens(NSDictionary *counts);
 // 一组按天的 { timestamp, models: { model: counts } } 里，所有模型某天的合计。
 NSDictionary *CCPetsUsageDayTotals(NSDictionary *day);
+// 若干份 counts 逐栏相加。
+NSDictionary *CCPetsUsageSum(NSArray<NSDictionary *> *list);
+// 指标条的五格（总用量、输入、输出、缓存输入、请求），给 CCPetsMetricRow 用。概览和用量页同一套口径和写法。
+NSArray<NSArray<NSString *> *> *CCPetsUsageMetricItems(NSString *totalTitle, NSDictionary *sum, NSUInteger modelCount);

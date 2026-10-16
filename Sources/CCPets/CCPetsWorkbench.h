@@ -1,6 +1,6 @@
 #import <Cocoa/Cocoa.h>
 
-// 主窗口「工作台」几页（概览、会话与消息）要的数据，由 AppDelegate 提供。和 CCPetsSettingsActions
+// 主窗口「工作台」几页（概览、会话）要的数据，由 AppDelegate 提供。和 CCPetsSettingsActions
 // 一样只声明契约：页面不 import AppDelegate 的私有头，AppDelegate 也不在声明上采纳协议
 // （方法分散在几个 category 里），签名一致由 tests/test.sh 的检查守着。
 //

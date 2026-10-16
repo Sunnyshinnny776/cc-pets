@@ -100,6 +100,10 @@ NSTextField *CCPetsWrappingLabel(NSString *text, CGFloat size, NSFontWeight weig
 @property(nonatomic) BOOL warn;
 @end
 
+// 一排等宽的指标格：每项 @[标题, 数字, 说明]。五格同一个字号、同样的行距，说明为空也占位，
+// 三行在各格之间横向对齐；第二格起左边一条贯穿整格的竖线。概览和用量页共用，两处长得一样。
+NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items);
+
 // 只会按"行 + 帧"循环播放精灵图的轻量视图，给主窗口里的宠物名片用。
 //
 // 不复用 PetView：它带着拖动挪窗口、右键菜单、全局鼠标跟随这些桌宠专属行为，放进普通窗口

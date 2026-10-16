@@ -248,7 +248,7 @@ static const NSUInteger PetPickerColumns = 4;
 }
 
 - (NSString *)pageSubtitle {
-    return L(@"Pick the pet that lives on your desktop, its size and how chatty it is.");
+    return L(@"Pick the pet that lives on your desktop, its size, how chatty it is and how it reacts when poked.");
 }
 
 - (void)loadView {
@@ -323,6 +323,25 @@ static const NSUInteger PetPickerColumns = 4;
         [CCPetsFormBuilder rowWithTitle:L(@"Frequency") controls:@[frequency]],
         [CCPetsFormBuilder rowWithTitle:L(@"Line Source") controls:@[source]],
         [CCPetsFormBuilder rowWithTitle:L(@"Try a Line") controls:@[sample, say, edit]],
+    ] footer:nil];
+
+    // 戳它的反应是宠物自己的性格，和碎碎念放在一起，不和系统通知混在一页。
+    [self.form addGroupWithTitle:L(@"Click Reactions") rows:@[
+        [self switchRowWithTitle:L(@"React when poked") subtitle:nil key:PetInteractionEnabledKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
+            [actions updatePetInteractionEnabled:enabled];
+        }],
+        [self stepperRowWithTitle:L(@"Hearts After") key:PetInteractionHeartThresholdKey
+            minimum:2 maximum:20 increment:1 fallback:3
+            format:^NSString *(double value) { return ClickCountText((NSInteger)value); }],
+        [self stepperRowWithTitle:L(@"Annoyed After") key:PetInteractionAnnoyedThresholdKey
+            minimum:3 maximum:50 increment:1 fallback:10
+            format:^NSString *(double value) { return ClickCountText((NSInteger)value); }],
+        [self stepperRowWithTitle:L(@"Click Window") key:PetInteractionIntervalKey
+            minimum:0.4 maximum:3.0 increment:0.1 fallback:1.2
+            format:^NSString *(double value) {
+            return [[NSString stringWithFormat:@"%.1f", value] stringByAppendingString:L(@" s")];
+        }],
     ] footer:nil];
 }
 
@@ -442,16 +461,16 @@ static const NSUInteger PetPickerColumns = 4;
 
 @end
 
-#pragma mark - 提醒与互动
+#pragma mark - 提醒
 
 @implementation CCPetsAlertsPage
 
 - (NSString *)pageTitle {
-    return L(@"Alerts & Interaction");
+    return L(@"Alerts");
 }
 
 - (NSString *)pageSubtitle {
-    return L(@"When to interrupt you, and how the pet reacts when you poke it.");
+    return L(@"When to interrupt you: system notifications, the status card and message badges.");
 }
 
 - (void)buildContent {
@@ -462,24 +481,6 @@ static const NSUInteger PetPickerColumns = 4;
         [self notificationRowWithTitle:L(@"Task done") subtitle:nil key:NotificationCompletionKey],
         [self notificationRowWithTitle:L(@"Stalled") subtitle:L(@"The same step has been running too long")
             key:NotificationStallKey],
-    ] footer:nil];
-
-    [self.form addGroupWithTitle:L(@"Click Reactions") rows:@[
-        [self switchRowWithTitle:L(@"React when poked") subtitle:nil key:PetInteractionEnabledKey
-            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
-            [actions updatePetInteractionEnabled:enabled];
-        }],
-        [self stepperRowWithTitle:L(@"Hearts After") key:PetInteractionHeartThresholdKey
-            minimum:2 maximum:20 increment:1 fallback:3
-            format:^NSString *(double value) { return ClickCountText((NSInteger)value); }],
-        [self stepperRowWithTitle:L(@"Annoyed After") key:PetInteractionAnnoyedThresholdKey
-            minimum:3 maximum:50 increment:1 fallback:10
-            format:^NSString *(double value) { return ClickCountText((NSInteger)value); }],
-        [self stepperRowWithTitle:L(@"Click Window") key:PetInteractionIntervalKey
-            minimum:0.4 maximum:3.0 increment:0.1 fallback:1.2
-            format:^NSString *(double value) {
-            return [[NSString stringWithFormat:@"%.1f", value] stringByAppendingString:L(@" s")];
-        }],
     ] footer:nil];
 
     // CC Bridge 这里只放只影响桌宠的两项；启用和免审批会改 Claude Code / Codex 的配置，仍在右键菜单里。
@@ -505,7 +506,7 @@ static const NSUInteger PetPickerColumns = 4;
 @implementation CCPetsGeneralPage
 
 - (NSString *)pageTitle {
-    return L(@"General");
+    return L(@"Settings");
 }
 
 - (NSString *)pageSubtitle {
