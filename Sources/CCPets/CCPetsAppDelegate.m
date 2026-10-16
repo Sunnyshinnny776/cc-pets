@@ -145,29 +145,6 @@
     snapshot[@"sessions"] = @(sessions);
     return snapshot;
 }
-- (void)configureQuotaPreview:(QuotaDashboardView *)view {
-    QuotaDashboardView *source = self.quotaView;
-    view.codexUsage = source.codexUsage;
-    view.claudeUsage = source.claudeUsage;
-    view.codexHistory = source.codexHistory;
-    view.claudeHistory = source.claudeHistory;
-    view.codexLogo = source.codexLogo;
-    view.claudeLogo = source.claudeLogo;
-    view.codexShowsAPIUsage = source.codexShowsAPIUsage;
-    view.claudeShowsAPIUsage = source.claudeShowsAPIUsage;
-    view.activeAgentCount = source.activeAgentCount;
-    view.liveProviders = source.liveProviders;
-    view.hasUnlabeledClient = source.hasUnlabeledClient;
-    view.detectedProviders = source.detectedProviders;
-    view.lastUpdatedAt = source.lastUpdatedAt;
-    view.systemCPUEnabled = source.systemCPUEnabled;
-    view.systemTemperatureEnabled = source.systemTemperatureEnabled;
-    view.systemMemoryEnabled = source.systemMemoryEnabled;
-    view.systemCPUPercent = source.systemCPUPercent;
-    view.systemTemperatureCelsius = source.systemTemperatureCelsius;
-    view.systemMemoryPercent = source.systemMemoryPercent;
-    view.needsDisplay = YES;
-}
 // 合并到下一轮 runloop 再发：一条 Agent 事件会同时改状态、会话和审批，没必要让名片刷三遍；
 // 而且取快照时会顺带清理离线会话，清理又会走到这里，同步发会在刷新途中再触发刷新。
 - (void)notePetCardChanged {

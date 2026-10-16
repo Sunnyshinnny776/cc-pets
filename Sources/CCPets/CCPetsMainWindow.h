@@ -1,7 +1,5 @@
 #import <Cocoa/Cocoa.h>
 
-@class QuotaDashboardView;
-
 // 主窗口：侧边栏 + 内容区的普通 App 窗口，放右键菜单装不下的设置和数据。
 //
 // 桌宠平时是 Accessory（没有 Dock 图标、不出现在 ⌘Tab），主窗口打开期间临时切成 Regular，
@@ -18,8 +16,15 @@ extern NSString *const CCPetsMainWindowPageSettings;
 // status（状态文字）、statusColor（NSColor）、sessions（在线会话数）、approvals（待审批数）。
 @protocol CCPetsPetCardSource <NSObject>
 - (NSDictionary *)petCardSnapshot;
-// 把桌面额度面板当前的数据（额度、历史、Logo、展示模式、在线状态）抄给设置页预览台那张。
-- (void)configureQuotaPreview:(QuotaDashboardView *)view;
+@end
+
+// 页面内容分成好几段、需要在侧边栏列出来直接跳转时实现（设置页：通用、外观、碎碎念……）。
+// 页面选中期间，这些段落作为子项显示在页面行下面；点一下就滚到对应位置，免得用户自己往下翻。
+@protocol CCPetsMainPageSections <NSObject>
+// 每项：id、title、symbol（SF Symbol 名）、color（NSColor）。页面视图加载后即可调用。
+- (NSArray<NSDictionary *> *)pageSections;
+// sectionID 为 nil 时回到页面顶部。
+- (void)scrollToSectionWithID:(NSString *)sectionID;
 @end
 
 // 名片上的任何一项变了（换宠物、Agent 状态、会话数、审批数）就发，窗口收到后重读快照。

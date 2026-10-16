@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import "CCPetsMainWindow.h"
 
 // 设置页要 AppDelegate 做的事：写设置并让桌宠界面当场生效。与右键菜单调的是同一组
 // update 方法（见 CCPetsAppDelegate+Settings.m），这里只声明契约，页面不 import AppDelegate 的私有头。
@@ -31,5 +32,5 @@
 // 主窗口的「设置」页：右键菜单里的设置按组摊开，外加菜单里放不下的连续调节和文件夹入口。
 // 控件状态一律现读 defaults；收到 CCPetsPreferencesDidChangeNotification（比如在右键菜单里
 // 改了）就整体重读一遍，两边始终一致。
-@interface CCPetsSettingsPage : NSViewController
+@interface CCPetsSettingsPage : NSViewController <CCPetsMainPageSections>
 @end

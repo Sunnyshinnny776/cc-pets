@@ -43,6 +43,13 @@ static BOOL HasVisibleRegularWindow(void) {
 @property(nonatomic) NSTableView *tableView;
 @property(nonatomic) CCPetsPetCardView *card;
 @property(nonatomic, copy) void (^selectionHandler)(NSString *page);
+@property(nonatomic, copy) void (^sectionHandler)(NSString *sectionID);
+// 当前页面的段落，显示在页面行下面当子项；nil 或空就不显示。
+@property(nonatomic, copy) NSArray<NSDictionary *> *sections;
+// 侧边栏里一行：页面行或段落行。
+@property(nonatomic, copy) NSArray<NSDictionary *> *rows;
+@property(nonatomic, copy) NSString *currentPage;
+@property(nonatomic) BOOL selectingProgrammatically;
 - (void)selectPage:(NSString *)page;
 - (void)reload;
 @end
@@ -114,7 +121,13 @@ static id WindowCloseObserver;
 
         self.sidebar = [CCPetsMainSidebarController new];
         __weak typeof(self) weakSelf = self;
-        self.sidebar.selectionHandler = ^(NSString *page) { [weakSelf showPage:page]; };
+        self.sidebar.selectionHandler = ^(NSString *page) {
+            // 从段落子项点回页面行：页面没换，但要回到顶部。
+            BOOL samePage = [page isEqualToString:weakSelf.currentPage];
+            [weakSelf showPage:page];
+            if (samePage) [weakSelf scrollPageToSection:nil];
+        };
+        self.sidebar.sectionHandler = ^(NSString *sectionID) { [weakSelf scrollPageToSection:sectionID]; };
         self.contentController = [NSViewController new];
         self.contentController.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 560)];
 
@@ -147,9 +160,11 @@ static id WindowCloseObserver;
 - (void)showPage:(NSString *)page {
     NSDictionary *entry = MainWindowPageWithID(page);
     if (!entry) return;
-    [self.sidebar selectPage:page];
     self.window.title = entry[@"title"];
-    if ([self.currentPage isEqualToString:page] && self.pageController) return;
+    if ([self.currentPage isEqualToString:page] && self.pageController) {
+        [self.sidebar selectPage:page];
+        return;
+    }
     [self.pageController.view removeFromSuperview];
     [self.pageController removeFromParentViewController];
     NSViewController *controller = [entry[@"class"] new];
@@ -167,7 +182,18 @@ static id WindowCloseObserver;
     ]];
     self.pageController = controller;
     self.currentPage = page;
+    // 页面视图此时已加载，段落都建好了；侧边栏据此列出子项。
+    self.sidebar.currentPage = page;
+    self.sidebar.sections = [controller conformsToProtocol:@protocol(CCPetsMainPageSections)]
+        ? [(id<CCPetsMainPageSections>)controller pageSections] : nil;
+    [self.sidebar selectPage:page];
     [NSUserDefaults.standardUserDefaults setObject:page forKey:MainWindowLastPageKey];
+}
+
+- (void)scrollPageToSection:(NSString *)sectionID {
+    if ([self.pageController conformsToProtocol:@protocol(CCPetsMainPageSections)]) {
+        [(id<CCPetsMainPageSections>)self.pageController scrollToSectionWithID:sectionID];
+    }
 }
 
 // 页面里的文案都是建页面时取的，换语言后整页重建，比逐个控件改标题省事也不会漏。
@@ -233,39 +259,77 @@ static id WindowCloseObserver;
     self.view = root;
 }
 
+// 页面行之后紧跟当前页面的段落行。
+- (void)rebuildRows {
+    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
+    for (NSDictionary *entry in MainWindowPages()) {
+        [rows addObject:@{@"kind": @"page", @"id": entry[@"id"], @"title": entry[@"title"],
+                          @"symbol": entry[@"symbol"], @"color": entry[@"color"]}];
+        if (![entry[@"id"] isEqualToString:self.currentPage]) continue;
+        for (NSDictionary *section in self.sections) {
+            NSMutableDictionary *row = [section mutableCopy];
+            row[@"kind"] = @"section";
+            [rows addObject:row];
+        }
+    }
+    self.rows = rows;
+}
+
+- (void)selectRowAtIndex:(NSInteger)index {
+    // 程序选中不当成用户点击，免得又触发一次跳转。
+    self.selectingProgrammatically = YES;
+    [self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)index] byExtendingSelection:NO];
+    self.selectingProgrammatically = NO;
+}
+
 - (void)reload {
     [self.card reload];
     NSInteger selected = self.tableView.selectedRow;
+    NSDictionary *previous = selected >= 0 && selected < (NSInteger)self.rows.count ? self.rows[(NSUInteger)selected] : nil;
+    [self rebuildRows];
     [self.tableView reloadData];
-    if (selected >= 0) {
-        [self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)selected]
-            byExtendingSelection:NO];
+    for (NSUInteger index = 0; previous && index < self.rows.count; index++) {
+        if ([self.rows[index][@"kind"] isEqual:previous[@"kind"]] &&
+            [self.rows[index][@"id"] isEqual:previous[@"id"]]) {
+            [self selectRowAtIndex:(NSInteger)index];
+            break;
+        }
     }
+}
+
+- (void)setSections:(NSArray<NSDictionary *> *)sections {
+    _sections = [sections copy];
+    [self view];
+    [self rebuildRows];
+    [self.tableView reloadData];
 }
 
 - (void)selectPage:(NSString *)page {
     [self view];
-    NSArray<NSDictionary *> *pages = MainWindowPages();
-    for (NSUInteger index = 0; index < pages.count; index++) {
-        if (![pages[index][@"id"] isEqualToString:page]) continue;
-        if (self.tableView.selectedRow != (NSInteger)index) {
-            [self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:index] byExtendingSelection:NO];
-        }
+    for (NSUInteger index = 0; index < self.rows.count; index++) {
+        if (![self.rows[index][@"kind"] isEqualToString:@"page"] ||
+            ![self.rows[index][@"id"] isEqualToString:page]) continue;
+        if (self.tableView.selectedRow != (NSInteger)index) [self selectRowAtIndex:(NSInteger)index];
         return;
     }
 }
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
-    return (NSInteger)MainWindowPages().count;
+    if (!self.rows) [self rebuildRows];
+    return (NSInteger)self.rows.count;
 }
 
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn
     row:(NSInteger)row {
-    NSDictionary *entry = MainWindowPages()[(NSUInteger)row];
-    NSTableCellView *cell = [tableView makeViewWithIdentifier:@"PageCell" owner:self];
+    NSDictionary *entry = self.rows[(NSUInteger)row];
+    BOOL section = [entry[@"kind"] isEqualToString:@"section"];
+    NSString *identifier = section ? @"SectionCell" : @"PageCell";
+    // 段落子项比页面行小一号、缩进一格，一眼看得出是页面里的段落。
+    CGFloat iconSize = section ? 16 : 20;
+    NSTableCellView *cell = [tableView makeViewWithIdentifier:identifier owner:self];
     if (!cell) {
         cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
-        cell.identifier = @"PageCell";
+        cell.identifier = identifier;
         NSImageView *icon = [NSImageView imageViewWithImage:[NSImage new]];
         NSTextField *label = [NSTextField labelWithString:@""];
         icon.translatesAutoresizingMaskIntoConstraints = NO;
@@ -276,25 +340,31 @@ static id WindowCloseObserver;
         cell.imageView = icon;
         cell.textField = label;
         [NSLayoutConstraint activateConstraints:@[
-            [icon.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:4],
+            [icon.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:section ? 18 : 4],
             [icon.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
-            [icon.widthAnchor constraintEqualToConstant:20],
-            [icon.heightAnchor constraintEqualToConstant:20],
+            [icon.widthAnchor constraintEqualToConstant:iconSize],
+            [icon.heightAnchor constraintEqualToConstant:iconSize],
             [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:8],
             [label.trailingAnchor constraintLessThanOrEqualToAnchor:cell.trailingAnchor constant:-4],
             [label.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
         ]];
     }
-    cell.imageView.image = CCPetsSymbolTile(entry[@"symbol"], entry[@"color"], 20);
+    cell.imageView.image = CCPetsSymbolTile(entry[@"symbol"], entry[@"color"], iconSize);
     cell.textField.stringValue = entry[@"title"];
+    cell.textField.font = [NSFont systemFontOfSize:section ? NSFont.smallSystemFontSize + 1 : NSFont.systemFontSize];
     return cell;
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification {
+    if (self.selectingProgrammatically) return;
     NSInteger row = self.tableView.selectedRow;
-    NSArray<NSDictionary *> *pages = MainWindowPages();
-    if (row < 0 || row >= (NSInteger)pages.count) return;
-    if (self.selectionHandler) self.selectionHandler(pages[(NSUInteger)row][@"id"]);
+    if (row < 0 || row >= (NSInteger)self.rows.count) return;
+    NSDictionary *entry = self.rows[(NSUInteger)row];
+    if ([entry[@"kind"] isEqualToString:@"section"]) {
+        if (self.sectionHandler) self.sectionHandler(entry[@"id"]);
+    } else if (self.selectionHandler) {
+        self.selectionHandler(entry[@"id"]);
+    }
 }
 
 @end

@@ -7,7 +7,6 @@
 #import "CCPetsPhrases.h"
 #import "CCPetsPreferences.h"
 #import "CCPetsMainWindow.h"
-#import "CCPetsSettingsPreview.h"
 #import "CCPetsUIStyle.h"
 
 // 定义在 CCPetsAppDelegate+Speech.m；那边的头文件是 AppDelegate 私有的，这里单独 extern。
@@ -38,12 +37,23 @@ static NSString *ClickCountText(NSInteger count) {
     return [[NSString stringWithFormat:@"%ld", (long)count] stringByAppendingString:L(@" clicks")];
 }
 
+// 文档视图要翻转坐标（原点在左上），内容才会从顶部往下排，滚动位置也才好算。
+@interface CCPetsFlippedView : NSView
+@end
+
+@implementation CCPetsFlippedView
+- (BOOL)isFlipped {
+    return YES;
+}
+@end
+
 @interface CCPetsSettingsPage ()
 @property(nonatomic) NSStackView *stack;
 @property(nonatomic) NSMutableArray<CCPetsSettingsHandler *> *handlers;
 // 每个控件一个"按 defaults 回填自己"的 block。设置一变就全部跑一遍。
 @property(nonatomic) NSMutableArray<void (^)(void)> *reloaders;
-@property(nonatomic) CCPetsSettingsPreview *preview;
+@property(nonatomic) NSMutableArray<NSDictionary *> *sectionEntries;
+@property(nonatomic) NSMutableDictionary<NSString *, NSView *> *sectionHeaders;
 @end
 
 @implementation CCPetsSettingsPage
@@ -56,13 +66,14 @@ static NSString *ClickCountText(NSInteger count) {
 - (void)loadView {
     self.handlers = [NSMutableArray array];
     self.reloaders = [NSMutableArray array];
+    self.sectionEntries = [NSMutableArray array];
+    self.sectionHeaders = [NSMutableDictionary dictionary];
 
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 560, 560)];
     scroll.hasVerticalScroller = YES;
     scroll.autohidesScrollers = YES;
     scroll.drawsBackground = NO;
-    // 文档视图翻转坐标，内容从顶部往下排。
-    NSView *document = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *document = [[CCPetsFlippedView alloc] initWithFrame:NSZeroRect];
     document.translatesAutoresizingMaskIntoConstraints = NO;
     scroll.documentView = document;
     NSClipView *clip = scroll.contentView;
@@ -85,13 +96,10 @@ static NSString *ClickCountText(NSInteger count) {
     self.stack = stack;
     self.view = scroll;
 
-    [self buildPreview];
     [self buildSections];
     [self reloadValues];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
         name:CCPetsPreferencesDidChangeNotification object:nil];
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(petCardDidChange:)
-        name:CCPetsPetCardDidChangeNotification object:nil];
 }
 
 - (void)dealloc {
@@ -100,51 +108,36 @@ static NSString *ClickCountText(NSInteger count) {
 
 - (void)preferencesDidChange:(NSNotification *)notification {
     [self reloadValues];
-    NSString *key = notification.userInfo[CCPetsPreferencesChangedKeyKey];
-    // 换了台词来源，气泡里换一句新来源的；别的设置变了不换，免得每拨一下开关台词就跳。
-    if ([key isEqualToString:PetPhrasesSourceKey]) self.preview.bubbleText = [self.actions sampleSpeechLine];
-    [self refreshPreview];
-}
-
-- (void)petCardDidChange:(NSNotification *)notification {
-    [self refreshPreview];
-}
-
-#pragma mark - 预览台
-
-- (id<CCPetsPetCardSource>)previewSource {
-    id delegate = NSApp.delegate;
-    return [delegate conformsToProtocol:@protocol(CCPetsPetCardSource)] ? delegate : nil;
-}
-
-- (void)buildPreview {
-    CCPetsSettingsPreview *preview = [[CCPetsSettingsPreview alloc] initWithFrame:NSZeroRect];
-    preview.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.stack addArrangedSubview:preview];
-    [preview.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor].active = YES;
-    [preview.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor].active = YES;
-    [self.stack setCustomSpacing:6 afterView:preview];
-    NSTextField *caption = [NSTextField labelWithString:
-        L(@"Preview: pet size, panel theme, glass dimming and line source apply here and on the desktop at once.")];
-    caption.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    caption.textColor = NSColor.secondaryLabelColor;
-    caption.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.stack addArrangedSubview:caption];
-    self.preview = preview;
-    preview.bubbleText = [self.actions sampleSpeechLine];
-    [self refreshPreview];
-}
-
-- (void)refreshPreview {
-    NSDictionary *snapshot = [self.previewSource petCardSnapshot];
-    [self.preview setSheet:snapshot[@"sheet"] rowCount:[snapshot[@"rowCount"] integerValue] ?: 9
-        state:snapshot[@"state"] ?: @"idle"];
-    [self.previewSource configureQuotaPreview:self.preview.quotaView];
-    [self.preview reloadAppearance];
 }
 
 - (void)reloadValues {
     for (void (^reload)(void) in self.reloaders) reload();
+}
+
+#pragma mark - 侧边栏跳转
+
+- (NSArray<NSDictionary *> *)pageSections {
+    return self.sectionEntries;
+}
+
+- (void)scrollToSectionWithID:(NSString *)sectionID {
+    NSScrollView *scroll = (NSScrollView *)self.view;
+    NSView *document = scroll.documentView;
+    [document layoutSubtreeIfNeeded];
+    NSView *header = sectionID ? self.sectionHeaders[sectionID] : nil;
+    CGFloat target = 0;
+    if (header) {
+        // 标题上方留一点空隙，别贴着窗口顶沿；超出可滚范围的（最后几段）停在底部。
+        target = [document convertRect:header.bounds fromView:header].origin.y - 16;
+        CGFloat maximum = MAX(0, NSHeight(document.frame) - NSHeight(scroll.contentView.bounds));
+        target = MIN(MAX(0, target), maximum);
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = 0.25;
+        [scroll.contentView.animator setBoundsOrigin:NSMakePoint(0, target)];
+    } completionHandler:^{
+        [scroll reflectScrolledClipView:scroll.contentView];
+    }];
 }
 
 #pragma mark - 控件与布局
@@ -269,6 +262,9 @@ static NSString *ClickCountText(NSInteger count) {
     }
     [self.stack addArrangedSubview:header];
     [self.stack setCustomSpacing:10 afterView:header];
+    // 分组的 id 直接用图标名：每组图标各不相同，不必再另起一套标识。
+    [self.sectionEntries addObject:@{@"id": symbol, @"title": title, @"symbol": symbol, @"color": color}];
+    self.sectionHeaders[symbol] = header;
 
     NSStackView *content = [NSStackView stackViewWithViews:@[]];
     content.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -451,13 +447,12 @@ static void RevealFolder(NSString *path) {
     NSButton *editLines = [NSButton buttonWithTitle:L(@"Edit Lines…") target:nil action:nil];
     editLines.controlSize = NSControlSizeSmall;
     [self bind:editLines to:^(id sender) { [weakSelf.actions editPhrasesFile:sender]; }];
-    // 预览台和桌面上的宠物一起说同一句，换了台词来源能马上听到区别。
+    // 让桌面上的宠物当场说一句，换了台词来源能马上听到区别。
     NSButton *tryLine = [NSButton buttonWithTitle:L(@"Try a Line") target:nil action:nil];
     tryLine.controlSize = NSControlSizeSmall;
     [self bind:tryLine to:^(id sender) {
         NSString *text = [weakSelf.actions sampleSpeechLine];
         if (text.length == 0) return;
-        weakSelf.preview.bubbleText = text;
         [weakSelf.actions presentSpeechText:text];
     }];
     [self addSectionWithTitle:L(@"Chatter")
