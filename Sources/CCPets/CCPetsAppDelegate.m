@@ -518,8 +518,16 @@
 }
 // CLI 启动时桌宠若已在运行，`open -g` 不会重新启动它，只会发一个 reopen 事件过来。
 // 借这个时机同样静默检查一次更新（silentCheckForUpdate 自己做节流）。
+//
+// 主窗口最小化后点 Dock 图标，来的也是 reopen。要把窗口恢复出来，但不能对 `open -g` 这么做：
+// 每开一个终端都会发一次，窗口会被反复弹出来。两者的区别是点 Dock 会激活 App、`open -g` 不会，
+// 所以等到下一轮 runloop（激活已经完成）再看 App 是否在前台。返回 NO：系统默认的处理会去开
+// "新窗口"，桌宠没有那种窗口。
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
     [self silentCheckForUpdate];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (NSApp.isActive) [CCPetsMainWindowController restoreFromDock];
+    });
     return NO;
 }
 - (void)screensDidSleep:(NSNotification *)notification {

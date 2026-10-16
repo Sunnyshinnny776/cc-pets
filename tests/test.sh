@@ -1434,6 +1434,10 @@ env.update({"CC_PETS_STATE_DIR": os.path.dirname(sys.argv[1]),
             "CC_PETS_APPLICATIONS_DIR": "/nonexistent"})
 sys.exit(subprocess.run([sys.argv[2], "open", "diagnostics"], env=env).returncode)
 PY
+# 点 Dock 图标恢复最小化的主窗口，但 `open -g` 发来的 reopen（每开一个终端一次）不能把窗口弹出来：
+# 只有 App 被激活（点 Dock 会激活，open -g 不会）时才恢复。
+grep -A8 'applicationShouldHandleReopen' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m" \
+  | grep -q 'if (NSApp.isActive) \[CCPetsMainWindowController restoreFromDock\]'
 # AppDelegate 侧：用带 uid 的分布式通知，而不是 reopen 事件。
 grep -q "CCPetsOpenWindowNotificationName" Sources/CCPets/CCPetsAppDelegate.m
 # 结构化结果：主窗口诊断页直接用 CCPetsDoctorSections()，不经过 CLI 文本。

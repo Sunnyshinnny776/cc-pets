@@ -74,8 +74,9 @@ static BOOL HasVisibleRegularWindow(void) {
 #pragma mark - 侧边栏部件
 
 // 侧边栏的中文标题字与字之间各加一个空格（"概 览"、"会 话"），两三个字的短标题排开后
-// 更像一列整齐的菜单。只处理全是汉字的标题：英文等其他语言原样显示。读屏仍用原标题。
-static NSString *SidebarDisplayTitle(NSString *title) {
+// 更像一列整齐的菜单；全屏时侧边栏更宽，字间改成两个空格。只处理全是汉字的标题：
+// 英文等其他语言原样显示。读屏仍用原标题。
+static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
     if (title.length < 2) return title;
     NSCharacterSet *han = [NSCharacterSet characterSetWithRange:NSMakeRange(0x4E00, 0x9FFF - 0x4E00 + 1)];
     if ([title rangeOfCharacterFromSet:han.invertedSet].location != NSNotFound) return title;
@@ -84,7 +85,7 @@ static NSString *SidebarDisplayTitle(NSString *title) {
         usingBlock:^(NSString *character, NSRange range, NSRange enclosing, BOOL *stop) {
         [characters addObject:character];
     }];
-    return [characters componentsJoinedByString:@" "];
+    return [characters componentsJoinedByString:spacious ? @"  " : @" "];
 }
 
 // 侧边栏里的一项：单色图标 + 标题 + 可选角标。选中时整行铺淡青底，图标和文字换成强调色。
@@ -97,7 +98,8 @@ static NSString *SidebarDisplayTitle(NSString *title) {
 @property(nonatomic) BOOL selected;
 @property(nonatomic) CCPetsCountBadge *badge;
 @property(nonatomic, copy) void (^onSelect)(NSString *pageID);
-- (instancetype)initWithPage:(NSDictionary *)page;
+// spacious：全屏时用，图标和文字间多空 2pt，字间两个空格。
+- (instancetype)initWithPage:(NSDictionary *)page spacious:(BOOL)spacious;
 @end
 
 @interface CCPetsSidebarItem ()
@@ -108,7 +110,7 @@ static NSString *SidebarDisplayTitle(NSString *title) {
 
 @implementation CCPetsSidebarItem
 
-- (instancetype)initWithPage:(NSDictionary *)page {
+- (instancetype)initWithPage:(NSDictionary *)page spacious:(BOOL)spacious {
     if ((self = [super initWithFrame:NSZeroRect])) {
         self.pageID = page[@"id"];
         self.wantsLayer = YES;
@@ -119,7 +121,7 @@ static NSString *SidebarDisplayTitle(NSString *title) {
             imageWithSymbolConfiguration:configuration] ?: [NSImage new];
         NSImageView *icon = [NSImageView imageViewWithImage:image];
         icon.symbolConfiguration = configuration;
-        NSTextField *label = CCPetsLabel(SidebarDisplayTitle(page[@"title"]), 13, NSFontWeightRegular, CCPetsInkColor());
+        NSTextField *label = CCPetsLabel(SidebarDisplayTitle(page[@"title"], spacious), 13, NSFontWeightRegular, CCPetsInkColor());
         self.title = page[@"title"];
         [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
             forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -138,7 +140,7 @@ static NSString *SidebarDisplayTitle(NSString *title) {
             [icon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
             [icon.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [icon.widthAnchor constraintEqualToConstant:18],
-            [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:8],
+            [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:spacious ? 10 : 8],
             [label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [label.trailingAnchor constraintLessThanOrEqualToAnchor:badge.leadingAnchor constant:-6],
             [badge.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
@@ -314,9 +316,10 @@ static NSString *SidebarDisplayTitle(NSString *title) {
 @property(nonatomic, copy) NSString *currentPage;
 @property(nonatomic, copy) void (^selectionHandler)(NSString *page);
 @property(nonatomic) NSArray<NSLayoutConstraint *> *leadingConstraints;
+@property(nonatomic) BOOL fullScreen;
 - (void)selectPage:(NSString *)page;
-// 全屏时整列内容右移 shift pt（侧边栏同时加宽），退出时传 0。
-- (void)setContentShift:(CGFloat)shift;
+// 全屏时（侧边栏同时加宽）整列内容右移 5pt，导航项换成宽松排版；退出时恢复。
+- (void)setFullScreen:(BOOL)fullScreen;
 - (void)reload;
 @end
 
@@ -380,7 +383,7 @@ static NSString *SidebarDisplayTitle(NSString *title) {
 }
 
 - (NSTextField *)groupLabel:(NSString *)title {
-    NSTextField *label = CCPetsLabel(SidebarDisplayTitle(title), 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
+    NSTextField *label = CCPetsLabel(SidebarDisplayTitle(title, self.fullScreen), 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
     label.accessibilityLabel = title;
     return label;
 }
@@ -396,7 +399,7 @@ static NSString *SidebarDisplayTitle(NSString *title) {
     NSString *group = nil;
     NSDictionary *groupTitles = @{@"workbench": L(@"Workbench"), @"settings": L(@"General")};
     for (NSDictionary *page in MainWindowPages()) {
-        CCPetsSidebarItem *item = [[CCPetsSidebarItem alloc] initWithPage:page];
+        CCPetsSidebarItem *item = [[CCPetsSidebarItem alloc] initWithPage:page spacious:self.fullScreen];
         item.onSelect = ^(NSString *pageID) {
             if (weakSelf.selectionHandler) weakSelf.selectionHandler(pageID);
         };
@@ -446,13 +449,16 @@ static NSString *SidebarDisplayTitle(NSString *title) {
     [self rebuildItems];
 }
 
-- (void)setContentShift:(CGFloat)shift {
+- (void)setFullScreen:(BOOL)fullScreen {
     [self view];
+    _fullScreen = fullScreen;
     // 每条左边距的基准值：名片、导航、底部诊断 10pt，两条分隔线 16pt。
     static const CGFloat bases[] = {10, 16, 10, 16, 10};
     for (NSUInteger index = 0; index < self.leadingConstraints.count; index++) {
-        self.leadingConstraints[index].constant = bases[index] + shift;
+        self.leadingConstraints[index].constant = bases[index] + (fullScreen ? 5 : 0);
     }
+    // 图标间距和字间空格是建导航项时定的，整列重建。
+    [self rebuildItems];
 }
 
 - (void)selectPage:(NSString *)page {
@@ -488,7 +494,7 @@ static NSLayoutConstraint *PageTopConstraint(NSView *view, NSView *host) {
 @end
 
 // 全屏时屏幕宽，侧边栏在常规宽度上加宽 10pt，内容右移 5pt，和铺满的内容区比例更协调。
-static const CGFloat SidebarFullScreenExtraWidth = 10, SidebarFullScreenShift = 5;
+static const CGFloat SidebarFullScreenExtraWidth = 10;
 
 static CCPetsMainWindowController *SharedMainWindow;
 static id WindowCloseObserver;
@@ -506,6 +512,15 @@ static id WindowCloseObserver;
     [SharedMainWindow.window makeKeyAndOrderFront:nil];
     // 侧边栏的诊断角标要先检查一遍；结果缓存一阵，频繁开关窗口不会反复跑。
     [CCPetsDiagnosticsStore refreshIfStale];
+}
+
++ (BOOL)restoreFromDock {
+    NSWindow *window = SharedMainWindow.window;
+    if (!window) return NO;
+    if (NSApp.isHidden) [NSApp unhide:nil];
+    if (window.isMiniaturized) [window deminiaturize:nil];
+    [window makeKeyAndOrderFront:nil];
+    return YES;
 }
 
 // 有 Dock 图标、能 ⌘Tab、显示菜单栏。顺带开始盯普通窗口的关闭，最后一个关掉时切回去。
@@ -632,7 +647,7 @@ static id WindowCloseObserver;
     CGFloat fullWidth = self.windowedSidebarWidth + SidebarFullScreenExtraWidth;
     self.sidebarItem.maximumThickness = fullWidth;
     self.sidebarItem.minimumThickness = fullWidth;
-    [self.sidebar setContentShift:SidebarFullScreenShift];
+    self.sidebar.fullScreen = YES;
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
@@ -640,7 +655,7 @@ static id WindowCloseObserver;
     self.sidebarItem.minimumThickness = 200;
     self.sidebarItem.maximumThickness = 240;
     [self.splitController.splitView setPosition:self.windowedSidebarWidth ofDividerAtIndex:0];
-    [self.sidebar setContentShift:0];
+    self.sidebar.fullScreen = NO;
 }
 
 - (void)windowWillClose:(NSNotification *)notification {

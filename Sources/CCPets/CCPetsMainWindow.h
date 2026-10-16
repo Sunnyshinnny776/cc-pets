@@ -41,4 +41,8 @@ extern NSNotificationName const CCPetsPetCardDidChangeNotification;
 // 打开（已开着就前置）并切到指定页面；page 为 nil 或不认识时打开上次看的页面。
 + (void)presentPage:(NSString *)page;
 
+// 点 Dock 图标时调用：主窗口最小化在 Dock 里（或随 App 隐藏）就把它恢复到前台。
+// 没有主窗口时什么也不做，返回 NO。
++ (BOOL)restoreFromDock;
+
 @end
