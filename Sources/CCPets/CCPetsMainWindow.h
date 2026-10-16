@@ -10,6 +10,7 @@
 
 // 页面标识，也是 `cc-pets open <page>` 的参数。
 extern NSString *const CCPetsMainWindowPageSettings;
+extern NSString *const CCPetsMainWindowPageDiagnostics;
 
 // 侧边栏顶部的宠物名片要的数据。由 AppDelegate 提供，窗口只读不写。
 // 键：sheet（NSImage 精灵图）、rowCount、name、state（Agent 状态，无会话时 idle）、

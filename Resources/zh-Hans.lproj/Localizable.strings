@@ -710,3 +710,10 @@
 "1 awaiting approval" = "1 个待审批";
 "%ld awaiting approval" = "%ld 个待审批";
 "No active sessions" = "暂无会话";
+"Diagnostics" = "诊断";
+"Checking…" = "检查中…";
+"Re-check" = "重新检查";
+"Copy Report" = "复制报告";
+"Copy Command" = "复制命令";
+"Copied" = "已复制";
+"{count} OK" = "{count} 项正常";

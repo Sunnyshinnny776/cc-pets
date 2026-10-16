@@ -154,6 +154,15 @@ static NSColor *FormCardColor(void) {
     return header;
 }
 
+- (void)removeAllSections {
+    for (NSView *view in [self.stack.arrangedSubviews copy]) {
+        [self.stack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    [self.entries removeAllObjects];
+    [self.headers removeAllObjects];
+}
+
 - (void)scrollToSectionWithID:(NSString *)sectionID {
     NSScrollView *scroll = self.scrollView;
     NSView *document = scroll.documentView;

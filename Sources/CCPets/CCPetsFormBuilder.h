@@ -21,6 +21,9 @@
 - (NSView *)addSectionWithID:(NSString *)sectionID title:(NSString *)title symbol:(NSString *)symbol
     color:(NSColor *)color rows:(NSArray<NSView *> *)rows footer:(NSString *)footer;
 
+// 清空所有分组，用于页面重新加载内容。
+- (void)removeAllSections;
+
 // sectionID 为 nil 回到顶部。
 - (void)scrollToSectionWithID:(NSString *)sectionID;
 
