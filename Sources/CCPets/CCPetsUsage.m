@@ -2262,22 +2262,39 @@ static NSArray<NSNumber *> *ModelUsageDayStarts(NSTimeInterval start, NSTimeInte
     return days;
 }
 
-// 日 -> 模型 -> 用量（统一口径）。Codex 直接取会话摘要里按模型分好的日桶。
+// 按模型用量里"某一天"的键：当前时区下的日期 yyyy-MM-dd，不用零点时间戳。零点时间戳跟着
+// 时区走，换了时区后同一天的键就变了——会话摘要缓存里的日桶和归档都是按当时的时区存的，
+// 新时区下拿新零点去取会全部落空。先加 12 小时再取日期：旧时区的零点在偏差 ±12 小时以内的
+// 新时区里仍然落在同一天，夏令时那一小时也一样。
+static NSString *DayLabel(NSTimeInterval dayStart) {
+    NSDateComponents *components = [NSCalendar.currentCalendar
+        components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay
+        fromDate:[NSDate dateWithTimeIntervalSince1970:dayStart + 43200]];
+    return [NSString stringWithFormat:@"%04ld-%02ld-%02ld", (long)components.year,
+        (long)components.month, (long)components.day];
+}
+
+// 日 -> 模型 -> 用量（统一口径），日是 DayLabel。Codex 直接取会话摘要里按模型分好的日桶；
+// 摘要里的键是解析时那个时区的零点，在这里统一换成日期。
 static NSDictionary<NSString *, NSDictionary *> *CodexModelDays(NSTimeInterval start,
     NSTimeInterval end, NSMutableDictionary *cache) {
     NSArray<NSURL *> *urls = RecentCodexSessionURLs(CodexSessionsURL(), start);
+    NSString *startLabel = DayLabel(start);
+    NSString *endLabel = DayLabel(end);
     NSMutableDictionary<NSString *, NSMutableDictionary *> *result = [NSMutableDictionary dictionary];
     for (NSURL *url in urls) {
         NSDictionary *summary = TokenSessionSummaryTracking(url, cache, YES);
         NSDictionary *modelDays = [summary[@"modelDays"] isKindOfClass:NSDictionary.class]
             ? summary[@"modelDays"] : nil;
         for (NSString *dayKey in modelDays) {
-            NSTimeInterval dayStart = dayKey.doubleValue;
-            if (dayStart < start || dayStart >= end) continue;
-            NSMutableDictionary *perModel = result[dayKey];
+            NSString *label = DayLabel(dayKey.doubleValue);
+            // yyyy-MM-dd 按字典序就是按时间序。
+            if ([label compare:startLabel] == NSOrderedAscending ||
+                [label compare:endLabel] != NSOrderedAscending) continue;
+            NSMutableDictionary *perModel = result[label];
             if (!perModel) {
                 perModel = [NSMutableDictionary dictionary];
-                result[dayKey] = perModel;
+                result[label] = perModel;
             }
             for (NSString *model in modelDays[dayKey]) {
                 NSMutableDictionary *counts = perModel[model];
@@ -2294,7 +2311,7 @@ static NSDictionary<NSString *, NSDictionary *> *CodexModelDays(NSTimeInterval s
     return result;
 }
 
-// Claude：先按请求去重（跨文件、同请求多行取逐字段最大值），再按"日 × 模型"落桶。
+// Claude：先按请求去重（跨文件、同请求多行取逐字段最大值），再按"日 × 模型"落桶，日是 DayLabel。
 static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval start,
     NSTimeInterval end, NSMutableDictionary *cache) {
     NSArray<NSURL *> *urls = RecentClaudeTranscriptURLs(ClaudeProjectsURL(), start);
@@ -2311,7 +2328,8 @@ static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval 
     const ClaudeTokenRecord *records = merged.bytes;
     NSCalendar *calendar = NSCalendar.currentCalendar;
     NSMutableDictionary<NSString *, NSMutableDictionary *> *result = [NSMutableDictionary dictionary];
-    NSTimeInterval bucketStart = 0, bucketEnd = 0;
+    NSTimeInterval bucketStart = 0, bucketEnd = 0, bucketLabelStart = 0;
+    NSString *bucketLabel = nil;
     for (NSUInteger index = 0; index < merged.length / sizeof(ClaudeTokenRecord); index++) {
         const ClaudeTokenRecord *record = &records[index];
         // 合并后的记录不是按时间排的，日边界缓存只在恰好命中时有用，不命中就重算。
@@ -2322,11 +2340,14 @@ static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval 
             bucketStart = dayStart.timeIntervalSince1970;
             bucketEnd = (next ?: [dayStart dateByAddingTimeInterval:86400]).timeIntervalSince1970;
         }
-        NSString *dayKey = DayBucketKey(bucketStart);
-        NSMutableDictionary *perModel = result[dayKey];
+        if (!bucketLabel || bucketLabelStart != bucketStart) {
+            bucketLabel = DayLabel(bucketStart);
+            bucketLabelStart = bucketStart;
+        }
+        NSMutableDictionary *perModel = result[bucketLabel];
         if (!perModel) {
             perModel = [NSMutableDictionary dictionary];
-            result[dayKey] = perModel;
+            result[bucketLabel] = perModel;
         }
         NSString *model = record->model < names.count ? names[record->model] : @"unknown";
         NSMutableDictionary *counts = perModel[model];
@@ -2352,14 +2373,34 @@ static unsigned long long ModelDayTokens(NSDictionary *models) {
 }
 
 static NSString *const ModelArchiveSchemaKey = @"schema";
-static const NSInteger ModelArchiveSchemaVersion = 1;
-static const NSInteger ModelArchiveRetentionDays = 400;
+// 2 起归档的键是 DayLabel（日期），1 是日零点的时间戳字符串。
+static const NSInteger ModelArchiveSchemaVersion = 2;
+// 用量页最长看 90 天（CCPetsUsagePage.m 的 UsageMaximumRangeDays），归档只需要覆盖这么多，
+// 再留几天余量。读取只取请求区间里的日子，留得更久也没有路径能读到。两边要一起改。
+static const NSInteger ModelArchiveRetentionDays = 100;
 
-static NSMutableDictionary *LoadModelArchive(NSString *path) {
+// 版本 1 的归档不能直接丢：源头被清掉的那些天只剩这一份。把时间戳键换成日期就能接着用。
+static NSMutableDictionary *LoadModelArchive(NSString *path, BOOL *outMigrated) {
     NSMutableDictionary *archive = LoadTokenSummaryCache(path);
     NSDictionary *schema = [archive[ModelArchiveSchemaKey] isKindOfClass:NSDictionary.class]
         ? archive[ModelArchiveSchemaKey] : nil;
-    if ([schema[@"version"] integerValue] != ModelArchiveSchemaVersion) [archive removeAllObjects];
+    NSInteger version = [schema[@"version"] integerValue];
+    if (version == 1 && [archive[@"days"] isKindOfClass:NSDictionary.class]) {
+        NSDictionary *oldDays = archive[@"days"];
+        NSMutableDictionary *days = [NSMutableDictionary dictionaryWithCapacity:oldDays.count];
+        for (NSString *key in oldDays) {
+            if (![oldDays[key] isKindOfClass:NSDictionary.class]) continue;
+            NSString *label = DayLabel(key.doubleValue);
+            // 两个旧键落到同一天只可能是时区跳得离谱，留总量大的那份。
+            if (!days[label] || ModelDayTokens(oldDays[key]) > ModelDayTokens(days[label])) {
+                days[label] = oldDays[key];
+            }
+        }
+        archive[@"days"] = days;
+        if (outMigrated) *outMigrated = YES;
+    } else if (version != ModelArchiveSchemaVersion) {
+        [archive removeAllObjects];
+    }
     archive[ModelArchiveSchemaKey] = @{@"version": @(ModelArchiveSchemaVersion)};
     if (![archive[@"days"] isKindOfClass:NSDictionary.class]) archive[@"days"] = @{};
     return archive;
@@ -2375,7 +2416,8 @@ NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeI
         isClaude ? @"claude-model-days" : @"codex-model-days", source);
     NSMutableDictionary *cache = LoadTokenSummaryCache(cachePath);
     if (isClaude) MakeCachedRecordsMutable(cache);
-    NSMutableDictionary *archive = LoadModelArchive(archivePath);
+    BOOL archiveChanged = NO;
+    NSMutableDictionary *archive = LoadModelArchive(archivePath, &archiveChanged);
 
     NSDictionary<NSString *, NSDictionary *> *fresh = isClaude
         ? ClaudeModelDays(start, end, cache) : CodexModelDays(start, end, cache);
@@ -2383,11 +2425,10 @@ NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeI
     NSMutableDictionary *archivedDays = [archive[@"days"] mutableCopy];
     NSTimeInterval todayStart = [NSCalendar.currentCalendar
         startOfDayForDate:NSDate.date].timeIntervalSince1970;
-    BOOL archiveChanged = NO;
     NSMutableArray<NSDictionary *> *daily = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSMutableDictionary *> *totals = [NSMutableDictionary dictionary];
     for (NSNumber *dayStart in ModelUsageDayStarts(start, end)) {
-        NSString *key = DayBucketKey(dayStart.doubleValue);
+        NSString *key = DayLabel(dayStart.doubleValue);
         NSDictionary *models = fresh[key] ?: @{};
         if (dayStart.doubleValue < todayStart) {
             NSDictionary *stored = [archivedDays[key] isKindOfClass:NSDictionary.class]
@@ -2420,10 +2461,12 @@ NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeI
             AddModelCounts(sum, models[model]);
         }
     }
-    // 只留近 400 天。键是日零点的时间戳字符串。
-    NSTimeInterval oldest = todayStart - ModelArchiveRetentionDays * 86400.0;
+    // 只留近 ModelArchiveRetentionDays 天。键是 yyyy-MM-dd，字典序就是时间序。
+    NSDate *oldestDate = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay
+        value:-ModelArchiveRetentionDays toDate:[NSDate dateWithTimeIntervalSince1970:todayStart] options:0];
+    NSString *oldest = DayLabel(oldestDate.timeIntervalSince1970);
     for (NSString *key in archivedDays.allKeys) {
-        if (key.doubleValue < oldest) {
+        if ([key compare:oldest] == NSOrderedAscending) {
             [archivedDays removeObjectForKey:key];
             archiveChanged = YES;
         }

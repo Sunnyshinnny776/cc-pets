@@ -801,6 +801,42 @@ int main(void) {
         }
         puts("Codex 旧缓存迁移（整篇重读）测试通过");
 
+        // 换时区：归档和会话摘要里的日子都是按旧时区存的，新时区下照样要读得到。
+        // gpt-a / gpt-b 的会话已经删了，只剩归档；gpt-legacy 还在，走摘要缓存里的旧日桶。
+        NSTimeZone *originalZone = NSTimeZone.defaultTimeZone;
+        NSInteger shiftedOffset = MIN(originalZone.secondsFromGMT + 3 * 3600, 14 * 3600);
+        NSTimeZone.defaultTimeZone = [NSTimeZone timeZoneForSecondsFromGMT:shiftedOffset];
+        NSDate *shiftedTomorrow = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay value:1
+            toDate:[NSCalendar.currentCalendar startOfDayForDate:NSDate.date] options:0];
+        NSDate *shiftedStart = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay value:-3
+            toDate:shiftedTomorrow options:0];
+        codexModels = CCPetsModelUsage(@"codex", shiftedStart.timeIntervalSince1970,
+            shiftedTomorrow.timeIntervalSince1970)[@"models"];
+        NSTimeZone.defaultTimeZone = originalZone;
+        if (!countsMatch(codexModels[@"gpt-a"], 200, 100, 0, 30, 2) ||
+            !countsMatch(codexModels[@"gpt-b"], 250, 50, 0, 50, 2) ||
+            !countsMatch(codexModels[@"gpt-legacy"], 50, 20, 0, 5, 1)) {
+            NSLog(@"换时区后，归档和会话摘要里的日子都应读得到: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        puts("按模型用量换时区后归档仍可读测试通过");
+
+        // 版本 1 的归档键是日零点的时间戳，升级后要换成日期接着用，不能整份丢掉。
+        NSString *codexArchivePath = TokenSummaryCachePath(@"codex-model-days",
+            [modelCodexHome stringByAppendingPathComponent:@"sessions"]);
+        NSDictionary *oldArchive = @{@"schema": @{@"version": @1}, @"days": @{
+            [NSString stringWithFormat:@"%.0f", rangeStartTime()]: @{@"gpt-old": @{@"input": @1,
+                @"cacheRead": @2, @"cacheWrite": @3, @"output": @4, @"reasoning": @0, @"requests": @1}}}};
+        [[NSPropertyListSerialization dataWithPropertyList:oldArchive
+            format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil] writeToFile:codexArchivePath
+            atomically:YES];
+        codexModels = modelUsage(@"codex")[@"models"];
+        if (!countsMatch(codexModels[@"gpt-old"], 1, 2, 3, 4, 1)) {
+            NSLog(@"版本 1 的归档应迁移成按日期的键: %@", codexModels);
+            return EXIT_FAILURE;
+        }
+        puts("按模型归档版本迁移测试通过");
+
         // Claude：每行 message.model；占位模型 <synthetic> 不计；跨文件、同请求多行去重照旧。
         NSData *(^modelLine)(NSTimeInterval, NSString *, NSString *, NSString *, unsigned long long,
             unsigned long long, unsigned long long, unsigned long long) =
