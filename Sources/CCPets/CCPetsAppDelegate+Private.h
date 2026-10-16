@@ -179,28 +179,15 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
     completion:(void (^)(BOOL enabled))completion;
 - (void)applyPetSizePreference;
 - (void)setPetSizeFromSlider:(NSSlider *)sender;
-- (void)toggleSystemMetric:(NSButton *)sender;
 - (void)setUsageDisplayModeFromControl:(NSButton *)sender;
-- (NSString *)systemMetricKeyForTag:(NSInteger)tag;
 - (void)applySystemMetricPreferences;
 - (void)applyUsageDisplayModePreferences;
-- (void)toggleImportCodexPets:(NSButton *)sender;
 - (void)showImportedCodexPetsAlert:(NSUInteger)imported;
-- (NSString *)notificationKeyForTag:(NSInteger)tag;
 - (void)setPanelTheme:(MenuChoiceRowView *)sender;
 - (void)applyBubbleTextStyle;
 - (void)setGlassDimLevel:(MenuChoiceRowView *)sender;
-- (void)toggleSpeech:(NSButton *)sender;
-- (void)togglePetInteraction:(NSButton *)sender;
-- (void)setPetInteractionHeartThreshold:(MenuChoiceRowView *)sender;
-- (void)setPetInteractionAnnoyedThreshold:(MenuChoiceRowView *)sender;
-- (void)setPetInteractionInterval:(MenuChoiceRowView *)sender;
-- (void)setSpeechFrequency:(MenuChoiceRowView *)sender;
-- (void)setPhrasesSource:(MenuChoiceRowView *)sender;
 - (void)editPhrasesFile:(id)sender;
-- (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender;
 - (void)languageDidChange:(NSNotification *)notification;
-- (void)toggleNotification:(NSButton *)sender;
 @end
 
 // Agent 状态卡、会话列表、审批与卡住提醒、终端回跳、系统通知

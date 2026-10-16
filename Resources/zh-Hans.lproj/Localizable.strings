@@ -46,7 +46,7 @@
 "📬 %1$@ has %2$lu undelivered messages (say anything in that terminal to deliver)" = "📬 %@ 有 %lu 条消息待投递（去那个终端说句话即可送达）";
 "Jump to %@'s terminal" = "跳到 %@ 所在的终端";
 "No Pet Sprites Found" = "没有找到桌宠素材";
-"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex pets” in the right-click menu. Then click “Rescan”." = "用 `cc-pets pet add <名称>` 下载素材，或把 PNG / WebP 精灵图放入 ~/.cc-pets/pets/<名称>/。桌宠不会去读 ~/.petdex/pets/ 和 ~/.codex/pets/；要用 Codex 的素材，请在右键菜单打开“导入 Codex 素材”。完成后点击“重新扫描”。";
+"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex Pets” on the Pet page of the CC Pets window. Then click “Rescan”." = "用 `cc-pets pet add <名称>` 下载素材，或把 PNG / WebP 精灵图放入 ~/.cc-pets/pets/<名称>/。桌宠不会去读 ~/.petdex/pets/ 和 ~/.codex/pets/；要用 Codex 的素材，请在 CC Pets 主窗口的“宠物”页打开“导入 Codex 素材”。完成后点击“重新扫描”。";
 "Rescan" = "重新扫描";
 "Open Pets Folder" = "打开素材目录";
 "Quit" = "退出";

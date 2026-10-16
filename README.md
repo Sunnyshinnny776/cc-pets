@@ -236,13 +236,14 @@ cc-pets open general       # also: pet, alerts, diagnostics
   model, and hover a bar for that day's numbers. Everything is counted from local session
   logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
   old transcripts.
-- **Pet / Alerts / Settings** — every option from the right-click menu, split
-  into three short pages (Pet: picker, size, chatter and click reactions; Alerts:
-  notifications and the status card), plus finer controls such as the click-reaction thresholds and a
+- **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
+  picker, size, chatter, click reactions and Codex import; Alerts: notifications, the status
+  card and system status; Settings: language, panel appearance and data folders), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
   Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
-  right-click menu.
+  right-click menu. The right-click menu keeps only the everyday items: Pets, Pet Size,
+  Show Status Card, Usage Display, Panel Theme and CC Bridge.
 - **Diagnostics** — the same checks as `cc-pets doctor`, problems first: each with its area,
   the suggested fix command and a copy button. Passing checks fold into one line. The PATH
   order check only points you to `cc-pets doctor` in a terminal, since the pet's own PATH
@@ -264,7 +265,7 @@ clicking the Dock icon brings a minimized window back.
 | Hover on either body side | Directional interaction animation |
 | Click | Playful response animation |
 | Drag left or right | Directional drag animation |
-| Right-click | Pet, size, notification, Help (update check and About), and exit menu |
+| Right-click | Pets, size, status card, usage display, panel theme, CC Bridge, Help, open the window, and quit |
 
 **Pet Size** in the right-click menu offers a 50%–200% slider with a live percentage
 and **Reset Size** to return to 100%. The pet scales around its feet, and its size
@@ -283,7 +284,7 @@ look more transparent; higher levels keep text readable over light backgrounds.
 
 ### Language
 
-The **Language** submenu offers **System Default** plus every bundled language,
+The **Language** option on the window's **Settings** page offers **System Default** plus every bundled language,
 currently **English** and **简体中文**. System Default follows the first supported
 entry in macOS's preferred languages and falls back to English. Menus and panels switch right away; system
 buttons in dialogs follow after the next launch. The choice is written to
@@ -295,7 +296,7 @@ language, see [Adding a language](./CONTRIBUTING.md#adding-a-language).
 
 The pet switcher scans only built-in assets and `~/.cc-pets/pets/`. It does not
 scan `~/.petdex/pets/` or `~/.codex/pets/`. To use assets installed by Codex,
-enable **Import Codex pets** in the app's right-click menu; CC Pets copies valid
+enable **Import Codex Pets** on the window's **Pet** page; CC Pets copies valid
 assets into its own directory without overwriting names already present.
 
 External assets use their directory name in the menu. The app caches the list and
@@ -343,8 +344,8 @@ days, and records at most once every 15 minutes.
 
 ## Speech
 
-The pet's speech comes from `~/.cc-pets/speech.txt`. Open **Speech → Edit lines…**
-in the right-click menu to edit, validate, preview, or restore it. Lines are grouped
+The pet's speech comes from `~/.cc-pets/speech.txt`. Open **Chatter → Edit Lines…**
+on the window's **Pet** page to edit, validate, preview, or restore it. Lines are grouped
 under stable situation tags such as `[idle]`, `[done]`, and `[state_thinking]`.
 Each line is limited to 30 characters if it contains Chinese, Japanese, or Korean
 text, and to 40 characters otherwise.
@@ -402,8 +403,8 @@ consecutive `..` sequences.
 
 ### Importing Codex assets
 
-CC Pets never renders directly from `~/.codex/pets/`. Enable **Import Codex pets**
-to copy assets containing `spritesheet.webp` or `spritesheet.png` into
+CC Pets never renders directly from `~/.codex/pets/`. Enable **Import Codex Pets** on the
+window's **Pet** page to copy assets containing `spritesheet.webp` or `spritesheet.png` into
 `~/.cc-pets/pets/`. Existing names are skipped, imports are idempotent, and disabling
 the option does not delete previously copied files.
 

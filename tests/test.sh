@@ -314,10 +314,10 @@ if grep -q 'if (self.statusPanel.isVisible) return;' "${PET_SOURCES[@]}"; then
 fi
 # 借走状态卡副行说完闲话必须还回去，否则副行会一直挂着闲话像卡死了。
 grep -q 'restoreStatusDetail' "${PET_SOURCES[@]}"
-# 频率四档要同时出现在档位表和右键菜单里，少一头就是"菜单里能选但没效果"。
+# 频率四档要同时出现在档位表和主窗口设置页里，少一头就是"界面上能选但没效果"。
 for freq in low normal high chatty; do
-  if ! grep -q "\"${freq}\"" "${PROJECT_DIR}/Sources/CCPets/PetView.m"; then
-    print -u2 "右键菜单缺少碎碎念频率档位 ${freq}"
+  if ! grep -q "\"${freq}\"" "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"; then
+    print -u2 "设置页缺少碎碎念频率档位 ${freq}"
     exit 1
   fi
 done
@@ -2125,10 +2125,10 @@ CC_PETS_LANGUAGE=zh-Hans "${PROJECT_DIR}/bin/cc-pets" --help | grep -q '^用法�
 [[ "$(CC_PETS_LANGUAGE=en zsh -c "source '${PROJECT_DIR}/scripts/i18n.zsh'; cc_pets_t 'App removed: {targetApp}' targetApp=/x")" == "App removed: /x" ]]
 [[ "$(CC_PETS_LANGUAGE=zh_CN.UTF-8 zsh -c "source '${PROJECT_DIR}/scripts/i18n.zsh'; cc_pets_t 'App removed: {targetApp}' targetApp=/x")" == "已删除应用: /x" ]]
 CC_PETS_LANGUAGE=en "${PROJECT_DIR}/bin/cc-pets" bridge --help 2>&1 | grep -q 'Usage: cc-pets bridge'
-# 语言菜单是"跟随系统"加上自动发现的语言，不能退回写死的列表；菜单项还得真的接到设置上。
-grep -q 'CCPetsLanguageSystem' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -q 'for (NSString \*language in CCPetsSupportedLanguages())' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -q 'setLanguagePreferenceFromMenu:' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"
+# 语言选项是"跟随系统"加上自动发现的语言，不能退回写死的列表；选项还得真的接到设置上。
+grep -q 'CCPetsLanguageSystem' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
+grep -q 'for (NSString \*language in CCPetsSupportedLanguages())' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
+grep -q 'CCPetsSetLanguagePreference(value)' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/zh-Hans.lproj/Localizable.strings" ]]
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.en.txt" ]]
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.zh-Hans.txt" ]]

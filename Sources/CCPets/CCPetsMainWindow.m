@@ -74,7 +74,7 @@ static BOOL HasVisibleRegularWindow(void) {
 #pragma mark - 侧边栏部件
 
 // 侧边栏的中文标题字与字之间各加一个空格（"概 览"、"会 话"），两三个字的短标题排开后
-// 更像一列整齐的菜单；全屏时侧边栏更宽，字间改成两个空格。只处理全是汉字的标题：
+// 更像一列整齐的菜单；全屏或铺满屏幕时侧边栏更宽，字间改成两个空格。只处理全是汉字的标题：
 // 英文等其他语言原样显示。读屏仍用原标题。
 static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
     if (title.length < 2) return title;
@@ -98,7 +98,7 @@ static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
 @property(nonatomic) BOOL selected;
 @property(nonatomic) CCPetsCountBadge *badge;
 @property(nonatomic, copy) void (^onSelect)(NSString *pageID);
-// spacious：全屏时用，图标和文字间多空 2pt，字间两个空格。
+// spacious：全屏或铺满屏幕时用，图标和文字间多空 2pt，字间两个空格。
 - (instancetype)initWithPage:(NSDictionary *)page spacious:(BOOL)spacious;
 @end
 
@@ -316,10 +316,10 @@ static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
 @property(nonatomic, copy) NSString *currentPage;
 @property(nonatomic, copy) void (^selectionHandler)(NSString *page);
 @property(nonatomic) NSArray<NSLayoutConstraint *> *leadingConstraints;
-@property(nonatomic) BOOL fullScreen;
+@property(nonatomic) BOOL expanded;
 - (void)selectPage:(NSString *)page;
-// 全屏时（侧边栏同时加宽）整列内容右移 5pt，导航项换成宽松排版；退出时恢复。
-- (void)setFullScreen:(BOOL)fullScreen;
+// 全屏或铺满屏幕时（侧边栏同时加宽）整列内容右移 5pt，导航项换成宽松排版；退出时恢复。
+- (void)setExpanded:(BOOL)expanded;
 - (void)reload;
 @end
 
@@ -349,9 +349,13 @@ static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
     NSLayoutConstraint *footerRuleLeading = [footerRule.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16];
     NSLayoutConstraint *footerLeading = [footer.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:10];
     self.leadingConstraints = @[cardLeading, cardRuleLeading, navigationLeading, footerRuleLeading, footerLeading];
+    NSLayoutConstraint *cardTop = [card.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor constant:2];
+    cardTop.priority = NSLayoutPriorityDefaultHigh;
     [NSLayoutConstraint activateConstraints:@[
         // 名片从标题栏下沿开始，左右和导航项对齐。
-        [card.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor constant:2],
+        cardTop,
+        // 全屏时工具栏收起、安全区变成 0，这时至少离顶边 18pt，和右侧页头标题大致齐平。
+        [card.topAnchor constraintGreaterThanOrEqualToAnchor:root.topAnchor constant:18],
         cardLeading,
         [card.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-10],
         [cardRule.topAnchor constraintEqualToAnchor:card.bottomAnchor constant:12],
@@ -383,7 +387,7 @@ static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
 }
 
 - (NSTextField *)groupLabel:(NSString *)title {
-    NSTextField *label = CCPetsLabel(SidebarDisplayTitle(title, self.fullScreen), 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
+    NSTextField *label = CCPetsLabel(SidebarDisplayTitle(title, self.expanded), 11, NSFontWeightSemibold, CCPetsTertiaryInkColor());
     label.accessibilityLabel = title;
     return label;
 }
@@ -399,7 +403,7 @@ static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
     NSString *group = nil;
     NSDictionary *groupTitles = @{@"workbench": L(@"Workbench"), @"settings": L(@"General")};
     for (NSDictionary *page in MainWindowPages()) {
-        CCPetsSidebarItem *item = [[CCPetsSidebarItem alloc] initWithPage:page spacious:self.fullScreen];
+        CCPetsSidebarItem *item = [[CCPetsSidebarItem alloc] initWithPage:page spacious:self.expanded];
         item.onSelect = ^(NSString *pageID) {
             if (weakSelf.selectionHandler) weakSelf.selectionHandler(pageID);
         };
@@ -449,13 +453,13 @@ static NSString *SidebarDisplayTitle(NSString *title, BOOL spacious) {
     [self rebuildItems];
 }
 
-- (void)setFullScreen:(BOOL)fullScreen {
+- (void)setExpanded:(BOOL)expanded {
     [self view];
-    _fullScreen = fullScreen;
+    _expanded = expanded;
     // 每条左边距的基准值：名片、导航、底部诊断 10pt，两条分隔线 16pt。
     static const CGFloat bases[] = {10, 16, 10, 16, 10};
     for (NSUInteger index = 0; index < self.leadingConstraints.count; index++) {
-        self.leadingConstraints[index].constant = bases[index] + (fullScreen ? 5 : 0);
+        self.leadingConstraints[index].constant = bases[index] + (expanded ? 5 : 0);
     }
     // 图标间距和字间空格是建导航项时定的，整列重建。
     [self rebuildItems];
@@ -489,12 +493,15 @@ static NSLayoutConstraint *PageTopConstraint(NSView *view, NSView *host) {
 @property(nonatomic) NSViewController *pageController;
 @property(nonatomic, copy) NSString *currentPage;
 @property(nonatomic) NSSplitViewItem *sidebarItem;
-// 进全屏前侧边栏的宽度，退出时还原。
+// 进全屏 / 铺满屏幕前侧边栏的宽度，退出时还原。
 @property(nonatomic) CGFloat windowedSidebarWidth;
+@property(nonatomic) BOOL inFullScreen;
+@property(nonatomic) BOOL sidebarExpanded;
 @end
 
-// 全屏时屏幕宽，侧边栏在常规宽度上加宽 10pt，内容右移 5pt，和铺满的内容区比例更协调。
-static const CGFloat SidebarFullScreenExtraWidth = 10;
+// 全屏或 zoom 铺满屏幕时窗口宽，侧边栏在常规宽度上加宽 10pt，内容右移 5pt，
+// 和铺满的内容区比例更协调。
+static const CGFloat SidebarExpandedExtraWidth = 10;
 
 static CCPetsMainWindowController *SharedMainWindow;
 static id WindowCloseObserver;
@@ -510,6 +517,8 @@ static id WindowCloseObserver;
     [self enterRegularMode];
     [NSApp activateIgnoringOtherApps:YES];
     [SharedMainWindow.window makeKeyAndOrderFront:nil];
+    // 上次关窗时是铺满屏幕的大小，恢复出来也要用加宽的侧边栏。
+    [SharedMainWindow updateSidebarExpansion];
     // 侧边栏的诊断角标要先检查一遍；结果缓存一阵，频繁开关窗口不会反复跑。
     [CCPetsDiagnosticsStore refreshIfStale];
 }
@@ -642,20 +651,43 @@ static id WindowCloseObserver;
 // 压在页头上（标题被盖住），所以全屏期间收起，退出时再放回来。
 - (void)windowWillEnterFullScreen:(NSNotification *)notification {
     self.window.toolbar.visible = NO;
-    CGFloat width = NSWidth(self.sidebar.view.frame);
-    self.windowedSidebarWidth = width > 0 ? width : 240;
-    CGFloat fullWidth = self.windowedSidebarWidth + SidebarFullScreenExtraWidth;
-    self.sidebarItem.maximumThickness = fullWidth;
-    self.sidebarItem.minimumThickness = fullWidth;
-    self.sidebar.fullScreen = YES;
+    self.inFullScreen = YES;
+    [self updateSidebarExpansion];
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
     self.window.toolbar.visible = YES;
-    self.sidebarItem.minimumThickness = 200;
-    self.sidebarItem.maximumThickness = 240;
-    [self.splitController.splitView setPosition:self.windowedSidebarWidth ofDividerAtIndex:0];
-    self.sidebar.fullScreen = NO;
+    self.inFullScreen = NO;
+    [self updateSidebarExpansion];
+}
+
+// zoom（双击标题栏、按住 Option 点绿色按钮）铺满屏幕也会走到这里。拖边框的过程中不判断，
+// 松手后再看。
+- (void)windowDidResize:(NSNotification *)notification {
+    if (!self.window.inLiveResize) [self updateSidebarExpansion];
+}
+
+- (void)windowDidEndLiveResize:(NSNotification *)notification {
+    [self updateSidebarExpansion];
+}
+
+// 全屏或铺满屏幕时侧边栏加宽、内容换宽松排版；回到普通窗口大小时还原成之前的宽度。
+- (void)updateSidebarExpansion {
+    BOOL expanded = self.inFullScreen || (self.window.isVisible && self.window.isZoomed);
+    if (expanded == self.sidebarExpanded) return;
+    self.sidebarExpanded = expanded;
+    if (expanded) {
+        CGFloat width = NSWidth(self.sidebar.view.frame);
+        self.windowedSidebarWidth = width > 0 ? width : 240;
+        CGFloat expandedWidth = self.windowedSidebarWidth + SidebarExpandedExtraWidth;
+        self.sidebarItem.maximumThickness = expandedWidth;
+        self.sidebarItem.minimumThickness = expandedWidth;
+    } else {
+        self.sidebarItem.minimumThickness = 200;
+        self.sidebarItem.maximumThickness = 240;
+        [self.splitController.splitView setPosition:self.windowedSidebarWidth ofDividerAtIndex:0];
+    }
+    self.sidebar.expanded = expanded;
 }
 
 - (void)windowWillClose:(NSNotification *)notification {

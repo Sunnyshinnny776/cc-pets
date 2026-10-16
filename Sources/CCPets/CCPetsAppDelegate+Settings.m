@@ -36,12 +36,6 @@
     [self.speechPanel.contentView displayIfNeeded];
     [self petWindowDidMove:nil];
 }
-- (NSString *)systemMetricKeyForTag:(NSInteger)tag {
-    if (tag == 1) return SystemCPUEnabledKey;
-    if (tag == 2) return SystemTemperatureEnabledKey;
-    if (tag == 3) return SystemMemoryEnabledKey;
-    return nil;
-}
 - (void)applySystemMetricPreferences {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     self.quotaView.systemCPUEnabled = [defaults boolForKey:SystemCPUEnabledKey];
@@ -74,25 +68,12 @@
     // 否则刚打开 API 视图时手里只有一段按 8 天窗口扫出来的数据。
     [self refreshUsage:nil];
 }
-- (void)toggleSystemMetric:(NSButton *)sender {
-    NSString *key = [self systemMetricKeyForTag:sender.tag];
-    if (!key) return;
-    BOOL enabled = !CCPetsPrefBool(key);
-    [self updateSystemMetric:key enabled:enabled];
-    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
-}
 - (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled {
     if (![@[SystemCPUEnabledKey, SystemTemperatureEnabledKey, SystemMemoryEnabledKey]
             containsObject:key]) return;
     CCPetsPrefSetBool(key, enabled);
     [self applySystemMetricPreferences];
     [self updateSystemMetricsTimer];
-}
-- (void)toggleImportCodexPets:(NSButton *)sender {
-    BOOL enabled = !CCPetsPrefBool(ImportCodexPetsKey);
-    // 先回写开关再导入：导入完会弹模态提示，开关得在那之前就是新状态。
-    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
-    [self updateImportCodexPets:enabled];
 }
 // 开关打开时立刻导入一次，不用等下次启动——用户点开关就是想现在看到那些素材。
 - (void)updateImportCodexPets:(BOOL)enabled {
@@ -109,13 +90,6 @@
     alert.messageText = L(@"Codex Pets Imported");
     [alert addButtonWithTitle:L(@"OK")];
     [alert runModal];
-}
-- (NSString *)notificationKeyForTag:(NSInteger)tag {
-    if (tag == 1) return NotificationCompletionKey;
-    if (tag == 2) return NotificationFailureKey;
-    if (tag == 3) return NotificationApprovalKey;
-    if (tag == 4) return NotificationStallKey;
-    return nil;
 }
 // sender 是菜单里的 MenuChoiceRowView，勾选状态由它自己更新。
 - (void)setPanelTheme:(MenuChoiceRowView *)sender {
@@ -173,47 +147,19 @@
     self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
     self.quotaView.needsDisplay = YES;
 }
-- (void)toggleSpeech:(NSButton *)sender {
-    BOOL enabled = !CCPetsPrefBool(PetSpeechEnabledKey);
-    [self updateSpeechEnabled:enabled];
-    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
-}
 - (void)updateSpeechEnabled:(BOOL)enabled {
     CCPetsPrefSetBool(PetSpeechEnabledKey, enabled);
     // 更新提示不算碎碎念，关掉碎碎念时不收它。
     if (!enabled && !self.updateBubbleVisible) [self hideSpeechBubble];
 }
-- (void)togglePetInteraction:(NSButton *)sender {
-    BOOL enabled = !CCPetsPrefBool(PetInteractionEnabledKey);
-    [self updatePetInteractionEnabled:enabled];
-    sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
-}
 - (void)updatePetInteractionEnabled:(BOOL)enabled {
     CCPetsPrefSetBool(PetInteractionEnabledKey, enabled);
-}
-- (void)setPetInteractionHeartThreshold:(MenuChoiceRowView *)sender {
-    NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
-        sender.representedObject : @3;
-    [self updatePetInteractionValue:value forKey:PetInteractionHeartThresholdKey];
-}
-- (void)setPetInteractionAnnoyedThreshold:(MenuChoiceRowView *)sender {
-    NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
-        sender.representedObject : @10;
-    [self updatePetInteractionValue:value forKey:PetInteractionAnnoyedThresholdKey];
-}
-- (void)setPetInteractionInterval:(MenuChoiceRowView *)sender {
-    NSNumber *value = [sender.representedObject isKindOfClass:NSNumber.class] ?
-        sender.representedObject : @1.2;
-    [self updatePetInteractionValue:value forKey:PetInteractionIntervalKey];
 }
 // 阈值和间隔都是点击时现读的，写进去即生效；范围钳制在 CCPetsPrefNormalizedValue。
 - (void)updatePetInteractionValue:(NSNumber *)value forKey:(NSString *)key {
     if (![@[PetInteractionHeartThresholdKey, PetInteractionAnnoyedThresholdKey,
             PetInteractionIntervalKey] containsObject:key]) return;
     CCPetsPrefSetObject(key, value);
-}
-- (void)setSpeechFrequency:(MenuChoiceRowView *)sender {
-    [self updateSpeechFrequency:sender.representedObject];
 }
 // 频率档位。改完立刻生效——四道闸都是现读的，不缓存。
 // 顺手把冷却清掉，否则刚调高档位还要等完上一档的冷却才见效，会让人以为没生效。
@@ -223,9 +169,6 @@
     CCPetsPrefSetObject(PetSpeechFrequencyKey, value);
     self.speechCooldownUntil = 0;
     self.lastIdleSpeechCheck = 0;
-}
-- (void)setPhrasesSource:(MenuChoiceRowView *)sender {
-    [self updatePhrasesSource:sender.representedObject];
 }
 - (void)updatePhrasesSource:(NSString *)source {
     if (![@[PetPhrasesSourcePet, PetPhrasesSourceDefault] containsObject:source] ||
@@ -264,13 +207,6 @@
     }];
     [PetPhrasesEditorController present];
 }
-- (void)toggleNotification:(NSButton *)sender {
-    NSString *key = [self notificationKeyForTag:sender.tag];
-    if (!key) return;
-    [self updateNotification:key enabled:!CCPetsPrefBool(key) completion:^(BOOL enabled) {
-        sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
-    }];
-}
 // 系统通知四项和 CC Bridge 送达通知共用：打开前先向系统申请通知权限，没拿到就保持关闭并说明
 // 原因。completion 在主线程回调，参数是最终是否开启，调用方据此回写自己的开关。
 - (void)updateNotification:(NSString *)key enabled:(BOOL)enabled
@@ -294,13 +230,6 @@
             [self showAlertWithTitle:L(@"Can't Enable Notifications") message:message];
         });
     }];
-}
-// 菜单每次右键现建，切换后下次打开就是新语言；这里只刷新常驻的界面。
-- (void)setLanguagePreferenceFromMenu:(NSMenuItem *)sender {
-    NSString *preference = [sender.representedObject isKindOfClass:NSString.class] ?
-        sender.representedObject : CCPetsLanguageSystem;
-    if ([preference isEqualToString:CCPetsLanguagePreference()]) return;
-    CCPetsSetLanguagePreference(preference);
 }
 - (void)languageDidChange:(NSNotification *)notification {
     PetPhrasesAdoptLanguageDefaults();
