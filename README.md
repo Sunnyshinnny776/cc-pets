@@ -153,7 +153,7 @@ cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
 cc-pets doctor                # Check the installation and integrations, with fixes.
-cc-pets open [page]           # Open the main window (pages: settings, diagnostics).
+cc-pets open [page]           # Open the main window (pages: settings, usage, diagnostics).
 cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
@@ -211,6 +211,7 @@ menu (**Open CC Pets…**), the app menu, or the terminal:
 ```bash
 cc-pets open               # the page you used last
 cc-pets open settings
+cc-pets open usage
 cc-pets open diagnostics
 ```
 
@@ -225,6 +226,12 @@ cc-pets open diagnostics
   controls such as the click-reaction thresholds. Changes apply to the desktop pet
   immediately, and changes made in the menu show up here. Options that rewrite Claude
   Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the right-click menu.
+- **Usage** — local Claude Code and Codex token usage by model over the last 7, 30 or 90 days:
+  total tokens, requests and cache hit rate, a row per model with its input / cache read /
+  cache write / output split, and a per-day stacked bar chart for the selected model. The
+  four columns never overlap (Codex's cached tokens are subtracted from its input), so they
+  add up to the total. Everything is counted from local session logs; nothing is sent anywhere.
+  A per-day archive keeps history after Claude Code prunes old transcripts.
 - **Diagnostics** — the same checks as `cc-pets doctor`: a summary, one card per area, a
   copy button for each suggested fix command, **Re-check** and **Copy Report** (paths are
   shown as `~`, so it is safe to paste into an issue). It only reads; run the fix commands

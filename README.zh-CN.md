@@ -63,6 +63,7 @@
 ```bash
 cc-pets open               # 上次看的页面
 cc-pets open settings
+cc-pets open usage
 cc-pets open diagnostics
 ```
 
@@ -75,6 +76,10 @@ cc-pets open diagnostics
 - **设置**：右键菜单里的全部选项按组放在一起，另有菜单里放不下的细项（比如连击阈值）。
   改动会立刻作用到桌面上的宠物，在菜单里改的也会同步显示在这里。会改写 Claude Code /
   Codex 配置的选项（启用 CC Bridge、免审批）仍只在右键菜单里。
+- **用量**：按模型看本机 Claude Code / Codex 最近 7、30、90 天的 Token 用量：总 Token、请求数、
+  缓存命中率，每个模型一行（输入 / 缓存读 / 缓存写 / 输出的占比），以及选中模型的每日堆叠柱状图。
+  四栏互不重叠（Codex 的缓存命中已从它的输入里扣除），加起来就是总量。数据全部来自本机会话日志，
+  不会发送到任何地方；按日归档让 Claude Code 清理旧转录之后，历史仍然留得住。
 - **诊断**：和 `cc-pets doctor` 同一套检查：汇总、按区域分组的卡片、每条修复建议的
   「复制命令」，以及「重新检查」和「复制报告」（路径显示为 `~`，可以直接贴进 issue）。
   诊断页只读，修复命令需要你自己执行。
@@ -456,7 +461,7 @@ cc-pets clean
 # 检查安装、Hooks、status line、shim 与 CC Bridge 是否正常，并给出修复建议；输出已脱敏，可直接贴进 issue
 cc-pets doctor
 
-# 打开主窗口并定位到页面（settings / diagnostics，省略则打开上次看的页面）
+# 打开主窗口并定位到页面（settings / usage / diagnostics，省略则打开上次看的页面）
 cc-pets open [page]
 
 # 列出偏好、桌宠素材、台词、缓存与运行时状态的存放位置和大小（--json 输出机器可读格式）

@@ -79,7 +79,19 @@
 
 原计划的「点击互动预览」依赖预览台，预览台已移除，此任务取消。后续任务编号保持不变。
 
-### 任务 8（v2）：按模型的用量统计 + 「用量与趋势」页
+### 任务 8（v2）：按模型的用量统计 + 「用量与趋势」页——已完成（分支 `feat/usage-by-model`）
+
+**实现与计划的差异**（先读这段再看下面的原方案）：
+- 数据层是独立入口 `CCPetsModelUsage(provider, start, end)`（`CCPetsUsage.m`），**没有**往现有 `totals` 旁加 `byModel`，也没改 `MonthlyArchiveSchemaVersion`：悬停面板的缓存、聚合和数字完全不动，页面用自己的缓存文件（`claude-models` / `codex-models`）和按日归档（`*-model-days`，按模型各取大的一份，保留 400 天）。
+- Codex 会话摘要多了 `modelDays` / `model`，Claude 记录多了 `model` 下标（旁表在缓存的 `~models` 键里）；两边缓存条目都加了版本号，对不上就整篇重读一次。这两处结构共用，所以悬停面板的缓存也会随之重读一次。
+- 四栏口径统一在数据层做掉：Codex 非缓存输入 = input − cached，页面只管显示。
+- 页面 `CCPetsUsagePage`：来源（全部 / Claude Code / Codex）+ 区间（7 / 30 / 90 天），概览、按模型列表（占比条 + 各栏 + 命中率 + 请求数）、选中模型的每日堆叠柱状图（自绘，悬停看当天数值）。后台串行队列计算，generation 丢弃过期结果。
+- 测试在 `tests/token-usage-harness.m` 末尾：切模型、重复写入、续读保持模型上下文、归档、两家旧缓存迁移、占位模型过滤、悬停面板口径不变。
+
+---
+
+**以下是原方案（保留作背景）**
+
 
 **数据已核实存在**：
 
