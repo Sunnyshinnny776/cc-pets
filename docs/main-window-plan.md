@@ -30,7 +30,7 @@
 | `f5edf25` feat: add a usage page with per-model token usage and daily charts | 任务 8 页面：`CCPetsUsagePage`。 |
 | `210efbf` docs: document the usage page and per-model data | 任务 8 的 README / CHANGELOG。 |
 | `ea238c0` / `4432dac` | 用量页一次算 90 天、本地截取区间；本文档更新。 |
-| 任务 9 / 9b 的提交 | 玻璃压暗改为连续值；主窗口改版（主题部件、分组侧边栏、概览、会话与消息、用量页重做、设置拆三页、诊断页重排）。见任务 9b。 |
+| 任务 9 / 9b 的提交 | 玻璃压暗改为连续值；主窗口改版（主题部件、分组侧边栏、概览、会话、用量页重做、设置拆三页、诊断页重排）。见任务 9b。 |
 
 ### 2.1 现有架构速览（接手前先读这些文件）
 
@@ -43,7 +43,7 @@
 - `Sources/CCPets/CCPetsUIStyle.h/.m`：主题令牌（`CCPetsAccentColor()` 等动态色、状态色、`CCPetsChartColor()` 8 色模型色板）和基础部件（`CCPetsCardView`、`CCPetsTileView`、`CCPetsChipView`、`CCPetsCountBadge`、`CCPetsColorDot`、`CCPetsPillButton`、`CCPetsWrappingLabel()`、`CCPetsSpriteView`）。颜色一律在 `updateLayer` / 绘制时解析，深浅色切换不重建视图。
 - `Sources/CCPets/CCPetsFormBuilder.h/.m`：每页的骨架（页头标题 + 副标题 + 右侧控件，下面滚动内容，最宽 780pt）和「分组标题 + 卡片 + 行」的排版。
 - `Sources/CCPets/CCPetsWorkbench.h`：`CCPetsWorkbenchSource` 协议（会话、CC Bridge 消息元数据、额度的只读快照，跳终端），AppDelegate 在 `CCPetsAppDelegate+Workbench.m` 实现。和 `CCPetsSettingsActions` 一样不在声明上采纳，`tests/test.sh` 逐条核对声明。
-- `Sources/CCPets/CCPetsWorkbenchPages.h/.m`：概览页、会话与消息页。
+- `Sources/CCPets/CCPetsWorkbenchPages.h/.m`：概览页、会话页。
 - `Sources/CCPets/CCPetsSettingsPage.h/.m`：`CCPetsSettingsActions` 协议 + 三个设置页（`CCPetsPetPage` / `CCPetsAlertsPage` / `CCPetsGeneralPage`）及共用基类 `CCPetsSettingsPageBase`（控件绑定、reloader）。
 - `Sources/CCPets/CCPetsUsagePage.h/.m`：用量页 + `CCPetsUsageStore`（90 天数据，概览也用，两分钟内算新鲜）。
 - `Sources/CCPets/CCPetsDiagnosticsPage.h/.m`：诊断页 + `CCPetsDiagnosticsStore`（检查结果缓存十分钟，侧边栏角标和概览提醒共用；窗口打开时检查一次）。
@@ -112,13 +112,13 @@
 和原方案的差异：
 
 - 会话记录只在内存里存在线会话（`agentSessionRecords`，离线即清理），没有历史，所以会话页只列在线会话；没有"持续时长"（记录里只有最近一条事件的时间），改为「最近活动」，页面开着时 5 秒走一次表，数据没变不重排。
-- 会话页和 CC Bridge 消息合成一页「会话与消息」。消息只有元数据（谁发给谁、时间、是否已读、信箱积压），**正文不进主窗口**，和系统通知的约定一致。
+- 会话页和 CC Bridge 消息合成一页「会话」。消息只有元数据（谁发给谁、时间、是否已读、信箱积压），**正文不进主窗口**，和系统通知的约定一致。
 - 概览不列会话（用户要求），只放宠物、今日用量（`CCPetsUsageStore` 的最后一天）、诊断提醒、额度环。额度与节奏判断复用悬停面板（`QuotaDashboardView -paceStatusForQuota:` 现在多返回 `level`）。
 - 概览是第一项；`presentPage:nil` 仍先恢复上次的页面。
 
 ### 任务 9b：主窗口改版——已完成
 
-按设计稿落地：主题令牌与部件、分组侧边栏 + 底部诊断、概览、会话与消息、用量页（按模型分色堆叠、指标切换、图例 / 表格点选单模型、悬停明细）、设置拆成宠物 / 提醒与互动 / 通用三页、诊断页问题置顶。删掉了 `CCPetsSymbolTile()` 和 `CCPetsMainPageSections`（页面短了，不再需要页内跳转）。玻璃压暗改为 0–45 连续值：`CCPetsGlassDimLevel()` 接受任意值并夹紧，`CCPetsNearestGlassDimLevel()` 给菜单勾选最近的档，衬底透明度按档位间直线插值。
+按设计稿落地：主题令牌与部件、分组侧边栏 + 底部诊断、概览、会话、用量页（按模型分色堆叠、指标切换、图例 / 表格点选单模型、悬停明细）、设置拆成宠物 / 提醒 / 设置三页（侧边栏分组名为「通用」）、诊断页问题置顶。删掉了 `CCPetsSymbolTile()` 和 `CCPetsMainPageSections`（页面短了，不再需要页内跳转）。玻璃压暗改为 0–45 连续值：`CCPetsGlassDimLevel()` 接受任意值并夹紧，`CCPetsNearestGlassDimLevel()` 给菜单勾选最近的档，衬底透明度按档位间直线插值。
 
 未做（留给后续）：模型表排序；宠物页的尺寸实时预览；把旧 `docs/images/main-window*.png` 换成新截图（需要真机截，见 5.4）。
 
@@ -184,7 +184,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 -ISources/CCPets -DCC_PETS_VERSION='"
 - 侧边栏玻璃背景与自绘导航项、名片的整体观感；深浅色切换时各卡片、胶囊、图表颜色是否都跟着变。
 - 关窗后 Dock 图标、菜单栏收回；窗口打开时切到别的 App 再回来，桌宠和气泡一直在。
 - 名片和概览里的宠物动作 / 状态、气泡随 Agent 事件变化。
-- 会话与消息：「跳到终端」能回到对应终端；等审批的会话置顶；CC Bridge 消息开着页面时会更新。
+- 会话：「跳到终端」能回到对应终端；等审批的会话置顶；CC Bridge 消息开着页面时会更新。
 - 用量页：悬停明细的位置（靠右边的柱子会翻到左侧）；图例与表格点选、再点回到全部；切换来源 / 区间 / 指标的速度。
 - 通用页：拖玻璃压暗滑块时悬停面板深浅连续变化；右键菜单勾选最接近的档；胶囊切换订阅 / 用量后悬停面板跟着变。
 - `docs/images/main-window*.png` 需要用真机重新截。

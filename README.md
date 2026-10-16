@@ -221,8 +221,8 @@ cc-pets open general       # also: pet, alerts, diagnostics
 </p>
 
 - **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
-  (Overview, Sessions & Messages, Usage) and **Settings** (Pet, Alerts & Interaction,
-  General). Diagnostics sits at the bottom with a badge when something needs fixing.
+  (Overview, Sessions & Messages, Usage, Pet) and **General** (Alerts,
+  Settings). Diagnostics sits at the bottom with a badge when something needs fixing.
 - **Overview** — the pet and what it is doing, today's new tokens, cache reads and requests,
   a notice when diagnostics found problems, and your Claude / Codex plan quota as rings
   (5-hour and weekly remaining, reset times, weekly pace).
@@ -236,7 +236,7 @@ cc-pets open general       # also: pet, alerts, diagnostics
   model, and hover a bar for that day's numbers. Everything is counted from local session
   logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
   old transcripts.
-- **Pet / Alerts & Interaction / General** — every option from the right-click menu, split
+- **Pet / Alerts / Settings** — every option from the right-click menu, split
   into three short pages, plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
