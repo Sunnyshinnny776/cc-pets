@@ -22,6 +22,10 @@
     completion:(void (^)(BOOL enabled))completion;
 - (void)updateBridgeBadgeEnabled:(BOOL)enabled;
 - (void)editPhrasesFile:(id)sender;
+// 按当前台词来源抽一句闲话，不说出来、不占碎碎念的预算和冷却。
+- (NSString *)sampleSpeechLine;
+// 让桌宠当场说这句（和台词编辑器的"试说一句"同一条路）。
+- (void)presentSpeechText:(NSString *)text;
 @end
 
 // 主窗口的「设置」页：右键菜单里的设置按组摊开，外加菜单里放不下的连续调节和文件夹入口。

@@ -340,6 +340,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)positionSpeechPanel;
 - (void)speakWithTag:(NSString *)tag;
 - (void)presentSpeechText:(NSString *)text;
+- (NSString *)sampleSpeechLine;
 - (void)restoreStatusDetail;
 - (void)showSpeechBubbleWithText:(NSString *)text;
 - (void)showSpeechBubbleWithText:(NSString *)text dwell:(NSTimeInterval)dwell;

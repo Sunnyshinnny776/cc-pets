@@ -210,6 +210,10 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
 
     [self presentSpeechText:text];
 }
+// 设置页"试说一句"和预览台用：只取词，不记预算、不进冷却，说不说由调用方决定。
+- (NSString *)sampleSpeechLine {
+    return PetPhraseForTag(PetPhraseTagIdle, [self speechSlots]);
+}
 // 话往哪儿显示只在这一处决定：有状态卡就并进它的副行，没有才起独立气泡。
 // 调试触发也必须走这里——否则看到的是现实中不会出现的画面（两个泡叠着）。
 - (void)presentSpeechText:(NSString *)text {

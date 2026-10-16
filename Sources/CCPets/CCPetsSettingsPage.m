@@ -6,6 +6,8 @@
 #import "CCPetsPetSize.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPreferences.h"
+#import "CCPetsMainWindow.h"
+#import "CCPetsSettingsPreview.h"
 #import "CCPetsUIStyle.h"
 
 // 定义在 CCPetsAppDelegate+Speech.m；那边的头文件是 AppDelegate 私有的，这里单独 extern。
@@ -41,6 +43,7 @@ static NSString *ClickCountText(NSInteger count) {
 @property(nonatomic) NSMutableArray<CCPetsSettingsHandler *> *handlers;
 // 每个控件一个"按 defaults 回填自己"的 block。设置一变就全部跑一遍。
 @property(nonatomic) NSMutableArray<void (^)(void)> *reloaders;
+@property(nonatomic) CCPetsSettingsPreview *preview;
 @end
 
 @implementation CCPetsSettingsPage
@@ -82,10 +85,13 @@ static NSString *ClickCountText(NSInteger count) {
     self.stack = stack;
     self.view = scroll;
 
+    [self buildPreview];
     [self buildSections];
     [self reloadValues];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
         name:CCPetsPreferencesDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(petCardDidChange:)
+        name:CCPetsPetCardDidChangeNotification object:nil];
 }
 
 - (void)dealloc {
@@ -94,6 +100,47 @@ static NSString *ClickCountText(NSInteger count) {
 
 - (void)preferencesDidChange:(NSNotification *)notification {
     [self reloadValues];
+    NSString *key = notification.userInfo[CCPetsPreferencesChangedKeyKey];
+    // 换了台词来源，气泡里换一句新来源的；别的设置变了不换，免得每拨一下开关台词就跳。
+    if ([key isEqualToString:PetPhrasesSourceKey]) self.preview.bubbleText = [self.actions sampleSpeechLine];
+    [self refreshPreview];
+}
+
+- (void)petCardDidChange:(NSNotification *)notification {
+    [self refreshPreview];
+}
+
+#pragma mark - 预览台
+
+- (id<CCPetsPetCardSource>)previewSource {
+    id delegate = NSApp.delegate;
+    return [delegate conformsToProtocol:@protocol(CCPetsPetCardSource)] ? delegate : nil;
+}
+
+- (void)buildPreview {
+    CCPetsSettingsPreview *preview = [[CCPetsSettingsPreview alloc] initWithFrame:NSZeroRect];
+    preview.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.stack addArrangedSubview:preview];
+    [preview.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor].active = YES;
+    [preview.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor].active = YES;
+    [self.stack setCustomSpacing:6 afterView:preview];
+    NSTextField *caption = [NSTextField labelWithString:
+        L(@"Preview: pet size, panel theme, glass dimming and line source apply here and on the desktop at once.")];
+    caption.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    caption.textColor = NSColor.secondaryLabelColor;
+    caption.lineBreakMode = NSLineBreakByTruncatingTail;
+    [self.stack addArrangedSubview:caption];
+    self.preview = preview;
+    preview.bubbleText = [self.actions sampleSpeechLine];
+    [self refreshPreview];
+}
+
+- (void)refreshPreview {
+    NSDictionary *snapshot = [self.previewSource petCardSnapshot];
+    [self.preview setSheet:snapshot[@"sheet"] rowCount:[snapshot[@"rowCount"] integerValue] ?: 9
+        state:snapshot[@"state"] ?: @"idle"];
+    [self.previewSource configureQuotaPreview:self.preview.quotaView];
+    [self.preview reloadAppearance];
 }
 
 - (void)reloadValues {
@@ -404,12 +451,21 @@ static void RevealFolder(NSString *path) {
     NSButton *editLines = [NSButton buttonWithTitle:L(@"Edit Lines…") target:nil action:nil];
     editLines.controlSize = NSControlSizeSmall;
     [self bind:editLines to:^(id sender) { [weakSelf.actions editPhrasesFile:sender]; }];
+    // 预览台和桌面上的宠物一起说同一句，换了台词来源能马上听到区别。
+    NSButton *tryLine = [NSButton buttonWithTitle:L(@"Try a Line") target:nil action:nil];
+    tryLine.controlSize = NSControlSizeSmall;
+    [self bind:tryLine to:^(id sender) {
+        NSString *text = [weakSelf.actions sampleSpeechLine];
+        if (text.length == 0) return;
+        weakSelf.preview.bubbleText = text;
+        [weakSelf.actions presentSpeechText:text];
+    }];
     [self addSectionWithTitle:L(@"Chatter")
         symbol:@"bubble.left.fill" color:NSColor.systemGreenColor rows:@[
         [self switchRowWithTitle:L(@"Enable chatter") key:PetSpeechEnabledKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateSpeechEnabled:enabled]; }],
         [self rowWithTitle:L(@"Frequency") controls:@[frequency]],
-        [self rowWithTitle:L(@"Line Source") controls:@[source, editLines]],
+        [self rowWithTitle:L(@"Line Source") controls:@[source, tryLine, editLines]],
     ] footer:nil];
 
     // 点击互动
