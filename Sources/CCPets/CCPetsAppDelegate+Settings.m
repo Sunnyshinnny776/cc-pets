@@ -161,8 +161,11 @@
     [self updateGlassDimLevel:sender.representedObject];
 }
 - (void)updateGlassDimLevel:(NSNumber *)level {
-    if (![level isKindOfClass:NSNumber.class] || ![CCPetsGlassDimLevels() containsObject:level]) return;
-    CCPetsPrefSetObject(CCPetsGlassDimKey, level);
+    // 主窗口的滑块是连续值，菜单是四档；两边都走这里，统一取整并夹在 0–45。
+    if (![level isKindOfClass:NSNumber.class] || isnan(level.doubleValue)) return;
+    NSInteger value = MAX((NSInteger)0, MIN(CCPetsGlassDimMaximum, (NSInteger)lround(level.doubleValue)));
+    if ([[NSUserDefaults.standardUserDefaults objectForKey:CCPetsGlassDimKey] isEqual:@(value)]) return;
+    CCPetsPrefSetObject(CCPetsGlassDimKey, @(value));
     [self.quotaGlass applyDimLevel];
     [self.statusGlass applyDimLevel];
     [self.speechGlass applyDimLevel];

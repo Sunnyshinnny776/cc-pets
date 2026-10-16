@@ -2,10 +2,14 @@
 
 extern NSString *const CCPetsPanelThemeKey;
 NSString *CCPetsPanelTheme(void);
-// 桌面小组件式玻璃背后压暗层的档位：0 / 15 / 25 / 45（百分比），默认 25。
+// 桌面小组件式玻璃背后压暗层的不透明度（百分比），0–45 之间连续可调，默认 25。
+// 主窗口用滑块连续调；右键菜单只列 CCPetsGlassDimLevels() 四档，勾选最接近当前值的那档。
 extern NSString *const CCPetsGlassDimKey;
+extern const NSInteger CCPetsGlassDimMaximum;
 NSInteger CCPetsGlassDimLevel(void);
 NSArray<NSNumber *> *CCPetsGlassDimLevels(void);
+// 四档里离 level 最近的一档；两档等距时取较小的。
+NSInteger CCPetsNearestGlassDimLevel(NSInteger level);
 // 额度卡片衬底的不透明度，跟随压暗档位：卡片区域同时受背后压暗和衬底两层影响，
 // 衬底固定的话选「通透」时卡片仍然很深。
 CGFloat CCPetsGlassCardScrimAlpha(void);

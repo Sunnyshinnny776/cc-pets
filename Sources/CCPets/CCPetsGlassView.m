@@ -12,23 +12,41 @@ NSString *CCPetsPanelTheme(void) {
 
 NSString *const CCPetsGlassDimKey = @"CCPetsGlassDim";
 
+const NSInteger CCPetsGlassDimMaximum = 45;
+
 NSArray<NSNumber *> *CCPetsGlassDimLevels(void) { return @[@0, @15, @25, @45]; }
 
 // 档位来自对照实测：0 最通透但亮背景下小字看不清；25 在暗、亮壁纸上都基本可读；
-// 45 最清楚但明显偏暗。没设置过或值不在档位里时用 25。
+// 45 最清楚但明显偏暗，再往上文字反而发闷，所以上限就是 45。没设置过时用 25；
+// 超出范围的值（手改 defaults）夹回 0–45。
 NSInteger CCPetsGlassDimLevel(void) {
     id stored = [NSUserDefaults.standardUserDefaults objectForKey:CCPetsGlassDimKey];
     if (![stored isKindOfClass:NSNumber.class]) return 25;
-    return [CCPetsGlassDimLevels() containsObject:stored] ? [stored integerValue] : 25;
+    double value = [stored doubleValue];
+    if (isnan(value)) return 25;
+    return MAX((NSInteger)0, MIN(CCPetsGlassDimMaximum, (NSInteger)lround(value)));
 }
 
-CGFloat CCPetsGlassCardScrimAlpha(void) {
-    switch (CCPetsGlassDimLevel()) {
-        case 0: return 0.06;
-        case 15: return 0.10;
-        case 45: return 0.16;
-        default: return 0.12;
+NSInteger CCPetsNearestGlassDimLevel(NSInteger level) {
+    NSInteger nearest = 0;
+    for (NSNumber *candidate in CCPetsGlassDimLevels()) {
+        if (labs(candidate.integerValue - level) < labs(nearest - level)) nearest = candidate.integerValue;
     }
+    return nearest;
+}
+
+// 衬底在四个档位上的取值是实测出来的（0.06 / 0.10 / 0.12 / 0.16），档位之间按直线插值，
+// 滑块拖动时卡片深浅连续变化，不会在档位边界上跳一下。
+CGFloat CCPetsGlassCardScrimAlpha(void) {
+    static const double levels[] = {0, 15, 25, 45};
+    static const double alphas[] = {0.06, 0.10, 0.12, 0.16};
+    double level = CCPetsGlassDimLevel();
+    for (int index = 1; index < 4; index++) {
+        if (level > levels[index]) continue;
+        double fraction = (level - levels[index - 1]) / (levels[index] - levels[index - 1]);
+        return alphas[index - 1] + (alphas[index] - alphas[index - 1]) * fraction;
+    }
+    return alphas[3];
 }
 
 BOOL CCPetsLiquidGlassAvailable(void) {

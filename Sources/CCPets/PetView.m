@@ -1658,7 +1658,8 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     };
     NSDictionary<NSNumber *, NSString *> *dimTitles = @{
         @0: L(@"Clear (0%)"), @15: L(@"Light (15%)"), @25: L(@"Standard (25%)"), @45: L(@"Legible (45%)")};
-    NSInteger selectedDim = CCPetsGlassDimLevel();
+    // 主窗口里可以调成任意值，菜单只有四档：勾选最接近的那档。
+    NSInteger selectedDim = CCPetsNearestGlassDimLevel(CCPetsGlassDimLevel());
     for (NSNumber *level in CCPetsGlassDimLevels()) {
         NSMenuItem *item = [MenuChoiceRowView addToMenu:themeMenu title:dimTitles[level] group:@"dim"
             representedObject:level checked:level.integerValue == selectedDim
