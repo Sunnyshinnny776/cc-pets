@@ -16,8 +16,38 @@ static BOOL IsNonEmptyString(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0;
 }
 
-int main(void) {
+// 标题里提到 needle 的结果（PATH 检查会把挡在 shim 前面的目录写进标题）。
+static NSDictionary *ResultMentioning(NSArray<NSDictionary *> *sections, NSString *needle) {
+    for (NSDictionary *section in sections) {
+        for (NSDictionary *result in section[@"results"]) {
+            if ([result[@"title"] containsString:needle]) return result;
+        }
+    }
+    return nil;
+}
+
+// shadow 模式：test.sh 把一个放了假 codex 的目录排在 shim 目录前面。终端版（CLI）应当报警告；
+// App 版读的是桌宠进程的 PATH，不判对错，不能出现这条警告，只给一条提示。
+static int RunShadowCheck(NSString *shadowDirectory) {
+    NSString *name = shadowDirectory.lastPathComponent;
+    NSDictionary *cli = ResultMentioning(CCPetsDoctorSections(), name);
+    BOOL ok = Check([cli[@"level"] isEqualToString:@"warn"], @"终端版：挡在 shim 前面的目录报警告");
+    ok &= Check(ResultMentioning(CCPetsDoctorSectionsForApp(), name) == nil, @"App 版：不按桌宠进程的 PATH 报警告");
+    BOOL hinted = NO;
+    for (NSDictionary *section in CCPetsDoctorSectionsForApp()) {
+        for (NSDictionary *result in section[@"results"]) {
+            if ([result[@"level"] isEqualToString:@"info"] && [result[@"title"] containsString:@"cc-pets doctor"]) hinted = YES;
+        }
+    }
+    ok &= Check(hinted, @"App 版：提示去终端运行 cc-pets doctor");
+    if (!ok) return 1;
+    printf("doctor PATH 顺序检查在主窗口不误报测试通过\n");
+    return 0;
+}
+
+int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        if (argc > 2 && strcmp(argv[1], "shadow") == 0) return RunShadowCheck(@(argv[2]));
         NSArray<NSDictionary *> *sections = CCPetsDoctorSections();
         NSString *report = CCPetsDoctorReport(sections);
         NSSet<NSString *> *levels = [NSSet setWithArray:@[@"ok", @"warn", @"fail", @"info"]];

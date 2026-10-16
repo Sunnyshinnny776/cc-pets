@@ -816,3 +816,4 @@
 "Alerts" = "提醒";
 "Pick the pet that lives on your desktop, its size, how chatty it is and how it reacts when poked." = "选一只住在桌面上的宠物，调整它的大小、话多不多，以及戳它时的反应。";
 "When to interrupt you: system notifications, the status card and message badges." = "什么时候打扰你：系统通知、桌面状态卡和消息角标。";
+"The main window can't see your terminal's PATH; run cc-pets doctor in a terminal to check the shim order" = "主窗口看不到终端的 PATH，要确认 shim 是否排在最前，请在终端里运行 cc-pets doctor";

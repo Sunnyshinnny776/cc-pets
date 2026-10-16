@@ -51,7 +51,7 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
     DiagnosticsRunning = YES;
     [NSNotificationCenter.defaultCenter postNotificationName:CCPetsDiagnosticsDidChangeNotification object:nil];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSArray<NSDictionary *> *sections = CCPetsDoctorSections();
+        NSArray<NSDictionary *> *sections = CCPetsDoctorSectionsForApp();
         dispatch_async(dispatch_get_main_queue(), ^{
             DiagnosticsSections = sections;
             DiagnosticsCheckedAt = NSDate.date;

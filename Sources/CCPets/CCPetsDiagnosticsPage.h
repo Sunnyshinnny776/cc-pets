@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 
-// 主窗口的「诊断」页：渲染 `cc-pets doctor` 的同一份检查结果（CCPetsDoctorSections）。
+// 主窗口的「诊断」页：渲染 `cc-pets doctor` 的同一套检查（CCPetsDoctorSectionsForApp：PATH 顺序那一项
+// 在桌宠进程里看不准，改成去终端确认的提示，其余相同）。
 // 要处理的问题置顶，每条带修复命令；正常项折叠成一行。
 //
 // v1 只读：修复建议给出命令让用户自己复制执行，不在这里改 shell / 配置。

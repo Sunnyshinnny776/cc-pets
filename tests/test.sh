@@ -1449,6 +1449,13 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/tests/doctor-sections-harness.m" \
   -o "${DOCTOR_TMP}/doctor-sections-test"
 doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test"
+# 主窗口里的诊断跑在桌宠进程中，PATH 是桌宠启动时继承的（被 npm 拉起时 node 目录会插在最前），
+# 和终端无关。PATH 顺序那一项在那里只能给提示，不能照着报警告。
+DOCTOR_SHADOW="${DOCTOR_TMP}/shadow-node-bin"
+mkdir -p "${DOCTOR_SHADOW}"
+print -r -- '#!/bin/sh' > "${DOCTOR_SHADOW}/codex"
+chmod +x "${DOCTOR_SHADOW}/codex"
+doctor_env PATH="${DOCTOR_SHADOW}:${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test" shadow "${DOCTOR_SHADOW}"
 print "doctor 与 paths 只读诊断测试通过"
 
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"

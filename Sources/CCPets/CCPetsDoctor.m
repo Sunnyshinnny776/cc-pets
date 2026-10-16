@@ -272,7 +272,7 @@ static NSDictionary *StatusLineCheck(void) {
         : L(@"No Claude status line configured, so the pet can't show Claude quota %"), @"cc-pets install");
 }
 
-static NSArray<NSDictionary *> *ShimChecks(void) {
+static NSArray<NSDictionary *> *ShimChecks(BOOL inApp) {
     NSMutableArray<NSDictionary *> *results = [NSMutableArray array];
     NSString *shellRC = ShellRC();
     NSString *rc = [NSString stringWithContentsOfFile:shellRC encoding:NSUTF8StringEncoding error:nil] ?: @"";
@@ -297,6 +297,11 @@ static NSArray<NSDictionary *> *ShimChecks(void) {
         ? Result(@"ok", LF(L(@"Shims complete: {shimDirectory}"), @{@"shimDirectory": CCPetsTildePath(shimDirectory)}), nil)
         : Result(@"warn", LF(L(@"Shim problems: {broken}"), @{@"broken": [broken componentsJoinedByString:L(@", ")]}), @"cc-pets install")];
 
+    // 在桌宠进程里读到的是它自己的 PATH，和终端无关；判对错会误报，只给一条去终端确认的提示。
+    if (inApp) {
+        [results addObject:Result(@"info", L(@"The main window can't see your terminal's PATH; run cc-pets doctor in a terminal to check the shim order"), nil)];
+        return results;
+    }
     NSMutableArray<NSString *> *entries = [NSMutableArray array];
     for (NSString *entry in [CCPetsEnvironmentValue(@"PATH") ?: @"" componentsSeparatedByString:@":"]) {
         if (entry.length > 0) [entries addObject:CCPetsResolvePath(entry)];
@@ -353,7 +358,17 @@ static NSString *FormatAge(NSTimeInterval seconds) {
     return hours < 48 ? LF(L(@"{hours} h ago"), @{@"hours": @(hours)}) : LF(L(@"{days} days ago"), @{@"days": @(llround(hours / 24.0))});
 }
 
+static NSArray<NSDictionary *> *DoctorSections(BOOL inApp);
+
 NSArray<NSDictionary *> *CCPetsDoctorSections(void) {
+    return DoctorSections(NO);
+}
+
+NSArray<NSDictionary *> *CCPetsDoctorSectionsForApp(void) {
+    return DoctorSections(YES);
+}
+
+static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
     NSDictionary *native = NativePaths();
     NSMutableArray<NSDictionary *> *sections = [NSMutableArray array];
     BOOL claudeDetected = CCPetsClaudeCLIInstalled();
@@ -407,7 +422,7 @@ NSArray<NSDictionary *> *CCPetsDoctorSections(void) {
         [sections addObject:@{@"title": @"Codex", @"results": @[Result(@"info", L(@"Codex CLI not detected, skipped"), nil)]}];
     }
 
-    NSMutableArray *shell = [ShimChecks() mutableCopy];
+    NSMutableArray *shell = [ShimChecks(inApp) mutableCopy];
     if (codexDetected) [shell addObject:RealBinaryCheck(@"codex", @"CODEX_REAL_BIN")];
     if (claudeDetected) [shell addObject:RealBinaryCheck(@"claude", @"CLAUDE_REAL_BIN")];
     [sections addObject:@{@"title": L(@"Shell integration"), @"results": shell}];
