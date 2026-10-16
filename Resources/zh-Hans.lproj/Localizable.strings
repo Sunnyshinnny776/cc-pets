@@ -760,7 +760,7 @@
 "Raise it when a bright wallpaper makes text hard to read" = "壁纸太亮、文字看不清时调高";
 "Hover Panel" = "悬停面板显示";
 "Click a pill to switch" = "点胶囊切换";
-"Token usage: today's new and cached tokens" = "Token 用量：今天的新处理和缓存读";
+"Token usage: today's new and cached tokens" = "Token 用量：今天的用量和缓存输入";
 "Plan quota: what's left of the 5-hour and weekly limits" = "订阅额度：5 小时和本周还剩多少";
 "Temperature" = "温度";
 "Data" = "数据";

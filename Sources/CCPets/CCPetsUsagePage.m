@@ -731,9 +731,9 @@ static double NiceStep(double peak) {
 @property(nonatomic) NSSegmentedControl *metricControl;
 @property(nonatomic) NSProgressIndicator *spinner;
 @property(nonatomic) NSMutableArray<CCPetsUsageHandler *> *handlers;
-// 当前筛选下的模型条目：key、provider、model、counts（区间合计）、days（每天的 counts）。按新处理量从大到小。
+// 当前筛选下的模型条目：key、provider、model、counts（区间合计）、days（每天的 counts）。按总用量从大到小。
 @property(nonatomic) NSArray<NSDictionary *> *entries;
-// 模型 -> 色板位置。按 90 天、全部来源的新处理量排一次序就定下来，之后切来源、区间、指标都不重新上色：
+// 模型 -> 色板位置。按 90 天、全部来源的总用量排一次序就定下来，之后切来源、区间、指标都不重新上色：
 // 颜色跟着模型走，不跟着名次走。
 @property(nonatomic) NSDictionary<NSString *, NSNumber *> *colorSlots;
 // 选中的模型 key；nil 是全部模型。
@@ -825,7 +825,7 @@ static double NiceStep(double peak) {
     return (UsageMetric)MAX(0, self.metricControl.selectedSegment);
 }
 
-// 色板位置：90 天、全部来源里按新处理量排名，前 8 名各占一色，其余归「其他」。
+// 色板位置：90 天、全部来源里按总用量排名，前 8 名各占一色，其余归「其他」。
 - (void)computeColorSlots {
     NSMutableDictionary<NSString *, NSNumber *> *totals = [NSMutableDictionary dictionary];
     for (NSString *provider in CCPetsUsageStore.results) {
