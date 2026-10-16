@@ -21,6 +21,8 @@
 | `9950179` feat: add main window with settings page | `CCPetsMainWindow`（侧边栏 + 内容区，Regular/Accessory 激活策略切换）、`CCPetsSettingsPage`、右键菜单「打开 CC Pets…」、完整主菜单（应用 / 编辑 / 窗口）。 |
 | `82a49ef` feat: add pet card and colored icons to the main window | 侧边栏宠物名片（`CCPetsSpriteView` 轻量动画 + 状态 + 会话数）、系统设置式彩色图标块 `CCPetsSymbolTile()`。 |
 | `393aa6c` feat: add a live preview stage to the settings page | 设置页顶部预览台（已被 `6f1cfcf` 移除，见下）。 |
+| `da1267b` / `0c1a472` / `9eee41d` | 抽出 `CCPetsFormBuilder`（分组卡片表单，设置页与诊断页共用）；doctor 的 npm 包目录改为优先按 `/.build/release/` 路径、其次读 `install-app.sh` 写在 App 数据目录的 `package-dir` 记号（装到 `~/Applications` 的 App 是拷贝，推不出包位置）；新增诊断页 `CCPetsDiagnosticsPage`（后台跑 `CCPetsDoctorSections()`，generation 丢弃过期结果，复制命令 / 复制报告，v1 不执行修复）。 |
+| 任务 5 提交 | `cc-pets open [page]`：`CCPetsOpenCommand.m`。桌宠在运行（探测 `cc-pets-<uid>.lock` 被占用，不创建锁文件）就发 `com.ccpets.open-main-window.<uid>` 分布式通知；否则不带 `-g` 地 `open <App> --args --open-window [page]`（优先 `~/Applications`，其次包目录里构建的 App）。AppDelegate 启动早期注册观察者，`launchWindowPage` 在启动末尾开窗。页面参数先校验，未知页面退出码 2。 |
 | `6f1cfcf` feat: replace the settings preview with sidebar section navigation | 移除预览台（它把真正的设置挤到折叠线下面）及 `configureQuotaPreview:`；侧边栏在当前页面下列出页内分组（设置页：通用、外观、碎碎念……），点击平滑滚动到该组，再点页面行回到顶部。新增协议 `CCPetsMainPageSections`（`pageSections` / `scrollToSectionWithID:`），页面实现即可启用；设置页文档视图改为翻转坐标。「试说一句」保留，只让桌面上的宠物说话。 |
 
 ### 2.1 现有架构速览（接手前先读这些文件）
@@ -41,7 +43,7 @@
 
 按顺序做；每项一个提交（或按需拆分），完成后跑第 5 节的验证。
 
-### 任务 4：诊断页（v1）
+### 任务 4：诊断页（v1）——已完成
 
 **目标**：主窗口新增「诊断」页，渲染 `cc-pets doctor` 的同一份检查结果。
 
@@ -54,7 +56,7 @@
 
 **验收**：严格构建零警告；`tests/test.sh` 通过；离屏截图（见 5.3）浅色 / 深色 / 中英文正常；页面关闭后不残留后台任务。
 
-### 任务 5：`cc-pets open [page]` 命令
+### 任务 5：`cc-pets open [page]` 命令——已完成
 
 **目标**：从终端打开主窗口并定位到页面。
 
@@ -134,6 +136,8 @@
 CC_PETS_STRICT=1 scripts/build.sh   # 告警即错误
 zsh tests/test.sh                    # 全量测试，含 check-l10n
 ```
+
+**坑**：在 Claude Code 会话里跑测试要先 `unset CLAUDE_CONFIG_DIR`（或 `env -u CLAUDE_CONFIG_DIR zsh tests/test.sh`），否则 `tests/token-usage-harness.m` 的 Claude Token 聚合断言会读到会话的配置目录而失败，且失败信息只在 stderr 的 NSLog 里，表面上看只是退出码 1。
 
 ### 5.2 不能直接运行开发版
 
