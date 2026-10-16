@@ -103,10 +103,14 @@ NSArray<NSArray<NSString *> *> *CCPetsUsageMetricItems(NSString *totalTitle, NSD
 static const NSInteger UsageMaximumRangeDays = 90;
 // 结果在这段时间内算新鲜：来回切页面不重算，隔一阵再打开能看到新用量。
 static const NSTimeInterval UsageStoreFreshness = 120;
+// 用量页开着时多久问一次 loadIfStale。没过期时它直接返回，所以这只是一次时间比较。
+static const NSTimeInterval UsagePageRefreshInterval = 60;
 
 NSNotificationName const CCPetsUsageStoreDidChangeNotification = @"CCPetsUsageStoreDidChange";
 static NSDictionary<NSString *, NSDictionary *> *UsageStoreResults;
 static NSTimeInterval UsageStoreLoadedAt;
+// 结果所对应的"今天"零点。跨过午夜后区间要整体后移一天，哪怕结果才算出来一分钟也得重算。
+static NSTimeInterval UsageStoreLoadedDayStart;
 static BOOL UsageStoreLoading;
 
 @implementation CCPetsUsageStore
@@ -122,11 +126,12 @@ static BOOL UsageStoreLoading;
 // 区间是 [今天往前数 89 天的零点, 明天零点)，含今天。
 + (void)loadIfStale {
     if (UsageStoreLoading) return;
-    if (UsageStoreResults && NSDate.date.timeIntervalSince1970 - UsageStoreLoadedAt < UsageStoreFreshness) return;
-    UsageStoreLoading = YES;
     NSCalendar *calendar = NSCalendar.currentCalendar;
-    NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:1
-        toDate:[calendar startOfDayForDate:NSDate.date] options:0];
+    NSDate *today = [calendar startOfDayForDate:NSDate.date];
+    if (UsageStoreResults && NSDate.date.timeIntervalSince1970 - UsageStoreLoadedAt < UsageStoreFreshness &&
+        UsageStoreLoadedDayStart == today.timeIntervalSince1970) return;
+    UsageStoreLoading = YES;
+    NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:today options:0];
     NSDate *start = [calendar dateByAddingUnit:NSCalendarUnitDay value:-UsageMaximumRangeDays toDate:end options:0];
     // 串行队列：上一轮还没算完时不会两份同时写同一批缓存文件。
     static dispatch_queue_t queue;
@@ -143,6 +148,7 @@ static BOOL UsageStoreLoading;
         dispatch_async(dispatch_get_main_queue(), ^{
             UsageStoreResults = results;
             UsageStoreLoadedAt = NSDate.date.timeIntervalSince1970;
+            UsageStoreLoadedDayStart = today.timeIntervalSince1970;
             UsageStoreLoading = NO;
             [NSNotificationCenter.defaultCenter postNotificationName:CCPetsUsageStoreDidChangeNotification object:nil];
         });
@@ -733,8 +739,8 @@ static double NiceStep(double peak) {
 @property(nonatomic) NSMutableArray<CCPetsUsageHandler *> *handlers;
 // 当前筛选下的模型条目：key、provider、model、counts（区间合计）、days（每天的 counts）。按总用量从大到小。
 @property(nonatomic) NSArray<NSDictionary *> *entries;
-// 模型 -> 色板位置。按 90 天、全部来源的总用量排一次序就定下来，之后切来源、区间、指标都不重新上色：
-// 颜色跟着模型走，不跟着名次走。
+// 模型 -> 色板位置。按 90 天、全部来源的总用量排序分配，之后切来源、区间、指标都不重新上色：
+// 颜色跟着模型走，不跟着名次走。数据重载时已经有颜色、仍在前 8 名的模型保留原色，见 computeColorSlots。
 @property(nonatomic) NSDictionary<NSString *, NSNumber *> *colorSlots;
 // 选中的模型 key；nil 是全部模型。
 @property(nonatomic, copy) NSString *selectedKey;
@@ -748,6 +754,8 @@ static double NiceStep(double peak) {
 @property(nonatomic) NSView *kpis;
 @property(nonatomic) NSView *chartCard;
 @property(nonatomic) NSView *tableCard;
+// 页面显示期间定时触发 loadIfStale，让一直开着的用量页也能看到新用量、跨天后换到新的区间。
+@property(nonatomic) NSTimer *refreshTimer;
 @end
 
 @implementation CCPetsUsagePage
@@ -806,13 +814,34 @@ static double NiceStep(double peak) {
     if (CCPetsUsageStore.loading) [spinner startAnimation:nil];
 }
 
+- (void)viewDidAppear {
+    [super viewDidAppear];
+    [self.refreshTimer invalidate];
+    __weak typeof(self) weakSelf = self;
+    self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:UsagePageRefreshInterval repeats:YES
+        block:^(NSTimer *timer) {
+        CCPetsUsagePage *page = weakSelf;
+        if (!page.view.window.isVisible || page.view.window.isMiniaturized) return;
+        [CCPetsUsageStore loadIfStale];
+        if (CCPetsUsageStore.loading) [page.spinner startAnimation:nil];
+    }];
+    self.refreshTimer.tolerance = 10;
+}
+
+- (void)viewWillDisappear {
+    [super viewWillDisappear];
+    [self.refreshTimer invalidate];
+    self.refreshTimer = nil;
+}
+
 - (void)dealloc {
+    [_refreshTimer invalidate];
     [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
 - (void)storeDidChange:(NSNotification *)notification {
     [self.spinner stopAnimation:nil];
-    self.colorSlots = nil;
+    [self computeColorSlots];
     [self render];
 }
 
@@ -826,6 +855,8 @@ static double NiceStep(double peak) {
 }
 
 // 色板位置：90 天、全部来源里按总用量排名，前 8 名各占一色，其余归「其他」。
+// 重算时已经有颜色、仍在前 8 名的模型保留原来的位置，只有新进前 8 的模型按名次去占空出来的位置——
+// 否则两个模型名次一互换，图表和图例里的颜色就跟着对调。
 - (void)computeColorSlots {
     NSMutableDictionary<NSString *, NSNumber *> *totals = [NSMutableDictionary dictionary];
     for (NSString *provider in CCPetsUsageStore.results) {
@@ -840,9 +871,25 @@ static double NiceStep(double peak) {
     NSArray<NSString *> *ranked = [totals keysSortedByValueUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
         return [b compare:a];
     }];
+    NSUInteger colored = MIN(ranked.count, (NSUInteger)CCPetsChartColorCount);
     NSMutableDictionary<NSString *, NSNumber *> *slots = [NSMutableDictionary dictionary];
+    NSMutableIndexSet *taken = [NSMutableIndexSet indexSet];
+    for (NSUInteger index = 0; index < colored; index++) {
+        NSInteger previous = self.colorSlots[ranked[index]] ? self.colorSlots[ranked[index]].integerValue : -1;
+        if (previous < 0) continue;
+        slots[ranked[index]] = @(previous);
+        [taken addIndex:(NSUInteger)previous];
+    }
+    NSUInteger next = 0;
     for (NSUInteger index = 0; index < ranked.count; index++) {
-        slots[ranked[index]] = @(index < (NSUInteger)CCPetsChartColorCount ? (NSInteger)index : -1);
+        if (slots[ranked[index]]) continue;
+        if (index >= colored) {
+            slots[ranked[index]] = @(-1);
+            continue;
+        }
+        while ([taken containsIndex:next]) next++;
+        slots[ranked[index]] = @((NSInteger)next);
+        [taken addIndex:next];
     }
     self.colorSlots = slots;
 }
