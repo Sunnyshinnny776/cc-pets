@@ -34,4 +34,8 @@ if ! mv "${STAGING_APP}" "${TARGET_APP}"; then
   exit 1
 fi
 
+# 装进去的 App 是拷贝，自己找不到 npm 包在哪；留个记号让诊断页能对上包的版本和 hook 路径。
+APP_SUPPORT_DIR="${CC_PETS_APPLICATION_SUPPORT_DIR:-${HOME}/Library/Application Support/CC Pets}"
+mkdir -p "${APP_SUPPORT_DIR}" && print -r -- "${PROJECT_DIR}" > "${APP_SUPPORT_DIR}/package-dir" || true
+
 print "$(cc_pets_t "App installed: {targetApp}" targetApp="${TARGET_APP}")"

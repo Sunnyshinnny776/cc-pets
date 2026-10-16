@@ -6,6 +6,7 @@
 #import "CCPetsCLISupport.h"
 #import "CCPetsCleanup.h"
 #import "CCPetsIntegrations.h"
+#import "CCPetsPaths.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsVersion.h"
 #import <sys/stat.h>
@@ -14,9 +15,24 @@
 
 #define LF(localized, values) CCPetsInterpolate(localized, values)
 
-// npm 包目录：可执行文件在 <包目录>/.build/release/cc-pets。
+// 安装脚本在 App 数据目录里记下 npm 包目录：装到 ~/Applications 的 App 是拷贝，
+// 从自己的位置推不出包在哪。
+static NSString *const PackageDirectoryMarker = @"package-dir";
+
+// npm 包目录。三种来源，按可靠程度：
+// 1. 可执行文件在 <包目录>/.build/release/ 之下（命令行二进制，或构建出来的 App）；
+// 2. 安装脚本留下的记号文件（~/Applications 里的 App）；
+// 3. 退回按命令行二进制的相对位置推算（<包目录>/.build/release/cc-pets）。
 static NSString *PackageDirectory(void) {
-    return CCPetsExecutablePath().stringByDeletingLastPathComponent.stringByDeletingLastPathComponent
+    NSString *executable = CCPetsExecutablePath();
+    NSRange built = [executable rangeOfString:@"/.build/release/"];
+    if (built.location != NSNotFound) return [executable substringToIndex:built.location];
+    NSString *marked = [[NSString stringWithContentsOfFile:
+        [ApplicationSupportDirectory() stringByAppendingPathComponent:PackageDirectoryMarker]
+        encoding:NSUTF8StringEncoding error:nil] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (marked.length > 0 && [NSFileManager.defaultManager fileExistsAtPath:
+        [marked stringByAppendingPathComponent:@"package.json"]]) return marked;
+    return executable.stringByDeletingLastPathComponent.stringByDeletingLastPathComponent
         .stringByDeletingLastPathComponent;
 }
 
