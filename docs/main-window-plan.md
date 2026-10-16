@@ -2,7 +2,7 @@
 
 > 交接文档：给接手的 agent。描述目标、已完成部分、剩余任务（含文件级方案与验收标准）和必须遵守的约束。
 > 分支：当前工作分支是 `feat/usage-by-model`，它基于 `feat/native-hook-installer`（停在 `9dd6b53`）继续提交了任务 8。两者与下一个大版本一起发布；后续任务直接在 `feat/usage-by-model` 上提交，**不要切回 `feat/native-hook-installer`**（那里没有任务 8 的代码）。
-> 最后更新：2026-10-15。
+> 最后更新：2026-10-16。任务 9 与主窗口改版（任务 9b）已完成，设计稿见 https://claude.ai/artifact/JnUj1fHisPtM95eELEFLu4。
 
 ## 1. 目标
 
@@ -10,7 +10,7 @@
 
 - 纯 AppKit + Objective-C，不引入 Swift / SwiftUI / 第三方库，最低系统 macOS 13。
 - **轻量**：窗口懒创建、关闭即释放；页面不可见时不刷新数据、不跑定时器；不新增常驻任务。
-- 视觉上以桌宠为主角（宠物名片），不是一张普通的偏好设置表单。页面较长时，侧边栏列出页内分组，点一下直接跳转。
+- 视觉上以桌宠为主角，不是一张普通的偏好设置表单。页面都很短，不需要页内跳转。
 
 ## 2. 已完成（按提交顺序）
 
@@ -29,18 +29,24 @@
 | `1e1b4ea` feat: aggregate local token usage by model | 任务 8 数据层：`CCPetsModelUsage()`、按模型缓存与按日归档、两家旧缓存迁移（以下在 `feat/usage-by-model`）。 |
 | `f5edf25` feat: add a usage page with per-model token usage and daily charts | 任务 8 页面：`CCPetsUsagePage`。 |
 | `210efbf` docs: document the usage page and per-model data | 任务 8 的 README / CHANGELOG。 |
+| `ea238c0` / `4432dac` | 用量页一次算 90 天、本地截取区间；本文档更新。 |
+| 任务 9 / 9b 的提交 | 玻璃压暗改为连续值；主窗口改版（主题部件、分组侧边栏、概览、会话与消息、用量页重做、设置拆三页、诊断页重排）。见任务 9b。 |
 
 ### 2.1 现有架构速览（接手前先读这些文件）
 
 - `Sources/CCPets/CCPetsMainWindow.h/.m`
-  - `+[CCPetsMainWindowController presentPage:]` 打开窗口；页面表在 `MainWindowPages()`（`id` / `title` / `symbol` / `color` / `class`），**新增页面只需在这里加一行**并实现一个 `NSViewController` 子类。
-  - 打开时切 `NSApplicationActivationPolicyRegular`；最后一个普通窗口（非 `NSPanel`、能成为 main、含最小化）关闭后切回 Accessory 并 `[NSApp deactivate]`。
-  - `CCPetsPetCardSource` 协议（AppDelegate 实现）：`petCardSnapshot`。
-  - `CCPetsMainPageSections` 协议（页面可选实现）：`pageSections`（每项 `id` / `title` / `symbol` / `color`）、`scrollToSectionWithID:`（nil 回顶部）。侧边栏只为当前页面显示子项；设置页以分组图标名作 section id。变化时 AppDelegate 调 `notePetCardChanged`（合并到下一轮 runloop 发 `CCPetsPetCardDidChangeNotification`）。
-- `Sources/CCPets/CCPetsSettingsPage.h/.m`
-  - `CCPetsSettingsActions` 协议：页面调用 AppDelegate 的 `update*` 方法。**AppDelegate 不在声明上采纳此协议**（方法分散在多个 category，采纳会触发 `-Wobjc-protocol-method-implementation`）；`tests/test.sh` 会逐条核对协议方法都在 `CCPetsAppDelegate+Private.h` 里声明过。
-  - 页面构建工具：`rowWithTitle:controls:`、`switchRowWithTitle:key:apply:`、`popUpWithOptions:selected:action:`、`stepperRowWithTitle:...`、`buttonRowWithTitle:...`、`addSectionWithTitle:symbol:color:rows:footer:`；每个控件注册一个 reloader block，设置变化时全部重跑。
-- `Sources/CCPets/CCPetsUIStyle.h/.m`：`CCPetsSymbolTile()`、`CCPetsSpriteView`（按 Agent 状态选和桌宠一致的动画行；窗口关闭 / 最小化停表）。
+  - `+[CCPetsMainWindowController presentPage:]` 打开窗口；页面表在 `MainWindowPages()`（`id` / `title` / `symbol` / `group` / `class`），**新增页面只需在这里加一行**并实现一个 `NSViewController` 子类。`group` 是 `workbench` / `settings` / `footer`（钉在侧边栏底部）。
+  - `CCPetsMainWindowResolvePage()`：页面别名（`settings` → `pet`），`cc-pets open` 和 `presentPage:` 都经过它。
+  - 侧边栏是自绘的（`CCPetsSidebarItem`），不是 source list 表格：选中色要跟主题走。角标：会话数（有等审批时用提醒色）、诊断问题数。
+  - 打开时切 `NSApplicationActivationPolicyRegular`；最后一个普通窗口关闭后切回 Accessory 并 `[NSApp deactivate]`。
+  - `CCPetsPetCardSource` 协议（AppDelegate 实现）：`petCardSnapshot`（含 `detail`：宠物口吻的那句）。变化时 AppDelegate 调 `notePetCardChanged`（合并到下一轮 runloop 发 `CCPetsPetCardDidChangeNotification`）。
+- `Sources/CCPets/CCPetsUIStyle.h/.m`：主题令牌（`CCPetsAccentColor()` 等动态色、状态色、`CCPetsChartColor()` 8 色模型色板）和基础部件（`CCPetsCardView`、`CCPetsTileView`、`CCPetsChipView`、`CCPetsCountBadge`、`CCPetsColorDot`、`CCPetsPillButton`、`CCPetsWrappingLabel()`、`CCPetsSpriteView`）。颜色一律在 `updateLayer` / 绘制时解析，深浅色切换不重建视图。
+- `Sources/CCPets/CCPetsFormBuilder.h/.m`：每页的骨架（页头标题 + 副标题 + 右侧控件，下面滚动内容，最宽 780pt）和「分组标题 + 卡片 + 行」的排版。
+- `Sources/CCPets/CCPetsWorkbench.h`：`CCPetsWorkbenchSource` 协议（会话、CC Bridge 消息元数据、额度的只读快照，跳终端），AppDelegate 在 `CCPetsAppDelegate+Workbench.m` 实现。和 `CCPetsSettingsActions` 一样不在声明上采纳，`tests/test.sh` 逐条核对声明。
+- `Sources/CCPets/CCPetsWorkbenchPages.h/.m`：概览页、会话与消息页。
+- `Sources/CCPets/CCPetsSettingsPage.h/.m`：`CCPetsSettingsActions` 协议 + 三个设置页（`CCPetsPetPage` / `CCPetsAlertsPage` / `CCPetsGeneralPage`）及共用基类 `CCPetsSettingsPageBase`（控件绑定、reloader）。
+- `Sources/CCPets/CCPetsUsagePage.h/.m`：用量页 + `CCPetsUsageStore`（90 天数据，概览也用，两分钟内算新鲜）。
+- `Sources/CCPets/CCPetsDiagnosticsPage.h/.m`：诊断页 + `CCPetsDiagnosticsStore`（检查结果缓存十分钟，侧边栏角标和概览提醒共用；窗口打开时检查一次）。
 - `Sources/CCPets/CCPetsPreferences.h/.m`：设置读写入口。
 - `Sources/CCPets/CCPetsAppDelegate+Settings.m`：所有 `update*` 实现。
 
@@ -101,25 +107,20 @@
 
 > 原方案里「`MonthlyArchiveSchemaVersion` 升到 3」「在 `totals` 旁加 `byModel`」**没有采用**，不要照做——那会让悬停面板的归档和缓存一起失效。
 
-### 任务 9（v2）：会话页、概览页
+### 任务 9（v2）：会话页、概览页——已完成（并入任务 9b）
 
-**会话页**（`CCPetsSessionsPage`，`id = @"sessions"`）：
+和原方案的差异：
 
-- 内容：所有在线和最近会话（右键面板只显示 8 个），每行显示来源 / 项目、状态、持续时长、审批等待时长；点击回跳终端（`CCPetsTerminalFocus`）。
-- 数据：AppDelegate 的 `agentSessionRecords`（`CCPetsAppDelegate.h`）。按约束 6 新增只读协议（建议 `CCPetsSessionSource`，声明在 `CCPetsMainWindow.h`，方法 `sessionSnapshots` 返回不可变的字典数组），由 AppDelegate 实现并在 `CCPetsAppDelegate+Private.h` 声明，页面通过 `NSApp.delegate` 判断是否响应。**不要把可变字典直接交给页面**。
-- 刷新：会话变化已经会调 `notePetCardChanged`（`CCPetsAppDelegate+AgentStatus.m`），页面监听 `CCPetsPetCardDidChangeNotification` 重拉快照即可，不另加通知。持续时长要按秒走，需要定时器：只在窗口可见、未最小化时跑（约束 4、8），1 秒一次，只刷新时长文本，不重建行。
-- 回跳终端需要的字段（tty / 终端 App 等）要确认 `agentSessionRecords` 里有，没有就在快照里补，不让页面自己去查。
+- 会话记录只在内存里存在线会话（`agentSessionRecords`，离线即清理），没有历史，所以会话页只列在线会话；没有"持续时长"（记录里只有最近一条事件的时间），改为「最近活动」，页面开着时 5 秒走一次表，数据没变不重排。
+- 会话页和 CC Bridge 消息合成一页「会话与消息」。消息只有元数据（谁发给谁、时间、是否已读、信箱积压），**正文不进主窗口**，和系统通知的约定一致。
+- 概览不列会话（用户要求），只放宠物、今日用量（`CCPetsUsageStore` 的最后一天）、诊断提醒、额度环。额度与节奏判断复用悬停面板（`QuotaDashboardView -paceStatusForQuota:` 现在多返回 `level`）。
+- 概览是第一项；`presentPage:nil` 仍先恢复上次的页面。
 
-**概览页（方案 D）**（`CCPetsOverviewPage`，`id = @"overview"`）：
+### 任务 9b：主窗口改版——已完成
 
-- 内容：大尺寸宠物（`CCPetsSpriteView`，约束 9）+ 额度环（5 小时 / 本周）+ 今日 token + 在线会话数 + 待审批数。
-- 数据：额度用 `LatestUsage()` / `UsageByRemovingExpiredQuotaWindows()`，和悬停面板一致；今日 token 用 `CCPetsModelUsage(provider, 今日 0 点, now)` 汇总（后台队列，同用量页的 generation 模式）。会话 / 审批数复用会话页的协议。
-- 设为默认首页（`MainWindowPages()` 第一项）的连带影响：
-  - `presentPage:nil`（右键菜单「打开 CC Pets…」、不带参数的 `cc-pets open`）先恢复上次打开的页面（`MainWindowLastPageKey`），没有记录或记录的页面已不存在时才落到第一项。所以改成第一项只影响首次打开的用户；如果想「每次都从概览进」，要另改 `presentPage:` 的回退顺序，属于行为变化，需写进第 6 节。
-  - `bin/cc-pets` 的 `--help` 里写死了页面列表（`pages: settings, usage, diagnostics`），zh-Hans 表里那一整串帮助文案也要同步改，否则 `check-l10n` 会报缺翻译和多余的 key。`cc-pets open --help` 的列表来自 `CCPetsMainWindowPageIDs()`，会自动更新。
-  - `tests/test.sh` 里 `cc-pets open` 相关断言（约 1405 行起）按需补新页面。
+按设计稿落地：主题令牌与部件、分组侧边栏 + 底部诊断、概览、会话与消息、用量页（按模型分色堆叠、指标切换、图例 / 表格点选单模型、悬停明细）、设置拆成宠物 / 提醒与互动 / 通用三页、诊断页问题置顶。删掉了 `CCPetsSymbolTile()` 和 `CCPetsMainPageSections`（页面短了，不再需要页内跳转）。玻璃压暗改为 0–45 连续值：`CCPetsGlassDimLevel()` 接受任意值并夹紧，`CCPetsNearestGlassDimLevel()` 给菜单勾选最近的档，衬底透明度按档位间直线插值。
 
-**验收**：同任务 4；另外确认窗口关闭 / 最小化后会话页的定时器停止，重新打开后时长正确。
+未做（留给后续）：模型表排序；宠物页的尺寸实时预览；把旧 `docs/images/main-window*.png` 换成新截图（需要真机截，见 5.4）。
 
 ### 任务 10（v3）：事件时间线、CC Bridge 页、宠物库
 
@@ -163,7 +164,8 @@ zsh tests/test.sh                    # 全量测试，含 check-l10n
 - 用 `[CCPetsMainWindowController new]`，窗口放到屏幕外（如 `-20000, -20000`），`performSelector:@selector(showPage:)` 切页。
 - 截图用 `[view.layer renderInContext:]`（`cacheDisplayInRect:` 画不出 layer contents）；位图按 2x 像素建，**不要再额外 `CGContextScaleCTM`**。
 - 中文：`CC_PETS_LOCALIZATION_DIR=$PWD/Resources CC_PETS_LANGUAGE=zh-Hans`。
-- 已知局限：侧边栏的 vibrancy 背景截不到（显示为空白），名片可单独挪到普通窗口里截。
+- 已知局限：侧边栏的背景（macOS 26 上是 `NSGlassEffectView`）合成截图里截不到，整列显示为空白；单独对侧边栏控制器的 view 做 `renderInContext:` 可以看到内容。
+- 假 delegate 还要实现 `CCPetsWorkbenchSource` 和 `CCPetsSettingsActions` 里宠物选择的三个方法，概览、会话页才有内容。
 
 编译命令参考：
 
@@ -179,15 +181,20 @@ clang -fobjc-arc -mmacosx-version-min=13.0 -ISources/CCPets -DCC_PETS_VERSION='"
 
 截图验证不了的，交付时明确列出请用户确认：
 
-- 侧边栏 vibrancy 背景与名片的整体观感。
+- 侧边栏玻璃背景与自绘导航项、名片的整体观感；深浅色切换时各卡片、胶囊、图表颜色是否都跟着变。
 - 关窗后 Dock 图标、菜单栏收回；窗口打开时切到别的 App 再回来，桌宠和气泡一直在。
-- 名片宠物的动作 / 状态随 Agent 事件变化。
-- 设置页侧边栏分组跳转：点击各子项滚动位置是否合适（尤其最后几组停在底部）、切换语言后子项是否正确重建。
-- 用量页：用真实日志数据量时，首次打开（缓存重读）和切换来源 / 区间的耗时是否可接受；柱状图悬停数值与按模型列表是否一致；模型很多时列表与配色是否还能区分。
+- 名片和概览里的宠物动作 / 状态、气泡随 Agent 事件变化。
+- 会话与消息：「跳到终端」能回到对应终端；等审批的会话置顶；CC Bridge 消息开着页面时会更新。
+- 用量页：悬停明细的位置（靠右边的柱子会翻到左侧）；图例与表格点选、再点回到全部；切换来源 / 区间 / 指标的速度。
+- 通用页：拖玻璃压暗滑块时悬停面板深浅连续变化；右键菜单勾选最接近的档；胶囊切换订阅 / 用量后悬停面板跟着变。
+- `docs/images/main-window*.png` 需要用真机重新截。
 
 ## 6. 已知行为变化（写进 CHANGELOG）
 
 - 台词编辑器在前台时 ⌘Q 现在会退出桌宠（以前没有反应）；编辑器未保存内容会丢失。
 - 说话气泡不再随 App 失焦隐藏（与桌宠、状态卡一致）。
 - 碎碎念频率只接受 `low` / `normal` / `high` / `chatty`，其他值写入时规整为 `normal`（读取效果不变）。
+- 主窗口记住的窗口大小换了键名（默认窗口变大），改版后第一次打开会回到居中的默认大小。
+- `cc-pets open settings` 现在打开「宠物」页。
+- 玻璃压暗可以是 0–45 之间任意值；只用过菜单的用户不受影响（四档值本身不变）。
 - 升级后第一次统计用量会整篇重读一次本地日志（Claude / Codex 缓存条目加了版本号，悬停面板的缓存也在内），日志多时首次显示额度面板 token 数会慢一些，之后恢复增量读取。

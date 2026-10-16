@@ -56,7 +56,7 @@ English — v2.2.0 quota panel and Language menu:
   override shared sections; default lines use only the editable shared speech file. The
   selection persists across pet changes and restarts, with pet-specific lines selected initially.
 - Includes one original pet and can download compatible assets from PetDex.
-- Opens a regular main window with every setting, a live pet card and built-in diagnostics (see [Main window](#main-window)).
+- Opens a regular main window with an overview, your sessions and CC Bridge messages, token usage by model, every setting and built-in diagnostics (see [Main window](#main-window)).
 - Uses native AppKit with no Electron runtime.
 
 ## Requirements
@@ -153,7 +153,7 @@ cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
 cc-pets doctor                # Check the installation and integrations, with fixes.
-cc-pets open [page]           # Open the main window (pages: settings, usage, diagnostics).
+cc-pets open [page]           # Open the main window (pages: overview, sessions, usage, pet, alerts, general, diagnostics).
 cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
@@ -205,37 +205,47 @@ prompts, command text, file contents, or model output.
 ## Main window
 
 Besides the right-click menu and the hover quota panel, CC Pets has a regular app
-window for settings that are awkward to fit in a menu. Open it from the right-click
-menu (**Open CC Pets…**), the app menu, or the terminal:
+window for your sessions, usage and settings. Open it from the right-click menu
+(**Open CC Pets…**), the app menu, or the terminal:
 
 ```bash
 cc-pets open               # the page you used last
-cc-pets open settings
+cc-pets open overview
+cc-pets open sessions
 cc-pets open usage
-cc-pets open diagnostics
+cc-pets open general       # also: pet, alerts, diagnostics
 ```
 
 <p align="center">
   <img src="docs/images/main-window.en.png" width="70%" alt="CC Pets main window with the pet card and the Settings page">
 </p>
 
-- **Sidebar** — an animated card for the current pet (status, online sessions, pending
-  approvals) and the pages. While a page is selected, its groups are listed underneath;
-  click one to jump straight to it instead of scrolling.
-- **Settings** — every option from the right-click menu grouped in one place, plus finer
-  controls such as the click-reaction thresholds. Changes apply to the desktop pet
-  immediately, and changes made in the menu show up here. Options that rewrite Claude
-  Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the right-click menu.
-- **Usage** — local Claude Code and Codex token usage by model over the last 7, 30 or 90 days:
-  total tokens, requests and cache hit rate, a row per model with its input / cache read /
-  cache write / output split, and a per-day stacked bar chart for the selected model. The
-  four columns never overlap (Codex's cached tokens are subtracted from its input), so they
-  add up to the total. Everything is counted from local session logs; nothing is sent anywhere.
-  A per-day archive keeps history after Claude Code prunes old transcripts.
-- **Diagnostics** — the same checks as `cc-pets doctor`: a summary, one card per area, a
-  copy button for each suggested fix command, **Re-check** and **Copy Report** (paths are
-  shown as `~`, so it is safe to paste into an issue). It only reads; run the fix commands
-  yourself.
+- **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
+  (Overview, Sessions & Messages, Usage) and **Settings** (Pet, Alerts & Interaction,
+  General). Diagnostics sits at the bottom with a badge when something needs fixing.
+- **Overview** — the pet and what it is doing, today's new tokens, cache reads and requests,
+  a notice when diagnostics found problems, and your Claude / Codex plan quota as rings
+  (5-hour and weekly remaining, reset times, weekly pace).
+- **Sessions & Messages** — the Agent sessions online right now (sessions waiting for
+  approval first, each with **Go to Terminal**) and CC Bridge traffic: messages waiting in
+  an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
+- **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The
+  headline is *new tokens* (input + cache write + output); cache reads, hit rate and requests
+  sit beside it. The daily bar chart stacks models in fixed colors and can switch between new
+  tokens, cache reads and requests; click a model in the legend or the table to see only that
+  model, and hover a bar for that day's numbers. Everything is counted from local session
+  logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
+  old transcripts.
+- **Pet / Alerts & Interaction / General** — every option from the right-click menu, split
+  into three short pages, plus finer controls such as the click-reaction thresholds and a
+  continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
+  desktop pet immediately, and changes made in the menu show up here. Options that rewrite
+  Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
+  right-click menu.
+- **Diagnostics** — the same checks as `cc-pets doctor`, problems first: each with its area,
+  the suggested fix command and a copy button. Passing checks fold into one line.
+  **Re-check** and **Copy Report** (paths are shown as `~`, so it is safe to paste into an
+  issue). It only reads; run the fix commands yourself.
 
 The window is created when you open it and released when you close it, and nothing runs in
 the background while it is closed. The Dock icon and menu bar appear only while it is open.
