@@ -223,32 +223,36 @@ cc-pets open general       # also: pet, alerts, diagnostics
 - **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
   (Overview, Sessions & Messages, Usage, Pet) and **General** (Alerts,
   Settings). Diagnostics sits at the bottom with a badge when something needs fixing.
-- **Overview** — the pet and what it is doing, today's new tokens, cache reads and requests,
+- **Overview** — the pet and what it is doing, today's total usage with input, output, cached input and requests,
   a notice when diagnostics found problems, and your Claude / Codex plan quota as rings
   (5-hour and weekly remaining, reset times, weekly pace).
 - **Sessions & Messages** — the Agent sessions online right now (sessions waiting for
   approval first, each with **Go to Terminal**) and CC Bridge traffic: messages waiting in
   an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
-- **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The
-  headline is *new tokens* (input + cache write + output); cache reads, hit rate and requests
-  sit beside it. The daily bar chart stacks models in fixed colors and can switch between new
-  tokens, cache reads and requests; click a model in the legend or the table to see only that
+- **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The same
+  five numbers as the overview lead the page: total usage (input + cache write + output +
+  cached input), input, output, cached input with its hit rate, and requests. The daily bar
+  chart stacks models in fixed colors and can switch between those five measures; click a model in the legend or the table to see only that
   model, and hover a bar for that day's numbers. Everything is counted from local session
   logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
   old transcripts.
 - **Pet / Alerts / Settings** — every option from the right-click menu, split
-  into three short pages, plus finer controls such as the click-reaction thresholds and a
+  into three short pages (Pet: picker, size, chatter and click reactions; Alerts:
+  notifications and the status card), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
   Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
   right-click menu.
 - **Diagnostics** — the same checks as `cc-pets doctor`, problems first: each with its area,
-  the suggested fix command and a copy button. Passing checks fold into one line.
+  the suggested fix command and a copy button. Passing checks fold into one line. The PATH
+  order check only points you to `cc-pets doctor` in a terminal, since the pet's own PATH
+  isn't your terminal's.
   **Re-check** and **Copy Report** (paths are shown as `~`, so it is safe to paste into an
   issue). It only reads; run the fix commands yourself.
 
 The window is created when you open it and released when you close it, and nothing runs in
-the background while it is closed. The Dock icon and menu bar appear only while it is open.
+the background while it is closed. The Dock icon and menu bar appear only while it is open;
+clicking the Dock icon brings a minimized window back.
 
 ## Pet interaction
 
