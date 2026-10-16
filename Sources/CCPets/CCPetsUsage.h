@@ -47,3 +47,6 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 // 每次调用都会把缓存清理到只剩 [start, end) 涉及的会话文件，所以调用方应固定用同一个最长区间，
 // 短区间在结果里自己截取；区间来回切会让较早会话的缓存被删了又整篇重读。
 NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeInterval end);
+// 一份 counts 的总 Token = input + cacheRead + cacheWrite + output（reasoning 是 output 的子集，不另加）。
+// 数据层归档取大和 UI 的合计共用这一个口径。
+unsigned long long CCPetsTotalTokens(NSDictionary *counts);

@@ -8,10 +8,6 @@ static unsigned long long Count(NSDictionary *counts, NSString *key) {
     return [counts[key] unsignedLongLongValue];
 }
 
-unsigned long long CCPetsTotalTokens(NSDictionary *counts) {
-    return Count(counts, @"input") + Count(counts, @"cacheWrite") + Count(counts, @"output") + Count(counts, @"cacheRead");
-}
-
 // 1234 -> 1.23K，1234567 -> 1.23M：卡片里放不下一长串数字，精确值在悬停时给。
 // 先按三位有效数字舍入再定单位：999,950 直接格式化会得到 "1000K"，9,995 会得到 "10.00K"。
 NSString *CCPetsFormatTokens(unsigned long long value) {

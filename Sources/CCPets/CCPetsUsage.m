@@ -1797,6 +1797,15 @@ static NSArray<NSString *> *ClaudeModelNames(NSDictionary *cache) {
     return [table[@"names"] isKindOfClass:NSArray.class] ? table[@"names"] : @[];
 }
 
+// 清掉已经不在扫描范围里的文件条目。模型名表不是路径，必须留着：删了它，已有记录里存的
+// 下标就对不上名字了。
+static void PruneClaudeRecordCache(NSMutableDictionary *cache, NSSet<NSString *> *livePaths) {
+    for (NSString *path in cache.allKeys) {
+        if ([path isEqualToString:ClaudeModelTableKey]) continue;
+        if (![livePaths containsObject:path]) [cache removeObjectForKey:path];
+    }
+}
+
 static uint32_t ClaudeModelIndex(NSMutableDictionary *cache, NSString *model) {
     if (model.length == 0) return ClaudeUnknownModel;
     NSArray<NSString *> *names = ClaudeModelNames(cache);
@@ -1807,8 +1816,9 @@ static uint32_t ClaudeModelIndex(NSMutableDictionary *cache, NSString *model) {
     return (uint32_t)names.count;
 }
 
-// 去重键存 64 位散列而不是原字符串：近 7 天约 5.5k 条记录，散列后每条 48 字节、
-// 常驻不到 300KB；64 位空间下这个量级的碰撞概率约 1e-12，可以忽略。
+// 去重键存 64 位散列而不是原字符串：近 7 天约 5.5k 条记录，散列后每条 56 字节（含模型下标）、
+// 常驻约 300KB；64 位空间下这个量级的碰撞概率约 1e-12，可以忽略。用量页另有一份 90 天的
+// 记录缓存（claude-models），大小随天数大致线性增长，同量级下是这份的十几倍。
 static uint64_t ClaudeIdentityHash(NSString *first, NSString *second) {
     uint64_t hash = 1469598103934665603ULL;
     for (NSString *part in @[first ?: @"", @"\n", second ?: @""]) {
@@ -2125,10 +2135,7 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
         NSData *records = ClaudeRecordsForFile(url, self.recordCache);
         if (records.length > 0) [recordSets addObject:records];
     }
-    for (NSString *path in self.recordCache.allKeys) {
-        if ([path isEqualToString:ClaudeModelTableKey]) continue;
-        if (![livePaths containsObject:path]) [self.recordCache removeObjectForKey:path];
-    }
+    PruneClaudeRecordCache(self.recordCache, livePaths);
     NSTimeInterval savedAt = NSDate.date.timeIntervalSince1970;
     if (self.persistsCache && savedAt - self.recordCacheSavedAt >= TokenCacheSaveInterval) {
         self.recordCacheSavedAt = savedAt;
@@ -2226,7 +2233,7 @@ static void AddModelCounts(NSMutableDictionary *target, NSDictionary *counts) {
     }
 }
 
-static unsigned long long ModelCountsTokens(NSDictionary *counts) {
+unsigned long long CCPetsTotalTokens(NSDictionary *counts) {
     return [counts[@"input"] unsignedLongLongValue] + [counts[@"cacheRead"] unsignedLongLongValue] +
         [counts[@"cacheWrite"] unsignedLongLongValue] + [counts[@"output"] unsignedLongLongValue];
 }
@@ -2298,10 +2305,7 @@ static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval 
         NSData *records = ClaudeRecordsForFile(url, cache);
         if (records.length > 0) [recordSets addObject:records];
     }
-    for (NSString *path in cache.allKeys) {
-        if ([path isEqualToString:ClaudeModelTableKey]) continue;
-        if (![livePaths containsObject:path]) [cache removeObjectForKey:path];
-    }
+    PruneClaudeRecordCache(cache, livePaths);
     NSArray<NSString *> *names = ClaudeModelNames(cache);
     NSData *merged = ClaudeMergedRecords(recordSets, start, end);
     const ClaudeTokenRecord *records = merged.bytes;
@@ -2343,7 +2347,7 @@ static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval 
 // 各取大的再合并：被清掉的模型靠归档补上，还在的照样取新值。今天还没结束，不进归档。
 static unsigned long long ModelDayTokens(NSDictionary *models) {
     unsigned long long total = 0;
-    for (NSString *model in models) total += ModelCountsTokens(models[model]);
+    for (NSString *model in models) total += CCPetsTotalTokens(models[model]);
     return total;
 }
 
@@ -2395,7 +2399,7 @@ NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeI
                 combined = [stored mutableCopy];
                 for (NSString *model in models) {
                     NSDictionary *existing = combined[model];
-                    if (!existing || ModelCountsTokens(models[model]) >= ModelCountsTokens(existing)) {
+                    if (!existing || CCPetsTotalTokens(models[model]) >= CCPetsTotalTokens(existing)) {
                         combined[model] = models[model];
                     }
                 }
