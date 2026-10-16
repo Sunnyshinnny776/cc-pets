@@ -787,8 +787,9 @@ static NSString *DayBucketKey(NSTimeInterval dayStart) {
     return [NSString stringWithFormat:@"%.0f", dayStart];
 }
 
-// 摘要缓存条目的版本。2 起每个会话摘要多了 modelDays / model（按模型归属的日桶）。
-// 旧条目缺这两样，没法凭已有字段补出来，只能整篇重读一遍——版本对不上就当没缓存。
+// 带模型的摘要条目的版本。2 起会话摘要多了 modelDays / model（按模型归属的日桶）。
+// 只有用量页（trackModels）要这两样：旧条目没法凭已有字段补出来，只能整篇重读——版本对不上就当没缓存。
+// 悬停面板不看模型，也不检查版本，升级后它的缓存照旧可用，不会在主线程上把会话全部重读一遍。
 static const NSInteger TokenSummaryVersion = 2;
 
 // 不是真实模型：Claude Code 给本地注入的消息打的占位名，没有对应的用量。
@@ -822,11 +823,15 @@ static NSDictionary *TokenCountsBySubtracting(NSDictionary *totals, NSDictionary
 // 解析时顺手把每条记录的增量摊到它所属的自然日（summary[@"days"]）。API 视图要画一个月的
 // 日曲线，如果改成按天各扫一遍窗口，跨天会话会被 PartialTokenTotals 整篇重读 31 次——
 // 实测本机每次刷新要多花 130ms，全落在主线程上，悬停时连拖动都会卡住。
-static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache) {
+//
+// trackModels 只给用量页（后台线程）用：按 turn_context 把增量再分到模型名下。悬停面板走主线程、
+// 用不到模型，关掉后不碰 turn_context 行，省掉逐行查标记和对大行的 JSON 解析。
+static NSDictionary *TokenSessionSummaryTracking(NSURL *url, NSMutableDictionary *cache,
+    BOOL trackModels) {
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:url.path error:nil];
     unsigned long long size = [attributes[NSFileSize] unsignedLongLongValue];
     NSDictionary *cached = cache[url.path];
-    if (cached && [cached[@"v"] integerValue] != TokenSummaryVersion) cached = nil;
+    if (trackModels && cached && [cached[@"v"] integerValue] != TokenSummaryVersion) cached = nil;
     // 没有 token_count 的会话（旧格式、被截断、刚创建）也会留下缓存条目，否则每一轮都要
     // 把整篇重读一遍。文件长大后 size 变化自然会让缓存失效。
     if (cached && [cached[@"size"] unsignedLongLongValue] == size) {
@@ -865,9 +870,10 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
             }
             lastRequestTotal = [cached[@"lastRequestTotal"] isKindOfClass:NSDictionary.class]
                 ? cached[@"lastRequestTotal"] : nil;
-            currentModel = [cached[@"model"] isKindOfClass:NSString.class] ? cached[@"model"] : nil;
-            NSDictionary *cachedModelDays = [cached[@"modelDays"] isKindOfClass:NSDictionary.class]
-                ? cached[@"modelDays"] : nil;
+            currentModel = trackModels && [cached[@"model"] isKindOfClass:NSString.class]
+                ? cached[@"model"] : nil;
+            NSDictionary *cachedModelDays = trackModels &&
+                [cached[@"modelDays"] isKindOfClass:NSDictionary.class] ? cached[@"modelDays"] : nil;
             for (NSString *dayKey in cachedModelDays) {
                 NSMutableDictionary *perModel = [NSMutableDictionary dictionary];
                 for (NSString *model in cachedModelDays[dayKey]) {
@@ -892,7 +898,7 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
             NSTimeInterval timestamp = LineTimestamp(line);
             if (timestamp > 0) start = @(timestamp);
         }
-        NSString *turnModel = ModelFromTurnContextLine(line);
+        NSString *turnModel = trackModels ? ModelFromTurnContextLine(line) : nil;
         if (turnModel) {
             currentModel = turnModel;
             return;
@@ -926,20 +932,22 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
             bucket[@"request_count"] = @([bucket[@"request_count"] unsignedLongLongValue] + 1);
         }
         // 同一份增量再按模型记一遍。没见过 turn_context 就记在 unknown 名下，总量对得上。
-        NSMutableDictionary<NSString *, NSMutableDictionary *> *perModel = modelDays[dayKey];
-        if (!perModel) {
-            perModel = [NSMutableDictionary dictionary];
-            modelDays[dayKey] = perModel;
-        }
-        NSString *modelName = currentModel ?: @"unknown";
-        NSMutableDictionary *modelBucket = perModel[modelName];
-        if (!modelBucket) {
-            modelBucket = [NSMutableDictionary dictionary];
-            perModel[modelName] = modelBucket;
-        }
-        AddTokenCounts(modelBucket, increment);
-        if (newRequest) {
-            modelBucket[@"request_count"] = @([modelBucket[@"request_count"] unsignedLongLongValue] + 1);
+        if (trackModels) {
+            NSMutableDictionary<NSString *, NSMutableDictionary *> *perModel = modelDays[dayKey];
+            if (!perModel) {
+                perModel = [NSMutableDictionary dictionary];
+                modelDays[dayKey] = perModel;
+            }
+            NSString *modelName = currentModel ?: @"unknown";
+            NSMutableDictionary *modelBucket = perModel[modelName];
+            if (!modelBucket) {
+                modelBucket = [NSMutableDictionary dictionary];
+                perModel[modelName] = modelBucket;
+            }
+            AddTokenCounts(modelBucket, increment);
+            if (newRequest) {
+                modelBucket[@"request_count"] = @([modelBucket[@"request_count"] unsignedLongLongValue] + 1);
+            }
         }
         lastRequestTotal = total;
         NSDictionary *previous = segments.lastObject;
@@ -948,8 +956,9 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
     });
     [handle closeFile];
 
-    NSMutableDictionary *summary = [@{@"size": @(size), @"offset": @(offset + consumed),
-        @"v": @(TokenSummaryVersion)} mutableCopy];
+    NSMutableDictionary *summary = [@{@"size": @(size), @"offset": @(offset + consumed)} mutableCopy];
+    // 不跟踪模型的条目不打版本：它没有 modelDays，用量页读到时要当没缓存、整篇重读。
+    if (trackModels) summary[@"v"] = @(TokenSummaryVersion);
     if (currentModel) summary[@"model"] = currentModel;
     if (start) summary[@"start"] = start;
     if (segments.count > 0) {
@@ -967,11 +976,15 @@ static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache)
             for (NSString *model in modelDays[dayKey]) perModel[model] = [modelDays[dayKey][model] copy];
             frozenModelDays[dayKey] = [perModel copy];
         }
-        summary[@"modelDays"] = [frozenModelDays copy];
+        if (trackModels) summary[@"modelDays"] = [frozenModelDays copy];
         if (lastRequestTotal) summary[@"lastRequestTotal"] = lastRequestTotal;
     }
     cache[url.path] = summary;
     return (start && summary[@"total"]) ? summary : nil;
+}
+
+static NSDictionary *TokenSessionSummary(NSURL *url, NSMutableDictionary *cache) {
+    return TokenSessionSummaryTracking(url, cache, NO);
 }
 
 // 累计值相减，而不是累加窗口内的 last_token_usage：Codex 会把同一份 token_count
@@ -2248,7 +2261,7 @@ static NSDictionary<NSString *, NSDictionary *> *CodexModelDays(NSTimeInterval s
     NSArray<NSURL *> *urls = RecentCodexSessionURLs(CodexSessionsURL(), start);
     NSMutableDictionary<NSString *, NSMutableDictionary *> *result = [NSMutableDictionary dictionary];
     for (NSURL *url in urls) {
-        NSDictionary *summary = TokenSessionSummary(url, cache);
+        NSDictionary *summary = TokenSessionSummaryTracking(url, cache, YES);
         NSDictionary *modelDays = [summary[@"modelDays"] isKindOfClass:NSDictionary.class]
             ? summary[@"modelDays"] : nil;
         for (NSString *dayKey in modelDays) {
@@ -2324,9 +2337,16 @@ static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval 
 }
 
 // 历史按日留一份，因为源头会清：Claude Code 默认约 30 天后清理转录，那之后这些天只能靠这份。
-// 每个已经过去的自然日，按模型把"源头现在数出来的"和"以前存下的"取 Token 总量更大的那份——
-// 源头被清掉一部分时数出来的只会更小，重新算全时只会更大，取大不会丢，也不会因重复扫描翻倍。
-// 今天还没结束，不进归档。
+// 每个已经过去的自然日，先比整天的 Token 总量：源头现在数出来的不比存下的少，说明源头没被清，
+// 它就是一次完整的重算，整天换成它——同一份用量换了模型名（unknown 后来认出了模型）时，
+// 旧名字跟着整天被替掉，不会和新名字各留一份。数出来的更少才说明源头被清了一部分，这时按模型
+// 各取大的再合并：被清掉的模型靠归档补上，还在的照样取新值。今天还没结束，不进归档。
+static unsigned long long ModelDayTokens(NSDictionary *models) {
+    unsigned long long total = 0;
+    for (NSString *model in models) total += ModelCountsTokens(models[model]);
+    return total;
+}
+
 static NSString *const ModelArchiveSchemaKey = @"schema";
 static const NSInteger ModelArchiveSchemaVersion = 1;
 static const NSInteger ModelArchiveRetentionDays = 400;
@@ -2368,13 +2388,16 @@ NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeI
         if (dayStart.doubleValue < todayStart) {
             NSDictionary *stored = [archivedDays[key] isKindOfClass:NSDictionary.class]
                 ? archivedDays[key] : @{};
-            // 按模型各取大的一份再合并：同一天里源头只被清掉一部分时，被清掉的那个模型靠归档补上，
-            // 而当天新出现的模型照样进来，不会被整天的"更大"挡住。
-            NSMutableDictionary *combined = [stored mutableCopy];
-            for (NSString *model in models) {
-                NSDictionary *existing = combined[model];
-                if (!existing || ModelCountsTokens(models[model]) >= ModelCountsTokens(existing)) {
-                    combined[model] = models[model];
+            NSMutableDictionary *combined = nil;
+            if (ModelDayTokens(models) >= ModelDayTokens(stored)) {
+                combined = [models mutableCopy];
+            } else {
+                combined = [stored mutableCopy];
+                for (NSString *model in models) {
+                    NSDictionary *existing = combined[model];
+                    if (!existing || ModelCountsTokens(models[model]) >= ModelCountsTokens(existing)) {
+                        combined[model] = models[model];
+                    }
                 }
             }
             if (![combined isEqualToDictionary:stored] && combined.count > 0) {

@@ -867,6 +867,24 @@ int main(void) {
             return EXIT_FAILURE;
         }
         puts("按模型改造后面板口径不变测试通过");
+
+        // 归档里同一份用量换了模型名：先归档时请求还没认出模型（unknown），后来别的文件里出现了
+        // 带 model 的同一请求。源头没被清，整天换成重算结果，unknown 不能和新名字各留一份。
+        [modelLine(noon + 30, nil, @"c10", @"r10", 2, 3, 4, 5)
+            writeToFile:[modelProject stringByAppendingPathComponent:@"rename.jsonl"] atomically:YES];
+        claudeModels = modelUsage(@"claude")[@"models"];
+        if (!countsMatch(claudeModels[@"unknown"], 2, 4, 5, 3, 1)) {
+            NSLog(@"没有 model 的请求应先记在 unknown 名下: %@", claudeModels);
+            return EXIT_FAILURE;
+        }
+        [modelLine(noon + 30, @"claude-c", @"c10", @"r10", 2, 3, 4, 5)
+            writeToFile:[modelProject stringByAppendingPathComponent:@"rename-fork.jsonl"] atomically:YES];
+        claudeModels = modelUsage(@"claude")[@"models"];
+        if (claudeModels[@"unknown"] || !countsMatch(claudeModels[@"claude-c"], 2, 4, 5, 3, 1)) {
+            NSLog(@"改名后的用量不应在归档里重复计入: %@", claudeModels);
+            return EXIT_FAILURE;
+        }
+        puts("按模型归档改名不重复计数测试通过");
     }
     return EXIT_SUCCESS;
 }
