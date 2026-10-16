@@ -221,12 +221,12 @@ cc-pets open general       # also: pet, alerts, diagnostics
 </p>
 
 - **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
-  (Overview, Sessions & Messages, Usage, Pet) and **General** (Alerts,
+  (Overview, Sessions, Usage, Pet) and **General** (Alerts,
   Settings). Diagnostics sits at the bottom with a badge when something needs fixing.
 - **Overview** — the pet and what it is doing, today's total usage with input, output, cached input and requests,
   a notice when diagnostics found problems, and your Claude / Codex plan quota as rings
   (5-hour and weekly remaining, reset times, weekly pace).
-- **Sessions & Messages** — the Agent sessions online right now (sessions waiting for
+- **Sessions** — the Agent sessions online right now (sessions waiting for
   approval first, each with **Go to Terminal**) and CC Bridge traffic: messages waiting in
   an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
 - **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The same

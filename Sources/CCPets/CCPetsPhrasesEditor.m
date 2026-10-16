@@ -1,6 +1,7 @@
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsL10n.h"
 #import "CCPetsPhrases.h"
+#import "CCPetsUIStyle.h"
 
 static void (^PetPhrasesSpeakHandler)(NSString *);
 
@@ -125,6 +126,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     NSButton *saveAndClose = [NSButton buttonWithTitle:L(@"Save & Close") target:self
         action:@selector(saveAndClose:)];
     saveAndClose.keyEquivalent = @"\r";
+    CCPetsApplyAccent(saveAndClose);
     saveAndClose.translatesAutoresizingMaskIntoConstraints = NO;
     self.saveAndCloseButton = saveAndClose;
 
@@ -139,6 +141,7 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
         trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(scopeChanged:)];
     scope.translatesAutoresizingMaskIntoConstraints = NO;
     scope.selectedSegment = 0;
+    CCPetsApplyAccent(scope);
     self.scopeControl = scope;
 
     // 专属页初次打开是空白的——空白在语义上是对的（全部回落到通用），但一个空白文本框

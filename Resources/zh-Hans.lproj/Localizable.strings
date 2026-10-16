@@ -253,6 +253,10 @@
 "Update to %@…" = "更新到 %@…";
 "Language" = "语言";
 "System Default" = "跟随系统";
+"Light" = "浅色";
+"Dark" = "深色";
+"Window Appearance" = "窗口外观";
+"Only this window; the pet's panels follow Panel Appearance below" = "只作用于本窗口；桌宠的浮层看下面的「浮层外观」";
 "Help" = "帮助";
 "Check for Updates…" = "检查更新…";
 "About CC Pets" = "关于 CC Pets";
@@ -729,7 +733,7 @@
 "Fixing these changes your shell and Claude Code / Codex settings, so the commands are shown here for you to run." = "修复会改动 shell 和 Claude Code / Codex 配置，所以这里只给命令，由你自己执行。";
 "1 check passed" = "1 项正常";
 "%lu checks passed" = "%lu 项正常";
-"Sessions & Messages" = "会话";
+"Sessions" = "会话";
 "Pet" = "宠物";
 "Workbench" = "工作台";
 "Copy pets from ~/.codex/pets into your own folder" = "把 ~/.codex/pets 里的宠物复制到自己的素材文件夹";

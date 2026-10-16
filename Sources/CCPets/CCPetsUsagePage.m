@@ -770,6 +770,7 @@ static double NiceStep(double peak) {
     control.controlSize = NSControlSizeSmall;
     control.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
     control.selectedSegment = selected;
+    CCPetsApplyAccent(control);
     return control;
 }
 
