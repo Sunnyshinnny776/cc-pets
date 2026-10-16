@@ -8,6 +8,7 @@
 #import "CCPetsPreferences.h"
 #import "CCPetsMainWindow.h"
 #import "CCPetsUIStyle.h"
+#import "CCPetsFormBuilder.h"
 
 // 定义在 CCPetsAppDelegate+Speech.m；那边的头文件是 AppDelegate 私有的，这里单独 extern。
 extern NSString *const PetSpeechFrequencyKey;
@@ -24,36 +25,15 @@ extern NSString *const PetSpeechFrequencyKey;
 }
 @end
 
-// 分组卡片的底色：浅色下比窗口底亮一档，深色下比窗口底浅一档，和系统设置一致。
-static NSColor *SettingsCardColor(void) {
-    return [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
-        BOOL dark = [[appearance bestMatchFromAppearancesWithNames:
-            @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-        return dark ? [NSColor colorWithWhite:1 alpha:0.05] : [NSColor colorWithWhite:1 alpha:0.75];
-    }];
-}
-
 static NSString *ClickCountText(NSInteger count) {
     return [[NSString stringWithFormat:@"%ld", (long)count] stringByAppendingString:L(@" clicks")];
 }
 
-// 文档视图要翻转坐标（原点在左上），内容才会从顶部往下排，滚动位置也才好算。
-@interface CCPetsFlippedView : NSView
-@end
-
-@implementation CCPetsFlippedView
-- (BOOL)isFlipped {
-    return YES;
-}
-@end
-
 @interface CCPetsSettingsPage ()
-@property(nonatomic) NSStackView *stack;
+@property(nonatomic) CCPetsFormBuilder *form;
 @property(nonatomic) NSMutableArray<CCPetsSettingsHandler *> *handlers;
 // 每个控件一个"按 defaults 回填自己"的 block。设置一变就全部跑一遍。
 @property(nonatomic) NSMutableArray<void (^)(void)> *reloaders;
-@property(nonatomic) NSMutableArray<NSDictionary *> *sectionEntries;
-@property(nonatomic) NSMutableDictionary<NSString *, NSView *> *sectionHeaders;
 @end
 
 @implementation CCPetsSettingsPage
@@ -66,35 +46,9 @@ static NSString *ClickCountText(NSInteger count) {
 - (void)loadView {
     self.handlers = [NSMutableArray array];
     self.reloaders = [NSMutableArray array];
-    self.sectionEntries = [NSMutableArray array];
-    self.sectionHeaders = [NSMutableDictionary dictionary];
 
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 560, 560)];
-    scroll.hasVerticalScroller = YES;
-    scroll.autohidesScrollers = YES;
-    scroll.drawsBackground = NO;
-    NSView *document = [[CCPetsFlippedView alloc] initWithFrame:NSZeroRect];
-    document.translatesAutoresizingMaskIntoConstraints = NO;
-    scroll.documentView = document;
-    NSClipView *clip = scroll.contentView;
-
-    NSStackView *stack = [NSStackView stackViewWithViews:@[]];
-    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    stack.alignment = NSLayoutAttributeLeading;
-    stack.spacing = 8;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [document addSubview:stack];
-    [NSLayoutConstraint activateConstraints:@[
-        [document.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor],
-        [document.trailingAnchor constraintEqualToAnchor:clip.trailingAnchor],
-        [document.topAnchor constraintEqualToAnchor:clip.topAnchor],
-        [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor constant:28],
-        [stack.trailingAnchor constraintEqualToAnchor:document.trailingAnchor constant:-28],
-        [stack.topAnchor constraintEqualToAnchor:document.topAnchor constant:20],
-        [stack.bottomAnchor constraintEqualToAnchor:document.bottomAnchor constant:-28],
-    ]];
-    self.stack = stack;
-    self.view = scroll;
+    self.form = [CCPetsFormBuilder new];
+    self.view = self.form.scrollView;
 
     [self buildSections];
     [self reloadValues];
@@ -117,27 +71,21 @@ static NSString *ClickCountText(NSInteger count) {
 #pragma mark - 侧边栏跳转
 
 - (NSArray<NSDictionary *> *)pageSections {
-    return self.sectionEntries;
+    return self.form.sectionEntries;
 }
 
 - (void)scrollToSectionWithID:(NSString *)sectionID {
-    NSScrollView *scroll = (NSScrollView *)self.view;
-    NSView *document = scroll.documentView;
-    [document layoutSubtreeIfNeeded];
-    NSView *header = sectionID ? self.sectionHeaders[sectionID] : nil;
-    CGFloat target = 0;
-    if (header) {
-        // 标题上方留一点空隙，别贴着窗口顶沿；超出可滚范围的（最后几段）停在底部。
-        target = [document convertRect:header.bounds fromView:header].origin.y - 16;
-        CGFloat maximum = MAX(0, NSHeight(document.frame) - NSHeight(scroll.contentView.bounds));
-        target = MIN(MAX(0, target), maximum);
-    }
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
-        context.duration = 0.25;
-        [scroll.contentView.animator setBoundsOrigin:NSMakePoint(0, target)];
-    } completionHandler:^{
-        [scroll reflectScrolledClipView:scroll.contentView];
-    }];
+    [self.form scrollToSectionWithID:sectionID];
+}
+
+- (NSView *)rowWithTitle:(NSString *)title controls:(NSArray<NSView *> *)controls {
+    return [CCPetsFormBuilder rowWithTitle:title controls:controls];
+}
+
+// 分组的 id 直接用图标名：每组图标各不相同，不必再另起一套标识。
+- (void)addSectionWithTitle:(NSString *)title symbol:(NSString *)symbol color:(NSColor *)color
+    rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
+    [self.form addSectionWithID:symbol title:title symbol:symbol color:color rows:rows footer:footer];
 }
 
 #pragma mark - 控件与布局
@@ -148,22 +96,6 @@ static NSString *ClickCountText(NSInteger count) {
     [self.handlers addObject:handler];
     control.target = handler;
     control.action = @selector(invoke:);
-}
-
-- (NSView *)rowWithTitle:(NSString *)title controls:(NSArray<NSView *> *)controls {
-    NSTextField *label = [NSTextField labelWithString:title];
-    label.lineBreakMode = NSLineBreakByTruncatingTail;
-    [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
-        forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSView *spacer = [NSView new];
-    [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSStackView *row = [NSStackView stackViewWithViews:[@[label, spacer] arrayByAddingObjectsFromArray:controls]];
-    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    row.alignment = NSLayoutAttributeCenterY;
-    row.spacing = 8;
-    row.edgeInsets = NSEdgeInsetsMake(8, 14, 8, 14);
-    [row.heightAnchor constraintGreaterThanOrEqualToConstant:40].active = YES;
-    return row;
 }
 
 - (NSSwitch *)switchWithValue:(BOOL (^)(void))value action:(void (^)(NSSwitch *control))action {
@@ -244,73 +176,6 @@ static NSString *ClickCountText(NSInteger count) {
     button.controlSize = NSControlSizeSmall;
     [self bind:button to:^(id sender) { action(); }];
     return [self rowWithTitle:title controls:@[button]];
-}
-
-// 分组标题前的彩色图标块和侧边栏同一套（CCPetsSymbolTile），一眼能分出是哪一组。
-- (void)addSectionWithTitle:(NSString *)title symbol:(NSString *)symbol color:(NSColor *)color
-    rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
-    NSTextField *label = [NSTextField labelWithString:title];
-    label.font = [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightSemibold];
-    NSImageView *icon = [NSImageView imageViewWithImage:CCPetsSymbolTile(symbol, color, 22)];
-    [icon.widthAnchor constraintEqualToConstant:22].active = YES;
-    [icon.heightAnchor constraintEqualToConstant:22].active = YES;
-    NSStackView *header = [NSStackView stackViewWithViews:@[icon, label]];
-    header.spacing = 8;
-    header.alignment = NSLayoutAttributeCenterY;
-    if (self.stack.arrangedSubviews.count > 0) {
-        [self.stack setCustomSpacing:24 afterView:self.stack.arrangedSubviews.lastObject];
-    }
-    [self.stack addArrangedSubview:header];
-    [self.stack setCustomSpacing:10 afterView:header];
-    // 分组的 id 直接用图标名：每组图标各不相同，不必再另起一套标识。
-    [self.sectionEntries addObject:@{@"id": symbol, @"title": title, @"symbol": symbol, @"color": color}];
-    self.sectionHeaders[symbol] = header;
-
-    NSStackView *content = [NSStackView stackViewWithViews:@[]];
-    content.orientation = NSUserInterfaceLayoutOrientationVertical;
-    content.spacing = 0;
-    content.translatesAutoresizingMaskIntoConstraints = NO;
-    for (NSView *row in rows) {
-        if (content.arrangedSubviews.count > 0) {
-            NSBox *separator = [NSBox new];
-            separator.boxType = NSBoxSeparator;
-            [content addArrangedSubview:separator];
-            [separator.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14].active = YES;
-            [separator.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14].active = YES;
-        }
-        [content addArrangedSubview:row];
-        [row.leadingAnchor constraintEqualToAnchor:content.leadingAnchor].active = YES;
-        [row.trailingAnchor constraintEqualToAnchor:content.trailingAnchor].active = YES;
-    }
-
-    NSBox *card = [NSBox new];
-    card.boxType = NSBoxCustom;
-    card.titlePosition = NSNoTitle;
-    card.cornerRadius = 8;
-    card.borderWidth = 1;
-    card.borderColor = NSColor.separatorColor;
-    card.fillColor = SettingsCardColor();
-    card.contentViewMargins = NSZeroSize;
-    card.translatesAutoresizingMaskIntoConstraints = NO;
-    [card.contentView addSubview:content];
-    [NSLayoutConstraint activateConstraints:@[
-        [content.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor],
-        [content.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor],
-        [content.topAnchor constraintEqualToAnchor:card.contentView.topAnchor],
-        [content.bottomAnchor constraintEqualToAnchor:card.contentView.bottomAnchor],
-    ]];
-    [self.stack addArrangedSubview:card];
-    [card.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor].active = YES;
-    [card.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor].active = YES;
-
-    if (footer.length == 0) return;
-    NSTextField *note = [NSTextField wrappingLabelWithString:footer];
-    note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    note.textColor = NSColor.secondaryLabelColor;
-    note.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.stack addArrangedSubview:note];
-    [note.leadingAnchor constraintEqualToAnchor:self.stack.leadingAnchor constant:4].active = YES;
-    [note.trailingAnchor constraintEqualToAnchor:self.stack.trailingAnchor constant:-4].active = YES;
 }
 
 static void RevealFolder(NSString *path) {
