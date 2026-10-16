@@ -142,7 +142,22 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
         NSTextField *value = CCPetsNumberLabel(item[1], 20, NSFontWeightBold, CCPetsInkColor());
         NSTextField *detail = CCPetsLabel(item.count > 2 && item[2].length > 0 ? item[2] : @" ", 11,
             NSFontWeightRegular, CCPetsTertiaryInkColor());
-        NSStackView *stack = [NSStackView stackViewWithViews:@[title, value, detail]];
+        NSView *heading = title;
+        if (item.count > 3 && item[3].length > 0) {
+            NSImageView *icon = [NSImageView imageViewWithImage:
+                [NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:item[3]]];
+            icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:10
+                weight:NSFontWeightRegular];
+            icon.contentTintColor = CCPetsTertiaryInkColor();
+            icon.toolTip = item[3];
+            [icon setContentHuggingPriority:NSLayoutPriorityRequired
+                forOrientation:NSLayoutConstraintOrientationHorizontal];
+            NSStackView *line = [NSStackView stackViewWithViews:@[title, icon]];
+            line.alignment = NSLayoutAttributeCenterY;
+            line.spacing = 3;
+            heading = line;
+        }
+        NSStackView *stack = [NSStackView stackViewWithViews:@[heading, value, detail]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.alignment = NSLayoutAttributeLeading;
         stack.spacing = 3;

@@ -945,16 +945,18 @@ static double NiceStep(double peak) {
     [self.form addView:[self kpiStripWithSum:sum rangeDays:rangeDays]];
     [self.form addView:[self chartCardView]];
     if (self.entries.count > 0) [self.form addView:[self modelTable]];
-    [self.form addFootnote:L(@"Total = input (excluding cache) + cache write + output + cached input. Codex counts cache hits inside input; they are subtracted here. Hit rate = cached input ÷ all input-side tokens.")];
     [self renderChart];
 }
 
 #pragma mark 指标条
 
 // 五格和概览一样（同一个部件、同一套口径），只是总用量换成当前来源和区间的合计。
+// 口径说明不占版面，挂在总用量标题后面的 ⓘ 上，悬停才显示。
 - (NSView *)kpiStripWithSum:(NSDictionary *)sum rangeDays:(NSInteger)rangeDays {
     NSString *title = [NSString stringWithFormat:L(@"Last %ld days · Total"), (long)rangeDays];
-    NSView *row = CCPetsMetricRow(CCPetsUsageMetricItems(title, sum, self.entries.count));
+    NSMutableArray<NSArray<NSString *> *> *items = [CCPetsUsageMetricItems(title, sum, self.entries.count) mutableCopy];
+    items[0] = [items[0] arrayByAddingObject:L(@"Total = input (excluding cache) + cache write + output + cached input. Codex counts cache hits inside input; they are subtracted here. Hit rate = cached input ÷ all input-side tokens.")];
+    NSView *row = CCPetsMetricRow(items);
     CCPetsCardView *card = [CCPetsCardView new];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:row];
