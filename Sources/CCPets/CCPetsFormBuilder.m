@@ -172,7 +172,26 @@ static const CGFloat FormSideInset = 28;
 }
 
 - (void)addGroupTitle:(NSString *)title note:(NSString *)note {
-    NSTextField *label = CCPetsLabel(title, 13, NSFontWeightSemibold, CCPetsInkColor());
+    [self addGroupTitle:title note:note info:nil];
+}
+
+- (void)addGroupTitle:(NSString *)title note:(NSString *)note info:(NSString *)info {
+    NSView *label = CCPetsLabel(title, 13, NSFontWeightSemibold, CCPetsInkColor());
+    if (info.length > 0) {
+        NSImageView *icon = [NSImageView imageViewWithImage:
+            [NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:info]];
+        icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:11
+            weight:NSFontWeightRegular];
+        icon.contentTintColor = CCPetsTertiaryInkColor();
+        icon.toolTip = info;
+        [icon setContentHuggingPriority:NSLayoutPriorityRequired
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        // 图标没有基线，先和标题按中线对齐，外层再按基线对齐 note。
+        NSStackView *line = [NSStackView stackViewWithViews:@[label, icon]];
+        line.alignment = NSLayoutAttributeCenterY;
+        line.spacing = 4;
+        label = line;
+    }
     NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:label];
     if (note.length > 0) [views addObject:CCPetsLabel(note, 11, NSFontWeightRegular, CCPetsTertiaryInkColor())];
     NSStackView *header = [NSStackView stackViewWithViews:views];

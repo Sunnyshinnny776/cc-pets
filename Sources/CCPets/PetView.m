@@ -1684,7 +1684,7 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     helpItem.submenu = helpMenu;
     [menu addItem:NSMenuItem.separatorItem];
     // 主窗口：右键菜单装不下的设置和数据。⌘, 只是提示，和普通 App 的「设置…」一个位置一个键。
-    NSMenuItem *openItem = [menu addItemWithTitle:L(@"Open CC Pets…")
+    NSMenuItem *openItem = [menu addItemWithTitle:L(@"Main menu")
         action:@selector(openMainWindow:) keyEquivalent:@","];
     openItem.target = NSApp.delegate;
     NSMenuItem *quitItem = [menu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"];

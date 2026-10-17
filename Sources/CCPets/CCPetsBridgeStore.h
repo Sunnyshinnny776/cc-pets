@@ -98,3 +98,5 @@ NSDictionary *CCBridgeFindAgentAncestor(pid_t startPid);
 BOOL CCBridgeSessionLive(NSDictionary *session);
 // `codex queue` 能力探测：@{status: supported|unsupported|missing|unknown, executable, version}。
 NSDictionary *CCBridgeProbeCodexQueue(NSString *executable);
+// environment 为 nil 时继承当前环境。npm 装的 codex 是 `env node` 脚本，主窗口得带上能找到 node 的 PATH。
+NSDictionary *CCBridgeProbeCodexQueueWithEnvironment(NSString *executable, NSDictionary<NSString *, NSString *> *environment);

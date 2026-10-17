@@ -487,9 +487,8 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
     NSPoint scroll = self.form.scrollView.contentView.bounds.origin;
     [self.form removeAllContent];
     [self.form addView:[self sessionsTable:sessions]];
-    [self.form addFootnote:L(@"Only sessions that are online right now. The pet's right-click menu lists the latest 8.")];
     [self.form addGroupTitle:@"CC Bridge" note:waiting > 0 ? [NSString stringWithFormat:L(@"%lu waiting in an inbox"),
-        (unsigned long)waiting] : nil];
+        (unsigned long)waiting] : nil info:L(@"Only message exchanges are displayed")];
     [self.form addView:[self messagesCard:messages]];
     // 定时重排不要把用户滚到一半的位置弹回顶部。
     [self.form.scrollView.documentView layoutSubtreeIfNeeded];
@@ -718,8 +717,7 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
         [rows addObject:[self messageRowWithLeading:time title:route detail:detail trailing:@[chip, jump]]];
     }
     if (rows.count == 0) {
-        [rows addObject:[CCPetsFormBuilder rowWithTitle:L(@"No messages recently")
-            subtitle:L(@"Only who sent what to whom is shown here, never the message itself.") controls:@[]]];
+        [rows addObject:[CCPetsFormBuilder rowWithTitle:L(@"No messages recently") controls:@[]]];
     }
     return [self cardWithRows:rows];
 }

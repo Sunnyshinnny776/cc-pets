@@ -584,6 +584,8 @@
 "The shim directory is first in PATH" = "PATH 中 shim 目录排在最前";
 "Found the real {name}: {real}" = "找到真实的 {name}：{real}";
 "The real {name} isn't in PATH, so the shim can't forward to it" = "PATH 中找不到真实的 {name}，shim 无法转发";
+"The main window couldn't find the real {name}; run cc-pets doctor in a terminal to confirm" = "主窗口没找到真实的 {name}，请在终端里运行 cc-pets doctor 确认";
+"The main window couldn't find codex to check whether it can be woken; run cc-pets doctor in a terminal to confirm" = "主窗口没找到 codex，无法确认能否唤醒，请在终端里运行 cc-pets doctor 确认";
 "Auto-update isn't configured, so in-app updates won't work" = "自动更新未配置，应用内无法一键更新";
 "Auto-update config is valid" = "自动更新配置有效";
 "The {missing} recorded for auto-update no longer exist (changed Node versions?)" = "自动更新记录的 {missing} 已不存在（换过 Node 版本？）";
@@ -691,7 +693,7 @@
 "App removed: {targetApp}" = "已删除应用: {targetApp}";
 "App not installed: {targetApp}" = "未安装应用: {targetApp}";
 "Usage: cc-pets [command]\n\n  cc-pets                    Start the pet (prefers the copy installed in ~/Applications)\n  cc-pets install            Install or repair the shell / Claude Code / Codex integrations\n  cc-pets uninstall          Remove the integrations and restore the status line\n  cc-pets uninstall --purge  Also delete the app, app data and preferences (asks first; keeps pets and lines in ~/.cc-pets)\n  cc-pets uninstall-app      Only delete ~/Applications/CC Pets.app\n  cc-pets build              Rebuild\n  cc-pets clean              Clear caches (quit the pet first)\n  cc-pets doctor             Check the installation and integrations, with suggested fixes\n  cc-pets open [page]        Open the main window (pages: overview, sessions, usage, pet, alerts, general, diagnostics)\n  cc-pets paths [--json]     List where settings, caches and data live, and their sizes\n  cc-pets pet <command>      Manage pet sprites; see cc-pets pet help\n  cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help\n  cc-pets --status           Print the current Codex quota\n  cc-pets --history          Print quota history (JSON)\n  cc-pets --foreground       Run the pet in the foreground (for debugging)\n  cc-pets -v, --version      Show the version\n  cc-pets -h, --help         Show this help\n\ncodex-with-pet / claude-with-pet start the pet along with the CLI." = "用法：cc-pets [命令]\n\n  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）\n  cc-pets install            安装或修复 shell / Claude Code / Codex 集成\n  cc-pets uninstall          移除集成并恢复 status line\n  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）\n  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app\n  cc-pets build              重新构建\n  cc-pets clean              清理缓存（需先退出桌宠）\n  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议\n  cc-pets open [页面]        打开主窗口（页面：overview、sessions、usage、pet、alerts、general、diagnostics）\n  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小\n  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help\n  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help\n  cc-pets --status           输出 Codex 当前额度\n  cc-pets --history          输出额度历史（JSON）\n  cc-pets --foreground       在前台运行桌宠（调试用）\n  cc-pets -v, --version      显示版本\n  cc-pets -h, --help         显示本帮助\n\ncodex-with-pet / claude-with-pet 会在启动 CLI 的同时拉起桌宠。";
-"Open CC Pets…" = "打开 CC Pets…";
+"Main menu" = "主菜单";
 "Settings…" = "设置…";
 "Window" = "窗口";
 "Minimize" = "最小化";
@@ -784,7 +786,6 @@
 "5-hour left" = "5 小时剩余";
 "Weekly left" = "本周剩余";
 "%lu CC Bridge messages recently" = "最近 %lu 条 CC Bridge 消息";
-"Only sessions that are online right now. The pet's right-click menu lists the latest 8." = "只列此刻在线的会话。宠物右键菜单里只显示最近 8 个。";
 "%lu waiting in an inbox" = "%lu 条在信箱里等待投递";
 "Status" = "状态";
 "Session" = "会话";
@@ -800,7 +801,7 @@
 "Delivered" = "已送达";
 "Unread" = "未读";
 "No messages recently" = "最近没有消息";
-"Only who sent what to whom is shown here, never the message itself." = "这里只显示谁发给了谁，不显示消息正文。";
+"Only message exchanges are displayed" = "仅显示消息交互";
 "Total today" = "今日总用量";
 "Cached Input" = "缓存输入";
 "Includes %@ cache write" = "含缓存写 %@";

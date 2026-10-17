@@ -206,7 +206,7 @@ prompts, command text, file contents, or model output.
 
 Besides the right-click menu and the hover quota panel, CC Pets has a regular app
 window for your sessions, usage and settings. Open it from the right-click menu
-(**Open CC Pets…**), the app menu, or the terminal:
+(**Main menu**), the app menu, or the terminal:
 
 ```bash
 cc-pets open               # the page you used last

@@ -27,6 +27,8 @@
 
 // 分组标题；note 是标题右边的灰色小字，可为 nil。
 - (void)addGroupTitle:(NSString *)title note:(NSString *)note;
+// 同上，info 非空时标题后面带一个 ⓘ 角标，悬停显示 info。
+- (void)addGroupTitle:(NSString *)title note:(NSString *)note info:(NSString *)info;
 // 一张卡片，rows 之间自动加分隔线。title 非 nil 时先加分组标题；footer 是卡片下方的小字。
 // 返回卡片。
 - (NSView *)addGroupWithTitle:(NSString *)title rows:(NSArray<NSView *> *)rows footer:(NSString *)footer;

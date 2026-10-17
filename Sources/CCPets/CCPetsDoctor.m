@@ -326,12 +326,21 @@ static NSArray<NSDictionary *> *ShimChecks(BOOL inApp) {
     return results;
 }
 
-static NSDictionary *RealBinaryCheck(NSString *name, NSString *variable) {
-    NSString *real = CCPetsFindRealExecutable(name, variable);
-    return real && [NSFileManager.defaultManager fileExistsAtPath:real]
-        ? Result(@"ok", LF(L(@"Found the real {name}: {real}"), (@{@"name": name, @"real": CCPetsTildePath(real)})), nil)
-        : Result(@"warn", LF(L(@"The real {name} isn't in PATH, so the shim can't forward to it"), @{@"name": name}),
-            [NSString stringWithFormat:@"export %@=/absolute/path/to/%@", variable, name]);
+// searchPath：主窗口传登录 shell 的 PATH，终端里传 nil 用自身 PATH。
+static NSString *FindRealBinary(NSString *name, NSString *variable, NSString *searchPath) {
+    NSString *real = CCPetsFindRealExecutableInPath(name, variable, searchPath ?: CCPetsEnvironmentValue(@"PATH"));
+    return real && [NSFileManager.defaultManager fileExistsAtPath:real] ? real : nil;
+}
+
+static NSDictionary *RealBinaryCheck(NSString *name, NSString *variable, NSString *searchPath, BOOL inApp) {
+    NSString *real = FindRealBinary(name, variable, searchPath);
+    if (real) return Result(@"ok", LF(L(@"Found the real {name}: {real}"), (@{@"name": name, @"real": CCPetsTildePath(real)})), nil);
+    // 主窗口拿到的 PATH 未必等于终端里的（登录 shell 也可能起不来），找不到时不判错，交给终端里的 doctor。
+    if (inApp) {
+        return Result(@"info", LF(L(@"The main window couldn't find the real {name}; run cc-pets doctor in a terminal to confirm"), @{@"name": name}), nil);
+    }
+    return Result(@"warn", LF(L(@"The real {name} isn't in PATH, so the shim can't forward to it"), @{@"name": name}),
+        [NSString stringWithFormat:@"export %@=/absolute/path/to/%@", variable, name]);
 }
 
 static NSDictionary *UpdaterCheck(NSDictionary *native) {
@@ -422,9 +431,11 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
         [sections addObject:@{@"title": @"Codex", @"results": @[Result(@"info", L(@"Codex CLI not detected, skipped"), nil)]}];
     }
 
+    // Finder 拉起的主窗口只有 launchd 的最小 PATH，nvm / Homebrew 下的 CLI 都不在里面，改用登录 shell 的。
+    NSString *searchPath = inApp && (codexDetected || claudeDetected) ? CCPetsLoginShellPath() : nil;
     NSMutableArray *shell = [ShimChecks(inApp) mutableCopy];
-    if (codexDetected) [shell addObject:RealBinaryCheck(@"codex", @"CODEX_REAL_BIN")];
-    if (claudeDetected) [shell addObject:RealBinaryCheck(@"claude", @"CLAUDE_REAL_BIN")];
+    if (codexDetected) [shell addObject:RealBinaryCheck(@"codex", @"CODEX_REAL_BIN", searchPath, inApp)];
+    if (claudeDetected) [shell addObject:RealBinaryCheck(@"claude", @"CLAUDE_REAL_BIN", searchPath, inApp)];
     [sections addObject:@{@"title": L(@"Shell integration"), @"results": shell}];
 
     if (!CCBridgeEnabled()) {
@@ -439,9 +450,20 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
             [bridge addObject:codexBridgeHooks > 0 ? Result(@"ok", L(@"CC Bridge hooks installed in Codex"), nil)
                 : Result(@"warn", L(@"CC Bridge hooks missing in Codex"), @"cc-pets bridge enable")];
             if ([CCBridgeOptions()[@"wake"] boolValue]) {
-                NSString *notice = CCBridgeDescribeCodexQueue(CCBridgeProbeCodexQueue(CCPetsFindRealExecutable(@"codex", @"CODEX_REAL_BIN")));
-                [bridge addObject:notice ? Result(@"warn", notice, nil)
-                    : Result(@"ok", L(@"Codex supports codex queue, so it can be woken automatically"), nil)];
+                // npm 装的 codex 是 `env node` 脚本，探测时也得带上能找到 node 的 PATH。
+                NSMutableDictionary<NSString *, NSString *> *environment = nil;
+                if (searchPath) {
+                    environment = [NSProcessInfo.processInfo.environment mutableCopy];
+                    environment[@"PATH"] = searchPath;
+                }
+                NSDictionary *probe = CCBridgeProbeCodexQueueWithEnvironment(FindRealBinary(@"codex", @"CODEX_REAL_BIN", searchPath), environment);
+                NSString *notice = CCBridgeDescribeCodexQueue(probe);
+                if (inApp && [probe[@"status"] isEqualToString:@"missing"]) {
+                    [bridge addObject:Result(@"info", L(@"The main window couldn't find codex to check whether it can be woken; run cc-pets doctor in a terminal to confirm"), nil)];
+                } else {
+                    [bridge addObject:notice ? Result(@"warn", notice, nil)
+                        : Result(@"ok", L(@"Codex supports codex queue, so it can be woken automatically"), nil)];
+                }
             }
         }
         [sections addObject:@{@"title": @"CC Bridge", @"results": bridge}];
