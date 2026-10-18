@@ -453,17 +453,15 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return [self formattedTokenValue:
         wantsOutput ? outputValue : fmax(0, total.doubleValue - outputValue)];
 }
-// 两个窗口共用。resets_at 是整分对齐的，带秒只会多占宽度。
-- (NSString *)clockText:(NSTimeInterval)value {
+// 5 小时窗口只显示时分，7 天窗口保留日期。resets_at 是整分对齐的，无需带秒。
+- (NSString *)resetText:(NSDictionary *)quota showDate:(BOOL)showDate {
+    NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
+    if (!reset) return @"--";
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
     formatter.timeZone = NSTimeZone.localTimeZone;
-    formatter.dateFormat = @"M/d HH:mm";
-    return [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:value]];
-}
-- (NSString *)resetText:(NSDictionary *)quota {
-    NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
-    return reset ? [self clockText:reset.doubleValue] : @"--";
+    formatter.dateFormat = showDate ? @"M/d HH:mm" : @"HH:mm";
+    return [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:reset.doubleValue]];
 }
 // 汇总条的最近 7 天是共享的自然日口径。优先显示聚合结果携带的真实边界；兼容旧缓存时，
 // 再按同一规则（含今天在内的 7 个自然日）现场计算，避免界面暂时退回到没有起期。
@@ -487,11 +485,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
     formatter.timeZone = NSTimeZone.localTimeZone;
-    // 原生玻璃下字号更大，完整说明在单元格里放不下，只留起始日期。
-    formatter.dateFormat = self.usesLiquidGlass ? @"M/d" : @"yyyy-MM-dd";
+    // 两个主题使用相同字号，统一采用紧凑日期，避免完整说明挤出单元格。
+    formatter.dateFormat = @"M/d";
     NSString *date = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:start.doubleValue]];
-    return self.usesLiquidGlass ? [NSString stringWithFormat:L(@"Last 7 days (since %@)"), date]
-        : [NSString stringWithFormat:L(@"Last 7 days (since %@, rolling)"), date];
+    return [NSString stringWithFormat:L(@"Last 7 days (since %@)"), date];
 }
 // 在线 = 这一家还有活着的客户端，和有没有额度数据无关：额度会一直缓存着，
 // 拿它当在线信号会恒亮。身份不明的老客户端无法归属到某一家，保守地都算在线。
@@ -613,14 +610,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     if (age < 3600) return [NSString stringWithFormat:L(@"%.0fm ago"), floor(age / 60)];
     return [NSString stringWithFormat:L(@"%.0fh ago"), floor(age / 3600)];
 }
-// 原生玻璃下背景可以是任意壁纸，面板按 0.58 缩放后小字只有 6–7pt，细笔画很容易被
-// 背后的纹理吃掉。所以 liquid 模式统一收紧文字：小字放大一点、加粗一级；灰字不低于
-// 0.84；彩色字改成白字。
-// 经典主题有深色实底托着，保持原样。
+// 两个主题共用字号、字重和等宽数字，切换主题时保持文字大小一致。
 // 小字统一抬到逻辑 14（屏幕约 8.1pt），这是 440pt 宽面板在不改版式的前提下放得下的上限；
 // 再往上要放大面板或删行。数字用等宽字形，跳动时不左右晃；汉字不受影响。
 - (NSFont *)fontWithSize:(CGFloat)size weight:(NSFontWeight)weight {
-    if (!self.usesLiquidGlass) return [NSFont systemFontOfSize:size weight:weight];
     if (size < 14) size = 14;
     else if (size <= 16) size += 1;
     if (weight < NSFontWeightMedium) weight = NSFontWeightMedium;
@@ -1162,10 +1155,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSArray<NSDictionary *> *windows = @[
         @{@"x": @(NSMinX(card) + 244), @"title": L(@"5h window"), @"quota": five ?: @{},
           @"tokens": fiveTokens ?: @{}, @"used": fiveUsed ?: NSNull.null,
-          @"rolling": L(@"Waiting for refresh")},
+          @"showDate": @NO, @"rolling": L(@"Waiting for refresh")},
         @{@"x": @(NSMinX(card) + 414), @"title": L(@"7d window"), @"quota": week ?: @{},
           @"tokens": weekTokens ?: @{}, @"used": weekUsed ?: NSNull.null,
-          @"rolling": L(@"Waiting for refresh")}
+          @"showDate": @YES, @"rolling": L(@"Waiting for refresh")}
     ];
     for (NSDictionary *window in windows) {
         CGFloat x = [window[@"x"] doubleValue];
@@ -1192,15 +1185,14 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         }
         // 官方窗口拿不到时（账号没有这个窗口、或响应里没带），Token 走的是本机滚动窗口。
         // 说清楚这一行的口径，比留一个 `--` 让人以为是渲染坏了要好。
-        NSString *resetValue = [self resetText:window[@"quota"]];
+        NSString *resetValue = [self resetText:window[@"quota"]
+            showDate:[window[@"showDate"] boolValue]];
         NSString *reset = [resetValue isEqualToString:@"--"]
-            ? window[@"rolling"] : [NSString stringWithFormat:L(@"Resets %@"), resetValue];
-        [reset drawInRect:NSMakeRect(x, NSMinY(card) + 46, 142, 18)
-            withAttributes:[self textAttributesWithSize:11 color:secondary weight:NSFontWeightRegular]];
-        // 原生玻璃下字更大、前面还有圆点，这一栏放不下"Token"一词；脚注里已说明
-        // Token 即本机统计的已用量。
-        NSString *tokenText = [NSString stringWithFormat:
-            self.usesLiquidGlass ? L(@"Used %@") : L(@"Used tokens %@"),
+            ? window[@"rolling"] : [NSString stringWithFormat:L(@"Reset %@"), resetValue];
+        [self drawText:reset inRect:NSMakeRect(x, NSMinY(card) + 46, 160, 18)
+            size:11 weight:NSFontWeightRegular color:secondary dotColor:nil];
+        // 两个主题统一使用紧凑文案；脚注里已说明 Token 即本机统计的已用量。
+        NSString *tokenText = [NSString stringWithFormat:L(@"Used %@"),
             [self formattedTokenCount:window[@"tokens"]]];
         [self drawText:tokenText inRect:NSMakeRect(x, NSMinY(card) + 22, 142, 22) size:14
             weight:NSFontWeightSemibold color:color dotColor:color];
@@ -1336,7 +1328,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSDictionary *liveStatusAttributes = [self textAttributesWithSize:14 color:secondary
         weight:NSFontWeightRegular];
     NSString *liveStatusText = L(@"Live status");
-    [liveStatusText drawInRect:NSMakeRect(30, height - 94, self.usesLiquidGlass ? 142 : 130, 22)
+    [liveStatusText drawInRect:NSMakeRect(30, height - 94, 142, 22)
         withAttributes:liveStatusAttributes];
     CGFloat agentIndicatorX = 30 + [liveStatusText sizeWithAttributes:liveStatusAttributes].width + 12;
     [agentColor setFill];

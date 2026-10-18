@@ -265,7 +265,6 @@
 "vs last month: flat" = "较上月同期 持平";
 "vs last month %@%.1f%%" = "较上月同期 %@%.1f%%";
 "Last 7 days (since %@)" = "近 7 天累计用量（%@ 起）";
-"Last 7 days (since %@, rolling)" = "近 7 天累计用量（%@ 至今·滚动记录）";
 "Waiting for data" = "等待数据";
 "just now" = "刚刚";
 "%.0fs ago" = "%.0f 秒前";
@@ -308,8 +307,8 @@
 "Snapshot" = "快照";
 "Left" = "剩余";
 "Resets %@" = "重置时间 %@";
+"Reset %@" = "重置 %@";
 "Used %@" = "已用 %@";
-"Used tokens %@" = "已用 Token %@";
 "Trend" = "使用趋势";
 "Stale" = "待刷新";
 "Awaiting refresh" = "等待官方额度刷新";
