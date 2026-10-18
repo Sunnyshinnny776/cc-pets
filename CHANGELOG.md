@@ -13,6 +13,14 @@ truth for the version.
 - Rewritten `settings.json` / `hooks.json` keep their original key order and formatting, and numeric literals are preserved exactly (large integers no longer lose precision). Uninstalling no longer reformats a config file that had nothing of ours in it.
 - `cc-pets install` re-registers CC Bridge with the native binary; after upgrading, restart running Codex sessions and trust the updated hooks in `/hooks`.
 
+### Agent accounts
+
+- Official `~/.claude` and `~/.codex` Homes are detected and integrated automatically, while custom Homes are added explicitly from **Agent Accounts**. Folder names are preserved as account names unless the user renames them.
+- Each provider now has an independent circular quota-card carousel with arrow, page-dot, drag, trackpad and keyboard navigation. Quota history, usage totals, live state and approval state follow the selected account.
+- The Usage page can filter local token history by account and switches to a compact account menu when names or account counts no longer fit in the header.
+- Pet Hooks, usage collection, CC Bridge hooks, permissions and MCP registration are scoped to each Home. Custom Homes added before CC Bridge is enabled are integrated automatically when it is enabled later.
+- Claude and Codex launch wrappers attach the resolved account identity to startup and hook events, so status cards and speech bubbles use the exact account name from the first event.
+
 ### Main window
 
 - Added a regular app window. Open it from the right-click menu (**Main menu**), the app menu or `cc-pets open [page]` (pages: `overview`, `sessions`, `usage`, `pet`, `alerts`, `general`, `diagnostics`; `settings` still works and opens Pet). The Dock icon and menu bar appear only while it is open, and clicking the Dock icon brings a minimized window back; the window is created on open and released on close, and nothing runs while it is closed.
