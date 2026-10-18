@@ -34,6 +34,9 @@ const env = {
   CC_PETS_SHIM_DIR: path.join(root, "shims"),
   CLAUDE_CONFIG_DIR: path.join(root, "claude"),
   CODEX_HOME: path.join(root, "codex"),
+  // bridge enable/disable 作用于 $HOME 下登记的账号 Home，CLAUDE_CONFIG_DIR / CODEX_HOME 挡不住；
+  // 不换 HOME 会改到开发机上真实的 ~/.claude、~/.codex。
+  HOME: path.join(root, "user-home"),
   CODEX_REAL_BIN: path.join(root, "bin/codex"),
   CC_BRIDGE_SKIP_MCP: "1",
   CC_PETS_ASSUME_CLI: "1",
@@ -43,8 +46,15 @@ delete env.CLAUDE_CODE_SESSION_ID;
 delete env.CODEX_THREAD_ID;
 delete env.CC_BRIDGE_AGENT;
 Object.assign(process.env, env);
-for (const directory of ["state", "home", "claude", "codex", "bin", "fake"]) {
+for (const directory of ["state", "home", "claude", "codex", "bin", "fake", "user-home"]) {
   fs.mkdirSync(path.join(root, directory), { recursive: true });
+}
+// 把测试用的配置目录挂成官方默认 Home 并登记，和 cc-pets install 的效果一致。
+fs.symlinkSync(env.CLAUDE_CONFIG_DIR, path.join(env.HOME, ".claude"));
+fs.symlinkSync(env.CODEX_HOME, path.join(env.HOME, ".codex"));
+{
+  const registered = spawnSync(binary, ["profile", "ensure-defaults"], { env, encoding: "utf8" });
+  assert.equal(registered.status, 0, registered.stderr);
 }
 
 // 假 codex：记录 queue 调用参数，按真实 CLI 的格式回显。

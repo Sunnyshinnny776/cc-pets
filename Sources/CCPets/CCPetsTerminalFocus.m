@@ -197,6 +197,27 @@ NSArray<NSString *> *TerminalFocusBundleCandidates(NSDictionary *target) {
     return candidates;
 }
 
+// 没有脚本接口的宿主（JetBrains、VS Code 等）只能激活到应用这一级。activateWithOptions:
+// 在 macOS 14 起走协作式激活：状态卡是 NonactivatingPanel，桌宠自己不在前台，请求可能
+// 被系统拒绝，窗口在别的桌面时更是不会切过去。改走和点 Dock 图标同一条路，让系统负责
+// 切到应用窗口所在的桌面；拿不到 bundleURL 时才退回旧接口。
+static BOOL ActivateApplicationAcrossSpaces(NSRunningApplication *application) {
+    NSURL *bundleURL = application.bundleURL;
+    if (bundleURL) {
+        NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration configuration];
+        configuration.activates = YES;
+        configuration.addsToRecentItems = NO;
+        [NSWorkspace.sharedWorkspace openApplicationAtURL:bundleURL configuration:configuration
+            completionHandler:nil];
+        return YES;
+    }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    return [application activateWithOptions:
+        NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps];
+#pragma clang diagnostic pop
+}
+
 BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
     NSString *tty = SanitizedShortString(target[@"tty"], 64);
     // 候选按优先级往下试，没在运行的直接跳过：映射值和捕获值总有一个指向真正承载
@@ -206,11 +227,7 @@ BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
         NSRunningApplication *application =
             [NSRunningApplication runningApplicationsWithBundleIdentifier:bundleID].firstObject;
         if (!application) continue;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        return [application activateWithOptions:
-            NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps];
-#pragma clang diagnostic pop
+        return ActivateApplicationAcrossSpaces(application);
     }
     return NO;
 }
@@ -445,8 +462,10 @@ NSDictionary *CodexLaunchTerminalForThread(NSString *thread, NSDictionary *paylo
 NSDictionary *TerminalFocusTargetForHook(NSDictionary *payload, NSString *provider) {
     if (!TerminalFocusRunsUnderSharedAgentHost()) return TerminalFocusTargetFromEnvironment();
     if (![provider isEqualToString:@"Codex"]) return @{};
-    NSString *profileHome = SanitizedShortString(
-        NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_HOME"], 4096);
+    // 是路径，不能走 SanitizedShortString：它会删掉 `/`，拼出一个不存在的目录。
+    NSString *profileHome = NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_HOME"];
+    profileHome = [profileHome isKindOfClass:NSString.class] && profileHome.isAbsolutePath
+        ? profileHome.stringByStandardizingPath : nil;
     return CodexLaunchTerminalForThreadAtHome(
         SanitizedShortString(payload[@"session_id"], 128), payload, profileHome);
 }

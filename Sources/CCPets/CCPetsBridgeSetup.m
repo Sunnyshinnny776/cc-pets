@@ -246,7 +246,15 @@ static BOOL RunQuietlyForHome(NSString *executable, NSArray<NSString *> *argumen
     NSString *provider, NSString *home) {
     NSMutableDictionary<NSString *, NSString *> *environment =
         [NSProcessInfo.processInfo.environment mutableCopy];
-    environment[[provider isEqualToString:@"claude"] ? @"CLAUDE_CONFIG_DIR" : @"CODEX_HOME"] = home;
+    BOOL claude = [provider isEqualToString:@"claude"];
+    // 官方 ~/.claude 不能显式设 CLAUDE_CONFIG_DIR：一旦设了，user 级 MCP 会写进
+    // ~/.claude/.claude.json，而正常启动的 claude 读的是 ~/.claude.json。
+    NSString *officialClaude = CCPetsRealPath([CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude"]);
+    if (claude && officialClaude.length > 0 && [CCPetsRealPath(home) isEqualToString:officialClaude]) {
+        [environment removeObjectForKey:@"CLAUDE_CONFIG_DIR"];
+    } else {
+        environment[claude ? @"CLAUDE_CONFIG_DIR" : @"CODEX_HOME"] = home;
+    }
     return CCPetsRun(executable, arguments, nil, environment, 60, NULL, NULL) == 0;
 }
 
@@ -346,6 +354,11 @@ NSArray<NSString *> *CCBridgeInstallForProfile(NSDictionary *profile, NSDictiona
         [report addObject:ok
             ? LF(L(@"Codex MCP registered: {MCP_NAME}"), @{@"MCP_NAME": CCBridgeMCPName})
             : [@"ERROR: " stringByAppendingString:LF(L(@"Codex MCP registration failed. Run manually: codex {shellQuote}"), @{@"shellQuote": QuotedArguments(CodexMCPAddArguments())})]];
+        // 只在 enable / refresh 时探测：configure 由桌宠菜单开关触发，不值得每次多拉起两次 codex。
+        if ([options[@"wake"] boolValue]) {
+            NSString *notice = CCBridgeDescribeCodexQueue(CCBridgeProbeCodexQueue(codex));
+            if (notice) [report addObject:notice];
+        }
     }
     SetCodexApprovalAtHome(options[@"codexApprove"], home);
     return report;

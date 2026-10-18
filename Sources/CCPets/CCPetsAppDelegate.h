@@ -66,6 +66,10 @@
 @property NSInteger liveClientCount;
 @property NSString *lastStatusState;
 @property NSString *lastStatusProvider;
+// lastStatusProvider 是卡片标题（有账号名时显示账号名），不能拿去对 pid 文件里的
+// "Claude"/"Codex"；在线判定用原始 provider，判断“是不是同一账号”用 provider|profileId。
+@property NSString *lastStatusAgentProvider;
+@property NSString *lastStatusIdentity;
 @property NSDictionary *lastTerminalFocusTarget;
 @property NSTimeInterval lastStatusTimestamp;
 @property NSSet<NSString *> *liveClientProviders;

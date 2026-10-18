@@ -323,10 +323,6 @@
 "%ld Agents online" = "%ld 个 Agent 在线";
 "No Agents online" = "暂无 Agent 在线";
 "Updated %@" = "数据刷新 %@";
-"ⓘ  The pet and system status still work; quota cards only show for detected CLIs" = "ⓘ  桌宠与系统状态不受影响；额度卡只在检测到对应 CLI 时显示";
-"ⓘ  API usage = local session stats (input includes cache reads/writes); compared with the same point last month" = "ⓘ  API 用量 = 本机会话统计（输入含缓存读写）；环比按上月相同时间进度计算";
-"ⓘ  % = official quota left; tokens = local usage (incl. cache reads/writes)" = "ⓘ  百分比 = 官方额度剩余；Token = 本机统计已用量（含缓存读写）";
-"ⓘ  % = share of official plan quota left; tokens = locally counted usage (input incl. cache reads/writes). They measure different things" = "ⓘ  百分比 = 官方订阅额度的剩余比例；Token = 本机统计的已用量（输入含缓存读写），两者口径不同";
 "Today" = "今日用量";
 "Unknown argument: %@\nRun cc-pets --help for usage." = "未知参数：%@\n运行 cc-pets --help 查看用法。";
 "Pet Size" = "宠物大小";
@@ -350,6 +346,8 @@
 "Removed" = "已移除";
 "%1$@ the CC Pets hooks in %2$@." = "%1$@ %2$@ 中的 CC Pets Hooks。";
 "%1$@ the CC Pets hooks in %2$@ and restored the original status line." = "%1$@ %2$@ 中的 CC Pets Hooks，并恢复原 status line。";
+"Removed the CC Pets hooks in %@." = "已移除 %@ 中的 CC Pets Hooks。";
+"Removed the CC Pets hooks in %@ and restored the original status line." = "已移除 %@ 中的 CC Pets Hooks，并恢复原 status line。";
 "%1$@ the CC Pets shell integration in %2$@." = "%1$@ %2$@ 中的 CC Pets shell 集成。";
 "%1$@ the codex / claude shims in %2$@." = "%1$@ %2$@ 中的 codex / claude shim。";
 "No CC Pets integrations to remove." = "未发现需要移除的 CC Pets 集成。";
@@ -586,9 +584,6 @@
 "Auto-update isn't configured, so in-app updates won't work" = "自动更新未配置，应用内无法一键更新";
 "Auto-update config is valid" = "自动更新配置有效";
 "The {missing} recorded for auto-update no longer exist (changed Node versions?)" = "自动更新记录的 {missing} 已不存在（换过 Node 版本？）";
-"{minutes} min ago" = "{minutes} 分钟前";
-"{hours} h ago" = "{hours} 小时前";
-"{days} days ago" = "{days} 天前";
 "npm package {packageVersion}: {projectDir}" = "npm 包 {packageVersion}：{projectDir}";
 "Native binary {binaryVersion} doesn't match npm package {packageVersion}" = "原生程序版本 {binaryVersion} 与 npm 包 {packageVersion} 不一致";
 "Native binary {binaryVersion}" = "原生程序 {binaryVersion}";
@@ -598,17 +593,9 @@
 "The pet is running" = "桌宠正在运行";
 "The pet isn't running" = "桌宠未运行";
 "Program" = "程序";
-"Claude quota snapshot updated {age}" = "Claude 额度快照更新于 {age}";
-"No Claude quota snapshot yet (created after Claude Code's first API response)" = "暂无 Claude 额度快照（Claude Code 首次收到 API 响应后生成）";
-"Claude Code CLI not detected, skipped" = "未检测到 Claude Code CLI，跳过";
 "Codex only runs CC Pets hooks after you trust them in /hooks (can't be checked automatically)" = "Codex 需要在 /hooks 中信任 CC Pets Hooks 后才会触发（无法自动检测）";
-"Codex CLI not detected, skipped" = "未检测到 Codex CLI，跳过";
 "Shell integration" = "Shell 集成";
 "Off (optional; turn on with cc-pets bridge enable)" = "未开启（可选功能，cc-pets bridge enable 开启）";
-"CC Bridge hooks installed in Claude Code" = "Claude Code 中的 CC Bridge Hooks 已安装";
-"CC Bridge hooks missing in Claude Code" = "Claude Code 中缺少 CC Bridge Hooks";
-"CC Bridge hooks installed in Codex" = "Codex 中的 CC Bridge Hooks 已安装";
-"CC Bridge hooks missing in Codex" = "Codex 中缺少 CC Bridge Hooks";
 "Codex supports codex queue, so it can be woken automatically" = "Codex 支持 codex queue，可自动唤醒";
 "CC Pets diagnostics (npm package {packageVersion}, {platform} {release})" = "CC Pets 诊断（npm 包 {packageVersion}，{platform} {release}）";
 "{count} warnings" = "{count} 项警告";
@@ -867,9 +854,6 @@
 "The Agent Home was relocated and its integration was updated." = "Agent Home 已重新定位，集成也已更新。";
 "Agent profile registry" = "Agent 配置注册表";
 "Agent profile: %@" = "Agent 配置：%@";
-"%@ is integrated (%@)" = "%@ 已集成（%@）";
-"%@ Home is unavailable (%@)" = "%@ Home 不可用（%@）";
-"%@ integration needs repair (%@)" = "%@ 集成需要修复（%@）";
 "No registered Agent profiles" = "没有已登记的 Agent 配置";
 "Some registered Agent profiles need repair; open Agent Accounts from the CC Pets menu and retry." = "部分已登记的 Agent 账户需要修复；请从 CC Pets 菜单打开 Agent 账户后重试。";
 "Default Claude and Codex Homes were integrated automatically; add custom Homes from Agent Accounts in the CC Pets menu." = "Claude 和 Codex 的官方默认 Home 已自动集成；自定义 Home 请从 CC Pets 菜单的 Agent 账户中添加。";

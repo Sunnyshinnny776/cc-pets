@@ -171,6 +171,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 }
 // 回调交给主线程：下游全是 UI（面板重排、气泡定位、系统通知）。
 - (void)publishChange {
+    [self syncDefaultProfileUsages];
     void (^handler)(NSDictionary *, NSDictionary *) = self.changeHandler;
     if (!handler) return;
     NSDictionary *codex = self.codexUsage;
@@ -178,6 +179,32 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
     dispatch_async(dispatch_get_main_queue(), ^{ handler(codex, claude); });
 }
 
+// 默认账号的卡片读的是 profileUsages，但 FSEvents、statusline 监听和 App Server 回调
+// 只更新 codexUsage / claudeUsage。每次发布前把默认账号那一格对齐到最新值，
+// 否则卡片要等下一轮全量刷新（最长 120 秒）才动。
+- (void)syncDefaultProfileUsages {
+    if (self.profiles.count == 0) return;
+    NSString *defaultClaude = DefaultClaudeConfigDirectory().stringByStandardizingPath;
+    NSString *defaultCodex = DefaultCodexHomeDirectory().stringByStandardizingPath;
+    NSMutableDictionary<NSString *, NSDictionary *> *usages =
+        [self.profileUsages mutableCopy] ?: [NSMutableDictionary dictionary];
+    BOOL changed = NO;
+    for (NSDictionary *profile in self.profiles) {
+        NSString *profileID = profile[@"id"], *provider = profile[@"provider"];
+        NSString *home = [profile[@"home"] stringByStandardizingPath];
+        if (profileID.length == 0 || home.length == 0) continue;
+        NSDictionary *usage = nil;
+        if ([provider isEqualToString:CCPetsProfileProviderClaude] && [home isEqualToString:defaultClaude]) {
+            usage = self.claudeUsage;
+        } else if ([provider isEqualToString:CCPetsProfileProviderCodex] && [home isEqualToString:defaultCodex]) {
+            usage = self.codexUsage;
+        } else continue;
+        if (usages[profileID] == usage || [usages[profileID] isEqual:usage]) continue;
+        usages[profileID] = usage;
+        changed = YES;
+    }
+    if (changed) self.profileUsages = usages;
+}
 - (void)refreshProfileUsages {
     NSArray<NSDictionary *> *profiles = CCPetsProfiles();
     NSMutableDictionary<NSString *, NSDictionary *> *usages = [NSMutableDictionary dictionary];

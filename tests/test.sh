@@ -43,6 +43,8 @@ export CC_PETS_LOCALIZATION_DIR="${PROJECT_DIR}/Resources"
 # 在 Claude Code 会话里跑测试时会继承会话级的 CLAUDE_CONFIG_DIR。记录端按它选额度文件，
 # 桌宠端只认默认目录，两边对不上就读不到用例写的额度窗口。需要它的用例各自在命令前设置。
 unset CLAUDE_CONFIG_DIR
+# 包装脚本和 Hook 命令会给会话注入账号身份，测试里的事件和 Bridge 会话不能沾上开发者自己的账号。
+unset CC_PETS_PROFILE_ID CC_PETS_PROFILE_NAME CC_PETS_PROFILE_HOME
 
 # 额度快照的 resets_at 必须落在当前窗口里（见 CCPetsUsage.m 的 QuotaWindowLooksCurrent），
 # 写死的时间戳一旦成为过去就会被合理地拒收，用例会在某天突然全红。统一按运行时刻算。
@@ -83,6 +85,20 @@ live_shim_snapshot() {
   print -r -- "${snapshot}"
 }
 LIVE_SHIM_BASELINE="$(live_shim_snapshot)"
+
+# 安装 / 卸载 / profile 命令的隐式范围是 $HOME 下的官方 ~/.claude、~/.codex 和
+# ~/.cc-pets/agent-profiles.json 里登记的 Home，CLAUDE_CONFIG_DIR / CODEX_HOME 挡不住。
+# 漏设的用例会改到开发机上真实的 Hook，所以整份测试跑在一个空的假 HOME 里。
+export HOME="${SHIM_GUARD_TMP}/user-home"
+mkdir -p "${HOME}"
+# 需要被当成官方 Home 的临时配置目录，挂到一个独立假 HOME 的 .claude / .codex 下。
+agent_home_for() {
+  local home="$(mktemp -d /tmp/cc-pets-agent-home.XXXXXX)"
+  mkdir -p "$1" "$2"
+  ln -s "$1" "${home}/.claude"
+  ln -s "$2" "${home}/.codex"
+  print -r -- "${home}"
+}
 
 # 数出 file 里 skip 字节之后、由本次测试写入的事件条数。
 marked_event_count() {
@@ -561,6 +577,8 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/tests/usage-monitor-harness.m" \
   -o "${USAGE_MONITOR_TMP}/usage-monitor-test"
 CC_PETS_CODEX_HOME="${USAGE_MONITOR_TMP}/codex" \
+CC_PETS_CLAUDE_CONFIG_DIR="${USAGE_MONITOR_TMP}/claude" \
+CC_PETS_CODEX_BIN=/usr/bin/false \
 CC_PETS_STATE_DIR="${USAGE_MONITOR_TMP}/state" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${USAGE_MONITOR_TMP}/Application Support" \
   "${USAGE_MONITOR_TMP}/usage-monitor-test"
@@ -975,7 +993,7 @@ node -e '
   const cache = JSON.parse(fs.readFileSync(`${process.argv[1]}/${file}`, "utf8"));
   if (cache.five_hour.used_percentage !== 31.5) process.exit(1);
 ' "${CLAUDE_WRAPPED_USAGE_TMP}"
-CLAUDE_CONFIG_DIR="${CLAUDE_WRAPPED_TMP}" CODEX_HOME="${CLAUDE_WRAPPED_TMP}/codex" \
+HOME="$(agent_home_for "${CLAUDE_WRAPPED_TMP}" "${CLAUDE_WRAPPED_TMP}/codex")" \
   "${PROJECT_DIR}/.build/release/cc-pets" --uninstall-integrations >/dev/null
 node -e '
   const fs = require("fs");
@@ -994,7 +1012,7 @@ node -e '
   if (config.statusLine.command !== process.argv[2]) process.exit(1);
   if (!fs.readFileSync(process.argv[2], "utf8").includes("# CC Pets created this status line script")) process.exit(1);
 ' "${CLAUDE_EMPTY_TMP}/settings.json" "${CLAUDE_EMPTY_TMP}/statusline-command.sh"
-CLAUDE_CONFIG_DIR="${CLAUDE_EMPTY_TMP}" CODEX_HOME="${CLAUDE_EMPTY_TMP}/codex" \
+HOME="$(agent_home_for "${CLAUDE_EMPTY_TMP}" "${CLAUDE_EMPTY_TMP}/codex")" \
   "${PROJECT_DIR}/.build/release/cc-pets" --uninstall-integrations >/dev/null
 node -e '
   const fs = require("fs");
@@ -1042,7 +1060,8 @@ alias claude=/tmp/claude-with-pet
 print -r -- '#!/bin/zsh
 exit 1' > "${UNINSTALL_TMP}/bin/pgrep"
 chmod +x "${UNINSTALL_TMP}/bin/pgrep"
-CODEX_HOME="${UNINSTALL_TMP}/codex" CLAUDE_CONFIG_DIR="${UNINSTALL_TMP}/claude" \
+UNINSTALL_HOME="$(agent_home_for "${UNINSTALL_TMP}/claude" "${UNINSTALL_TMP}/codex")"
+HOME="${UNINSTALL_HOME}" CODEX_HOME="${UNINSTALL_TMP}/codex" CLAUDE_CONFIG_DIR="${UNINSTALL_TMP}/claude" \
   ZDOTDIR="${UNINSTALL_TMP}/zdot" CC_PETS_APPLICATIONS_DIR="${UNINSTALL_TMP}/Applications" \
   CC_PETS_APPLICATION_SUPPORT_DIR="${UNINSTALL_TMP}/Application Support" \
   CC_PETS_SHIM_DIR="${UNINSTALL_TMP}/shims" \
@@ -1086,11 +1105,11 @@ PATH="/usr/bin:${UNINSTALL_TMP}/shims:/bin" \
     matches=("${(@M)path:#${CC_PETS_SHIM_DIR}}")
     (( ${#matches} == 1 ))
   '
-CODEX_HOME="${UNINSTALL_TMP}/codex" CLAUDE_CONFIG_DIR="${UNINSTALL_TMP}/claude" \
+HOME="${UNINSTALL_HOME}" CODEX_HOME="${UNINSTALL_TMP}/codex" CLAUDE_CONFIG_DIR="${UNINSTALL_TMP}/claude" \
   ZDOTDIR="${UNINSTALL_TMP}/zdot" CC_PETS_SKIP_APP_STOP=1 \
   CC_PETS_SHIM_DIR="${UNINSTALL_TMP}/shims" \
   "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh" >/dev/null
-CODEX_HOME="${UNINSTALL_TMP}/codex" CLAUDE_CONFIG_DIR="${UNINSTALL_TMP}/claude" \
+HOME="${UNINSTALL_HOME}" CODEX_HOME="${UNINSTALL_TMP}/codex" CLAUDE_CONFIG_DIR="${UNINSTALL_TMP}/claude" \
   ZDOTDIR="${UNINSTALL_TMP}/zdot" CC_PETS_SKIP_APP_STOP=1 \
   CC_PETS_SHIM_DIR="${UNINSTALL_TMP}/shims" \
   "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh" >/dev/null
@@ -1294,14 +1313,15 @@ mkdir -p "${PURGE_TMP}/home/pets/boba"
 print sprite > "${PURGE_TMP}/home/pets/boba/spritesheet.webp"
 print phrases > "${PURGE_TMP}/home/speech.txt"
 print 'export KEEP_ME=1' > "${PURGE_TMP}/zdot/.zshrc"
-if CODEX_HOME="${PURGE_TMP}/codex" CLAUDE_CONFIG_DIR="${PURGE_TMP}/claude" \
+PURGE_HOME="$(agent_home_for "${PURGE_TMP}/claude" "${PURGE_TMP}/codex")"
+if HOME="${PURGE_HOME}" CODEX_HOME="${PURGE_TMP}/codex" CLAUDE_CONFIG_DIR="${PURGE_TMP}/claude" \
     ZDOTDIR="${PURGE_TMP}/zdot" CC_PETS_SKIP_APP_STOP=1 \
     "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh" --purge </dev/null >/dev/null 2>&1; then
   print -u2 "非交互完整卸载缺少 --yes 时不应继续"
   exit 1
 fi
 [[ -e "${PURGE_TMP}/Application Support/CC Pets/quota-history.json" ]]
-CODEX_HOME="${PURGE_TMP}/codex" CLAUDE_CONFIG_DIR="${PURGE_TMP}/claude" \
+HOME="${PURGE_HOME}" CODEX_HOME="${PURGE_TMP}/codex" CLAUDE_CONFIG_DIR="${PURGE_TMP}/claude" \
 ZDOTDIR="${PURGE_TMP}/zdot" CC_PETS_SKIP_APP_STOP=1 \
 CC_PETS_STATE_DIR="${PURGE_TMP}/state" \
 CC_PETS_APPLICATIONS_DIR="${PURGE_TMP}/Applications" \
@@ -1327,8 +1347,9 @@ print -r -- '#!/bin/sh
 exit 0' > "${DOCTOR_TMP}/bin/codex"
 cp "${DOCTOR_TMP}/bin/codex" "${DOCTOR_TMP}/bin/claude"
 chmod +x "${DOCTOR_TMP}/bin/codex" "${DOCTOR_TMP}/bin/claude"
+DOCTOR_HOME="$(agent_home_for "${DOCTOR_TMP}/claude" "${DOCTOR_TMP}/codex")"
 doctor_env() {
-  env CC_PETS_STATE_DIR="${DOCTOR_TMP}/state" \
+  env HOME="${DOCTOR_HOME}" CC_PETS_STATE_DIR="${DOCTOR_TMP}/state" \
     CC_PETS_APPLICATION_SUPPORT_DIR="${DOCTOR_TMP}/support" \
     CC_PETS_HOME="${DOCTOR_TMP}/home" \
     CC_PETS_PETS_DIR="${DOCTOR_TMP}/home/pets" \
@@ -1350,19 +1371,22 @@ node -e '
   if (items["应用数据目录"].path !== `${root}/support`) process.exit(1);
   if (items["桌宠素材"].path !== `${root}/home/pets`) process.exit(2);
   if (items["素材清单缓存"].path !== `${root}/home/cache`) process.exit(3);
-  if (items["Claude Code 配置"].path !== `${root}/claude/settings.json`) process.exit(4);
+  // 配置路径固定为官方 Home（这里挂到 DOCTOR_TMP/claude），以 ~ 开头显示。
+  if (items["Claude Code 配置"].path !== "~/.claude/settings.json") process.exit(4);
   if (items["额度历史"].bytes !== null) process.exit(5);
   if (items["应用数据目录"].bytes !== 0) process.exit(6);
 ' "${DOCTOR_TMP}/paths.json" "${DOCTOR_TMP}"
 doctor_env "${PROJECT_DIR}/.build/release/cc-pets" paths | grep -q "用户内容（clean 与 --purge 都保留）"
 
-# 什么都没装：Hooks 缺失算错误，退出码 1，并给出修复命令。
+# 什么都没装：Hooks 缺失算错误，退出码 1，并给出修复命令。doctor 只检查已登记的 Home，
+# 先像 cc-pets install 那样登记官方默认 Home（这里挂到 DOCTOR_TMP 下）。
+doctor_env "${PROJECT_DIR}/.build/release/cc-pets" profile ensure-defaults >/dev/null
 if doctor_env "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/empty.txt"; then
   print -u2 "未安装集成时 doctor 应以非零退出"
   exit 1
 fi
-grep -q "❌ Claude Code Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
-grep -q "❌ Codex Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
+grep -q "❌ claude Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
+grep -q "❌ codex Hooks 未安装" "${DOCTOR_TMP}/empty.txt"
 grep -q "→ cc-pets install" "${DOCTOR_TMP}/empty.txt"
 
 # 装好 Hooks、status line 与 shim 后全部通过；doctor 不得修改任何配置。
@@ -1376,8 +1400,8 @@ print -r -- '# >>> cc-pets-shims >>>
 DOCTOR_SNAPSHOT="$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex/hooks.json" | shasum)"
 doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
   "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/installed.txt"
-grep -q "✅ Claude Code Hooks 已安装（14 个事件）" "${DOCTOR_TMP}/installed.txt"
-grep -q "✅ Codex Hooks 已安装（8 个事件）" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ claude Hooks 已安装（14 个事件）" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ codex Hooks 已安装（8 个事件）" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ Claude status line 已接入额度采集" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ shim 完整" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ PATH 中 shim 目录排在最前" "${DOCTOR_TMP}/installed.txt"
@@ -1394,7 +1418,7 @@ node -e '
 ' "${DOCTOR_TMP}/codex/hooks.json"
 doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
   "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/stale.txt"
-grep -q "⚠️  Codex Hooks 中有 1 条指向其他位置的 cc-pets" "${DOCTOR_TMP}/stale.txt"
+grep -q "⚠️  codex Hooks 中有 1 条指向其他位置的 cc-pets" "${DOCTOR_TMP}/stale.txt"
 
 # 当前终端还没加载 shim：提示 source 而不是报错。
 doctor_env PATH="/usr/bin:/bin" \
@@ -1483,7 +1507,7 @@ DECOY_TMP="$(mktemp -d /tmp/cc-pets-decoy-config-test.XXXXXX)"
 mkdir -p "${DECOY_TMP}/codex" "${DECOY_TMP}/claude"
 print -r -- '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"CODEX_PET_AGENT_HOOK=1 /other/tool --hook"}]}]}}' > "${DECOY_TMP}/codex/hooks.json"
 print -r -- '{"statusLine":{"type":"command","command":"CLAUDE_PET_STATUS_LINE=1 /other/status-tool"},"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"CLAUDE_PET_AGENT_HOOK=1 /other/tool --hook"}]}]}}' > "${DECOY_TMP}/claude/settings.json"
-CODEX_HOME="${DECOY_TMP}/codex" CLAUDE_CONFIG_DIR="${DECOY_TMP}/claude" \
+HOME="$(agent_home_for "${DECOY_TMP}/claude" "${DECOY_TMP}/codex")" \
   "${PROJECT_DIR}/.build/release/cc-pets" --uninstall-integrations >/dev/null
 node -e '
   const fs = require("fs");
@@ -1893,16 +1917,16 @@ for wrapper provider in codex-with-pet Codex claude-with-pet Claude; do
     print -u2 "${wrapper} 应该恰好写出 1 个客户端 pid 文件，实际 ${#client_files[@]} 个"
     exit 1
   fi
-  # pid 文件是两行：第一行 provider，第二行 TTY。只比第一行，不要拿整个文件去比——
+  # pid 文件是三行：provider、TTY、profileId（后两行可能为空）。只比第一行，不要拿整个文件去比——
   # 交互终端下 $TTY 非空，第二行有内容，整文件比较必然失败；CI 里 $TTY 为空，
   # $(<file) 吃掉结尾换行后又恰好等于 provider，于是同一条断言在两种环境下结论相反。
   if [[ "$(head -n 1 "${client_files[1]}")" != "${provider}" ]]; then
     print -u2 "${wrapper} 的客户端 pid 文件第一行应是 provider 名 ${provider}，实际是 '$(head -n 1 "${client_files[1]}")'"
     exit 1
   fi
-  # 行数与 TTY 是否为空无关（printf 两个 \n 恒定写出 2 行），钉住格式防止再退化成一行。
-  if (( $(wc -l < "${client_files[1]}") != 2 )); then
-    print -u2 "${wrapper} 的客户端 pid 文件应为两行（provider + tty），实际 $(wc -l < "${client_files[1]}") 行"
+  # 行数与 TTY、profileId 是否为空无关（printf 三个 \n 恒定写出 3 行），钉住格式防止退化。
+  if (( $(wc -l < "${client_files[1]}") != 3 )); then
+    print -u2 "${wrapper} 的客户端 pid 文件应为三行（provider + tty + profileId），实际 $(wc -l < "${client_files[1]}") 行"
     exit 1
   fi
 done
