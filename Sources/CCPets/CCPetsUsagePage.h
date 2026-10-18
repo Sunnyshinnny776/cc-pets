@@ -15,6 +15,8 @@
 extern NSNotificationName const CCPetsUsageStoreDidChangeNotification;
 @interface CCPetsUsageStore : NSObject
 @property(class, nonatomic, readonly) NSDictionary<NSString *, NSDictionary *> *results;
+// profileId → 独立模型用量；providerResults 仍保留按 Provider 汇总，兼容概览页。
+@property(class, nonatomic, readonly) NSDictionary<NSString *, NSDictionary *> *profileResults;
 @property(class, nonatomic, readonly) BOOL loading;
 // 没算过、结果超过两分钟、或者跨过了午夜就重算；正在算时不重复发起。算完发 CCPetsUsageStoreDidChangeNotification。
 + (void)loadIfStale;

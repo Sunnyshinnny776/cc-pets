@@ -142,6 +142,21 @@ export CLAUDE_REAL_BIN=/absolute/path/to/claude
 The wrappers pass the current terminal environment through unchanged. They do not
 load or execute `.env` files.
 
+## Agent accounts
+
+CC Pets automatically detects and integrates the official `~/.claude` and
+`~/.codex` Homes. Custom Homes such as `~/.claude-x` or `~/.codex-work` are never
+scanned automatically: add them explicitly from **CC Pets → Agent Accounts**.
+The folder name is used as the account name by default and is preserved exactly;
+you can rename a custom account from the same menu. Each provider has its own
+circular quota-card carousel, and the Usage page can filter local token history
+by account.
+
+Pet Hooks and usage collection are configured when an account is added. If CC
+Bridge is already enabled, its Hooks, permissions, and MCP registration are also
+configured immediately; otherwise they are added automatically when CC Bridge is
+enabled later.
+
 ## Commands
 
 ```bash

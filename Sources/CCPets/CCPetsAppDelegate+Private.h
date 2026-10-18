@@ -18,6 +18,7 @@
 #import "MenuChoiceRow.h"
 #import "CCPetsGlassMenu.h"
 #import "CCPetsBridge.h"
+#import "CCPetsProfiles.h"
 #import "MenuToggleSwitch.h"
 #import <UserNotifications/UserNotifications.h>
 #import <signal.h>
@@ -261,6 +262,20 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)focusBridgeSession:(NSMenuItem *)sender;
 - (void)addBridgeItemsToMenu:(NSMenu *)menu deliveries:(NSArray<NSDictionary *> *)deliveries
     pending:(NSDictionary<NSString *, NSNumber *> *)pending;
+@end
+
+// 用户显式添加、修复或移除 Claude/Codex Home。
+@interface AppDelegate (Profiles)
+- (void)addClaudeProfile:(id)sender;
+- (void)addCodexProfile:(id)sender;
+- (void)repairAgentProfile:(NSMenuItem *)sender;
+- (void)renameAgentProfile:(NSMenuItem *)sender;
+- (void)relocateAgentProfile:(NSMenuItem *)sender;
+- (void)removeAgentProfile:(NSMenuItem *)sender;
+- (void)chooseProfileHomeForProvider:(NSString *)provider;
+- (void)runProfileCommand:(NSArray<NSString *> *)arguments
+    title:(NSString *)title completionMessage:(NSString *)completionMessage;
+- (void)rebuildAgentProfilesMenu;
 @end
 
 // 主窗口工作台几页的数据快照，见 CCPetsWorkbench.h。

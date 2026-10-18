@@ -51,6 +51,13 @@
 @property NSDictionary<NSString *, NSNumber *> *bridgePendingCounts;
 // 菜单开关触发的 cc-pets bridge 命令正在执行时为 YES，期间忽略新的切换，避免并发改配置。
 @property BOOL bridgeCommandRunning;
+// 手动 Agent Home 适配任务与其非阻塞进度窗口。
+@property BOOL profileCommandRunning;
+@property NSMenu *agentProfilesMenu;
+@property NSTask *profileTask;
+@property NSWindow *profileProgressWindow;
+@property NSTextField *profileProgressLabel;
+@property NSProgressIndicator *profileProgressIndicator;
 // 已为哪个时间点之前的送达发过系统通知。
 @property NSTimeInterval bridgeNotifiedAt;
 @property BOOL statusBubbleExpanded;
@@ -62,6 +69,9 @@
 @property NSDictionary *lastTerminalFocusTarget;
 @property NSTimeInterval lastStatusTimestamp;
 @property NSSet<NSString *> *liveClientProviders;
+// 新版包装器在 pid 文件中同时记录 profileId；旧文件没有该行，按 provider 级在线兜底。
+@property NSSet<NSString *> *liveClientProfileIDs;
+@property NSSet<NSString *> *liveUnscopedClientProviders;
 // 包装脚本仍存活的精确 Agent 会话，键为 provider + TTY。
 @property NSSet<NSString *> *liveAgentSessionKeys;
 // 每个 provider 最近一次事件的时间。不经包装脚本启动的客户端没有 pid 文件，

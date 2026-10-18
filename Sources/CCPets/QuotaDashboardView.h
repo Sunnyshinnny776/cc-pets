@@ -15,12 +15,21 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property CGFloat cardScrimAlpha;
 @property NSDictionary *codexUsage;
 @property NSDictionary *claudeUsage;
+@property NSArray<NSDictionary *> *profiles;
+@property NSDictionary<NSString *, NSDictionary *> *profileUsages;
+@property NSDictionary<NSString *, NSArray<NSDictionary *> *> *profileHistories;
 @property NSArray<NSDictionary *> *codexHistory;
 @property NSArray<NSDictionary *> *claudeHistory;
 @property NSInteger activeAgentCount;
 // 仍在运行的客户端所属的 provider（"Codex" / "Claude"）。卡片的在线徽章据此判定，
 // 而不是看有没有额度数据——额度会一直缓存着，拿它当在线信号会恒亮。
 @property NSSet<NSString *> *liveProviders;
+// Hook 能提供 profileId 时优先按账号显示在线状态；老会话没有 profileId 时仍退回 provider。
+@property NSSet<NSString *> *liveProfileIDs;
+// 仍在线但旧事件没有 profileId 的 provider；无法精确归属时避免把账号卡误判为离线。
+@property NSSet<NSString *> *liveUnscopedProviders;
+@property NSSet<NSString *> *pendingApprovalProfileIDs;
+@property NSSet<NSString *> *bridgeActivityProfileIDs;
 // 老版本包装脚本写出的 pid 文件没有 provider 名。有这种客户端时无法断言某一家离线。
 @property BOOL hasUnlabeledClient;
 // 这台机器上检测到的 provider（"Codex" / "Claude"）。决定渲染几张额度卡、面板多高。
@@ -39,6 +48,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property BOOL codexShowsAPIUsage;
 @property BOOL claudeShowsAPIUsage;
 - (BOOL)isProviderOnline:(NSString *)name;
+- (NSDictionary *)selectedProfileForProvider:(NSString *)name;
+- (NSDictionary *)usageForProvider:(NSString *)name;
 // 本周额度的节奏判断，主窗口概览页的额度卡和面板用同一份。返回 label、tip、color，
 // 有数据时还有 level（0 充足 / 1 平稳 / 2 需关注 / 3 高风险）。
 - (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed

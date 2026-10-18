@@ -138,7 +138,8 @@ static NSString *CodexAppServerExecutablePath(void) {
     return nil;
 }
 
-static NSDictionary<NSString *, NSString *> *CodexAppServerEnvironment(NSString *executablePath) {
+static NSDictionary<NSString *, NSString *> *CodexAppServerEnvironment(NSString *executablePath,
+    NSString *codexHome) {
     NSMutableDictionary<NSString *, NSString *> *environment =
         [NSProcessInfo.processInfo.environment mutableCopy];
     NSMutableOrderedSet<NSString *> *paths = [NSMutableOrderedSet orderedSet];
@@ -151,7 +152,7 @@ static NSDictionary<NSString *, NSString *> *CodexAppServerEnvironment(NSString 
     }
     environment[@"PATH"] = [paths.array componentsJoinedByString:@":"];
     // 与会话扫描使用同一份配置目录，避免备用 CODEX_HOME 下的账号被错读成默认账号。
-    environment[@"CODEX_HOME"] = DefaultCodexHomeDirectory();
+    environment[@"CODEX_HOME"] = codexHome.length > 0 ? codexHome : DefaultCodexHomeDirectory();
     return environment;
 }
 
@@ -164,17 +165,23 @@ static NSDictionary<NSString *, NSString *> *CodexAppServerEnvironment(NSString 
 @property NSInteger nextRequestID;
 @property NSInteger pendingRequestID;
 @property BOOL stopped;
+@property(copy) NSString *codexHome;
 @end
 
 @implementation CCPetsCodexRateLimitsReader
 
 - (instancetype)init {
+    return [self initWithCodexHome:DefaultCodexHomeDirectory()];
+}
+
+- (instancetype)initWithCodexHome:(NSString *)codexHome {
     if ((self = [super init])) {
         _queue = dispatch_queue_create("com.universewang.cc-pets.codex-rate-limits",
             DISPATCH_QUEUE_SERIAL);
         dispatch_queue_set_specific(_queue, &CodexRateLimitsQueueKey, (__bridge void *)self, NULL);
         _partialOutput = [NSMutableData data];
         _nextRequestID = 2;  // 1 留给 initialize。
+        _codexHome = [codexHome.stringByStandardizingPath copy];
     }
     return self;
 }
@@ -220,7 +227,7 @@ static NSDictionary<NSString *, NSString *> *CodexAppServerEnvironment(NSString 
     NSPipe *outputPipe = [NSPipe pipe];
     task.executableURL = [NSURL fileURLWithPath:path];
     task.arguments = @[@"app-server", @"--stdio"];
-    task.environment = CodexAppServerEnvironment(path);
+    task.environment = CodexAppServerEnvironment(path, self.codexHome);
     task.currentDirectoryURL = [NSURL fileURLWithPath:NSHomeDirectory()];
     task.standardInput = inputPipe;
     task.standardOutput = outputPipe;

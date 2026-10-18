@@ -52,7 +52,8 @@ void CCBridgeRemoveSession(id sessionId);
 NSString *CCBridgeNormalizeSessionName(id value);
 // liveSessions 用于给新会话分配不冲突的名字（已注册的会话不重新命名）。
 NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
-    NSString *tty, NSString *status, NSString *preferredName, NSArray<NSDictionary *> *liveSessions);
+    NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,
+    NSString *profileName, NSArray<NSDictionary *> *liveSessions);
 // 会话内改名：被其他在线会话占用时报错。返回 @{error} 或 @{session, previous}。
 NSDictionary *CCBridgeRenameSession(NSString *sessionId, NSString *requestedName, NSArray<NSDictionary *> *liveSessions);
 

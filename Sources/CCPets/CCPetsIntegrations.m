@@ -1,6 +1,7 @@
 #import "CCPetsL10n.h"
 #import "CCPetsIntegrations.h"
 #import "CCPetsJSON.h"
+#import "CCPetsProfiles.h"
 #import "CCPetsCLISupport.h"
 #import <sys/stat.h>
 #import <fcntl.h>
@@ -238,21 +239,13 @@ BOOL CCPetsIsManagedStatusLine(NSString *command, NSString *marker) {
 
 #pragma mark - 安装入口
 
-int InstallClaudeHooks(NSString *binary) {
+int InstallClaudeHooksAtHome(NSString *binary, NSString *claudeHome) {
     if (binary.length == 0) {
         CCPetsPrintLine(stderr, L(@"Usage: cc-pets --install-claude-hooks /absolute/path/to/cc-pets"));
         return 2;
     }
-    // 没装 Claude Code 就什么都不写：下面会创建 statusline-command.sh 并把 statusLine 指过去，
-    // 对还没装 Claude 的用户等于提前替他决定了状态栏。
-    if (!CCPetsClaudeCLIInstalled()) {
-        CCPetsPrintLine(stdout, L(@"Claude Code CLI not detected; skipping Claude hooks and status line setup."));
-        CCPetsPrintLine(stdout, L(@"If you install Claude Code later, run cc-pets install to set it up."));
-        return 0;
-    }
-
     binary = CCPetsResolvePath(binary);
-    NSString *claudeHome = CCPetsClaudeHome();
+    claudeHome = CCPetsResolvePath(claudeHome);
     NSString *settingsPath = [claudeHome stringByAppendingPathComponent:@"settings.json"];
     [NSFileManager.defaultManager createDirectoryAtPath:claudeHome withIntermediateDirectories:YES attributes:nil error:nil];
     NSString *errorMessage = nil;
@@ -262,7 +255,11 @@ int InstallClaudeHooks(NSString *binary) {
         return 1;
     }
 
-    NSString *command = [NSString stringWithFormat:@"%@ %@ --hook", CCPetsClaudeHookMarker, CCPetsShellQuote(binary)];
+    NSDictionary *registered = CCPetsProfileForHome(CCPetsProfileProviderClaude, claudeHome);
+    NSString *profileID = registered[@"id"] ?: CCPetsProfileID(CCPetsProfileProviderClaude, claudeHome);
+    NSString *profileName = registered[@"displayName"] ?: CCPetsProfileDefaultDisplayName(CCPetsProfileProviderClaude, claudeHome);
+    NSString *command = [NSString stringWithFormat:@"%@ CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@ %@ --hook",
+        CCPetsClaudeHookMarker, CCPetsShellQuote(profileID), CCPetsShellQuote(profileName), CCPetsShellQuote(binary)];
     ReplaceManagedHooks(config, @[@[CCPetsClaudeHookMarker, @"cc-pets"], @[CCPetsLegacyClaudeHookMarker, @"codex-pet"]], command, @[
         @"SessionStart", @"UserPromptSubmit", @"PreToolUse", @"PermissionRequest", @"PostToolUse",
         @"PostToolUseFailure", @"Notification", @"SubagentStart", @"SubagentStop", @"TaskCreated",
@@ -343,19 +340,22 @@ int InstallClaudeHooks(NSString *binary) {
     return 0;
 }
 
-int InstallCodexHooks(NSString *binary) {
+int InstallClaudeHooks(NSString *binary) {
+    if (!CCPetsClaudeCLIInstalled()) {
+        CCPetsPrintLine(stdout, L(@"Claude Code CLI not detected; skipping Claude hooks and status line setup."));
+        CCPetsPrintLine(stdout, L(@"If you install Claude Code later, run cc-pets install to set it up."));
+        return 0;
+    }
+    return InstallClaudeHooksAtHome(binary, CCPetsClaudeHome());
+}
+
+int InstallCodexHooksAtHome(NSString *binary, NSString *codexHome) {
     if (binary.length == 0) {
         CCPetsPrintLine(stderr, L(@"Usage: cc-pets --install-codex-hooks /absolute/path/to/cc-pets"));
         return 2;
     }
-    if (!CCPetsCodexCLIInstalled()) {
-        CCPetsPrintLine(stdout, L(@"Codex CLI not detected; skipping Codex hooks."));
-        CCPetsPrintLine(stdout, L(@"If you install Codex later, run cc-pets install to set it up."));
-        return 0;
-    }
-
     binary = CCPetsResolvePath(binary);
-    NSString *codexHome = CCPetsCodexHome();
+    codexHome = CCPetsResolvePath(codexHome);
     NSString *hooksPath = [codexHome stringByAppendingPathComponent:@"hooks.json"];
     [NSFileManager.defaultManager createDirectoryAtPath:codexHome withIntermediateDirectories:YES attributes:nil error:nil];
     NSString *errorMessage = nil;
@@ -365,7 +365,11 @@ int InstallCodexHooks(NSString *binary) {
         return 1;
     }
 
-    NSString *command = [NSString stringWithFormat:@"%@ %@ --hook", CCPetsCodexHookMarker, CCPetsShellQuote(binary)];
+    NSDictionary *registered = CCPetsProfileForHome(CCPetsProfileProviderCodex, codexHome);
+    NSString *profileID = registered[@"id"] ?: CCPetsProfileID(CCPetsProfileProviderCodex, codexHome);
+    NSString *profileName = registered[@"displayName"] ?: CCPetsProfileDefaultDisplayName(CCPetsProfileProviderCodex, codexHome);
+    NSString *command = [NSString stringWithFormat:@"%@ CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@ %@ --hook",
+        CCPetsCodexHookMarker, CCPetsShellQuote(profileID), CCPetsShellQuote(profileName), CCPetsShellQuote(binary)];
     ReplaceManagedHooks(config, @[@[CCPetsCodexHookMarker, @"cc-pets"], @[CCPetsLegacyCodexHookMarker, @"codex-pet"]], command, @[
         @"SessionStart", @"UserPromptSubmit", @"PreToolUse", @"PermissionRequest", @"PostToolUse",
         @"SubagentStart", @"SubagentStop", @"Stop"
@@ -379,6 +383,15 @@ int InstallCodexHooks(NSString *binary) {
     CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"Codex agent hooks installed in %@"), hooksPath]);
     CCPetsPrintLine(stdout, L(@"Next time you start Codex, run /hooks and trust the CC Pets hooks."));
     return 0;
+}
+
+int InstallCodexHooks(NSString *binary) {
+    if (!CCPetsCodexCLIInstalled()) {
+        CCPetsPrintLine(stdout, L(@"Codex CLI not detected; skipping Codex hooks."));
+        CCPetsPrintLine(stdout, L(@"If you install Codex later, run cc-pets install to set it up."));
+        return 0;
+    }
+    return InstallCodexHooksAtHome(binary, CCPetsCodexHome());
 }
 
 #pragma mark - 卸载入口
@@ -474,24 +487,25 @@ static BOOL RemoveShims(void) {
     return changed;
 }
 
-int UninstallIntegrations(BOOL preparingInstall, NSString *shellRC) {
-    BOOL failed = NO;
-    NSArray *codexSignatures = preparingInstall
+static BOOL RemoveCodexHooksAtHome(NSString *codexHome, BOOL preparingInstall, BOOL *failed) {
+    NSArray *signatures = preparingInstall
         ? @[@[CCPetsLegacyCodexHookMarker, @"codex-pet"]]
         : @[@[CCPetsCodexHookMarker, @"cc-pets"], @[CCPetsLegacyCodexHookMarker, @"codex-pet"]];
-    NSString *codexHooksPath = [CCPetsCodexHome() stringByAppendingPathComponent:@"hooks.json"];
-    BOOL codexChanged = UpdateConfig(codexHooksPath, &failed, ^BOOL(CCPetsJSONObject *config) {
-        return RemoveManagedHooks(config, codexSignatures, YES);
+    NSString *path = [codexHome stringByAppendingPathComponent:@"hooks.json"];
+    return UpdateConfig(path, failed, ^BOOL(CCPetsJSONObject *config) {
+        return RemoveManagedHooks(config, signatures, YES);
     });
+}
 
-    NSArray *claudeSignatures = preparingInstall
+static BOOL RemoveClaudeHooksAtHome(NSString *claudeHome, BOOL preparingInstall, BOOL *failed) {
+    NSArray *signatures = preparingInstall
         ? @[@[CCPetsLegacyClaudeHookMarker, @"codex-pet"]]
         : @[@[CCPetsClaudeHookMarker, @"cc-pets"], @[CCPetsLegacyClaudeHookMarker, @"codex-pet"]];
     NSArray<NSString *> *statusLineMarkers = preparingInstall
         ? @[CCPetsLegacyStatusLineMarker] : @[CCPetsStatusLineMarker, CCPetsLegacyStatusLineMarker];
-    NSString *claudeSettingsPath = [CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"];
-    BOOL claudeChanged = UpdateConfig(claudeSettingsPath, &failed, ^BOOL(CCPetsJSONObject *config) {
-        BOOL changed = RemoveManagedHooks(config, claudeSignatures, YES);
+    NSString *path = [claudeHome stringByAppendingPathComponent:@"settings.json"];
+    return UpdateConfig(path, failed, ^BOOL(CCPetsJSONObject *config) {
+        BOOL changed = RemoveManagedHooks(config, signatures, YES);
         CCPetsJSONObject *statusLine = config[@"statusLine"];
         BOOL isObject = [statusLine isKindOfClass:CCPetsJSONObject.class];
         NSString *command = isObject && [statusLine[@"command"] isKindOfClass:NSString.class] ? statusLine[@"command"] : @"";
@@ -518,6 +532,51 @@ int UninstallIntegrations(BOOL preparingInstall, NSString *shellRC) {
         }
         return changed;
     });
+}
+
+int UninstallClaudeHooksAtHome(NSString *claudeHome) {
+    BOOL failed = NO;
+    BOOL changed = RemoveClaudeHooksAtHome(CCPetsResolvePath(claudeHome), NO, &failed);
+    if (changed) CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"Removed the CC Pets hooks in %@ and restored the original status line."),
+        [claudeHome stringByAppendingPathComponent:@"settings.json"]]);
+    return failed ? 1 : 0;
+}
+
+int UninstallCodexHooksAtHome(NSString *codexHome) {
+    BOOL failed = NO;
+    BOOL changed = RemoveCodexHooksAtHome(CCPetsResolvePath(codexHome), NO, &failed);
+    if (changed) CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"Removed the CC Pets hooks in %@."),
+        [codexHome stringByAppendingPathComponent:@"hooks.json"]]);
+    return failed ? 1 : 0;
+}
+
+int UninstallIntegrations(BOOL preparingInstall, NSString *shellRC) {
+    BOOL failed = NO;
+    // 安装/卸载的隐式范围只包含官方默认 Home；环境变量指向的自定义 Home 必须先显式登记。
+    NSString *defaultCodexHome = [CCPetsHomeDirectory() stringByAppendingPathComponent:@".codex"];
+    NSString *defaultClaudeHome = [CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude"];
+    NSString *codexHooksPath = [defaultCodexHome stringByAppendingPathComponent:@"hooks.json"];
+    BOOL codexChanged = RemoveCodexHooksAtHome(defaultCodexHome, preparingInstall, &failed);
+    NSString *claudeSettingsPath = [defaultClaudeHome stringByAppendingPathComponent:@"settings.json"];
+    BOOL claudeChanged = RemoveClaudeHooksAtHome(defaultClaudeHome, preparingInstall, &failed);
+    BOOL profileChanged = NO;
+
+    // 显式登记的 Home 也属于安装范围。默认 Home 已迁移进注册表时按规范化路径去重。
+    NSMutableSet<NSString *> *handledHomes = [NSMutableSet setWithObjects:
+        CCPetsResolvePath(defaultCodexHome), CCPetsResolvePath(defaultClaudeHome), nil];
+    for (NSDictionary *profile in CCPetsProfiles()) {
+        NSString *home = CCPetsResolvePath(profile[@"home"]);
+        if (home.length == 0 || [handledHomes containsObject:home]) continue;
+        [handledHomes addObject:home];
+        BOOL changed = [profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude]
+            ? RemoveClaudeHooksAtHome(home, preparingInstall, &failed)
+            : RemoveCodexHooksAtHome(home, preparingInstall, &failed);
+        if (changed) {
+            profileChanged = YES;
+            CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"%1$@ the CC Pets hooks in %2$@."),
+                preparingInstall ? L(@"Migrated") : L(@"Removed"), home]);
+        }
+    }
 
     BOOL shellChanged = RemoveShellIntegration(shellRC);
     // shim 只在真正卸载时删：安装前删掉的话，重建失败就会留下一个没有 codex / claude 的 PATH 目录。
@@ -539,7 +598,7 @@ int UninstallIntegrations(BOOL preparingInstall, NSString *shellRC) {
             [CCPetsHomeDirectory() stringByAppendingPathComponent:@".cc-pets/shims"];
         CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"%1$@ the codex / claude shims in %2$@."), action, directory]);
     }
-    if (!codexChanged && !claudeChanged && !shellChanged && !shimChanged && !preparingInstall) {
+    if (!codexChanged && !claudeChanged && !profileChanged && !shellChanged && !shimChanged && !preparingInstall) {
         CCPetsPrintLine(stdout, L(@"No CC Pets integrations to remove."));
     }
     return failed ? 1 : 0;

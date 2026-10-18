@@ -6,3 +6,6 @@ NSDictionary *QuotaHistoryDocument(void);
 NSDictionary *RecordQuotaHistory(NSDictionary *codexUsage, NSDictionary *claudeUsage);
 // 每个点保留 timestamp 与 weekRemaining，绘图层才能按真实时间轴展示缺口和重置。
 NSArray<NSDictionary *> *QuotaHistorySeries(NSDictionary *document, NSString *provider);
+NSDictionary *RecordProfileQuotaHistory(NSDictionary<NSString *, NSDictionary *> *profileUsages,
+    NSArray<NSDictionary *> *profiles);
+NSArray<NSDictionary *> *QuotaHistorySeriesForProfile(NSDictionary *document, NSString *profileID);

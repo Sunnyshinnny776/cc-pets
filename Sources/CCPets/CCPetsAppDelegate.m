@@ -86,6 +86,11 @@
     [appMenu addItemWithTitle:L(@"About CC Pets") action:@selector(showAboutPanel:) keyEquivalent:@""].target = self;
     [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:L(@"Settings…") action:@selector(openMainWindow:) keyEquivalent:@","].target = self;
+    NSMenuItem *profilesItem = [appMenu addItemWithTitle:L(@"Agent Accounts") action:nil keyEquivalent:@""];
+    self.agentProfilesMenu = [NSMenu new];
+    self.agentProfilesMenu.delegate = (id<NSMenuDelegate>)self;
+    profilesItem.submenu = self.agentProfilesMenu;
+    [self rebuildAgentProfilesMenu];
     [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"].target = NSApp;
     appItem.submenu = appMenu;
@@ -169,6 +174,15 @@
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     // 没有主菜单的话，台词编辑器里 ⌘C/⌘V/⌘A/⌘Z 全部没反应。
     [self installMainMenu];
+    // 迁移旧集成，并自动登记官方 ~/.claude / ~/.codex。其他目录永远不自动扫描。
+    NSString *profileMigrationError = nil;
+    if (!CCPetsMigrateManagedDefaultProfiles(&profileMigrationError) && profileMigrationError.length > 0) {
+        fprintf(stderr, "%s\n", profileMigrationError.UTF8String);
+    }
+    profileMigrationError = nil;
+    if (!CCPetsEnsureOfficialDefaultProfiles(&profileMigrationError) && profileMigrationError.length > 0) {
+        fprintf(stderr, "%s\n", profileMigrationError.UTF8String);
+    }
     // `cc-pets open` 在桌宠已运行时靠这条通知开窗，不走 reopen 事件：每个终端启动 CLI 都会
     // `open -g` 一次桌宠，借 reopen 开窗会让每开一个终端就弹一次主窗口。
     [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(openWindowRequested:)
@@ -476,6 +490,8 @@
     self.pendingApprovalRecords = [NSMutableDictionary dictionary];
     self.stallNotifiedSessionKeys = [NSMutableSet set];
     self.usageMonitor.changeHandler = ^(NSDictionary *codexUsage, NSDictionary *claudeUsage) {
+        weakSelf.quotaView.profiles = weakSelf.usageMonitor.profiles;
+        weakSelf.quotaView.profileUsages = weakSelf.usageMonitor.profileUsages;
         [weakSelf applyCodexUsage:codexUsage claudeUsage:claudeUsage];
         [weakSelf considerQuotaSpeech];
     };

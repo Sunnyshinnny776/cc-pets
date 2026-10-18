@@ -21,6 +21,7 @@
 - (NSDictionary *)workbenchMessages;
 
 // 订阅额度，每家一项（只列检测到的）。键：provider（Claude / Codex）、
+//   profileId / profileName（当前在额度轮播中选中的账号；未登记时没有）、
 //   fiveRemaining / weekRemaining（剩余百分比 NSNumber，没数据时没有这个键）、
 //   fiveReset / weekReset（重置时间戳）、pace（本周节奏的文字，如「平稳」）、
 //   paceLevel（0 充足 / 1 平稳 / 2 需关注 / 3 高风险，没数据时没有）。

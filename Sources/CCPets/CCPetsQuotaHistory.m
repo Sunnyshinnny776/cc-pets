@@ -97,3 +97,61 @@ NSArray<NSDictionary *> *QuotaHistorySeries(NSDictionary *document, NSString *pr
     }
     return series;
 }
+
+NSDictionary *RecordProfileQuotaHistory(NSDictionary<NSString *, NSDictionary *> *profileUsages,
+    NSArray<NSDictionary *> *profiles) {
+    if (profileUsages.count == 0 || profiles.count == 0) return QuotaHistoryDocument();
+    NSDictionary *document = QuotaHistoryDocument();
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSTimeInterval cutoff = now - 7 * 24 * 60 * 60;
+    NSMutableArray *samples = [NSMutableArray array];
+    for (NSDictionary *sample in document[@"samples"]) {
+        if ([sample isKindOfClass:NSDictionary.class] && [sample[@"timestamp"] doubleValue] >= cutoff) {
+            [samples addObject:[sample mutableCopy]];
+        }
+    }
+    NSMutableDictionary *profileSamples = [NSMutableDictionary dictionary];
+    for (NSDictionary *profile in profiles) {
+        NSString *profileID = profile[@"id"];
+        NSDictionary *usage = profileUsages[profileID];
+        NSString *usedKey = [profile[@"provider"] isEqualToString:@"codex"]
+            ? @"used_percent" : @"used_percentage";
+        NSDictionary *sample = HistoryProviderSample(usage, usedKey);
+        if (profileID.length > 0 && sample.count > 0) profileSamples[profileID] = sample;
+    }
+    if (profileSamples.count == 0) return document;
+    NSMutableDictionary *last = [samples.lastObject isKindOfClass:NSDictionary.class]
+        ? [samples.lastObject mutableCopy] : nil;
+    if (last && now - [last[@"timestamp"] doubleValue] < 15 * 60) {
+        NSMutableDictionary *merged = [last[@"profiles"] isKindOfClass:NSDictionary.class]
+            ? [last[@"profiles"] mutableCopy] : [NSMutableDictionary dictionary];
+        [merged addEntriesFromDictionary:profileSamples];
+        last[@"profiles"] = merged;
+        samples[samples.count - 1] = last;
+    } else {
+        [samples addObject:[@{@"timestamp": @(now), @"profiles": profileSamples} mutableCopy]];
+    }
+    if (samples.count > 672) [samples removeObjectsInRange:NSMakeRange(0, samples.count - 672)];
+    NSDictionary *updated = @{@"schemaVersion": @1, @"samples": samples};
+    NSData *json = [NSJSONSerialization dataWithJSONObject:updated options:NSJSONWritingPrettyPrinted error:nil];
+    if ([json writeToFile:QuotaHistoryPath() options:NSDataWritingAtomic error:nil]) {
+        chmod(QuotaHistoryPath().fileSystemRepresentation, S_IRUSR | S_IWUSR);
+    }
+    return updated;
+}
+
+NSArray<NSDictionary *> *QuotaHistorySeriesForProfile(NSDictionary *document, NSString *profileID) {
+    NSMutableArray<NSDictionary *> *series = [NSMutableArray array];
+    for (NSDictionary *sample in document[@"samples"]) {
+        NSDictionary *profiles = [sample[@"profiles"] isKindOfClass:NSDictionary.class]
+            ? sample[@"profiles"] : nil;
+        NSDictionary *profile = [profiles[profileID] isKindOfClass:NSDictionary.class]
+            ? profiles[profileID] : nil;
+        NSNumber *timestamp = [sample[@"timestamp"] isKindOfClass:NSNumber.class]
+            ? sample[@"timestamp"] : nil;
+        NSNumber *remaining = [profile[@"weekRemaining"] isKindOfClass:NSNumber.class]
+            ? profile[@"weekRemaining"] : nil;
+        if (timestamp && remaining) [series addObject:@{@"timestamp": timestamp, @"remaining": remaining}];
+    }
+    return series;
+}

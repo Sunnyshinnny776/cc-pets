@@ -15,6 +15,8 @@ extern NSString *const CCBridgeMCPName;
 // 返回给用户看的报告行。registerMcp=NO 用于只改选项（桌宠开关、cc-pets bridge configure）。
 NSArray<NSString *> *CCBridgeInstall(NSDictionary *options, BOOL registerMcp);
 NSArray<NSString *> *CCBridgeUninstall(BOOL unregisterMcp);
+NSArray<NSString *> *CCBridgeInstallForProfile(NSDictionary *profile, NSDictionary *options, BOOL registerMcp);
+NSArray<NSString *> *CCBridgeUninstallForProfile(NSDictionary *profile, BOOL unregisterMcp);
 // CC_BRIDGE_SKIP_MCP=1 时不碰 claude / codex 的 MCP 注册（测试用）。
 BOOL CCBridgeShouldTouchMCP(void);
 

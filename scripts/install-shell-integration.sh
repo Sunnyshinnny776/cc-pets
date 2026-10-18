@@ -23,11 +23,16 @@ fi
 
 "${PROJECT_DIR}/scripts/build.sh"
 PET_BINARY="${PROJECT_DIR}/.build/release/cc-pets"
+# 只迁移已经含 CC Pets 管理标记的默认 Home；不扫描或自动接管其他目录。
+"${PET_BINARY}" profile migrate
+# 官方默认 Home 保持旧版的自动集成行为；其他 Home 仍必须从菜单手动导入。
+"${PET_BINARY}" profile ensure-defaults
 # 先迁移改名前留下的旧条目和 alias 段落，当前版本的集成留给下面原位覆盖。
 "${PET_BINARY}" --uninstall-integrations --prepare-install "${SHELL_RC}"
 "${PROJECT_DIR}/scripts/install-app.sh"
-"${PET_BINARY}" --install-codex-hooks "${PET_BINARY}"
-"${PET_BINARY}" --install-claude-hooks "${PET_BINARY}"
+# 安装/升级适配官方默认 Home，并修复用户明确登记过的自定义 Home。
+"${PET_BINARY}" profile repair-all || \
+  print -u2 "$(cc_pets_t "Some registered Agent profiles need repair; open Agent Accounts from the CC Pets menu and retry.")"
 "${PET_BINARY}" --configure-updater
 # CC Bridge 默认关闭；用户开启过的话，包路径可能随升级变化，按原选项重写一遍集成。
 "${PET_BINARY}" bridge refresh || \
@@ -80,4 +85,5 @@ if ! grep -Fq "${SHIM_START_MARKER}" "${SHELL_RC}" 2>/dev/null; then
 fi
 
 print "$(cc_pets_t "Installed. CC Pets was added to {installedPetApp}. Run source {shellRc}; after that, running codex or claude (in any capitalization) starts the pet automatically." installedPetApp="${(q)INSTALLED_PET_APP}" shellRc="${(q)SHELL_RC}")"
+print "$(cc_pets_t "Default Claude and Codex Homes were integrated automatically; add custom Homes from Agent Accounts in the CC Pets menu.")"
 print "$(cc_pets_t "After the first launch, run /hooks and trust the CC Pets hooks to enable Agent animations.")"

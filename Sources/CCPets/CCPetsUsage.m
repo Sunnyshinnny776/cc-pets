@@ -213,10 +213,12 @@ int RecordClaudeUsage(void) {
 }
 
 NSDictionary *ClaudeRateLimits(void) {
-    // 只读主账号那一份。桌宠继承的 CLAUDE_CONFIG_DIR 属于"第一个拉起它的客户端"，
-    // 拿它选文件会让面板显示另一个账号的额度。
+    return ClaudeRateLimitsForConfigDirectory(DefaultClaudeConfigDirectory());
+}
+
+NSDictionary *ClaudeRateLimitsForConfigDirectory(NSString *configDirectory) {
     NSData *data = [NSData dataWithContentsOfFile:
-        ClaudeUsagePathForConfigDirectory(DefaultClaudeConfigDirectory())];
+        ClaudeUsagePathForConfigDirectory(configDirectory)];
     NSDictionary *limits = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     if (![limits isKindOfClass:NSDictionary.class]) return nil;
     id fiveHour = [limits[@"five_hour"] isKindOfClass:NSDictionary.class] ? limits[@"five_hour"] : NSNull.null;
@@ -1509,8 +1511,11 @@ static const NSTimeInterval TokenCacheSaveInterval = 60.0;
 
 @implementation CodexUsageReader
 - (instancetype)init {
+    return [self initWithCodexHome:DefaultCodexHomeDirectory()];
+}
+- (instancetype)initWithCodexHome:(NSString *)codexHome {
     if ((self = [super init])) {
-        _sessionsURL = CodexSessionsURL();
+        _sessionsURL = [NSURL fileURLWithPath:[codexHome stringByAppendingPathComponent:@"sessions"]];
         _partialLine = [NSMutableData data];
         _tokenSummaryCachePath = TokenSummaryCachePath(@"codex", _sessionsURL.path);
         _tokenSummaryCache = LoadTokenSummaryCache(_tokenSummaryCachePath);
@@ -1875,14 +1880,6 @@ static BOOL ClaudeRecordFromLine(NSData *lineData, ClaudeTokenRecord *record, NS
     return YES;
 }
 
-// 桌宠只统计主账号 ~/.claude。刻意不读 CLAUDE_CONFIG_DIR：桌宠是被某个客户端 open
-// 起来的常驻进程，会一直带着当时的环境变量。用 claude-nw 启动过一次，桌宠就会永久
-// 只统计那个账号，主账号的用量一条都进不来——实测差了 26 倍（156.8M vs 5.96M）。
-static NSURL *ClaudeProjectsURL(void) {
-    return [NSURL fileURLWithPath:
-        [DefaultClaudeConfigDirectory() stringByAppendingPathComponent:@"projects"]];
-}
-
 // 收集目录内 mtime 落在窗口内的 .jsonl；顺带把子目录交给调用方（传 nil 表示不关心），
 // 省一次 readdir。
 static void AppendRecentTranscriptsInDirectory(NSURL *directory, NSTimeInterval earliest,
@@ -2079,6 +2076,7 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
 }
 
 @interface ClaudeUsageReader ()
+@property NSString *configDirectory;
 @property NSMutableDictionary *recordCache;
 @property NSString *recordCachePath;
 @property NSTimeInterval recordCacheSavedAt;
@@ -2092,8 +2090,12 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
 
 @implementation ClaudeUsageReader
 - (instancetype)init {
+    return [self initWithConfigDirectory:DefaultClaudeConfigDirectory()];
+}
+- (instancetype)initWithConfigDirectory:(NSString *)configDirectory {
     if ((self = [super init])) {
-        _projectsURL = ClaudeProjectsURL();
+        _configDirectory = configDirectory.stringByStandardizingPath;
+        _projectsURL = [NSURL fileURLWithPath:[_configDirectory stringByAppendingPathComponent:@"projects"]];
         _recordCachePath = TokenSummaryCachePath(@"claude", _projectsURL.path);
         _recordCache = LoadTokenSummaryCache(_recordCachePath);
         MakeCachedRecordsMutable(_recordCache);
@@ -2183,7 +2185,8 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
     // 不存在。而 Token 是本机从转录里数出来的，跟官方额度没有半点关系，不能被它一票否决
     // ——原先这里直接 return nil，面板上 Claude 整行（百分比、已用 Token、今日输入输出）
     // 全是 `--`，看起来像统计坏了。缺额度时百分比照样 `--`，用量正常显示。
-    NSDictionary *limits = ClaudeRateLimits() ?: @{@"fiveHour": NSNull.null, @"week": NSNull.null};
+    NSDictionary *limits = ClaudeRateLimitsForConfigDirectory(self.configDirectory) ?:
+        @{@"fiveHour": NSNull.null, @"week": NSNull.null};
     NSString *identity = TokenWindowIdentity(limits);
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     BOOL reusable = !self.forcesTokenAggregation && self.tokenUsage &&
@@ -2277,8 +2280,8 @@ static NSString *DayLabel(NSTimeInterval dayStart) {
 // 日 -> 模型 -> 用量（统一口径），日是 DayLabel。Codex 直接取会话摘要里按模型分好的日桶；
 // 摘要里的键是解析时那个时区的零点，在这里统一换成日期。
 static NSDictionary<NSString *, NSDictionary *> *CodexModelDays(NSTimeInterval start,
-    NSTimeInterval end, NSMutableDictionary *cache) {
-    NSArray<NSURL *> *urls = RecentCodexSessionURLs(CodexSessionsURL(), start);
+    NSTimeInterval end, NSMutableDictionary *cache, NSURL *sessionsURL) {
+    NSArray<NSURL *> *urls = RecentCodexSessionURLs(sessionsURL, start);
     NSString *startLabel = DayLabel(start);
     NSString *endLabel = DayLabel(end);
     NSMutableDictionary<NSString *, NSMutableDictionary *> *result = [NSMutableDictionary dictionary];
@@ -2313,8 +2316,8 @@ static NSDictionary<NSString *, NSDictionary *> *CodexModelDays(NSTimeInterval s
 
 // Claude：先按请求去重（跨文件、同请求多行取逐字段最大值），再按"日 × 模型"落桶，日是 DayLabel。
 static NSDictionary<NSString *, NSDictionary *> *ClaudeModelDays(NSTimeInterval start,
-    NSTimeInterval end, NSMutableDictionary *cache) {
-    NSArray<NSURL *> *urls = RecentClaudeTranscriptURLs(ClaudeProjectsURL(), start);
+    NSTimeInterval end, NSMutableDictionary *cache, NSURL *projectsURL) {
+    NSArray<NSURL *> *urls = RecentClaudeTranscriptURLs(projectsURL, start);
     NSMutableArray<NSData *> *recordSets = [NSMutableArray arrayWithCapacity:urls.count];
     NSMutableSet<NSString *> *livePaths = [NSMutableSet setWithCapacity:urls.count];
     for (NSURL *url in urls) {
@@ -2407,9 +2410,19 @@ static NSMutableDictionary *LoadModelArchive(NSString *path, BOOL *outMigrated) 
 }
 
 NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeInterval end) {
+    NSString *home = [provider isEqualToString:@"claude"]
+        ? DefaultClaudeConfigDirectory() : DefaultCodexHomeDirectory();
+    return CCPetsModelUsageAtHome(provider, home, start, end);
+}
+
+NSDictionary *CCPetsModelUsageAtHome(NSString *provider, NSString *home,
+    NSTimeInterval start, NSTimeInterval end) {
     BOOL isClaude = [provider isEqualToString:@"claude"];
     if (!isClaude && ![provider isEqualToString:@"codex"]) return nil;
-    NSString *source = isClaude ? ClaudeProjectsURL().path : CodexSessionsURL().path;
+    NSString *canonicalHome = home.stringByStandardizingPath;
+    NSURL *sourceURL = [NSURL fileURLWithPath:[canonicalHome stringByAppendingPathComponent:
+        isClaude ? @"projects" : @"sessions"]];
+    NSString *source = sourceURL.path;
     NSString *cachePath = TokenSummaryCachePath(
         isClaude ? @"claude-models" : @"codex-models", source);
     NSString *archivePath = TokenSummaryCachePath(
@@ -2420,7 +2433,8 @@ NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeI
     NSMutableDictionary *archive = LoadModelArchive(archivePath, &archiveChanged);
 
     NSDictionary<NSString *, NSDictionary *> *fresh = isClaude
-        ? ClaudeModelDays(start, end, cache) : CodexModelDays(start, end, cache);
+        ? ClaudeModelDays(start, end, cache, sourceURL)
+        : CodexModelDays(start, end, cache, sourceURL);
 
     NSMutableDictionary *archivedDays = [archive[@"days"] mutableCopy];
     NSTimeInterval todayStart = [NSCalendar.currentCalendar

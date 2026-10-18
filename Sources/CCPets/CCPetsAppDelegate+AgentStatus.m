@@ -248,6 +248,8 @@
 - (void)showAgentStatusForRecord:(NSDictionary *)record notify:(BOOL)shouldNotify {
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
     if (provider.length == 0) provider = @"Agent";
+    NSString *profileName = SanitizedShortString(record[@"profileName"], 64);
+    NSString *presentationName = profileName.length > 0 ? profileName : provider;
     NSString *state = [record[@"state"] isKindOfClass:NSString.class]
         ? record[@"state"] : NormalizedStateForEvent(record[@"event"], [record[@"failed"] boolValue]);
     NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
@@ -256,7 +258,13 @@
     if (!self.providerActivityAt) self.providerActivityAt = [NSMutableDictionary dictionary];
     self.providerActivityAt[provider] = @(self.lastStatusTimestamp);
     [self updateQuotaLiveState];
-    if (self.hasAgentStatus && [provider isEqualToString:self.lastStatusProvider] &&
+    // 额外 Home 没有共用默认配置的文件监听；Hook 事件是最准确的变更信号。按 15 秒合并，
+    // 既让隐藏卡片及时更新，也避免工具密集执行时反复全量聚合。
+    if ([record[@"profileId"] isKindOfClass:NSString.class] &&
+        self.lastStatusTimestamp - self.lastUsageRefreshAt >= 15.0) {
+        [self refreshUsage:nil];
+    }
+    if (self.hasAgentStatus && [presentationName isEqualToString:self.lastStatusProvider] &&
         [self isTrailingRecord:record afterState:self.lastStatusState]) return;
 
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
@@ -268,7 +276,7 @@
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(enterIdleStatus) object:nil];
     self.hasAgentStatus = YES;
-    [self applyStatusPresentationForState:state provider:provider tool:tool];
+    [self applyStatusPresentationForState:state provider:presentationName tool:tool];
     [self.panel orderFrontRegardless];
     [self performSelector:@selector(hideAgentStatus)
         withObject:nil afterDelay:AgentStatusInactivityInterval];
@@ -327,16 +335,18 @@
 }
 - (NSString *)agentSessionKeyForRecord:(NSDictionary *)record {
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    NSString *profileID = SanitizedShortString(record[@"profileId"], 128);
+    NSString *identity = profileID.length > 0 ? [NSString stringWithFormat:@"%@|%@", provider, profileID] : provider;
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
     NSString *tty = SanitizedShortString(terminal[@"tty"], 64);
     NSString *bundleID = SanitizedShortString(terminal[@"bundleID"], 128);
     if (tty.length > 0) {
-        return [NSString stringWithFormat:@"%@|%@|%@", provider, bundleID, tty];
+        return [NSString stringWithFormat:@"%@|%@|%@", identity, bundleID, tty];
     }
     NSString *session = SanitizedShortString(record[@"session"], 128);
-    if (session.length > 0) return [NSString stringWithFormat:@"%@|%@", provider, session];
-    return terminal.count > 0 ? [NSString stringWithFormat:@"%@|%@", provider, bundleID] : nil;
+    if (session.length > 0) return [NSString stringWithFormat:@"%@|%@", identity, session];
+    return terminal.count > 0 ? [NSString stringWithFormat:@"%@|%@", identity, bundleID] : nil;
 }
 - (NSString *)onlineAgentSessionKeyForProvider:(NSString *)provider tty:(NSString *)tty {
     provider = SanitizedShortString(provider, 32);
@@ -543,7 +553,7 @@
     }
     // 菜单打开即视为看过：角标清零，下一条新消息再亮。
     self.bridgeSeenAt = NSDate.date.timeIntervalSince1970;
-    [self refreshBridgeBadge];
+    [self refreshBridgeState:nil];
     if (records.count == 0) {
         [self popUpAgentSessionsMenu:menu from:sender];
         return;

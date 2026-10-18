@@ -325,7 +325,8 @@ NSString *CCBridgeNormalizeSessionName(id value) {
 }
 
 NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
-    NSString *tty, NSString *status, NSString *preferredName, NSArray<NSDictionary *> *liveSessions) {
+    NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,
+    NSString *profileName, NSArray<NSDictionary *> *liveSessions) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
     if (!safe) return nil;
     long long now = CCPetsMilliseconds();
@@ -338,6 +339,8 @@ NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSN
     if (pid && pid.intValue > 1) record[@"pid"] = pid;
     if (cwd.length > 0) record[@"cwd"] = cwd;
     if (tty.length > 0) record[@"tty"] = tty;
+    if (profileID.length > 0) record[@"profileId"] = profileID;
+    if (profileName.length > 0) record[@"profileName"] = profileName;
     if (!StringValue(record[@"name"])) {
         NSString *custom = CCBridgeNormalizeSessionName(preferredName);
         record[@"name"] = custom ? AllocateCustomName(custom, safe, liveSessions ?: @[])

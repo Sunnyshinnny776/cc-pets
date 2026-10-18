@@ -415,6 +415,17 @@ npm 的安装后脚本会自动构建原生应用、安装两套 Agent Hooks，�
 `codex` 与 `claude` 软链，再向 `~/.zshrc` 追加带明确标记的一行把该目录前置到 `PATH`，不会覆盖真实的 CLI 二进制。
 用 shim 而不是 alias，是因为 alias 名区分大小写而 macOS 文件系统默认不区分：`Claude`、`CODEX` 这类写法
 匹配不到 alias，会直接命中真二进制，桌宠不会被拉起。shim 让任意大小写写法都落到同一个文件上。
+
+### Agent 账户
+
+CC Pets 会自动发现并集成官方 `~/.claude` 和 `~/.codex` Home。`~/.claude-x`、
+`~/.codex-work` 等自定义 Home 不会被自动扫描，必须从「CC Pets → Agent 账户」手动添加。
+默认使用文件夹名作为账号名称并保持原样，也可以在同一菜单中主动重命名。每个 Provider
+拥有独立的循环额度卡片，用量页也可以按账号筛选本机会话 Token 历史。
+
+添加账号时会配置 Pet Hooks 和用量采集。若 CC Bridge 已开启，会同时配置它的 Hooks、
+权限与 MCP；若尚未开启，之后启用 CC Bridge 时会自动为所有已登记账号补齐。
+
 首次安装需要新开终端让 `PATH` 生效；以后升级只需执行 npm 命令。
 同时会将标准 macOS 应用安装到 `~/Applications/CC Pets.app`，可从 Finder 或 Launchpad 启动，
 不需要管理员权限。npm 升级时会同步更新该应用。

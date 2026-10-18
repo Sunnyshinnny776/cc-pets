@@ -19,6 +19,8 @@
         session[@"id"] = key;
         session[@"provider"] = [provider isEqualToString:@"claude"] ? @"Claude"
             : ([provider isEqualToString:@"codex"] ? @"Codex" : (provider.length > 0 ? provider : @"Agent"));
+        if ([record[@"profileId"] isKindOfClass:NSString.class]) session[@"profileId"] = record[@"profileId"];
+        if ([record[@"profileName"] isKindOfClass:NSString.class]) session[@"profileName"] = record[@"profileName"];
         session[@"state"] = state;
         session[@"status"] = [self statusTextForState:state tool:tool];
         session[@"tool"] = SanitizedShortString(tool, 64) ?: @"";
@@ -63,20 +65,19 @@
 
 - (NSArray<NSDictionary *> *)workbenchQuotas {
     NSMutableArray<NSDictionary *> *quotas = [NSMutableArray array];
-    NSDictionary *specs = @{
-        @"Claude": @{@"usage": self.quotaView.claudeUsage ?: @{}, @"usedKey": @"used_percentage"},
-        @"Codex": @{@"usage": self.quotaView.codexUsage ?: @{}, @"usedKey": @"used_percent"},
-    };
     // 和悬停面板同一个次序与同一份"检测到哪几家"的判断。
     for (NSString *provider in [self.quotaView visibleProviders]) {
-        NSDictionary *spec = specs[provider];
-        if (!spec) continue;
+        NSDictionary *usage = [self.quotaView usageForProvider:provider] ?: @{};
+        NSString *usedKey = [provider isEqualToString:@"Claude"] ? @"used_percentage" : @"used_percent";
+        NSDictionary *profile = [self.quotaView selectedProfileForProvider:provider];
         NSMutableDictionary *quota = [NSMutableDictionary dictionaryWithObject:provider forKey:@"provider"];
+        if ([profile[@"id"] isKindOfClass:NSString.class]) quota[@"profileId"] = profile[@"id"];
+        if ([profile[@"displayName"] isKindOfClass:NSString.class]) quota[@"profileName"] = profile[@"displayName"];
         NSNumber *weekUsed = nil;
         for (NSArray<NSString *> *window in @[@[@"fiveHour", @"five"], @[@"week", @"week"]]) {
-            NSDictionary *limit = [spec[@"usage"][window[0]] isKindOfClass:NSDictionary.class]
-                ? spec[@"usage"][window[0]] : nil;
-            NSNumber *used = [limit[spec[@"usedKey"]] isKindOfClass:NSNumber.class] ? limit[spec[@"usedKey"]] : nil;
+            NSDictionary *limit = [usage[window[0]] isKindOfClass:NSDictionary.class]
+                ? usage[window[0]] : nil;
+            NSNumber *used = [limit[usedKey] isKindOfClass:NSNumber.class] ? limit[usedKey] : nil;
             if (used) {
                 double clamped = fmax(0, fmin(100, used.doubleValue));
                 quota[[window[1] stringByAppendingString:@"Remaining"]] = @(100 - clamped);
@@ -85,8 +86,8 @@
             NSNumber *reset = [limit[@"resets_at"] isKindOfClass:NSNumber.class] ? limit[@"resets_at"] : nil;
             if (reset) quota[[window[1] stringByAppendingString:@"Reset"]] = reset;
         }
-        NSDictionary *weekLimit = [spec[@"usage"][@"week"] isKindOfClass:NSDictionary.class]
-            ? spec[@"usage"][@"week"] : nil;
+        NSDictionary *weekLimit = [usage[@"week"] isKindOfClass:NSDictionary.class]
+            ? usage[@"week"] : nil;
         NSDictionary *pace = [self.quotaView paceStatusForQuota:weekLimit currentUsed:weekUsed
             color:NSColor.systemTealColor];
         if ([pace[@"label"] isKindOfClass:NSString.class]) quota[@"pace"] = pace[@"label"];
@@ -109,7 +110,7 @@
 
 - (void)markWorkbenchMessagesSeen {
     self.bridgeSeenAt = NSDate.date.timeIntervalSince1970;
-    [self refreshBridgeBadge];
+    [self refreshBridgeState:nil];
 }
 
 @end

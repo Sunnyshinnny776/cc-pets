@@ -359,7 +359,9 @@ static const CGFloat HeroExtraPadding = 15;
         CCPetsCardView *card = [CCPetsCardView new];
         CCPetsColorDot *dot = [[CCPetsColorDot alloc] initWithColor:CCPetsProviderColor(quota[@"provider"]) diameter:8];
         dot.layer.cornerRadius = 2;
-        NSTextField *name = CCPetsLabel(quota[@"provider"], 13, NSFontWeightSemibold, CCPetsInkColor());
+        NSString *quotaName = [quota[@"profileName"] isKindOfClass:NSString.class]
+            ? quota[@"profileName"] : quota[@"provider"];
+        NSTextField *name = CCPetsLabel(quotaName, 13, NSFontWeightSemibold, CCPetsInkColor());
         NSStackView *title = [NSStackView stackViewWithViews:@[dot, name]];
         title.spacing = 7;
         title.alignment = NSLayoutAttributeCenterY;
