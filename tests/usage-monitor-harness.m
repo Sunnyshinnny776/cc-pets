@@ -1,5 +1,12 @@
 #import <Foundation/Foundation.h>
 #import "CCPetsUsageMonitor.h"
+
+// UsageMonitor 的独立链接测试不引入完整的 Profile/Bridge 安装栈；这里提供只读空注册表，
+// 测试关注的仍是监控器生命周期、刷新合并和文件监听行为。
+NSString *const CCPetsProfileProviderClaude = @"claude";
+NSString *const CCPetsProfileProviderCodex = @"codex";
+NSArray<NSDictionary *> *CCPetsProfiles(void) { return @[]; }
+NSArray<NSDictionary *> *CCPetsProfilesForProvider(NSString *provider) { return @[]; }
 #import "CCPetsPaths.h"
 #import "CCPetsCodexRateLimits.h"
 

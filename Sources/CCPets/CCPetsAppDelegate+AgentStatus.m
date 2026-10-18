@@ -269,7 +269,13 @@
 
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
-    self.lastTerminalFocusTarget = terminal.count > 0 ? terminal : nil;
+    // Codex 的共享后台偶尔会先送到事件、稍后才完成会话与终端配对。无目标事件不能
+    // 把上一条已确认的回跳目标清空，否则卡片仍可见却会突然点不动。
+    if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
+    else if (self.hasAgentStatus && ![presentationName isEqualToString:self.lastStatusProvider]) {
+        // 换成另一个账号且仍无法解析终端时，不能误跳到上一家账号。
+        self.lastTerminalFocusTarget = nil;
+    }
 
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(hideAgentStatus) object:nil];

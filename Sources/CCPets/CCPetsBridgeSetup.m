@@ -39,8 +39,9 @@ BOOL CCBridgeShouldTouchMCP(void) {
 static NSString *BridgeCommand(NSString *provider, NSString *subcommand, NSDictionary *profile) {
     NSString *identity = @"";
     if ([profile[@"id"] isKindOfClass:NSString.class]) {
-        identity = [NSString stringWithFormat:@" CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@",
-            CCPetsShellQuote(profile[@"id"]), CCPetsShellQuote(profile[@"displayName"] ?: profile[@"slug"] ?: provider)];
+        identity = [NSString stringWithFormat:@" CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@ CC_PETS_PROFILE_HOME=%@",
+            CCPetsShellQuote(profile[@"id"]), CCPetsShellQuote(profile[@"displayName"] ?: profile[@"slug"] ?: provider),
+            CCPetsShellQuote(profile[@"home"] ?: @"")];
     }
     return [NSString stringWithFormat:@"%@%@%@ %@ bridge %@", CCBridgeHookMarker, provider, identity,
         CCPetsShellQuote(CCPetsExecutablePath()), subcommand];

@@ -258,8 +258,9 @@ int InstallClaudeHooksAtHome(NSString *binary, NSString *claudeHome) {
     NSDictionary *registered = CCPetsProfileForHome(CCPetsProfileProviderClaude, claudeHome);
     NSString *profileID = registered[@"id"] ?: CCPetsProfileID(CCPetsProfileProviderClaude, claudeHome);
     NSString *profileName = registered[@"displayName"] ?: CCPetsProfileDefaultDisplayName(CCPetsProfileProviderClaude, claudeHome);
-    NSString *command = [NSString stringWithFormat:@"%@ CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@ %@ --hook",
-        CCPetsClaudeHookMarker, CCPetsShellQuote(profileID), CCPetsShellQuote(profileName), CCPetsShellQuote(binary)];
+    NSString *command = [NSString stringWithFormat:@"%@ CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@ CC_PETS_PROFILE_HOME=%@ %@ --hook",
+        CCPetsClaudeHookMarker, CCPetsShellQuote(profileID), CCPetsShellQuote(profileName),
+        CCPetsShellQuote(claudeHome), CCPetsShellQuote(binary)];
     ReplaceManagedHooks(config, @[@[CCPetsClaudeHookMarker, @"cc-pets"], @[CCPetsLegacyClaudeHookMarker, @"codex-pet"]], command, @[
         @"SessionStart", @"UserPromptSubmit", @"PreToolUse", @"PermissionRequest", @"PostToolUse",
         @"PostToolUseFailure", @"Notification", @"SubagentStart", @"SubagentStop", @"TaskCreated",
@@ -368,8 +369,9 @@ int InstallCodexHooksAtHome(NSString *binary, NSString *codexHome) {
     NSDictionary *registered = CCPetsProfileForHome(CCPetsProfileProviderCodex, codexHome);
     NSString *profileID = registered[@"id"] ?: CCPetsProfileID(CCPetsProfileProviderCodex, codexHome);
     NSString *profileName = registered[@"displayName"] ?: CCPetsProfileDefaultDisplayName(CCPetsProfileProviderCodex, codexHome);
-    NSString *command = [NSString stringWithFormat:@"%@ CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@ %@ --hook",
-        CCPetsCodexHookMarker, CCPetsShellQuote(profileID), CCPetsShellQuote(profileName), CCPetsShellQuote(binary)];
+    NSString *command = [NSString stringWithFormat:@"%@ CC_PETS_PROFILE_ID=%@ CC_PETS_PROFILE_NAME=%@ CC_PETS_PROFILE_HOME=%@ %@ --hook",
+        CCPetsCodexHookMarker, CCPetsShellQuote(profileID), CCPetsShellQuote(profileName),
+        CCPetsShellQuote(codexHome), CCPetsShellQuote(binary)];
     ReplaceManagedHooks(config, @[@[CCPetsCodexHookMarker, @"cc-pets"], @[CCPetsLegacyCodexHookMarker, @"codex-pet"]], command, @[
         @"SessionStart", @"UserPromptSubmit", @"PreToolUse", @"PermissionRequest", @"PostToolUse",
         @"SubagentStart", @"SubagentStop", @"Stop"

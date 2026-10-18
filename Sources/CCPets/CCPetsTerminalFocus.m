@@ -311,8 +311,9 @@ int RegisterCodexLaunch(void) {
 
 // 会话记录按 sessions/YYYY/MM/DD/rollout-<时间>-<会话 ID>.jsonl 存放，目录名字典序即时间序。
 // 刚开始收事件的会话一定在最近几天的目录里；resume 的旧会话找不到也没关系，按工作目录兜底。
-static NSString *CodexRolloutPathForThread(NSString *thread) {
-    NSString *sessions = [DefaultCodexHomeDirectory() stringByAppendingPathComponent:@"sessions"];
+static NSString *CodexRolloutPathForThread(NSString *thread, NSString *codexHome) {
+    NSString *sessions = [(codexHome.length > 0 ? codexHome : DefaultCodexHomeDirectory())
+        stringByAppendingPathComponent:@"sessions"];
     NSFileManager *files = NSFileManager.defaultManager;
     NSString *suffix = [NSString stringWithFormat:@"-%@.jsonl", thread];
     NSUInteger examinedDays = 0;
@@ -337,10 +338,12 @@ static NSString *CodexRolloutPathForThread(NSString *thread) {
 }
 
 // 第一行是 session_meta，带 cwd 和创建时刻；它里面有完整的系统提示词，可能很长，读到换行为止。
-static NSDictionary *CodexThreadMeta(NSString *thread, NSDictionary *payload) {
+static NSDictionary *CodexThreadMeta(NSString *thread, NSDictionary *payload, NSString *codexHome) {
     NSString *path = [payload[@"transcript_path"] isKindOfClass:NSString.class]
         ? payload[@"transcript_path"] : nil;
-    if (![NSFileManager.defaultManager fileExistsAtPath:path]) path = CodexRolloutPathForThread(thread);
+    if (![NSFileManager.defaultManager fileExistsAtPath:path]) {
+        path = CodexRolloutPathForThread(thread, codexHome);
+    }
     NSFileHandle *handle = path ? [NSFileHandle fileHandleForReadingAtPath:path] : nil;
     NSMutableData *line = [NSMutableData data];
     while (handle && line.length < 8 * 1024 * 1024) {
@@ -404,7 +407,8 @@ static NSString *ChooseCodexLaunch(NSDictionary<NSString *, NSDictionary *> *lau
     return byLaunch.lastObject;
 }
 
-NSDictionary *CodexLaunchTerminalForThread(NSString *thread, NSDictionary *payload) {
+static NSDictionary *CodexLaunchTerminalForThreadAtHome(NSString *thread, NSDictionary *payload,
+    NSString *codexHome) {
     if (thread.length == 0) return @{};
     int lock = LockCodexLaunchRegistry();
     if (lock < 0) return @{};
@@ -417,7 +421,7 @@ NSDictionary *CodexLaunchTerminalForThread(NSString *thread, NSDictionary *paylo
         }
     }
     if (!terminal) {
-        NSDictionary *meta = CodexThreadMeta(thread, payload);
+        NSDictionary *meta = CodexThreadMeta(thread, payload, codexHome);
         NSString *key = meta[@"cwd"] ? ChooseCodexLaunch(launches, meta[@"cwd"], meta[@"createdAt"]) : nil;
         if (key) {
             NSMutableDictionary *entry = [launches[key] mutableCopy];
@@ -434,8 +438,15 @@ NSDictionary *CodexLaunchTerminalForThread(NSString *thread, NSDictionary *paylo
     return [terminal isKindOfClass:NSDictionary.class] ? terminal : @{};
 }
 
+NSDictionary *CodexLaunchTerminalForThread(NSString *thread, NSDictionary *payload) {
+    return CodexLaunchTerminalForThreadAtHome(thread, payload, DefaultCodexHomeDirectory());
+}
+
 NSDictionary *TerminalFocusTargetForHook(NSDictionary *payload, NSString *provider) {
     if (!TerminalFocusRunsUnderSharedAgentHost()) return TerminalFocusTargetFromEnvironment();
     if (![provider isEqualToString:@"Codex"]) return @{};
-    return CodexLaunchTerminalForThread(SanitizedShortString(payload[@"session_id"], 128), payload);
+    NSString *profileHome = SanitizedShortString(
+        NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_HOME"], 4096);
+    return CodexLaunchTerminalForThreadAtHome(
+        SanitizedShortString(payload[@"session_id"], 128), payload, profileHome);
 }
