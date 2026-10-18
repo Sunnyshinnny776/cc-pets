@@ -325,7 +325,8 @@ NSString *CCBridgeNormalizeSessionName(id value) {
 }
 
 NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
-    NSString *tty, NSString *status, NSString *preferredName, NSArray<NSDictionary *> *liveSessions) {
+    NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,
+    NSString *profileName, NSArray<NSDictionary *> *liveSessions) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
     if (!safe) return nil;
     long long now = CCPetsMilliseconds();
@@ -338,6 +339,8 @@ NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSN
     if (pid && pid.intValue > 1) record[@"pid"] = pid;
     if (cwd.length > 0) record[@"cwd"] = cwd;
     if (tty.length > 0) record[@"tty"] = tty;
+    if (profileID.length > 0) record[@"profileId"] = profileID;
+    if (profileName.length > 0) record[@"profileName"] = profileName;
     if (!StringValue(record[@"name"])) {
         NSString *custom = CCBridgeNormalizeSessionName(preferredName);
         record[@"name"] = custom ? AllocateCustomName(custom, safe, liveSessions ?: @[])
@@ -711,12 +714,16 @@ BOOL CCBridgeSessionLive(NSDictionary *session) {
 // `--help` 打出的是总帮助而不是报错，所以按帮助里有没有 --thread / --message 判断。
 // 结果只用于提前提示：投递时 queue 失败本来就会退回信箱，探测失败一律算 unknown。
 NSDictionary *CCBridgeProbeCodexQueue(NSString *executable) {
+    return CCBridgeProbeCodexQueueWithEnvironment(executable, nil);
+}
+
+NSDictionary *CCBridgeProbeCodexQueueWithEnvironment(NSString *executable, NSDictionary<NSString *, NSString *> *environment) {
     if (executable.length == 0 || ![NSFileManager.defaultManager fileExistsAtPath:executable]) {
         return @{@"status": @"missing", @"executable": executable ?: NSNull.null, @"version": NSNull.null};
     }
     NSString *(^run)(NSArray<NSString *> *) = ^NSString *(NSArray<NSString *> *arguments) {
         NSString *output = nil, *errorOutput = nil;
-        int status = CCPetsRun(executable, arguments, nil, nil, 10, &output, &errorOutput);
+        int status = CCPetsRun(executable, arguments, nil, environment, 10, &output, &errorOutput);
         if (status == CCPetsRunLaunchFailed || status == CCPetsRunTimedOut) return nil;
         return status == 0 ? output : [output stringByAppendingString:errorOutput];
     };

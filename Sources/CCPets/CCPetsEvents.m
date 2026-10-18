@@ -198,6 +198,10 @@ int RecordHookEvent(void) {
         @"timestamp": @([NSDate.date timeIntervalSince1970])
     } mutableCopy];
     if (session.length > 0) record[@"session"] = session;
+    NSString *profileID = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_ID"], 128);
+    NSString *profileName = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_NAME"], 64);
+    if (profileID.length > 0) record[@"profileId"] = profileID;
+    if (profileName.length > 0) record[@"profileName"] = profileName;
     NSDictionary *terminal = TerminalFocusTargetForHook(payload, provider);
     if (terminal.count > 0) record[@"terminal"] = terminal;
     AppendAgentEventRecord(record);
@@ -245,6 +249,10 @@ int RecordProviderEvent(void) {
         @"state": state,
         @"timestamp": @([NSDate.date timeIntervalSince1970])
     } mutableCopy];
+    NSString *profileID = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_ID"], 128);
+    NSString *profileName = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_NAME"], 64);
+    if (profileID.length > 0) record[@"profileId"] = profileID;
+    if (profileName.length > 0) record[@"profileName"] = profileName;
     NSDictionary *terminal = TerminalFocusTargetFromEnvironment();
     if (terminal.count > 0) record[@"terminal"] = terminal;
     if (!AppendAgentEventRecord(record)) {

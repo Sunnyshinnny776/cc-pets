@@ -16,6 +16,7 @@
 #import "CCPetsPetStore.h"
 #import "CCPetsCLISupport.h"
 #import "CCPetsTerminalFocus.h"
+#import "CCPetsProfiles.h"
 #import <sys/file.h>
 #import <sys/stat.h>
 #import <fcntl.h>
@@ -39,6 +40,11 @@ int main(int argc, const char *argv[]) {
             NSMutableArray<NSString *> *arguments = [NSMutableArray array];
             for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
             return CCPetsPetStoreMain(arguments);
+        }
+        if (argc > 1 && strcmp(argv[1], "profile") == 0) {
+            NSMutableArray<NSString *> *arguments = [NSMutableArray array];
+            for (int index = 2; index < argc; index++) [arguments addObject:@(argv[index])];
+            return CCPetsProfileCommandMain(arguments);
         }
         if (argc > 1 && strcmp(argv[1], "--configure-updater") == 0) return ConfigureUpdater();
         // zsh 脚本的文案（scripts/i18n.zsh）：--localize <英文原文> [name=value …]，与 App 共用一张表。

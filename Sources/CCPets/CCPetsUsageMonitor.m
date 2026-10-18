@@ -2,6 +2,7 @@
 #import "CCPetsUsage.h"
 #import "CCPetsCodexRateLimits.h"
 #import "CCPetsPaths.h"
+#import "CCPetsProfiles.h"
 #import <CoreServices/CoreServices.h>
 #import <fcntl.h>
 #import <unistd.h>
@@ -20,6 +21,13 @@
 @property ClaudeUsageReader *claudeReader;
 @property(readwrite) NSDictionary *codexUsage;
 @property(readwrite) NSDictionary *claudeUsage;
+@property(readwrite) NSDictionary<NSString *, NSDictionary *> *profileUsages;
+@property(readwrite) NSArray<NSDictionary *> *profiles;
+@property NSMutableDictionary<NSString *, ClaudeUsageReader *> *claudeProfileReaders;
+@property NSMutableDictionary<NSString *, CodexUsageReader *> *codexProfileReaders;
+@property NSMutableDictionary<NSString *, CCPetsCodexRateLimitsReader *> *codexProfileRateReaders;
+@property NSMutableDictionary<NSString *, NSDictionary *> *codexProfileLiveUsages;
+@property NSMutableDictionary<NSString *, NSString *> *profileReaderHomes;
 @property NSDictionary *codexLiveUsage;
 @property NSTimeInterval codexLiveUsageUpdatedAt;
 @property FSEventStreamRef codexStream;
@@ -37,6 +45,15 @@
 // 窗口翻篇由 resets_at 兜底。只有"额度受限"标记有寿命——它没有窗口归属，实时查询连续
 // 失败时不能让一次旧的受限结论一直挂着。
 static const NSTimeInterval CodexLiveUsageTTL = 5 * 60.0;
+
+static BOOL HasRegisteredDefaultProfile(NSString *provider) {
+    NSString *target = ([provider isEqualToString:CCPetsProfileProviderClaude]
+        ? DefaultClaudeConfigDirectory() : DefaultCodexHomeDirectory()).stringByStandardizingPath;
+    for (NSDictionary *profile in CCPetsProfilesForProvider(provider)) {
+        if ([[profile[@"home"] stringByStandardizingPath] isEqualToString:target]) return YES;
+    }
+    return NO;
+}
 
 static NSDictionary *LoadCodexLiveUsage(void) {
     NSData *data = [NSData dataWithContentsOfFile:CodexLiveUsagePath()];
@@ -111,6 +128,11 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         _codexReader = [CodexUsageReader new];
         _codexRateLimitsReader = [CCPetsCodexRateLimitsReader new];
         _claudeReader = [ClaudeUsageReader new];
+        _claudeProfileReaders = [NSMutableDictionary dictionary];
+        _codexProfileReaders = [NSMutableDictionary dictionary];
+        _codexProfileRateReaders = [NSMutableDictionary dictionary];
+        _codexProfileLiveUsages = [NSMutableDictionary dictionary];
+        _profileReaderHomes = [NSMutableDictionary dictionary];
         // 桌宠是唯一的常驻读取者，摘要缓存由它维护并落盘。
         _codexReader.persistsCache = YES;
         _claudeReader.persistsCache = YES;
@@ -149,11 +171,127 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 }
 // 回调交给主线程：下游全是 UI（面板重排、气泡定位、系统通知）。
 - (void)publishChange {
+    [self syncDefaultProfileUsages];
     void (^handler)(NSDictionary *, NSDictionary *) = self.changeHandler;
     if (!handler) return;
     NSDictionary *codex = self.codexUsage;
     NSDictionary *claude = self.claudeUsage;
     dispatch_async(dispatch_get_main_queue(), ^{ handler(codex, claude); });
+}
+
+// 默认账号的卡片读的是 profileUsages，但 FSEvents、statusline 监听和 App Server 回调
+// 只更新 codexUsage / claudeUsage。每次发布前把默认账号那一格对齐到最新值，
+// 否则卡片要等下一轮全量刷新（最长 120 秒）才动。
+- (void)syncDefaultProfileUsages {
+    if (self.profiles.count == 0) return;
+    NSString *defaultClaude = DefaultClaudeConfigDirectory().stringByStandardizingPath;
+    NSString *defaultCodex = DefaultCodexHomeDirectory().stringByStandardizingPath;
+    NSMutableDictionary<NSString *, NSDictionary *> *usages =
+        [self.profileUsages mutableCopy] ?: [NSMutableDictionary dictionary];
+    BOOL changed = NO;
+    for (NSDictionary *profile in self.profiles) {
+        NSString *profileID = profile[@"id"], *provider = profile[@"provider"];
+        NSString *home = [profile[@"home"] stringByStandardizingPath];
+        if (profileID.length == 0 || home.length == 0) continue;
+        NSDictionary *usage = nil;
+        if ([provider isEqualToString:CCPetsProfileProviderClaude] && [home isEqualToString:defaultClaude]) {
+            usage = self.claudeUsage;
+        } else if ([provider isEqualToString:CCPetsProfileProviderCodex] && [home isEqualToString:defaultCodex]) {
+            usage = self.codexUsage;
+        } else continue;
+        if (usages[profileID] == usage || [usages[profileID] isEqual:usage]) continue;
+        usages[profileID] = usage;
+        changed = YES;
+    }
+    if (changed) self.profileUsages = usages;
+}
+- (void)refreshProfileUsages {
+    NSArray<NSDictionary *> *profiles = CCPetsProfiles();
+    NSMutableDictionary<NSString *, NSDictionary *> *usages = [NSMutableDictionary dictionary];
+    NSMutableSet<NSString *> *liveIDs = [NSMutableSet set];
+    NSString *defaultClaude = DefaultClaudeConfigDirectory().stringByStandardizingPath;
+    NSString *defaultCodex = DefaultCodexHomeDirectory().stringByStandardizingPath;
+    for (NSDictionary *profile in profiles) {
+        NSString *profileID = profile[@"id"], *provider = profile[@"provider"];
+        NSString *home = [profile[@"home"] stringByStandardizingPath];
+        if (profileID.length == 0 || home.length == 0) continue;
+        [liveIDs addObject:profileID];
+        NSString *readerHome = self.profileReaderHomes[profileID];
+        if (readerHome.length > 0 && ![readerHome isEqualToString:home]) {
+            [self.claudeProfileReaders removeObjectForKey:profileID];
+            [self.codexProfileReaders removeObjectForKey:profileID];
+            [self.codexProfileRateReaders[profileID] stop];
+            [self.codexProfileRateReaders removeObjectForKey:profileID];
+            [self.codexProfileLiveUsages removeObjectForKey:profileID];
+        }
+        self.profileReaderHomes[profileID] = home;
+        NSDictionary *usage = nil;
+        if ([provider isEqualToString:CCPetsProfileProviderClaude]) {
+            if ([home isEqualToString:defaultClaude]) usage = self.claudeUsage;
+            else {
+                ClaudeUsageReader *reader = self.claudeProfileReaders[profileID];
+                if (!reader) {
+                    reader = [[ClaudeUsageReader alloc] initWithConfigDirectory:home];
+                    reader.persistsCache = YES;
+                    self.claudeProfileReaders[profileID] = reader;
+                }
+                usage = [reader refreshWithFullAggregation];
+            }
+        } else if ([provider isEqualToString:CCPetsProfileProviderCodex]) {
+            if ([home isEqualToString:defaultCodex]) usage = self.codexUsage;
+            else {
+                CodexUsageReader *reader = self.codexProfileReaders[profileID];
+                if (!reader) {
+                    reader = [[CodexUsageReader alloc] initWithCodexHome:home];
+                    reader.persistsCache = YES;
+                    self.codexProfileReaders[profileID] = reader;
+                }
+                usage = [reader refreshWithFullDiscovery];
+                NSDictionary *live = self.codexProfileLiveUsages[profileID];
+                if (live) usage = UsageByRemovingExpiredQuotaWindows(
+                    CodexUsageByApplyingLiveUsage(usage, live));
+                CCPetsCodexRateLimitsReader *rateReader = self.codexProfileRateReaders[profileID];
+                if (!rateReader) {
+                    rateReader = [[CCPetsCodexRateLimitsReader alloc] initWithCodexHome:home];
+                    __weak typeof(self) weakSelf = self;
+                    NSString *capturedID = [profileID copy];
+                    rateReader.liveUsageHandler = ^(NSDictionary *liveUsage) {
+                        dispatch_async(weakSelf.queue, ^{
+                            typeof(self) strongSelf = weakSelf;
+                            if (!strongSelf || !strongSelf.started) return;
+                            strongSelf.codexProfileLiveUsages[capturedID] = liveUsage;
+                            NSMutableDictionary *updated = [strongSelf.profileUsages mutableCopy] ?: [NSMutableDictionary dictionary];
+                            NSDictionary *session = strongSelf.codexProfileReaders[capturedID].usage;
+                            if (session) updated[capturedID] = UsageByRemovingExpiredQuotaWindows(
+                                CodexUsageByApplyingLiveUsage(session, liveUsage));
+                            strongSelf.profileUsages = updated;
+                            [strongSelf publishChange];
+                        });
+                    };
+                    self.codexProfileRateReaders[profileID] = rateReader;
+                }
+                [rateReader refresh];
+            }
+        }
+        if (usage) usages[profileID] = usage;
+    }
+    for (NSString *profileID in self.claudeProfileReaders.allKeys.copy) {
+        if (![liveIDs containsObject:profileID]) [self.claudeProfileReaders removeObjectForKey:profileID];
+    }
+    for (NSString *profileID in self.codexProfileReaders.allKeys.copy) {
+        if (![liveIDs containsObject:profileID]) {
+            [self.codexProfileReaders removeObjectForKey:profileID];
+            [self.codexProfileRateReaders[profileID] stop];
+            [self.codexProfileRateReaders removeObjectForKey:profileID];
+            [self.codexProfileLiveUsages removeObjectForKey:profileID];
+            [self.profileReaderHomes removeObjectForKey:profileID];
+        }
+    }
+    for (NSString *profileID in self.profileReaderHomes.allKeys.copy) {
+        if (![liveIDs containsObject:profileID]) [self.profileReaderHomes removeObjectForKey:profileID];
+    }
+    self.profiles = profiles;
+    self.profileUsages = usages;
 }
 // changed=YES 表示额度文件确实变了（VNODE 事件），跳过 stat 比较；
 // aggregate=YES 表示这是手动刷新/面板打开/兜底轮询，Token 聚合要绕过节流立即重算。
@@ -241,12 +379,26 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 - (void)refreshOnQueue {
     if (!self.started) return;
     // 手动刷新、面板打开和 120 秒兜底都走全量路径，Token 聚合的节流只约束 FSEvents 热路径。
-    self.codexUsage = [self usageByApplyingLiveCodexUsage:
-        [self.codexReader refreshWithFullDiscovery]];
-    [self.codexRateLimitsReader refresh];
-    self.claudeUsage = [self readClaudeUsageChanged:NO forcingAggregation:YES];
-    if (!self.codexStream) [self startCodexStream];
-    if (!self.claudeSource) [self startClaudeSource];
+    BOOL hasDefaultCodex = HasRegisteredDefaultProfile(CCPetsProfileProviderCodex);
+    BOOL hasDefaultClaude = HasRegisteredDefaultProfile(CCPetsProfileProviderClaude);
+    self.codexUsage = hasDefaultCodex ? [self usageByApplyingLiveCodexUsage:
+        [self.codexReader refreshWithFullDiscovery]] : nil;
+    if (hasDefaultCodex) [self.codexRateLimitsReader refresh];
+    self.claudeUsage = hasDefaultClaude
+        ? [self readClaudeUsageChanged:NO forcingAggregation:YES] : nil;
+    [self refreshProfileUsages];
+    if (hasDefaultCodex && !self.codexStream) [self startCodexStream];
+    if (hasDefaultClaude && !self.claudeSource) [self startClaudeSource];
+    if (!hasDefaultCodex && self.codexStream) {
+        FSEventStreamStop(self.codexStream);
+        FSEventStreamInvalidate(self.codexStream);
+        FSEventStreamRelease(self.codexStream);
+        self.codexStream = NULL;
+    }
+    if (!hasDefaultClaude && self.claudeSource) {
+        dispatch_source_cancel(self.claudeSource);
+        self.claudeSource = nil;
+    }
     [self publishChange];
 }
 // 同步收尾：退出时要保证事件源在进程消失之前真的停掉，而它们只能在读取队列上安全拆除。
@@ -259,6 +411,9 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 }
 - (void)teardownSources {
     [self.codexRateLimitsReader stop];
+    for (CCPetsCodexRateLimitsReader *reader in self.codexProfileRateReaders.allValues) {
+        [reader stop];
+    }
     if (self.codexStream) {
         FSEventStreamStop(self.codexStream);
         FSEventStreamInvalidate(self.codexStream);

@@ -45,16 +45,24 @@ export CC_PETS_TERMINAL_TTY="${TTY:-}"
 export CC_PETS_TERMINAL_PROGRAM="${TERM_PROGRAM:-}"
 export CC_PETS_TERMINAL_SESSION="${TERM_SESSION_ID:-${ITERM_SESSION_ID:-}}"
 export CC_PETS_TERMINAL_BUNDLE_ID="$("${PET_BIN}" --frontmost-bundle-id 2>/dev/null || true)"
+# 从当前会话实际使用的 Home 解析已登记账号，让启动事件从第一帧就能归属到正确卡片。
+CODEX_PROFILE_HOME="${CODEX_HOME:-${HOME}/.codex}"
+CC_PETS_PROFILE_ID="$("${PET_BIN}" profile resolve --provider codex --home "${CODEX_PROFILE_HOME}" 2>/dev/null || true)"
+if [[ -n "${CC_PETS_PROFILE_ID}" ]]; then
+  export CC_PETS_PROFILE_ID
+  CC_PETS_PROFILE_NAME="$("${PET_BIN}" profile resolve --provider codex --home "${CODEX_PROFILE_HOME}" --field name 2>/dev/null || true)"
+  [[ -n "${CC_PETS_PROFILE_NAME}" ]] && export CC_PETS_PROFILE_NAME
+fi
 
 mkdir -p "${CLIENT_DIR}"
-# 第一行记录 provider，第二行记录 TTY；桌宠据此判断具体 Agent 会话是否仍在线。
-printf '%s\n%s\n' 'Codex' "${CC_PETS_TERMINAL_TTY:t}" > "${CLIENT_FILE}"
+# 依次记录 provider、TTY、profileId；旧版两行文件仍可按 provider 级在线兼容。
+printf '%s\n%s\n%s\n' 'Codex' "${CC_PETS_TERMINAL_TTY:t}" "${CC_PETS_PROFILE_ID:-}" > "${CLIENT_FILE}"
 
 # 新版 Codex 的 hook 由共享后台服务拉起，拿不到这里的终端环境；先登记，hook 再按会话配对。
 "${PET_BIN}" --codex-launch >/dev/null 2>&1 || true
 print -rn -- '{"schemaVersion":1,"provider":"Codex","state":"starting"}' | \
   "${PET_BIN}" --provider-event >/dev/null 2>&1 || true
-# 桌宠是常驻进程，会一直带着这里的环境。CLAUDE_CONFIG_DIR 是会话级的（claude-nw
-# 之类的别名会设它），泄漏过去会让桌宠永久只统计"第一个拉起它的账号"。
-env -u CLAUDE_CONFIG_DIR open -g "${PET_APP}" --args --managed
+# 桌宠是常驻进程，会一直带着这里的环境。CODEX_HOME 是会话级的，泄漏过去会让
+# 桌宠里的通用 CLI 路径永久绑定到“第一个拉起它的账号”。
+env -u CODEX_HOME open -g "${PET_APP}" --args --managed
 exec "${REAL_CODEX}" "$@"

@@ -4,6 +4,7 @@
 // rate_limits 只是一份历史快照，不能作为当前窗口的唯一事实来源。
 @interface CCPetsCodexRateLimitsReader : NSObject
 @property(copy) void (^liveUsageHandler)(NSDictionary *liveUsage);
+- (instancetype)initWithCodexHome:(NSString *)codexHome;
 - (void)refresh;
 - (void)stop;
 @end

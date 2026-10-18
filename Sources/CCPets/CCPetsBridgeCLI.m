@@ -5,6 +5,7 @@
 #import "CCPetsBridgeSetup.h"
 #import "CCPetsBridgeStore.h"
 #import "CCPetsCLISupport.h"
+#import "CCPetsProfiles.h"
 #import <unistd.h>
 #import <math.h>
 
@@ -194,10 +195,14 @@ static NSDictionary *RunHook(NSString *input) {
     // 每次都重新探测：`claude --resume` 会在新进程里沿用同一个 session id。
     NSDictionary *ancestor = CCBridgeFindAgentAncestor(getppid());
     NSNumber *pid = [ancestor[@"provider"] isEqual:provider] ? ancestor[@"pid"] : known[@"pid"];
+    // 账号名只写进 profileName 字段，不当会话名：同一账号开在多个项目里时，
+    // 会话名得按 provider-项目名-序号 区分，否则全成了 claude、claude-2……
+    NSString *preferredName = CCPetsEnvironmentValue(@"CC_BRIDGE_NAME");
     CCBridgeUpsertSession(sessionId, provider, pid, StringValue(payload[@"cwd"]),
         pid ? CCBridgeProcessTty(pid.intValue) : nil, status,
         // hook 继承宿主 CLI 的环境：`CC_BRIDGE_NAME=frontend claude` 即以 frontend 注册。只在首次注册时生效。
-        CCPetsEnvironmentValue(@"CC_BRIDGE_NAME"), known ? @[] : CCBridgeLiveSessions());
+        preferredName, CCPetsEnvironmentValue(@"CC_PETS_PROFILE_ID"),
+        CCPetsEnvironmentValue(@"CC_PETS_PROFILE_NAME"), known ? @[] : CCBridgeLiveSessions());
 
     if ([event isEqualToString:@"SessionStart"]) {
         CCBridgePruneReceipts();
@@ -570,26 +575,77 @@ static int MCPCommand(void) {
 
 #pragma mark - 命令
 
+static NSArray<NSDictionary *> *RegisteredProfiles(void) {
+    NSString *error = nil;
+    if (!CCPetsMigrateManagedDefaultProfiles(&error) && error.length > 0) Print(error);
+    return CCPetsProfiles();
+}
+
+static BOOL InstallBridgeForRegisteredProfiles(NSDictionary *options, BOOL registerMcp) {
+    __block BOOL succeeded = YES;
+    NSArray<NSDictionary *> *profiles = RegisteredProfiles();
+    if (profiles.count == 0) {
+        Print(L(@"No Agent Homes are registered; CC Bridge will be applied when you add one from the CC Pets menu."));
+        return succeeded;
+    }
+    for (NSDictionary *profile in profiles) {
+        BOOL profileSucceeded = YES;
+        @try {
+            Print(LF(L(@"Configuring {name}…"), @{@"name": profile[@"displayName"] ?: profile[@"home"]}));
+            for (NSString *line in CCBridgeInstallForProfile(profile, options, registerMcp)) {
+                Print(line);
+                if ([line hasPrefix:@"ERROR: "]) {
+                    succeeded = NO;
+                    profileSucceeded = NO;
+                    CCPetsSetProfileNeedsRepair(profile[@"id"], YES, NULL);
+                }
+            }
+            if (profileSucceeded && registerMcp) CCPetsSetProfileNeedsRepair(profile[@"id"], NO, NULL);
+        } @catch (NSException *exception) {
+            succeeded = NO;
+            CCPetsSetProfileNeedsRepair(profile[@"id"], YES, NULL);
+            Print(LF(L(@"{name}: {error}"), (@{@"name": profile[@"displayName"] ?: profile[@"home"],
+                @"error": exception.reason ?: exception.name})));
+        }
+    }
+    return succeeded;
+}
+
+static void UninstallBridgeForRegisteredProfiles(BOOL unregisterMcp) {
+    NSArray<NSDictionary *> *profiles = RegisteredProfiles();
+    if (profiles.count == 0) {
+        return;
+    }
+    for (NSDictionary *profile in profiles) {
+        @try {
+            for (NSString *line in CCBridgeUninstallForProfile(profile, unregisterMcp)) Print(line);
+        } @catch (NSException *exception) {
+            Print(LF(L(@"{name}: {error}"), (@{@"name": profile[@"displayName"] ?: profile[@"home"],
+                @"error": exception.reason ?: exception.name})));
+        }
+    }
+}
+
 static int EnableCommand(NSMutableArray<NSString *> *arguments) {
     NSDictionary *options = MergedOptions(CCBridgeEnabled() ? CCBridgeOptions() : CCBridgeNormalizeOptions(nil), arguments);
-    for (NSString *line in CCBridgeInstall(options, CCBridgeShouldTouchMCP())) Print(line);
+    BOOL succeeded = InstallBridgeForRegisteredProfiles(options, CCBridgeShouldTouchMCP());
     CCBridgeSetEnabled(YES, options);
     CCBridgeWriteCLILocator();
     Print(L(@"CC Bridge is on."));
     Print(L(@"- Running Claude Code sessions hot-reload the hooks and start receiving messages right away, but only get the cc-bridge tools after a restart (until then, reply with cc-pets bridge send)."));
     Print(L(@"- Running Codex sessions need a restart, then trust the cc-pets bridge hooks in /hooks."));
-    return 0;
+    return succeeded ? 0 : 1;
 }
 
 // 只改选项：重写 hooks、Codex 审批块、Claude 放行规则，不重跑 claude / codex mcp add，所以很快。桌宠菜单的开关走这条路。
 static int ConfigureCommand(NSMutableArray<NSString *> *arguments) {
     if (!CCBridgeEnabled()) Fail(L(@"CC Bridge is off. Run cc-pets bridge enable first."));
     NSDictionary *options = MergedOptions(CCBridgeOptions(), arguments);
-    CCBridgeInstall(options, NO);
+    BOOL succeeded = InstallBridgeForRegisteredProfiles(options, NO);
     CCBridgeSetEnabled(YES, options);
     CCBridgeWriteCLILocator();
     for (NSString *line in CCBridgeDescribeOptions(options)) Print(line);
-    return 0;
+    return succeeded ? 0 : 1;
 }
 
 // 安装 / 升级流程调用：已开启时按原选项重写集成（包路径可能变了），未开启时什么都不做。
@@ -598,13 +654,13 @@ static int RefreshCommand(void) {
     CCBridgeWriteCLILocator();
     if (!CCBridgeEnabled()) return 0;
     NSDictionary *options = CCBridgeNormalizeOptions(CCBridgeReadSavedOptions());
-    for (NSString *line in CCBridgeInstall(options, CCBridgeShouldTouchMCP())) Print(line);
+    BOOL succeeded = InstallBridgeForRegisteredProfiles(options, CCBridgeShouldTouchMCP());
     CCBridgeSetEnabled(YES, options);
-    return 0;
+    return succeeded ? 0 : 1;
 }
 
 static int DisableCommand(void) {
-    for (NSString *line in CCBridgeUninstall(CCBridgeShouldTouchMCP())) Print(line);
+    UninstallBridgeForRegisteredProfiles(CCBridgeShouldTouchMCP());
     CCBridgeSetEnabled(NO, nil);
     Print(L(@"CC Bridge is off."));
     return 0;
@@ -614,7 +670,7 @@ static int DisableCommand(void) {
 // 避免卸载时无谓地拉起 claude / codex。
 static int TeardownCommand(void) {
     BOOL wasEnabled = CCBridgeEnabled();
-    for (NSString *line in CCBridgeUninstall(wasEnabled && CCBridgeShouldTouchMCP())) Print(line);
+    UninstallBridgeForRegisteredProfiles(wasEnabled && CCBridgeShouldTouchMCP());
     CCBridgeSetEnabled(NO, nil);
     return 0;
 }

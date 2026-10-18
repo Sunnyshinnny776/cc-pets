@@ -8,6 +8,7 @@
 #import <signal.h>
 #import <spawn.h>
 #import <unistd.h>
+#import <pwd.h>
 #import <errno.h>
 
 extern char **environ;
@@ -117,10 +118,14 @@ NSString *CCPetsShimDirectory(void) {
 }
 
 NSString *CCPetsFindRealExecutable(NSString *name, NSString *realBinVariable) {
+    return CCPetsFindRealExecutableInPath(name, realBinVariable, CCPetsEnvironmentValue(@"PATH"));
+}
+
+NSString *CCPetsFindRealExecutableInPath(NSString *name, NSString *realBinVariable, NSString *searchPath) {
     NSString *forced = realBinVariable ? CCPetsEnvironmentValue(realBinVariable) : nil;
     if (forced) return forced;
     NSString *shim = CCPetsShimDirectory();
-    for (NSString *entry in [CCPetsEnvironmentValue(@"PATH") ?: @"" componentsSeparatedByString:@":"]) {
+    for (NSString *entry in [searchPath ?: @"" componentsSeparatedByString:@":"]) {
         if (entry.length == 0) continue;
         NSString *resolvedEntry = CCPetsRealPath(entry) ?: CCPetsResolvePath(entry);
         if ([resolvedEntry isEqualToString:shim]) continue;
@@ -136,6 +141,25 @@ NSString *CCPetsFindRealExecutable(NSString *name, NSString *realBinVariable) {
         return candidate;
     }
     return nil;
+}
+
+NSString *CCPetsLoginShellPath(void) {
+    NSString *shell = CCPetsEnvironmentValue(@"SHELL");
+    if (!shell) {
+        struct passwd *entry = getpwuid(getuid());
+        shell = entry && entry->pw_shell[0] ? @(entry->pw_shell) : @"/bin/zsh";
+    }
+    // rc 文件可能往 stdout 打欢迎语，用标记把 PATH 从噪声里切出来。
+    NSString *marker = @"__CC_PETS_PATH__";
+    NSString *script = [NSString stringWithFormat:@"printf '%%s%%s' '%@' \"$PATH\"", marker];
+    NSString *output = nil;
+    int status = CCPetsRun(shell, @[@"-l", @"-i", @"-c", script], nil, nil, 5, &output, NULL);
+    if (status == CCPetsRunLaunchFailed || status == CCPetsRunTimedOut) return nil;
+    NSRange range = [output rangeOfString:marker options:NSBackwardsSearch];
+    if (range.location == NSNotFound) return nil;
+    NSString *path = [[output substringFromIndex:NSMaxRange(range)]
+        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return path.length > 0 ? path : nil;
 }
 
 static BOOL CLIForced(NSString *realBinVariable) {

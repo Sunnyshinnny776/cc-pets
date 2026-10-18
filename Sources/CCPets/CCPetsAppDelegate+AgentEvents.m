@@ -162,13 +162,15 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
     NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:clientDirectory error:nil] ?: @[];
     NSInteger liveClients = 0;
     NSMutableSet<NSString *> *providers = [NSMutableSet set];
+    NSMutableSet<NSString *> *profileIDs = [NSMutableSet set];
+    NSMutableSet<NSString *> *unscopedProviders = [NSMutableSet set];
     NSMutableSet<NSString *> *sessionKeys = [NSMutableSet set];
     BOOL unlabeled = NO;
     for (NSString *entry in entries) {
         pid_t pid = (pid_t)entry.intValue;
         NSString *path = [clientDirectory stringByAppendingPathComponent:entry];
-        // 包装脚本会把 provider 名写进 pid 文件第一行、TTY 写进第二行。1.0.2 及更早
-        // 的版本只 touch 出空文件，升级后仍在运行的老客户端读出来是空的：这类当作
+        // 包装脚本依次写 provider、TTY、profileId。旧版只有前两行，1.0.2 及更早
+        // 只 touch 出空文件；升级后仍在运行的老客户端按缺失层级逐级回退，避免
         // “身份不明”，只要还有一个就不清场，避免把仍然活着的会话误判成已退出。
         NSString *contents = [NSString stringWithContentsOfFile:path
             encoding:NSUTF8StringEncoding error:nil] ?: @"";
@@ -178,13 +180,18 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         NSString *tty = lines.count > 1 ? [lines[1]
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"";
+        NSString *profileID = lines.count > 2 ? [lines[2]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"";
         if (!ClientProcessAlive(pid, tty)) {
             [NSFileManager.defaultManager removeItemAtPath:path error:nil];
             continue;
         }
         liveClients += 1;
-        if (label.length > 0 && label.length <= 32) [providers addObject:label];
-        else unlabeled = YES;
+        if (label.length > 0 && label.length <= 32) {
+            [providers addObject:label];
+            if (profileID.length > 0 && profileID.length <= 128) [profileIDs addObject:profileID];
+            else [unscopedProviders addObject:label];
+        } else unlabeled = YES;
         NSString *sessionKey = [self onlineAgentSessionKeyForProvider:label tty:tty];
         if (sessionKey.length > 0) [sessionKeys addObject:sessionKey];
     }
@@ -195,6 +202,8 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
     NSSet<NSString *> *previousProviders = self.liveClientProviders;
     self.liveClientCount = liveClients;
     self.liveClientProviders = providers;
+    self.liveClientProfileIDs = profileIDs;
+    self.liveUnscopedClientProviders = unscopedProviders;
     self.liveAgentSessionKeys = sessionKeys;
     self.hasUnlabeledClient = unlabeled;
     [self pruneOfflineAgentSessionRecords];

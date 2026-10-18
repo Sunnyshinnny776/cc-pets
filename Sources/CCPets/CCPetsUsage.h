@@ -3,6 +3,7 @@
 // Codex 与 Claude 的额度读取。
 int RecordClaudeUsage(void);
 NSDictionary *ClaudeRateLimits(void);
+NSDictionary *ClaudeRateLimitsForConfigDirectory(NSString *configDirectory);
 NSDictionary *LatestClaudeUsage(void);
 NSDictionary *LatestUsage(void);
 // 清掉 resets_at 已经翻篇（或不可能属于当前窗口）的额度窗口，缺 resets_at 的保留。
@@ -14,6 +15,7 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 // 只有常驻的桌宠进程写摘要缓存。--status / --hook 这类一次性命令照样读它（省下冷解析），
 // 但绝不能写：它们按各自当时的窗口把缓存剪一遍再存回去，等于把桌宠攒下的月度条目清掉。
 @property BOOL persistsCache;
+- (instancetype)initWithConfigDirectory:(NSString *)configDirectory;
 - (NSDictionary *)refresh;
 - (NSDictionary *)refreshWithFullAggregation;
 @end
@@ -28,6 +30,7 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 @property unsigned long long offset;
 @property NSMutableData *partialLine;
 @property NSTimeInterval lastFullDiscovery;
+- (instancetype)initWithCodexHome:(NSString *)codexHome;
 - (NSDictionary *)refresh;
 - (NSDictionary *)refreshWithFullDiscovery;
 // 一批 FSEvents 里可能有多个会话文件同时变更（并发会话）。谁的额度采样更晚要读过才知道，
@@ -47,6 +50,8 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 // 每次调用都会把缓存清理到只剩 [start, end) 涉及的会话文件，所以调用方应固定用同一个最长区间，
 // 短区间在结果里自己截取；区间来回切会让较早会话的缓存被删了又整篇重读。
 NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeInterval end);
+NSDictionary *CCPetsModelUsageAtHome(NSString *provider, NSString *home,
+    NSTimeInterval start, NSTimeInterval end);
 // 一份 counts 的总 Token = input + cacheRead + cacheWrite + output（reasoning 是 output 的子集，不另加）。
 // 数据层归档取大和 UI 的合计共用这一个口径。
 unsigned long long CCPetsTotalTokens(NSDictionary *counts);

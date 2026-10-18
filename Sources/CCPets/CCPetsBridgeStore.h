@@ -52,7 +52,8 @@ void CCBridgeRemoveSession(id sessionId);
 NSString *CCBridgeNormalizeSessionName(id value);
 // liveSessions 用于给新会话分配不冲突的名字（已注册的会话不重新命名）。
 NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
-    NSString *tty, NSString *status, NSString *preferredName, NSArray<NSDictionary *> *liveSessions);
+    NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,
+    NSString *profileName, NSArray<NSDictionary *> *liveSessions);
 // 会话内改名：被其他在线会话占用时报错。返回 @{error} 或 @{session, previous}。
 NSDictionary *CCBridgeRenameSession(NSString *sessionId, NSString *requestedName, NSArray<NSDictionary *> *liveSessions);
 
@@ -98,3 +99,5 @@ NSDictionary *CCBridgeFindAgentAncestor(pid_t startPid);
 BOOL CCBridgeSessionLive(NSDictionary *session);
 // `codex queue` 能力探测：@{status: supported|unsupported|missing|unknown, executable, version}。
 NSDictionary *CCBridgeProbeCodexQueue(NSString *executable);
+// environment 为 nil 时继承当前环境。npm 装的 codex 是 `env node` 脚本，主窗口得带上能找到 node 的 PATH。
+NSDictionary *CCBridgeProbeCodexQueueWithEnvironment(NSString *executable, NSDictionary<NSString *, NSString *> *environment);

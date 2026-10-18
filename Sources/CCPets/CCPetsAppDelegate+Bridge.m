@@ -146,6 +146,8 @@
         self.bridgeRecentDeliveries = nil;
         self.bridgePendingCounts = nil;
         self.bridgeSentStamp = nil;
+        self.quotaView.bridgeActivityProfileIDs = [NSSet set];
+        self.quotaView.needsDisplay = YES;
         [self refreshBridgeBadge];
         return;
     }
@@ -169,6 +171,23 @@
         if (self.bridgeSessions[session]) pending[session] = count;
     }];
     self.bridgePendingCounts = pending;
+    NSMutableSet<NSString *> *bridgeProfiles = [NSMutableSet set];
+    for (NSString *session in pending) {
+        NSString *profileID = self.bridgeSessions[session][@"profileId"];
+        if (profileID.length > 0) [bridgeProfiles addObject:profileID];
+    }
+    for (NSDictionary *delivery in recent) {
+        if ([delivery[@"at"] doubleValue] <= self.bridgeSeenAt) continue;
+        for (NSString *key in @[@"toSession", @"fromSession"]) {
+            NSString *session = [delivery[key] isKindOfClass:NSString.class] ? delivery[key] : nil;
+            NSString *profileID = session.length > 0 ? self.bridgeSessions[session][@"profileId"] : nil;
+            if (profileID.length > 0) [bridgeProfiles addObject:profileID];
+        }
+    }
+    if (![self.quotaView.bridgeActivityProfileIDs isEqualToSet:bridgeProfiles]) {
+        self.quotaView.bridgeActivityProfileIDs = bridgeProfiles;
+        self.quotaView.needsDisplay = YES;
+    }
     [self notifyNewBridgeDeliveries];
     [self refreshBridgeBadge];
 }

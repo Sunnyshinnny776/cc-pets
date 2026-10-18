@@ -136,7 +136,7 @@
 // 会不断把这 60 秒重置掉——用户关掉所有 Codex 窗口后仍然看到“Codex 正在启动”。
 - (void)hideAgentStatusIfClientGone {
     if (!self.hasAgentStatus || self.hasUnlabeledClient) return;
-    NSString *provider = self.lastStatusProvider;
+    NSString *provider = self.lastStatusAgentProvider;
     if (provider.length == 0 || [self.liveClientProviders containsObject:provider]) return;
     // 不经包装脚本启动的客户端（直接跑 claude / codex）没有 pid 文件，只能靠
     // “最近还在发事件”证明自己活着，所以这里必须留一段静默宽限再清。
@@ -172,12 +172,13 @@
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
     if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
-    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    NSString *identity = [self statusIdentityForRecord:record];
     NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
     if ([self.lastStatusState isEqualToString:@"approval"] &&
-        [self.lastStatusProvider isEqualToString:provider]) return;
+        [self.lastStatusIdentity isEqualToString:identity]) return;
+    [self noteStatusIdentityForRecord:record];
     [self applyStatusPresentationForState:@"approval"
-        provider:provider.length > 0 ? provider : @"Agent" tool:tool];
+        provider:[self statusPresentationNameForRecord:record] tool:tool];
 }
 // 勾选 = 显示气泡。没有 agent 状态时也允许改，这样用户可以提前设好偏好，
 // 而不必等下一次会话开始。
@@ -205,6 +206,22 @@
     NSString *event = [record[@"event"] isKindOfClass:NSString.class] ? record[@"event"] : @"";
     return [event isEqualToString:@"SubagentStop"] || [event isEqualToString:@"PostToolUse"] ||
         [event isEqualToString:@"TaskCompleted"];
+}
+// 标题优先显示账号名；同名账号（不同目录下都叫 claude）只影响展示，身份比较走 profileId。
+- (NSString *)statusPresentationNameForRecord:(NSDictionary *)record {
+    NSString *profileName = SanitizedShortString(record[@"profileName"], 64);
+    if (profileName.length > 0) return profileName;
+    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    return provider.length > 0 ? provider : @"Agent";
+}
+- (NSString *)statusIdentityForRecord:(NSDictionary *)record {
+    NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    NSString *profileID = SanitizedShortString(record[@"profileId"], 128);
+    return profileID.length > 0 ? [NSString stringWithFormat:@"%@|%@", provider, profileID] : provider;
+}
+- (void)noteStatusIdentityForRecord:(NSDictionary *)record {
+    self.lastStatusAgentProvider = SanitizedShortString(record[@"provider"], 32);
+    self.lastStatusIdentity = [self statusIdentityForRecord:record];
 }
 - (void)applyStatusPresentationForState:(NSString *)state provider:(NSString *)provider
     tool:(NSString *)tool {
@@ -248,6 +265,8 @@
 - (void)showAgentStatusForRecord:(NSDictionary *)record notify:(BOOL)shouldNotify {
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
     if (provider.length == 0) provider = @"Agent";
+    NSString *presentationName = [self statusPresentationNameForRecord:record];
+    NSString *identity = [self statusIdentityForRecord:record];
     NSString *state = [record[@"state"] isKindOfClass:NSString.class]
         ? record[@"state"] : NormalizedStateForEvent(record[@"event"], [record[@"failed"] boolValue]);
     NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
@@ -256,19 +275,32 @@
     if (!self.providerActivityAt) self.providerActivityAt = [NSMutableDictionary dictionary];
     self.providerActivityAt[provider] = @(self.lastStatusTimestamp);
     [self updateQuotaLiveState];
-    if (self.hasAgentStatus && [provider isEqualToString:self.lastStatusProvider] &&
+    // 额外 Home 没有共用默认配置的文件监听；Hook 事件是最准确的变更信号。按 15 秒合并，
+    // 既让隐藏卡片及时更新，也避免工具密集执行时反复全量聚合。
+    if ([record[@"profileId"] isKindOfClass:NSString.class] &&
+        self.lastStatusTimestamp - self.lastUsageRefreshAt >= 15.0) {
+        [self refreshUsage:nil];
+    }
+    if (self.hasAgentStatus && [identity isEqualToString:self.lastStatusIdentity] &&
         [self isTrailingRecord:record afterState:self.lastStatusState]) return;
 
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
-    self.lastTerminalFocusTarget = terminal.count > 0 ? terminal : nil;
+    // Codex 的共享后台偶尔会先送到事件、稍后才完成会话与终端配对。无目标事件不能
+    // 把上一条已确认的回跳目标清空，否则卡片仍可见却会突然点不动。
+    if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
+    else if (self.hasAgentStatus && ![identity isEqualToString:self.lastStatusIdentity]) {
+        // 换成另一个账号且仍无法解析终端时，不能误跳到上一家账号。
+        self.lastTerminalFocusTarget = nil;
+    }
 
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(hideAgentStatus) object:nil];
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(enterIdleStatus) object:nil];
     self.hasAgentStatus = YES;
-    [self applyStatusPresentationForState:state provider:provider tool:tool];
+    [self noteStatusIdentityForRecord:record];
+    [self applyStatusPresentationForState:state provider:presentationName tool:tool];
     [self.panel orderFrontRegardless];
     [self performSelector:@selector(hideAgentStatus)
         withObject:nil afterDelay:AgentStatusInactivityInterval];
@@ -327,16 +359,18 @@
 }
 - (NSString *)agentSessionKeyForRecord:(NSDictionary *)record {
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
+    NSString *profileID = SanitizedShortString(record[@"profileId"], 128);
+    NSString *identity = profileID.length > 0 ? [NSString stringWithFormat:@"%@|%@", provider, profileID] : provider;
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
     NSString *tty = SanitizedShortString(terminal[@"tty"], 64);
     NSString *bundleID = SanitizedShortString(terminal[@"bundleID"], 128);
     if (tty.length > 0) {
-        return [NSString stringWithFormat:@"%@|%@|%@", provider, bundleID, tty];
+        return [NSString stringWithFormat:@"%@|%@|%@", identity, bundleID, tty];
     }
     NSString *session = SanitizedShortString(record[@"session"], 128);
-    if (session.length > 0) return [NSString stringWithFormat:@"%@|%@", provider, session];
-    return terminal.count > 0 ? [NSString stringWithFormat:@"%@|%@", provider, bundleID] : nil;
+    if (session.length > 0) return [NSString stringWithFormat:@"%@|%@", identity, session];
+    return terminal.count > 0 ? [NSString stringWithFormat:@"%@|%@", identity, bundleID] : nil;
 }
 - (NSString *)onlineAgentSessionKeyForProvider:(NSString *)provider tty:(NSString *)tty {
     provider = SanitizedShortString(provider, 32);
@@ -461,13 +495,13 @@
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
     if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
-    NSString *provider = SanitizedShortString(record[@"provider"], 32);
     NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
     self.hasAgentStatus = YES;
     [NSObject cancelPreviousPerformRequestsWithTarget:self
         selector:@selector(hideAgentStatus) object:nil];
+    [self noteStatusIdentityForRecord:record];
     [self applyStatusPresentationForState:state
-        provider:provider.length > 0 ? provider : @"Agent"
+        provider:[self statusPresentationNameForRecord:record]
         tool:[record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @""];
     [self.panel orderFrontRegardless];
     [self performSelector:@selector(hideAgentStatus) withObject:nil
@@ -543,7 +577,7 @@
     }
     // 菜单打开即视为看过：角标清零，下一条新消息再亮。
     self.bridgeSeenAt = NSDate.date.timeIntervalSince1970;
-    [self refreshBridgeBadge];
+    [self refreshBridgeState:nil];
     if (records.count == 0) {
         [self popUpAgentSessionsMenu:menu from:sender];
         return;

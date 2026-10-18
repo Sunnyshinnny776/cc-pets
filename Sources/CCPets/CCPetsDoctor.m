@@ -8,6 +8,7 @@
 #import "CCPetsIntegrations.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPhrases.h"
+#import "CCPetsProfiles.h"
 #import "CCPetsVersion.h"
 #import <sys/stat.h>
 #import <sys/utsname.h>
@@ -110,6 +111,22 @@ static NSDictionary *ReadJSONFile(NSString *file) {
 #pragma mark - cc-pets paths
 
 static NSArray<NSDictionary *> *PathGroups(NSDictionary *native) {
+    NSMutableArray *integrationItems = [NSMutableArray arrayWithArray:@[
+        @[L(@"npm package"), PackageDirectory()],
+        @[L(@"Installed app"), InstalledApp()],
+        @[L(@"Agent profile registry"), CCPetsProfilesPath()],
+        @[L(@"Claude Code settings"), [[CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude"]
+            stringByAppendingPathComponent:@"settings.json"]],
+        @[@"Codex Hooks", [[CCPetsHomeDirectory() stringByAppendingPathComponent:@".codex"]
+            stringByAppendingPathComponent:@"hooks.json"]],
+        @[L(@"Shell config"), ShellRC()]
+    ]];
+    for (NSDictionary *profile in CCPetsProfiles()) {
+        NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: profile[@"provider"];
+        NSString *file = [profile[@"home"] stringByAppendingPathComponent:
+            [profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude] ? @"settings.json" : @"hooks.json"];
+        [integrationItems addObject:@[[NSString stringWithFormat:L(@"Agent profile: %@"), name], file]];
+    }
     return @[
         @{@"title": L(@"Settings (removed by --purge)"), @"items": @[@[L(@"Preferences"), native[@"preferences"]]]},
         @{@"title": L(@"Your content (kept by both clean and --purge)"), @"items": @[
@@ -133,13 +150,7 @@ static NSArray<NSDictionary *> *PathGroups(NSDictionary *native) {
             @[L(@"Online client records"), native[@"clients"]],
             @[L(@"CC Bridge state directory"), CCBridgeStateDirectory()]
         ]},
-        @{@"title": L(@"Program and integrations"), @"items": @[
-            @[L(@"npm package"), PackageDirectory()],
-            @[L(@"Installed app"), InstalledApp()],
-            @[L(@"Claude Code settings"), [CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"]],
-            @[@"Codex Hooks", [CCPetsCodexHome() stringByAppendingPathComponent:@"hooks.json"]],
-            @[L(@"Shell config"), ShellRC()]
-        ]}
+        @{@"title": L(@"Program and integrations"), @"items": integrationItems}
     ];
 }
 
@@ -252,8 +263,8 @@ static NSArray<NSDictionary *> *HookChecks(NSString *name, NSString *configFile,
     return results;
 }
 
-static NSDictionary *StatusLineCheck(void) {
-    NSDictionary *value = ReadJSONFile([CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"])[@"value"];
+static NSDictionary *StatusLineCheckAtHome(NSString *home) {
+    NSDictionary *value = ReadJSONFile([home stringByAppendingPathComponent:@"settings.json"])[@"value"];
     NSDictionary *statusLine = [value isKindOfClass:NSDictionary.class] && [value[@"statusLine"] isKindOfClass:NSDictionary.class]
         ? value[@"statusLine"] : nil;
     NSString *command = [statusLine[@"command"] isKindOfClass:NSString.class] ? statusLine[@"command"] : @"";
@@ -326,12 +337,21 @@ static NSArray<NSDictionary *> *ShimChecks(BOOL inApp) {
     return results;
 }
 
-static NSDictionary *RealBinaryCheck(NSString *name, NSString *variable) {
-    NSString *real = CCPetsFindRealExecutable(name, variable);
-    return real && [NSFileManager.defaultManager fileExistsAtPath:real]
-        ? Result(@"ok", LF(L(@"Found the real {name}: {real}"), (@{@"name": name, @"real": CCPetsTildePath(real)})), nil)
-        : Result(@"warn", LF(L(@"The real {name} isn't in PATH, so the shim can't forward to it"), @{@"name": name}),
-            [NSString stringWithFormat:@"export %@=/absolute/path/to/%@", variable, name]);
+// searchPath：主窗口传登录 shell 的 PATH，终端里传 nil 用自身 PATH。
+static NSString *FindRealBinary(NSString *name, NSString *variable, NSString *searchPath) {
+    NSString *real = CCPetsFindRealExecutableInPath(name, variable, searchPath ?: CCPetsEnvironmentValue(@"PATH"));
+    return real && [NSFileManager.defaultManager fileExistsAtPath:real] ? real : nil;
+}
+
+static NSDictionary *RealBinaryCheck(NSString *name, NSString *variable, NSString *searchPath, BOOL inApp) {
+    NSString *real = FindRealBinary(name, variable, searchPath);
+    if (real) return Result(@"ok", LF(L(@"Found the real {name}: {real}"), (@{@"name": name, @"real": CCPetsTildePath(real)})), nil);
+    // 主窗口拿到的 PATH 未必等于终端里的（登录 shell 也可能起不来），找不到时不判错，交给终端里的 doctor。
+    if (inApp) {
+        return Result(@"info", LF(L(@"The main window couldn't find the real {name}; run cc-pets doctor in a terminal to confirm"), @{@"name": name}), nil);
+    }
+    return Result(@"warn", LF(L(@"The real {name} isn't in PATH, so the shim can't forward to it"), @{@"name": name}),
+        [NSString stringWithFormat:@"export %@=/absolute/path/to/%@", variable, name]);
 }
 
 static NSDictionary *UpdaterCheck(NSDictionary *native) {
@@ -349,13 +369,6 @@ static NSDictionary *UpdaterCheck(NSDictionary *native) {
         ? Result(@"ok", L(@"Auto-update config is valid"), nil)
         : Result(@"warn", LF(L(@"The {missing} recorded for auto-update no longer exist (changed Node versions?)"),
             @{@"missing": [missing componentsJoinedByString:L(@", ")]}), fix);
-}
-
-static NSString *FormatAge(NSTimeInterval seconds) {
-    long long minutes = llround(seconds / 60);
-    if (minutes < 60) return LF(L(@"{minutes} min ago"), @{@"minutes": @(minutes)});
-    long long hours = llround(minutes / 60.0);
-    return hours < 48 ? LF(L(@"{hours} h ago"), @{@"hours": @(hours)}) : LF(L(@"{days} days ago"), @{@"days": @(llround(hours / 24.0))});
 }
 
 static NSArray<NSDictionary *> *DoctorSections(BOOL inApp);
@@ -398,50 +411,64 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
     [program addObject:UpdaterCheck(native)];
     [sections addObject:@{@"title": L(@"Program"), @"results": program}];
 
-    NSUInteger claudeBridgeHooks = 0;
-    if (claudeDetected) {
-        NSMutableArray *claude = [HookChecks(@"Claude Code", [CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"],
-            CCPetsClaudeHookMarker, CCPetsLegacyClaudeHookMarker, &claudeBridgeHooks) mutableCopy];
-        [claude addObject:StatusLineCheck()];
-        NSDate *modified = [NSFileManager.defaultManager attributesOfItemAtPath:native[@"claudeUsage"] error:nil].fileModificationDate;
-        [claude addObject:modified
-            ? Result(@"info", LF(L(@"Claude quota snapshot updated {age}"), @{@"age": FormatAge(-modified.timeIntervalSinceNow)}), nil)
-            : Result(@"info", L(@"No Claude quota snapshot yet (created after Claude Code's first API response)"), nil)];
-        [sections addObject:@{@"title": @"Claude Code", @"results": claude}];
-    } else {
-        [sections addObject:@{@"title": @"Claude Code", @"results": @[Result(@"info", L(@"Claude Code CLI not detected, skipped"), nil)]}];
+    NSMutableDictionary<NSString *, NSNumber *> *profileBridgeHooks = [NSMutableDictionary dictionary];
+    NSArray<NSDictionary *> *registeredProfiles = CCPetsProfiles();
+    for (NSDictionary *profile in registeredProfiles) {
+        NSString *provider = profile[@"provider"];
+        NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: provider;
+        NSString *file = [profile[@"home"] stringByAppendingPathComponent:
+            [provider isEqualToString:CCPetsProfileProviderClaude] ? @"settings.json" : @"hooks.json"];
+        NSUInteger bridgeHooks = 0;
+        NSMutableArray *checks = [HookChecks(name, file,
+            [provider isEqualToString:CCPetsProfileProviderClaude] ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker,
+            [provider isEqualToString:CCPetsProfileProviderClaude] ? CCPetsLegacyClaudeHookMarker : CCPetsLegacyCodexHookMarker,
+            &bridgeHooks) mutableCopy];
+        profileBridgeHooks[profile[@"id"]] = @(bridgeHooks);
+        if ([provider isEqualToString:CCPetsProfileProviderClaude]) {
+            [checks addObject:StatusLineCheckAtHome(profile[@"home"])];
+        } else {
+            [checks addObject:Result(@"info", L(@"Codex only runs CC Pets hooks after you trust them in /hooks (can't be checked automatically)"), nil)];
+        }
+        [sections addObject:@{@"title": name, @"results": checks}];
+    }
+    if (registeredProfiles.count == 0) {
+        [sections addObject:@{@"title": L(@"Agent Accounts"), @"results": @[
+            Result(@"info", L(@"No registered Agent profiles"), nil)]}];
     }
 
-    NSUInteger codexBridgeHooks = 0;
-    if (codexDetected) {
-        NSMutableArray *codex = [HookChecks(@"Codex", [CCPetsCodexHome() stringByAppendingPathComponent:@"hooks.json"],
-            CCPetsCodexHookMarker, CCPetsLegacyCodexHookMarker, &codexBridgeHooks) mutableCopy];
-        [codex addObject:Result(@"info", L(@"Codex only runs CC Pets hooks after you trust them in /hooks (can't be checked automatically)"), nil)];
-        [sections addObject:@{@"title": @"Codex", @"results": codex}];
-    } else {
-        [sections addObject:@{@"title": @"Codex", @"results": @[Result(@"info", L(@"Codex CLI not detected, skipped"), nil)]}];
-    }
-
+    // Finder 拉起的主窗口只有 launchd 的最小 PATH，nvm / Homebrew 下的 CLI 都不在里面，改用登录 shell 的。
+    NSString *searchPath = inApp && (codexDetected || claudeDetected) ? CCPetsLoginShellPath() : nil;
     NSMutableArray *shell = [ShimChecks(inApp) mutableCopy];
-    if (codexDetected) [shell addObject:RealBinaryCheck(@"codex", @"CODEX_REAL_BIN")];
-    if (claudeDetected) [shell addObject:RealBinaryCheck(@"claude", @"CLAUDE_REAL_BIN")];
+    if (codexDetected) [shell addObject:RealBinaryCheck(@"codex", @"CODEX_REAL_BIN", searchPath, inApp)];
+    if (claudeDetected) [shell addObject:RealBinaryCheck(@"claude", @"CLAUDE_REAL_BIN", searchPath, inApp)];
     [sections addObject:@{@"title": L(@"Shell integration"), @"results": shell}];
 
     if (!CCBridgeEnabled()) {
         [sections addObject:@{@"title": @"CC Bridge", @"results": @[Result(@"info", L(@"Off (optional; turn on with cc-pets bridge enable)"), nil)]}];
     } else {
         NSMutableArray *bridge = [NSMutableArray arrayWithObject:Result(@"ok", L(@"Enabled"), nil)];
-        if (claudeDetected) {
-            [bridge addObject:claudeBridgeHooks > 0 ? Result(@"ok", L(@"CC Bridge hooks installed in Claude Code"), nil)
-                : Result(@"warn", L(@"CC Bridge hooks missing in Claude Code"), @"cc-pets bridge enable")];
+        for (NSDictionary *profile in registeredProfiles) {
+            NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: profile[@"provider"];
+            [bridge addObject:[profileBridgeHooks[profile[@"id"]] unsignedIntegerValue] > 0
+                ? Result(@"ok", [NSString stringWithFormat:L(@"CC Bridge hooks installed in %@"), name], nil)
+                : Result(@"warn", [NSString stringWithFormat:L(@"CC Bridge hooks missing in %@"), name], @"cc-pets bridge enable")];
         }
         if (codexDetected) {
-            [bridge addObject:codexBridgeHooks > 0 ? Result(@"ok", L(@"CC Bridge hooks installed in Codex"), nil)
-                : Result(@"warn", L(@"CC Bridge hooks missing in Codex"), @"cc-pets bridge enable")];
             if ([CCBridgeOptions()[@"wake"] boolValue]) {
-                NSString *notice = CCBridgeDescribeCodexQueue(CCBridgeProbeCodexQueue(CCPetsFindRealExecutable(@"codex", @"CODEX_REAL_BIN")));
-                [bridge addObject:notice ? Result(@"warn", notice, nil)
-                    : Result(@"ok", L(@"Codex supports codex queue, so it can be woken automatically"), nil)];
+                // npm 装的 codex 是 `env node` 脚本，探测时也得带上能找到 node 的 PATH。
+                NSMutableDictionary<NSString *, NSString *> *environment = nil;
+                if (searchPath) {
+                    environment = [NSProcessInfo.processInfo.environment mutableCopy];
+                    environment[@"PATH"] = searchPath;
+                }
+                NSDictionary *probe = CCBridgeProbeCodexQueueWithEnvironment(FindRealBinary(@"codex", @"CODEX_REAL_BIN", searchPath), environment);
+                NSString *notice = CCBridgeDescribeCodexQueue(probe);
+                if (inApp && [probe[@"status"] isEqualToString:@"missing"]) {
+                    [bridge addObject:Result(@"info", L(@"The main window couldn't find codex to check whether it can be woken; run cc-pets doctor in a terminal to confirm"), nil)];
+                } else {
+                    [bridge addObject:notice ? Result(@"warn", notice, nil)
+                        : Result(@"ok", L(@"Codex supports codex queue, so it can be woken automatically"), nil)];
+                }
             }
         }
         [sections addObject:@{@"title": @"CC Bridge", @"results": bridge}];

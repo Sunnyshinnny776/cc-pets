@@ -39,6 +39,12 @@ NSString *CCPetsShimDirectory(void);
 // PATH 里真正的 codex / claude，跳过 cc-pets 自己的 shim 目录与 *-with-pet 包装器——安装完成后
 // shim 排在 PATH 最前面，直接 which 只会命中自己。realBinVariable（CODEX_REAL_BIN 等）设置时直接用它。
 NSString *CCPetsFindRealExecutable(NSString *name, NSString *realBinVariable);
+// 同上，但在给定的 PATH 字符串里找（主窗口用登录 shell 的 PATH 代替自己的）。
+NSString *CCPetsFindRealExecutableInPath(NSString *name, NSString *realBinVariable, NSString *searchPath);
+
+// 用户登录 shell（-l -i，会加载 nvm 等 rc 配置）里的 PATH。Finder 拉起的 App 只有 launchd 的最小 PATH，
+// 看不到终端里装的 CLI。会起一个子进程（最多等 5 秒），不要在主线程调；拿不到时返回 nil。
+NSString *CCPetsLoginShellPath(void);
 
 // 这台机器上有没有这家 CLI：配置目录已存在，或 PATH 里有真二进制。CC_PETS_ASSUME_CLI=1 或设置了
 // CODEX_REAL_BIN / CLAUDE_REAL_BIN 时视为已安装（探测漏判时的逃生舱）。

@@ -6,21 +6,31 @@ const CGFloat QuotaLogicalHeight = 590;
 const CGFloat QuotaScale = 0.58;
 
 // 面板高度按"检测到几家 CLI"变化，所以纵向布局不再是一堆绝对坐标，而是自上而下的分段：
-// 标题区 → 汇总条 → N × 额度卡 → 脚注区，块之间统一留 QuotaBlockGap。
+// 标题区 → 汇总条 → N × 额度卡，块之间统一留 QuotaBlockGap。
 // QuotaLogicalHeight 保留为两家都装时的高度（590），既是历史默认值，也是预览图尺寸。
 static const CGFloat QuotaHeaderHeight = 106;
 static const CGFloat QuotaSummaryHeight = 112;
-static const CGFloat QuotaCardHeight = 152;
+static const CGFloat QuotaBaseCardHeight = 152;
 static const CGFloat QuotaBlockGap = 12;
-static const CGFloat QuotaFooterHeight = 44;
+// 原脚注区占用 44px；保留 12px 外边距，其余空间平均分给可见卡片。
+static const CGFloat QuotaReclaimedFooterHeight = 32;
+static const CGFloat QuotaBottomPadding = 12;
+static const CGFloat QuotaCarouselDotGap = 18;
+static const CGFloat QuotaCarouselDotDiameter = 8;
 // 两家都没装时的精简态：只留标题区、三行说明和脚注，汇总条和额度卡整块去掉——
 // 没有 provider 的"今日用量/近 7 天"是两行 0，比不显示更让人以为是坏了。
 static const CGFloat QuotaEmptyNoticeHeight = 76;
 
 CGFloat QuotaLogicalHeightForProviderCount(NSUInteger count) {
-    if (count == 0) return QuotaHeaderHeight + QuotaEmptyNoticeHeight + QuotaFooterHeight;
+    if (count == 0) return QuotaHeaderHeight + QuotaEmptyNoticeHeight + 16;
+    CGFloat cardHeight = QuotaBaseCardHeight + QuotaReclaimedFooterHeight / count;
     return QuotaHeaderHeight + QuotaSummaryHeight +
-        count * (QuotaBlockGap + QuotaCardHeight) + QuotaFooterHeight;
+        count * (QuotaBlockGap + cardHeight) + QuotaBottomPadding;
+}
+
+static CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
+    return count > 0 ? QuotaBaseCardHeight + QuotaReclaimedFooterHeight / count
+        : QuotaBaseCardHeight;
 }
 
 NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
@@ -44,9 +54,29 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return appURL ? [NSWorkspace.sharedWorkspace iconForFile:appURL.path] : nil;
 }
 
+@interface QuotaDashboardView ()
+@property NSMutableDictionary<NSString *, NSString *> *selectedProfileIDs;
+@property(copy) NSString *activeCarouselProvider;
+@property NSTimeInterval lastCarouselSwitchAt;
+@property(copy) NSString *animatingCarouselProvider;
+@property NSTimeInterval carouselAnimationStartedAt;
+@property NSInteger carouselAnimationDirection;
+@property(copy) NSString *dragCarouselProvider;
+@property NSPoint dragCarouselStartPoint;
+@property BOOL dragCarouselDidSwitch;
+@property(copy) NSString *scrollCarouselProvider;
+@property CGFloat scrollCarouselAccumulator;
+@property BOOL scrollCarouselDidSwitch;
+@end
+
 @implementation QuotaDashboardView
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
+        _selectedProfileIDs = [NSMutableDictionary dictionary];
+        self.accessibilityElement = YES;
+        self.accessibilityRole = NSAccessibilityGroupRole;
+        self.accessibilityLabel = L(@"Agent usage account cards");
+        self.accessibilityHelp = L(@"Click the arrows or page dots, swipe horizontally, or use the left and right arrow keys to switch accounts.");
         NSTrackingArea *tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
             options:NSTrackingMouseEnteredAndExited |
                     NSTrackingActiveAlways | NSTrackingInVisibleRect
@@ -56,6 +86,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return self;
 }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
 - (void)mouseEntered:(NSEvent *)event {
     if (self.hoverChanged) self.hoverChanged(YES);
 }
@@ -75,6 +106,287 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 }
 - (CGFloat)logicalHeight {
     return QuotaLogicalHeightForProviderCount([self visibleProviders].count);
+}
+
+- (NSString *)profileProviderForName:(NSString *)name {
+    return name.lowercaseString;
+}
+
+- (NSArray<NSDictionary *> *)profilesForProvider:(NSString *)name {
+    NSString *provider = [self profileProviderForName:name];
+    NSMutableArray<NSDictionary *> *matches = [NSMutableArray array];
+    for (NSDictionary *profile in self.profiles ?: @[]) {
+        if ([profile[@"provider"] isEqualToString:provider]) [matches addObject:profile];
+    }
+    return matches;
+}
+
+- (NSString *)selectionDefaultsKeyForProvider:(NSString *)name {
+    return [NSString stringWithFormat:@"CCPetsSelected%@ProfileID", name];
+}
+
+- (NSDictionary *)selectedProfileForProvider:(NSString *)name {
+    NSArray<NSDictionary *> *profiles = [self profilesForProvider:name];
+    if (profiles.count == 0) return nil;
+    NSString *selected = self.selectedProfileIDs[name];
+    if (selected.length == 0) {
+        selected = [NSUserDefaults.standardUserDefaults stringForKey:
+            [self selectionDefaultsKeyForProvider:name]];
+    }
+    for (NSDictionary *profile in profiles) {
+        if ([profile[@"id"] isEqualToString:selected]) {
+            self.selectedProfileIDs[name] = selected;
+            return profile;
+        }
+    }
+    NSDictionary *first = profiles.firstObject;
+    self.selectedProfileIDs[name] = first[@"id"];
+    return first;
+}
+
+- (NSDictionary *)usageForProvider:(NSString *)name {
+    NSDictionary *profile = [self selectedProfileForProvider:name];
+    NSDictionary *usage = profile ? self.profileUsages[profile[@"id"]] : nil;
+    if (usage) return usage;
+    return [name isEqualToString:@"Codex"] ? (self.codexUsage ?: @{}) : (self.claudeUsage ?: @{});
+}
+
+- (NSDictionary *)summedTokenBucket:(NSArray<NSDictionary *> *)buckets {
+    NSMutableDictionary<NSString *, NSNumber *> *sum = [NSMutableDictionary dictionary];
+    for (NSDictionary *bucket in buckets) {
+        if (![bucket isKindOfClass:NSDictionary.class]) continue;
+        [bucket enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+            if ([value isKindOfClass:NSNumber.class]) {
+                sum[key] = @([sum[key] doubleValue] + [value doubleValue]);
+            }
+        }];
+    }
+    return sum;
+}
+
+- (NSDictionary *)summaryUsageForProvider:(NSString *)name {
+    NSArray<NSDictionary *> *profiles = [self profilesForProvider:name];
+    if (profiles.count == 0) return [self usageForProvider:name];
+    NSMutableArray<NSDictionary *> *today = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *recentWeek = [NSMutableArray array];
+    for (NSDictionary *profile in profiles) {
+        NSDictionary *usage = self.profileUsages[profile[@"id"]];
+        NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
+            ? usage[@"tokenUsage"] : nil;
+        if ([tokenUsage[@"today"] isKindOfClass:NSDictionary.class]) [today addObject:tokenUsage[@"today"]];
+        if ([tokenUsage[@"recentWeek"] isKindOfClass:NSDictionary.class]) [recentWeek addObject:tokenUsage[@"recentWeek"]];
+    }
+    return @{@"tokenUsage": @{
+        @"today": [self summedTokenBucket:today],
+        @"recentWeek": [self summedTokenBucket:recentWeek]
+    }};
+}
+
+- (NSString *)displayNameForProvider:(NSString *)name {
+    NSDictionary *profile = [self selectedProfileForProvider:name];
+    NSString *displayName = [profile[@"displayName"] isKindOfClass:NSString.class]
+        ? profile[@"displayName"] : nil;
+    return displayName.length > 0 ? displayName : name.lowercaseString;
+}
+
+- (NSUInteger)selectedIndexForProvider:(NSString *)name {
+    NSArray<NSDictionary *> *profiles = [self profilesForProvider:name];
+    NSString *selected = [self selectedProfileForProvider:name][@"id"];
+    NSUInteger index = [profiles indexOfObjectPassingTest:^BOOL(NSDictionary *profile, NSUInteger index, BOOL *stop) {
+        return [profile[@"id"] isEqualToString:selected];
+    }];
+    return index == NSNotFound ? 0 : index;
+}
+
+- (void)moveProfileForProvider:(NSString *)name direction:(NSInteger)direction {
+    NSArray<NSDictionary *> *profiles = [self profilesForProvider:name];
+    if (profiles.count < 2 || direction == 0) return;
+    NSInteger index = (NSInteger)[self selectedIndexForProvider:name];
+    NSInteger count = (NSInteger)profiles.count;
+    NSInteger next = (index + (direction > 0 ? 1 : -1) + count) % count;
+    NSString *profileID = profiles[(NSUInteger)next][@"id"];
+    self.animatingCarouselProvider = name;
+    self.carouselAnimationDirection = direction > 0 ? 1 : -1;
+    self.carouselAnimationStartedAt = NSDate.date.timeIntervalSince1970;
+    self.selectedProfileIDs[name] = profileID;
+    [NSUserDefaults.standardUserDefaults setObject:profileID
+        forKey:[self selectionDefaultsKeyForProvider:name]];
+    self.activeCarouselProvider = name;
+    self.needsDisplay = YES;
+    [self advanceCarouselAnimation];
+}
+
+- (void)advanceCarouselAnimation {
+    if (self.animatingCarouselProvider.length == 0) return;
+    self.needsDisplay = YES;
+    if (NSDate.date.timeIntervalSince1970 - self.carouselAnimationStartedAt >= 0.20) {
+        self.animatingCarouselProvider = nil;
+        return;
+    }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+        selector:@selector(advanceCarouselAnimation) object:nil];
+    [self performSelector:@selector(advanceCarouselAnimation) withObject:nil afterDelay:1.0 / 60.0];
+}
+
+- (NSRect)logicalCardRectForProvider:(NSString *)target {
+    CGFloat cardTop = [self logicalHeight] - QuotaHeaderHeight - QuotaSummaryHeight;
+    NSArray<NSString *> *providers = [self visibleProviders];
+    CGFloat cardHeight = QuotaCardHeightForProviderCount(providers.count);
+    for (NSString *name in providers) {
+        cardTop -= QuotaBlockGap;
+        NSRect card = NSMakeRect(20, cardTop - cardHeight,
+            QuotaLogicalWidth - 40, cardHeight);
+        if ([name isEqualToString:target]) return card;
+        cardTop -= cardHeight;
+    }
+    return NSZeroRect;
+}
+
+- (NSString *)providerAtEvent:(NSEvent *)event includeArrowGutters:(BOOL)includeArrowGutters
+    logicalPoint:(NSPoint *)outPoint {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    point.x /= QuotaScale;
+    point.y /= QuotaScale;
+    if (outPoint) *outPoint = point;
+    for (NSString *name in [self visibleProviders]) {
+        NSRect hit = [self logicalCardRectForProvider:name];
+        if (includeArrowGutters) {
+            hit.origin.x = 0;
+            hit.size.width = QuotaLogicalWidth;
+        }
+        if (NSPointInRect(point, hit)) return name;
+    }
+    return nil;
+}
+
+- (NSRect)previousArrowHitRectForCard:(NSRect)card {
+    return NSMakeRect(0, NSMidY(card) - 34, NSMinX(card) + 32, 68);
+}
+
+- (NSRect)nextArrowHitRectForCard:(NSRect)card {
+    return NSMakeRect(NSMaxX(card) - 32, NSMidY(card) - 34,
+        QuotaLogicalWidth - NSMaxX(card) + 32, 68);
+}
+
+- (BOOL)selectProfileDotAtPoint:(NSPoint)point provider:(NSString *)provider card:(NSRect)card {
+    NSArray<NSDictionary *> *profiles = [self profilesForProvider:provider];
+    CGFloat dotsWidth = (profiles.count - 1) * QuotaCarouselDotGap + QuotaCarouselDotDiameter;
+    CGFloat dotsX = NSMinX(card) + 155 - dotsWidth / 2;
+    CGFloat firstCenterX = dotsX + QuotaCarouselDotDiameter / 2;
+    CGFloat contentOffset = (NSHeight(card) - QuotaBaseCardHeight) / 2;
+    CGFloat centerY = NSMinY(card) + contentOffset + 34 + QuotaCarouselDotDiameter / 2;
+    if (fabs(point.y - centerY) > 14) return NO;
+    NSInteger index = lround((point.x - firstCenterX) / QuotaCarouselDotGap);
+    if (index < 0 || index >= (NSInteger)profiles.count) return NO;
+    CGFloat centerX = firstCenterX + index * QuotaCarouselDotGap;
+    if (fabs(point.x - centerX) > QuotaCarouselDotGap / 2) return NO;
+
+    NSInteger oldIndex = (NSInteger)[self selectedIndexForProvider:provider];
+    if (index == oldIndex) return YES;
+    NSString *profileID = profiles[(NSUInteger)index][@"id"];
+    self.animatingCarouselProvider = provider;
+    self.carouselAnimationDirection = index > oldIndex ? 1 : -1;
+    self.carouselAnimationStartedAt = NSDate.date.timeIntervalSince1970;
+    self.selectedProfileIDs[provider] = profileID;
+    [NSUserDefaults.standardUserDefaults setObject:profileID
+        forKey:[self selectionDefaultsKeyForProvider:provider]];
+    self.activeCarouselProvider = provider;
+    self.needsDisplay = YES;
+    [self advanceCarouselAnimation];
+    return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    NSPoint point;
+    NSString *provider = [self providerAtEvent:event includeArrowGutters:YES logicalPoint:&point];
+    if (!provider || [self profilesForProvider:provider].count < 2) {
+        [super mouseDown:event];
+        return;
+    }
+    [self.window makeFirstResponder:self];
+    self.activeCarouselProvider = provider;
+    NSRect card = [self logicalCardRectForProvider:provider];
+    if (NSPointInRect(point, [self previousArrowHitRectForCard:card])) {
+        [self moveProfileForProvider:provider direction:-1];
+        return;
+    }
+    if (NSPointInRect(point, [self nextArrowHitRectForCard:card])) {
+        [self moveProfileForProvider:provider direction:1];
+        return;
+    }
+    if ([self selectProfileDotAtPoint:point provider:provider card:card]) return;
+
+    // 卡片其余区域允许按住左右拖动；超过阈值后每次拖动只切换一次。
+    self.dragCarouselProvider = provider;
+    self.dragCarouselStartPoint = point;
+    self.dragCarouselDidSwitch = NO;
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+    if (self.dragCarouselProvider.length == 0) {
+        [super mouseDragged:event];
+        return;
+    }
+    if (self.dragCarouselDidSwitch) return;
+    NSPoint point;
+    [self providerAtEvent:event includeArrowGutters:YES logicalPoint:&point];
+    CGFloat deltaX = point.x - self.dragCarouselStartPoint.x;
+    if (fabs(deltaX) < 36) return;
+    self.dragCarouselDidSwitch = YES;
+    [self moveProfileForProvider:self.dragCarouselProvider direction:deltaX < 0 ? 1 : -1];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    self.dragCarouselProvider = nil;
+    self.dragCarouselDidSwitch = NO;
+}
+
+- (void)scrollWheel:(NSEvent *)event {
+    NSString *provider = [self providerAtEvent:event includeArrowGutters:YES logicalPoint:nil];
+    CGFloat delta = fabs(event.scrollingDeltaX) >= fabs(event.scrollingDeltaY)
+        ? event.scrollingDeltaX : (event.modifierFlags & NSEventModifierFlagShift ? event.scrollingDeltaY : 0);
+    if (provider && delta != 0 && [self profilesForProvider:provider].count > 1) {
+        // 惯性阶段不再继续翻页，避免一次触控板滑动跳过多个账号。
+        if (event.momentumPhase != NSEventPhaseNone) return;
+        BOOL phasedGesture = event.phase != NSEventPhaseNone;
+        if (phasedGesture) {
+            if ((event.phase & NSEventPhaseBegan) != 0 ||
+                ![self.scrollCarouselProvider isEqualToString:provider]) {
+                self.scrollCarouselProvider = provider;
+                self.scrollCarouselAccumulator = 0;
+                self.scrollCarouselDidSwitch = NO;
+            }
+            self.scrollCarouselAccumulator += delta;
+            CGFloat threshold = event.hasPreciseScrollingDeltas ? 12 : 1;
+            if (!self.scrollCarouselDidSwitch && fabs(self.scrollCarouselAccumulator) >= threshold) {
+                self.scrollCarouselDidSwitch = YES;
+                [self moveProfileForProvider:provider
+                    direction:self.scrollCarouselAccumulator > 0 ? 1 : -1];
+            }
+            if ((event.phase & (NSEventPhaseEnded | NSEventPhaseCancelled)) != 0) {
+                self.scrollCarouselProvider = nil;
+                self.scrollCarouselAccumulator = 0;
+                self.scrollCarouselDidSwitch = NO;
+            }
+            return;
+        }
+
+        // 无 phase 的鼠标滚轮仍按时间去抖，每个滚轮刻度最多切换一次。
+        NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+        if (now - self.lastCarouselSwitchAt < 0.22) return;
+        self.lastCarouselSwitchAt = now;
+        [self moveProfileForProvider:provider direction:delta > 0 ? 1 : -1];
+        return;
+    }
+    [super scrollWheel:event];
+}
+
+- (void)keyDown:(NSEvent *)event {
+    if (self.activeCarouselProvider.length > 0 && (event.keyCode == 123 || event.keyCode == 124)) {
+        [self moveProfileForProvider:self.activeCarouselProvider direction:event.keyCode == 123 ? -1 : 1];
+        return;
+    }
+    [super keyDown:event];
 }
 - (NSRect)logicalSummaryRect {
     return NSMakeRect(20, [self logicalHeight] - QuotaHeaderHeight - QuotaSummaryHeight,
@@ -141,17 +453,15 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return [self formattedTokenValue:
         wantsOutput ? outputValue : fmax(0, total.doubleValue - outputValue)];
 }
-// 两个窗口共用。resets_at 是整分对齐的，带秒只会多占宽度。
-- (NSString *)clockText:(NSTimeInterval)value {
+// 5 小时窗口只显示时分，7 天窗口保留日期。resets_at 是整分对齐的，无需带秒。
+- (NSString *)resetText:(NSDictionary *)quota showDate:(BOOL)showDate {
+    NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
+    if (!reset) return @"--";
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
     formatter.timeZone = NSTimeZone.localTimeZone;
-    formatter.dateFormat = @"M/d HH:mm";
-    return [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:value]];
-}
-- (NSString *)resetText:(NSDictionary *)quota {
-    NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
-    return reset ? [self clockText:reset.doubleValue] : @"--";
+    formatter.dateFormat = showDate ? @"M/d HH:mm" : @"HH:mm";
+    return [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:reset.doubleValue]];
 }
 // 汇总条的最近 7 天是共享的自然日口径。优先显示聚合结果携带的真实边界；兼容旧缓存时，
 // 再按同一规则（含今天在内的 7 个自然日）现场计算，避免界面暂时退回到没有起期。
@@ -175,15 +485,31 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
     formatter.timeZone = NSTimeZone.localTimeZone;
-    // 原生玻璃下字号更大，完整说明在单元格里放不下，只留起始日期。
-    formatter.dateFormat = self.usesLiquidGlass ? @"M/d" : @"yyyy-MM-dd";
+    // 两个主题使用相同字号，统一采用紧凑日期，避免完整说明挤出单元格。
+    formatter.dateFormat = @"M/d";
     NSString *date = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:start.doubleValue]];
-    return self.usesLiquidGlass ? [NSString stringWithFormat:L(@"Last 7 days (since %@)"), date]
-        : [NSString stringWithFormat:L(@"Last 7 days (since %@, rolling)"), date];
+    return [NSString stringWithFormat:L(@"Last 7 days (since %@)"), date];
 }
 // 在线 = 这一家还有活着的客户端，和有没有额度数据无关：额度会一直缓存着，
 // 拿它当在线信号会恒亮。身份不明的老客户端无法归属到某一家，保守地都算在线。
 - (BOOL)isProviderOnline:(NSString *)name {
+    NSString *profileID = [self selectedProfileForProvider:name][@"id"];
+    if ([self.liveUnscopedProviders containsObject:name] && [self.liveProviders containsObject:name]) {
+        return YES;
+    }
+    // 只有同一个 Provider 已拿到精确 profileId 时才严格按账号判断。旧 Hook 或启动事件
+    // 没有 profileId 时继续使用 provider 级进程信号，不能被另一家 Agent 的 ID 误伤。
+    BOOL hasProfileAwareSessionForProvider = NO;
+    for (NSDictionary *profile in [self profilesForProvider:name]) {
+        NSString *candidateID = profile[@"id"];
+        if (candidateID.length > 0 && [self.liveProfileIDs containsObject:candidateID]) {
+            hasProfileAwareSessionForProvider = YES;
+            break;
+        }
+    }
+    if (profileID.length > 0 && hasProfileAwareSessionForProvider) {
+        return [self.liveProfileIDs containsObject:profileID] || self.hasUnlabeledClient;
+    }
     return [self.liveProviders containsObject:name] || self.hasUnlabeledClient;
 }
 - (NSColor *)primaryColor { return [NSColor colorWithWhite:0.97 alpha:1]; }
@@ -284,14 +610,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     if (age < 3600) return [NSString stringWithFormat:L(@"%.0fm ago"), floor(age / 60)];
     return [NSString stringWithFormat:L(@"%.0fh ago"), floor(age / 3600)];
 }
-// 原生玻璃下背景可以是任意壁纸，面板按 0.58 缩放后小字只有 6–7pt，细笔画很容易被
-// 背后的纹理吃掉。所以 liquid 模式统一收紧文字：小字放大一点、加粗一级；灰字不低于
-// 0.84；彩色字改成白字。
-// 经典主题有深色实底托着，保持原样。
+// 两个主题共用字号、字重和等宽数字，切换主题时保持文字大小一致。
 // 小字统一抬到逻辑 14（屏幕约 8.1pt），这是 440pt 宽面板在不改版式的前提下放得下的上限；
 // 再往上要放大面板或删行。数字用等宽字形，跳动时不左右晃；汉字不受影响。
 - (NSFont *)fontWithSize:(CGFloat)size weight:(NSFontWeight)weight {
-    if (!self.usesLiquidGlass) return [NSFont systemFontOfSize:size weight:weight];
     if (size < 14) size = 14;
     else if (size <= 16) size += 1;
     if (weight < NSFontWeightMedium) weight = NSFontWeightMedium;
@@ -586,8 +908,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     else if (projectedRank >= 0 && rank == (NSUInteger)projectedRank) tip = projectedTip;
     return @{@"label": label, @"tip": tip, @"color": ladder[rank][2], @"level": @(rank)};
 }
-- (void)drawProvider:(NSString *)name usage:(NSDictionary *)usage usedKey:(NSString *)usedKey
-    color:(NSColor *)color cardRect:(NSRect)card {
+- (void)drawProvider:(NSString *)name displayName:(NSString *)displayName
+    usage:(NSDictionary *)usage usedKey:(NSString *)usedKey color:(NSColor *)color
+    cardRect:(NSRect)card profileCount:(NSUInteger)profileCount selectedIndex:(NSUInteger)selectedIndex {
     NSColor *primary = self.primaryColor;
     NSColor *secondary = self.secondaryColor;
     NSDictionary *five = [self quota:usage key:@"fiveHour"];
@@ -629,29 +952,49 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     cardPath.lineWidth = 1;
     [cardPath stroke];
 
-    NSArray<NSNumber *> *separators = @[@(NSMinX(card) + 190), @(NSMinX(card) + 370),
-        @(NSMinX(card) + 540)];
+    // 账号列加宽，三个数据区略微收紧；Home 名称比 Provider 名更长。
+    NSArray<NSNumber *> *separators = @[@(NSMinX(card) + 220), @(NSMinX(card) + 390),
+        @(NSMinX(card) + 560)];
     [[NSColor colorWithWhite:1 alpha:0.10] setStroke];
     for (NSNumber *value in separators) {
         [NSBezierPath strokeLineFromPoint:NSMakePoint(value.doubleValue, NSMinY(card) + 14)
             toPoint:NSMakePoint(value.doubleValue, NSMaxY(card) - 14)];
     }
 
-    NSRect icon = NSMakeRect(NSMinX(card) + 28, NSMinY(card) + 53, 54, 54);
+    // 卡片增高后保持原有内容组垂直居中，新增空间均匀落在上下两侧。
+    CGFloat contentOffset = (NSHeight(card) - QuotaBaseCardHeight) / 2;
+    [NSGraphicsContext saveGraphicsState];
+    NSAffineTransform *contentTransform = [NSAffineTransform transform];
+    [contentTransform translateXBy:0 yBy:contentOffset];
+    [contentTransform concat];
+    card.size.height = QuotaBaseCardHeight;
+
+    NSRect icon = NSMakeRect(NSMinX(card) + 12, NSMinY(card) + 41, 70, 70);
     NSImage *logo = [name isEqualToString:@"Codex"] ? self.codexLogo : self.claudeLogo;
     if (logo) {
         [NSGraphicsContext saveGraphicsState];
-        [[NSBezierPath bezierPathWithRoundedRect:icon xRadius:14 yRadius:14] addClip];
+        [[NSBezierPath bezierPathWithRoundedRect:icon xRadius:18 yRadius:18] addClip];
         [logo drawInRect:icon fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0
             respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
         [NSGraphicsContext restoreGraphicsState];
     } else {
-        [self fillRoundedRect:icon radius:14 color:[color colorWithAlphaComponent:0.7]];
-        [name drawInRect:NSInsetRect(icon, 4, 17)
+        [self fillRoundedRect:icon radius:18 color:[color colorWithAlphaComponent:0.7]];
+        [name drawInRect:NSInsetRect(icon, 5, 23)
             withAttributes:[self centeredTextAttributesWithSize:13 color:NSColor.whiteColor weight:NSFontWeightBold]];
     }
-    [name drawInRect:NSMakeRect(NSMinX(card) + 94, NSMinY(card) + 84, 88, 30)
-        withAttributes:[self textAttributesWithSize:22 color:primary weight:NSFontWeightBold]];
+    CGFloat nameWidth = 118;
+    CGFloat nameSize = 22;
+    while (nameSize > 14 && [displayName sizeWithAttributes:
+            [self textAttributesWithSize:nameSize color:primary weight:NSFontWeightBold]].width > nameWidth) {
+        nameSize -= 1;
+    }
+    NSMutableDictionary *nameAttributes = [[self textAttributesWithSize:nameSize color:primary
+        weight:NSFontWeightBold] mutableCopy];
+    NSMutableParagraphStyle *nameStyle = [NSMutableParagraphStyle new];
+    nameStyle.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    nameAttributes[NSParagraphStyleAttributeName] = nameStyle;
+    [displayName drawInRect:NSMakeRect(NSMinX(card) + 94, NSMinY(card) + 84, nameWidth, 30)
+        withAttributes:nameAttributes];
     // 四态：额度被拒 → 额度受限（百分比仍是上次官方快照）；没有任何额度数据 → 等待数据；
     // 有数据但客户端已退出 → 离线；两者都有 → 在线。
     NSString *statusText = (!apiMode && exhausted) ? L(@"Rate limited")
@@ -671,10 +1014,39 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         [self fillRoundedRect:status radius:12 color:[statusColor colorWithAlphaComponent:0.13]];
         [statusText drawInRect:NSInsetRect(status, 9, 4) withAttributes:statusAttributes];
     }
+    if (profileCount > 1) {
+        // 箭头画在卡片两侧 20pt 的留白里：描边 chevron 比"‹ ›"字形更大更清楚，用次要色压低存在感。
+        [NSGraphicsContext saveGraphicsState];
+        [[NSShadow new] set];
+        [[secondary colorWithAlphaComponent:0.75] setStroke];
+        for (NSNumber *side in @[@-1, @1]) {
+            CGFloat tipX = side.doubleValue < 0 ? NSMinX(card) - 15 : NSMaxX(card) + 15;
+            CGFloat tailX = tipX - side.doubleValue * 9;
+            NSBezierPath *chevron = [NSBezierPath bezierPath];
+            [chevron moveToPoint:NSMakePoint(tailX, NSMidY(card) + 13)];
+            [chevron lineToPoint:NSMakePoint(tipX, NSMidY(card))];
+            [chevron lineToPoint:NSMakePoint(tailX, NSMidY(card) - 13)];
+            chevron.lineWidth = 3;
+            chevron.lineCapStyle = NSLineCapStyleRound;
+            chevron.lineJoinStyle = NSLineJoinStyleRound;
+            [chevron stroke];
+        }
+        [NSGraphicsContext restoreGraphicsState];
+        CGFloat dotsWidth = (profileCount - 1) * QuotaCarouselDotGap + QuotaCarouselDotDiameter;
+        CGFloat dotsX = NSMinX(card) + 155 - dotsWidth / 2;
+        for (NSUInteger index = 0; index < profileCount; index++) {
+            NSRect dot = NSMakeRect(dotsX + index * QuotaCarouselDotGap, NSMinY(card) + 34,
+                QuotaCarouselDotDiameter, QuotaCarouselDotDiameter);
+            // 只标当前面板：选中用 Provider 主色，其余一律置灰。
+            NSColor *dotColor = index == selectedIndex ? color : [secondary colorWithAlphaComponent:0.35];
+            [dotColor setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:dot] fill];
+        }
+    }
 
     if (apiMode) {
-        CGFloat callX = NSMinX(card) + 214;
-        CGFloat tokenX = NSMinX(card) + 394;
+        CGFloat callX = NSMinX(card) + 244;
+        CGFloat tokenX = NSMinX(card) + 414;
         [L(@"Calls this month") drawInRect:NSMakeRect(callX, NSMinY(card) + 114, 130, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
         [L(@"Tokens this month") drawInRect:NSMakeRect(tokenX, NSMinY(card) + 114, 130, 20)
@@ -682,7 +1054,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 
         NSString *requests = [NSString stringWithFormat:L(@"%@ calls"),
             [self formattedRequestCount:monthTokens ?: @{}]];
-        [requests drawInRect:NSMakeRect(callX, NSMinY(card) + 75, 150, 34)
+        [requests drawInRect:NSMakeRect(callX, NSMinY(card) + 75, 142, 34)
             withAttributes:[self textAttributesWithSize:24 color:primary weight:NSFontWeightBold]];
         // 曲线铺满整个自然月，月末那些还没到的日子不能算进"已过天数"，否则日均会被稀释。
         NSTimeInterval now = NSDate.date.timeIntervalSince1970;
@@ -699,7 +1071,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
                     @(llround(requestCount.doubleValue / elapsedDays))
                     numberStyle:NSNumberFormatterDecimalStyle]]
             : L(@"--/day avg");
-        [average drawInRect:NSMakeRect(callX, NSMinY(card) + 48, 150, 20)
+        [average drawInRect:NSMakeRect(callX, NSMinY(card) + 48, 142, 20)
             withAttributes:[self textAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
 
         // 这里不再重复"本月消耗"的合计：输入与输出各自的量级才是按量计费时要看的东西，
@@ -715,7 +1087,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             [split[@"label"] drawInRect:NSMakeRect(tokenX, y + 4, 28, 16)
                 withAttributes:[self textAttributesWithSize:11 color:secondary
                     weight:NSFontWeightRegular]];
-            [split[@"value"] drawInRect:NSMakeRect(tokenX + 32, y, 122, 26)
+            [split[@"value"] drawInRect:NSMakeRect(tokenX + 32, y, 110, 26)
                 withAttributes:[self textAttributesWithSize:18 color:primary
                     weight:NSFontWeightBold]];
         }
@@ -723,23 +1095,23 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         NSDictionary *requestComparison = [self comparisonForCurrent:
             [monthComparable[@"request_count"] doubleValue]
             previous:[previousMonthTokens[@"request_count"] doubleValue] color:color];
-        [self drawText:requestComparison[@"text"] inRect:NSMakeRect(callX, NSMinY(card) + 22, 158, 18)
+        [self drawText:requestComparison[@"text"] inRect:NSMakeRect(callX, NSMinY(card) + 22, 142, 18)
             size:11 weight:NSFontWeightMedium color:requestComparison[@"color"]
             dotColor:requestComparison[@"color"]];
         NSDictionary *tokenComparison = [self comparisonForCurrent:
             [monthComparable[@"total_tokens"] doubleValue]
             previous:[previousMonthTokens[@"total_tokens"] doubleValue] color:color];
-        [self drawText:tokenComparison[@"text"] inRect:NSMakeRect(tokenX, NSMinY(card) + 22, 158, 18)
+        [self drawText:tokenComparison[@"text"] inRect:NSMakeRect(tokenX, NSMinY(card) + 22, 142, 18)
             size:11 weight:NSFontWeightMedium color:tokenComparison[@"color"]
             dotColor:tokenComparison[@"color"]];
 
-        CGFloat trendX = NSMinX(card) + 564;
+        CGFloat trendX = NSMinX(card) + 574;
         // 「按日 Token」跟在标题后面，与标题同一行：它是标题的限定语，单独占一行既浪费
         // 竖向空间，也把曲线和脚注挤得没法与左边两列对齐。
         [L(@"Month") drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
         if (self.usesLiquidGlass) {
-            [self drawText:L(@"Daily tokens") inRect:NSMakeRect(trendX + 62, NSMinY(card) + 114, 96, 20)
+            [self drawText:L(@"Daily tokens") inRect:NSMakeRect(trendX + 62, NSMinY(card) + 114, 84, 20)
                 size:11 weight:NSFontWeightSemibold color:color dotColor:color];
         } else {
             NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:color
@@ -774,18 +1146,19 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             (unsigned long)recordedDays, (unsigned long)monthDaily.count]
             drawInRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18)
             withAttributes:[self textAttributesWithSize:11 color:color weight:NSFontWeightMedium]];
+        [NSGraphicsContext restoreGraphicsState];
         return;
     }
 
     // 层级：官方剩余额度是订阅限额的权威值，占主位；本机 Token 是参考量，降一级并用
     // 强调色区分；重置时间最小。反过来会让最抢眼的数字恰好是最不该照着做决定的那个。
     NSArray<NSDictionary *> *windows = @[
-        @{@"x": @(NSMinX(card) + 214), @"title": L(@"5h window"), @"quota": five ?: @{},
+        @{@"x": @(NSMinX(card) + 244), @"title": L(@"5h window"), @"quota": five ?: @{},
           @"tokens": fiveTokens ?: @{}, @"used": fiveUsed ?: NSNull.null,
-          @"rolling": L(@"Waiting for refresh")},
-        @{@"x": @(NSMinX(card) + 394), @"title": L(@"7d window"), @"quota": week ?: @{},
+          @"showDate": @NO, @"rolling": L(@"Waiting for refresh")},
+        @{@"x": @(NSMinX(card) + 414), @"title": L(@"7d window"), @"quota": week ?: @{},
           @"tokens": weekTokens ?: @{}, @"used": weekUsed ?: NSNull.null,
-          @"rolling": L(@"Waiting for refresh")}
+          @"showDate": @YES, @"rolling": L(@"Waiting for refresh")}
     ];
     for (NSDictionary *window in windows) {
         CGFloat x = [window[@"x"] doubleValue];
@@ -812,26 +1185,26 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         }
         // 官方窗口拿不到时（账号没有这个窗口、或响应里没带），Token 走的是本机滚动窗口。
         // 说清楚这一行的口径，比留一个 `--` 让人以为是渲染坏了要好。
-        NSString *resetValue = [self resetText:window[@"quota"]];
+        NSString *resetValue = [self resetText:window[@"quota"]
+            showDate:[window[@"showDate"] boolValue]];
         NSString *reset = [resetValue isEqualToString:@"--"]
-            ? window[@"rolling"] : [NSString stringWithFormat:L(@"Resets %@"), resetValue];
-        [reset drawInRect:NSMakeRect(x, NSMinY(card) + 46, 150, 18)
-            withAttributes:[self textAttributesWithSize:11 color:secondary weight:NSFontWeightRegular]];
-        // 原生玻璃下字更大、前面还有圆点，这一栏放不下"Token"一词；脚注里已说明
-        // Token 即本机统计的已用量。
-        NSString *tokenText = [NSString stringWithFormat:
-            self.usesLiquidGlass ? L(@"Used %@") : L(@"Used tokens %@"),
+            ? window[@"rolling"] : [NSString stringWithFormat:L(@"Reset %@"), resetValue];
+        [self drawText:reset inRect:NSMakeRect(x, NSMinY(card) + 46, 160, 18)
+            size:11 weight:NSFontWeightRegular color:secondary dotColor:nil];
+        // 两个主题统一使用紧凑文案；脚注里已说明 Token 即本机统计的已用量。
+        NSString *tokenText = [NSString stringWithFormat:L(@"Used %@"),
             [self formattedTokenCount:window[@"tokens"]]];
-        [self drawText:tokenText inRect:NSMakeRect(x, NSMinY(card) + 22, 150, 22) size:14
+        [self drawText:tokenText inRect:NSMakeRect(x, NSMinY(card) + 22, 142, 22) size:14
             weight:NSFontWeightSemibold color:color dotColor:color];
     }
 
-    CGFloat trendX = NSMinX(card) + 564;
+    CGFloat trendX = NSMinX(card) + 574;
     // 与 API 卡同一套骨架：标题行带 pill、中间曲线、脚注和左边两列齐平。
     [L(@"Trend") drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
         withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
-    NSArray<NSDictionary *> *history = [name isEqualToString:@"Codex"]
-        ? self.codexHistory : self.claudeHistory;
+    NSString *profileID = [self selectedProfileForProvider:name][@"id"];
+    NSArray<NSDictionary *> *history = profileID.length > 0 ? self.profileHistories[profileID] : nil;
+    if (!history) history = [name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory;
     NSNumber *currentUsed = weekUsed;
     NSArray<NSDictionary *> *points = [self curvePointsFromHistory:history currentUsed:currentUsed];
     // 趋势这一列算的是 7 天窗口（currentUsed 取 weekUsed）。而 exhaustedAt 来自
@@ -882,6 +1255,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 与左边两列的"已用 Token"同一条基线（+22），也和 API 卡的脚注行对齐。
     [self drawTip:paceTip inRect:NSMakeRect(trendX, NSMinY(card) + 22 - 2 / QuotaScale,
         145, 18) color:tipColor];
+    [NSGraphicsContext restoreGraphicsState];
 }
 - (void)drawRect:(NSRect)dirtyRect {
     [NSGraphicsContext saveGraphicsState];
@@ -954,7 +1328,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSDictionary *liveStatusAttributes = [self textAttributesWithSize:14 color:secondary
         weight:NSFontWeightRegular];
     NSString *liveStatusText = L(@"Live status");
-    [liveStatusText drawInRect:NSMakeRect(30, height - 94, self.usesLiquidGlass ? 142 : 130, 22)
+    [liveStatusText drawInRect:NSMakeRect(30, height - 94, 142, 22)
         withAttributes:liveStatusAttributes];
     CGFloat agentIndicatorX = 30 + [liveStatusText sizeWithAttributes:liveStatusAttributes].width + 12;
     [agentColor setFill];
@@ -979,55 +1353,53 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             accent:cyan];
     }
     NSDictionary *cardSpecs = @{
-        @"Codex": @{@"usage": self.codexUsage ?: @{}, @"usedKey": @"used_percent",
+        @"Codex": @{@"usage": [self usageForProvider:@"Codex"], @"usedKey": @"used_percent",
                     @"color": cyan},
-        @"Claude": @{@"usage": self.claudeUsage ?: @{}, @"usedKey": @"used_percentage",
+        @"Claude": @{@"usage": [self usageForProvider:@"Claude"], @"usedKey": @"used_percentage",
                      @"color": self.claudeColor}
     };
-    // 卡片从汇总条下方依次向下排。少一家就少一张卡，脚注跟着上移；这里的分段账必须和
+    // 卡片从汇总条下方依次向下排；原脚注空间按可见卡片数平分。这里的分段账必须和
     // QuotaLogicalHeightForProviderCount 完全一致，否则面板会多出或少掉一段空白。
     CGFloat cardTop = height - QuotaHeaderHeight - QuotaSummaryHeight;
+    CGFloat cardHeight = QuotaCardHeightForProviderCount(visibleProviders.count);
     for (NSString *name in visibleProviders) {
         NSDictionary *spec = cardSpecs[name];
         cardTop -= QuotaBlockGap;
-        [self drawProvider:name usage:spec[@"usage"] usedKey:spec[@"usedKey"]
-            color:spec[@"color"]
-            cardRect:NSMakeRect(20, cardTop - QuotaCardHeight,
-                QuotaLogicalWidth - 40, QuotaCardHeight)];
-        cardTop -= QuotaCardHeight;
+        NSArray<NSDictionary *> *profiles = [self profilesForProvider:name];
+        NSRect cardRect = NSMakeRect(20, cardTop - cardHeight,
+            QuotaLogicalWidth - 40, cardHeight);
+        BOOL animating = [self.animatingCarouselProvider isEqualToString:name];
+        if (animating) {
+            NSTimeInterval elapsed = NSDate.date.timeIntervalSince1970 - self.carouselAnimationStartedAt;
+            CGFloat progress = fmax(0, fmin(1, elapsed / 0.20));
+            CGFloat eased = 1 - pow(1 - progress, 3);
+            [NSGraphicsContext saveGraphicsState];
+            [[NSBezierPath bezierPathWithRect:NSInsetRect(cardRect, -20, 0)] addClip];
+            CGContextSetAlpha(NSGraphicsContext.currentContext.CGContext, 0.45 + 0.55 * eased);
+            NSAffineTransform *transform = [NSAffineTransform transform];
+            [transform translateXBy:self.carouselAnimationDirection * (1 - eased) * 48 yBy:0];
+            [transform concat];
+        }
+        [self drawProvider:name displayName:[self displayNameForProvider:name]
+            usage:spec[@"usage"] usedKey:spec[@"usedKey"] color:spec[@"color"]
+            cardRect:cardRect
+            profileCount:profiles.count selectedIndex:[self selectedIndexForProvider:name]];
+        if (animating) [NSGraphicsContext restoreGraphicsState];
+        cardTop -= cardHeight;
     }
     if (visibleProviders.count == 0) {
-        // 精简态。说清楚是"没检测到 CLI"，而不是让用户对着一片空白猜面板是不是坏了。
-        // 两行说明刻意分开：卡片出现只取决于装没装 CLI，探测每 ClientLifecycleInterval
-        // 跑一次，装完几秒内自己就冒出来，既不用重装也不用重启桌宠。而 cc-pets install
-        // 解决的是另一件事——Agent 动画，以及 Claude 额度（statusline 是它唯一的来源）。
-        // 把两者写成一句会让人以为不执行 install 卡片就不出现。
+        // 官方 Home 自动发现；自定义 Home 必须由用户明确选择，不能扫描接管。
         CGFloat noticeTop = height - QuotaHeaderHeight;
-        [L(@"No Codex / Claude Code CLI detected") drawInRect:NSMakeRect(28, noticeTop - 30, 460, 26)
+        [L(@"No Agent accounts detected") drawInRect:NSMakeRect(28, noticeTop - 30, 460, 26)
             withAttributes:[self textAttributesWithSize:17 color:primary weight:NSFontWeightMedium]];
-        [L(@"Quota cards appear once Codex or Claude Code is installed")
+        [L(@"Official Homes appear automatically")
             drawInRect:NSMakeRect(28, noticeTop - 52, 560, 20)
             withAttributes:[self textAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
-        [L(@"Run cc-pets install again to enable Agent animations and Claude quota tracking")
+        [L(@"Add custom Homes from Agent Accounts in the CC Pets menu")
             drawInRect:NSMakeRect(28, noticeTop - 72, 560, 18)
             withAttributes:[self textAttributesWithSize:11
                 color:[NSColor colorWithWhite:0.52 alpha:1] weight:NSFontWeightRegular]];
     }
-    BOOL hasAPICard = ([visibleProviders containsObject:@"Codex"] && self.codexShowsAPIUsage) ||
-        ([visibleProviders containsObject:@"Claude"] && self.claudeShowsAPIUsage);
-    NSString *footer = visibleProviders.count == 0
-        ? L(@"ⓘ  The pet and system status still work; quota cards only show for detected CLIs")
-        : (hasAPICard
-            ? L(@"ⓘ  API usage = local session stats (input includes cache reads/writes); compared with the same point last month")
-            : (self.usesLiquidGlass || CCPetsLanguageIsSource()
-                ? L(@"ⓘ  % = official quota left; tokens = local usage (incl. cache reads/writes)")
-                : L(@"ⓘ  % = share of official plan quota left; tokens = locally counted usage (input incl. cache reads/writes). They measure different things")));
-    // 最后一块的底边距面板底 QuotaFooterHeight：脚注与其留约 8pt，底部留白 16pt，
-    // 和顶部标题的留白大致对称。
-    [footer drawInRect:NSMakeRect(28, 16, 650, 20)
-        withAttributes:[self textAttributesWithSize:11
-            color:self.usesLiquidGlass ? self.secondaryColor : [NSColor colorWithWhite:0.58 alpha:1]
-            weight:NSFontWeightRegular]];
     [NSGraphicsContext restoreGraphicsState];
 }
 
@@ -1054,9 +1426,11 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         @{@"icon": @"◉", @"headerSymbol": @"calendar.badge.clock", @"key": @"recentWeek",
           @"label": [self recentWeekUsageLabel]}
     ];
+    BOOL hasMultipleAccounts = [self profilesForProvider:@"Codex"].count > 1 ||
+        [self profilesForProvider:@"Claude"].count > 1;
     NSDictionary *rowSpecs = @{
-        @"Codex": @{@"usage": self.codexUsage ?: @{}, @"color": cyan},
-        @"Claude": @{@"usage": self.claudeUsage ?: @{},
+        @"Codex": @{@"usage": [self summaryUsageForProvider:@"Codex"], @"color": cyan},
+        @"Claude": @{@"usage": [self summaryUsageForProvider:@"Claude"],
                      @"color": self.claudeColor}
     };
     // 两行版的槽位是写死的。只装了一家时改用居中的单行槽位，否则汇总条会空出半格，
@@ -1113,6 +1487,11 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             initWithString:cell[@"label"] attributes:titleAttributes]];
         [header drawInRect:NSMakeRect(x + 24, NSMinY(summary) + 89,
             NSWidth([self logicalSummaryCellRectAtIndex:index]) - 48, 18)];
+        if (hasMultipleAccounts) {
+            [L(@"All accounts") drawInRect:NSMakeRect(x + 230, NSMinY(summary) + 89, 120, 18)
+                withAttributes:[self rightAlignedTextAttributesWithSize:10 color:secondary
+                    weight:NSFontWeightRegular]];
+        }
         for (NSDictionary *row in rows) {
             NSDictionary *usage = row[@"usage"];
             NSColor *rowColor = row[@"color"];

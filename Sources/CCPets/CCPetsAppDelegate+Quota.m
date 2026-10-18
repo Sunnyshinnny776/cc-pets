@@ -1,27 +1,6 @@
 // 额度面板、用量刷新与系统指标。
 #import "CCPetsAppDelegate+Private.h"
 
-// 额度字典"非空"不等于"这家真的在用"。Claude 的 reader 刻意永不返回 nil（见
-// CCPetsUsage.m 里 -[ClaudeUsageReader refresh] 的注释：Token 是本机从转录数出来的，
-// 不能被缺失的官方额度一票否决），什么都没有时照样返回
-// {fiveHour: NSNull, week: NSNull, tokenUsage: 全 0}，count 恒为 3。
-// 拿 count > 0 当证据，Claude 就永远算"检测到"，卡片再也去不掉。这里只认实质证据：
-// 官方额度块真实存在，或者本机统计出过非零 Token。Codex 侧同一套判据也成立。
-static BOOL UsageShowsProviderInUse(NSDictionary *usage) {
-    if (usage.count == 0) return NO;
-    for (NSString *key in @[@"fiveHour", @"week"]) {
-        if ([usage[key] isKindOfClass:NSDictionary.class]) return YES;
-    }
-    NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
-        ? usage[@"tokenUsage"] : nil;
-    for (NSString *key in @[@"fiveHour", @"week", @"today", @"recentWeek"]) {
-        NSDictionary *totals = [tokenUsage[key] isKindOfClass:NSDictionary.class]
-            ? tokenUsage[key] : nil;
-        if ([totals[@"total_tokens"] doubleValue] > 0) return YES;
-    }
-    return NO;
-}
-
 @implementation AppDelegate (Quota)
 - (void)rescheduleUsageTimer {
     NSTimeInterval interval = self.quotaPanel.isVisible
@@ -149,17 +128,41 @@ static BOOL UsageShowsProviderInUse(NSDictionary *usage) {
 // 还要挂满一整个静默窗口。额度数据本身不是在线信号——它一直缓存着，用它判定会恒亮。
 - (void)updateQuotaLiveState {
     NSMutableSet<NSString *> *online = [self.liveClientProviders mutableCopy] ?: [NSMutableSet set];
+    NSMutableSet<NSString *> *onlineProfiles = [self.liveClientProfileIDs mutableCopy]
+        ?: [NSMutableSet set];
+    NSMutableSet<NSString *> *unscopedProviders = [self.liveUnscopedClientProviders mutableCopy]
+        ?: [NSMutableSet set];
+    NSMutableSet<NSString *> *approvalProfiles = [NSMutableSet set];
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     for (NSString *provider in self.providerActivityAt) {
         NSTimeInterval last = [self.providerActivityAt[provider] doubleValue];
         if (now - last < AgentStatusInactivityInterval) [online addObject:provider];
     }
+    for (NSDictionary *record in self.agentSessionRecords.allValues) {
+        NSString *profileID = [record[@"profileId"] isKindOfClass:NSString.class]
+            ? record[@"profileId"] : nil;
+        if (![self isAgentSessionRecordLive:record]) continue;
+        if (profileID.length > 0) {
+            [onlineProfiles addObject:profileID];
+            if ([record[@"state"] isEqualToString:@"approval"]) [approvalProfiles addObject:profileID];
+        } else {
+            NSString *provider = [record[@"provider"] isKindOfClass:NSString.class]
+                ? record[@"provider"] : nil;
+            if (provider.length > 0) [unscopedProviders addObject:provider];
+        }
+    }
     NSInteger count = MAX(self.liveClientCount, (NSInteger)online.count);
     if (self.quotaView.activeAgentCount == count &&
         [self.quotaView.liveProviders isEqualToSet:online] &&
+        [self.quotaView.liveProfileIDs isEqualToSet:onlineProfiles] &&
+        [self.quotaView.liveUnscopedProviders isEqualToSet:unscopedProviders] &&
+        [self.quotaView.pendingApprovalProfileIDs isEqualToSet:approvalProfiles] &&
         self.quotaView.hasUnlabeledClient == self.hasUnlabeledClient) return;
     self.quotaView.activeAgentCount = count;
     self.quotaView.liveProviders = online;
+    self.quotaView.liveProfileIDs = onlineProfiles;
+    self.quotaView.liveUnscopedProviders = unscopedProviders;
+    self.quotaView.pendingApprovalProfileIDs = approvalProfiles;
     self.quotaView.hasUnlabeledClient = self.hasUnlabeledClient;
     self.quotaView.needsDisplay = YES;
 }
@@ -178,19 +181,21 @@ static BOOL UsageShowsProviderInUse(NSDictionary *usage) {
     self.quotaView.needsDisplay = YES;
     if (self.quotaPanel.isVisible) [self positionQuotaDashboard];
 }
-// "这台机器上有哪几家 CLI"。只增不减，并持久化：探测会瞬时失败（配置目录被改名、
-// 外置盘没挂上），卡片当着用户的面消失比多留一张更像 bug。
+// 卡片来自自动登记的官方 Home 与用户明确登记的自定义 Home。自定义目录不会被扫描；
+// 目录暂时不可用时 profile 仍留在注册表，所以卡片也不会抖动消失。
 - (void)refreshDetectedProviders {
+    // 运行期间后来安装 CLI、或首次生成官方 Home 时也应自动出现卡片；只检查两个
+    // 官方路径，自定义 Home 仍必须从 Agent 账户菜单手动添加。
+    NSString *profileError = nil;
+    if (!CCPetsEnsureOfficialDefaultProfiles(&profileError) && profileError.length > 0) {
+        fprintf(stderr, "%s\n", profileError.UTF8String);
+    }
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    NSMutableSet<NSString *> *detected = [NSMutableSet setWithArray:
-        [defaults arrayForKey:DetectedProvidersKey] ?: @[]];
-    if (CodexCLIDetected()) [detected addObject:@"Codex"];
-    if (ClaudeCLIDetected()) [detected addObject:@"Claude"];
-    // 正在跑的客户端和已经拿到的额度数据都是比目录探测更硬的证据：探测漏判也不能
-    // 把一个正在工作、或者明明有额度的 provider 藏起来。
-    if (self.liveClientProviders.count > 0) [detected unionSet:self.liveClientProviders];
-    if (UsageShowsProviderInUse(self.quotaView.codexUsage)) [detected addObject:@"Codex"];
-    if (UsageShowsProviderInUse(self.quotaView.claudeUsage)) [detected addObject:@"Claude"];
+    NSMutableSet<NSString *> *detected = [NSMutableSet set];
+    for (NSDictionary *profile in CCPetsProfiles()) {
+        if ([profile[@"provider"] isEqualToString:CCPetsProfileProviderCodex]) [detected addObject:@"Codex"];
+        if ([profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude]) [detected addObject:@"Claude"];
+    }
     if (self.quotaView.detectedProviders &&
         [detected isEqualToSet:self.quotaView.detectedProviders]) return;
     self.quotaView.detectedProviders = detected;
@@ -204,6 +209,13 @@ static BOOL UsageShowsProviderInUse(NSDictionary *usage) {
     [self refreshDetectedProviders];
     NSDictionary *history = RecordQuotaHistory(self.quotaView.codexUsage,
         self.quotaView.claudeUsage);
+    history = RecordProfileQuotaHistory(self.usageMonitor.profileUsages, self.usageMonitor.profiles);
+    NSMutableDictionary *profileHistories = [NSMutableDictionary dictionary];
+    for (NSDictionary *profile in self.usageMonitor.profiles) {
+        NSString *profileID = profile[@"id"];
+        if (profileID.length > 0) profileHistories[profileID] = QuotaHistorySeriesForProfile(history, profileID);
+    }
+    self.quotaView.profileHistories = profileHistories;
     self.quotaView.codexHistory = QuotaHistorySeries(history, @"codex");
     self.quotaView.claudeHistory = QuotaHistorySeries(history, @"claude");
     self.quotaView.lastUpdatedAt = NSDate.date.timeIntervalSince1970;

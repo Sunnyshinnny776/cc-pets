@@ -34,6 +34,10 @@ NSDictionary<NSString *, id> *CCPetsParseStatusLineCommand(id command);
 // 非零会把后续步骤全部带停），1 配置文件无法解析或写入，2 缺参数。
 int InstallClaudeHooks(NSString *binary);
 int InstallCodexHooks(NSString *binary);
+int InstallClaudeHooksAtHome(NSString *binary, NSString *claudeHome);
+int InstallCodexHooksAtHome(NSString *binary, NSString *codexHome);
+int UninstallClaudeHooksAtHome(NSString *claudeHome);
+int UninstallCodexHooksAtHome(NSString *codexHome);
 
 // 移除上面写入的一切，并还原 status line。shellRC 为 nil 时不碰 shell 配置。
 // preparingInstall：安装前的清理，只迁移改名前（codex-pet 时代）的旧条目和 alias 段落，

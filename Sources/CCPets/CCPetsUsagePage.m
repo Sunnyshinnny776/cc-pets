@@ -3,6 +3,8 @@
 #import "CCPetsL10n.h"
 #import "CCPetsUIStyle.h"
 #import "CCPetsUsage.h"
+#import "CCPetsProfiles.h"
+#import "CCPetsCLISupport.h"
 
 static unsigned long long Count(NSDictionary *counts, NSString *key) {
     return [counts[key] unsignedLongLongValue];
@@ -48,6 +50,12 @@ static NSString *HitRateText(NSDictionary *counts) {
 
 static NSString *ProviderTitle(NSString *provider) {
     return [provider isEqualToString:@"claude"] ? @"Claude Code" : @"Codex";
+}
+
+static NSString *EntrySourceTitle(NSDictionary *entry) {
+    NSString *accountName = [entry[@"accountName"] isKindOfClass:NSString.class]
+        ? entry[@"accountName"] : nil;
+    return accountName.length > 0 ? accountName : ProviderTitle(entry[@"provider"]);
 }
 
 // 数据层把认不出模型的用量记在 "unknown" 名下（旧格式会话、没见过 turn_context 的续读段），
@@ -104,15 +112,56 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
 
 NSNotificationName const CCPetsUsageStoreDidChangeNotification = @"CCPetsUsageStoreDidChange";
 static NSDictionary<NSString *, NSDictionary *> *UsageStoreResults;
+static NSDictionary<NSString *, NSDictionary *> *UsageStoreProfileResults;
 static NSTimeInterval UsageStoreLoadedAt;
 // 结果所对应的"今天"零点。跨过午夜后区间要整体后移一天，哪怕结果才算出来一分钟也得重算。
 static NSTimeInterval UsageStoreLoadedDayStart;
+static NSString *UsageStoreProfileFingerprint;
 static BOOL UsageStoreLoading;
 
 @implementation CCPetsUsageStore
 
 + (NSDictionary<NSString *, NSDictionary *> *)results {
     return UsageStoreResults;
+}
+
++ (NSDictionary<NSString *, NSDictionary *> *)profileResults {
+    return UsageStoreProfileResults;
+}
+
+static NSDictionary *MergeModelUsageResults(NSArray<NSDictionary *> *values) {
+    if (values.count == 0) return @{ @"models": @{}, @"daily": @[] };
+    NSMutableDictionary<NSNumber *, NSMutableDictionary *> *days = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSMutableDictionary *> *totals = [NSMutableDictionary dictionary];
+    for (NSDictionary *usage in values) {
+        for (NSDictionary *day in usage[@"daily"] ?: @[]) {
+            NSNumber *stamp = day[@"timestamp"];
+            if (!stamp) continue;
+            NSMutableDictionary *models = days[stamp];
+            if (!models) { models = [NSMutableDictionary dictionary]; days[stamp] = models; }
+            for (NSString *model in day[@"models"] ?: @{}) {
+                NSMutableDictionary *counts = models[model];
+                if (!counts) { counts = [NSMutableDictionary dictionary]; models[model] = counts; }
+                NSDictionary *incoming = day[@"models"][model];
+                for (NSString *key in @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests"]) {
+                    counts[key] = @(Count(counts, key) + Count(incoming, key));
+                }
+            }
+        }
+    }
+    NSMutableArray *daily = [NSMutableArray array];
+    for (NSNumber *stamp in [days.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+        NSDictionary *models = days[stamp];
+        [daily addObject:@{ @"timestamp": stamp, @"models": models }];
+        for (NSString *model in models) {
+            NSMutableDictionary *sum = totals[model];
+            if (!sum) { sum = [NSMutableDictionary dictionary]; totals[model] = sum; }
+            for (NSString *key in @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests"]) {
+                sum[key] = @(Count(sum, key) + Count(models[model], key));
+            }
+        }
+    }
+    return @{ @"models": totals, @"daily": daily };
 }
 
 + (BOOL)loading {
@@ -122,9 +171,15 @@ static BOOL UsageStoreLoading;
 // 区间是 [今天往前数 89 天的零点, 明天零点)，含今天。
 + (void)loadIfStale {
     if (UsageStoreLoading) return;
+    NSMutableArray<NSString *> *identity = [NSMutableArray array];
+    for (NSDictionary *profile in CCPetsProfiles()) {
+        [identity addObject:[NSString stringWithFormat:@"%@|%@", profile[@"id"], profile[@"home"]]];
+    }
+    NSString *fingerprint = [identity componentsJoinedByString:@"\n"];
     NSCalendar *calendar = NSCalendar.currentCalendar;
     NSDate *today = [calendar startOfDayForDate:NSDate.date];
-    if (UsageStoreResults && NSDate.date.timeIntervalSince1970 - UsageStoreLoadedAt < UsageStoreFreshness &&
+    if (UsageStoreResults && [UsageStoreProfileFingerprint isEqualToString:fingerprint] &&
+        NSDate.date.timeIntervalSince1970 - UsageStoreLoadedAt < UsageStoreFreshness &&
         UsageStoreLoadedDayStart == today.timeIntervalSince1970) return;
     UsageStoreLoading = YES;
     NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:today options:0];
@@ -137,14 +192,26 @@ static BOOL UsageStoreLoading;
     });
     dispatch_async(queue, ^{
         NSMutableDictionary *results = [NSMutableDictionary dictionary];
+        NSMutableDictionary *profileResults = [NSMutableDictionary dictionary];
         for (NSString *provider in @[@"claude", @"codex"]) {
-            NSDictionary *usage = CCPetsModelUsage(provider, start.timeIntervalSince1970, end.timeIntervalSince1970);
-            if (usage) results[provider] = usage;
+            NSArray<NSDictionary *> *profiles = CCPetsProfilesForProvider(provider);
+            if (profiles.count == 0) continue;
+            NSMutableArray<NSDictionary *> *providerValues = [NSMutableArray array];
+            for (NSDictionary *profile in profiles) {
+                NSDictionary *usage = CCPetsModelUsageAtHome(provider, profile[@"home"],
+                    start.timeIntervalSince1970, end.timeIntervalSince1970);
+                if (!usage) continue;
+                profileResults[profile[@"id"]] = usage;
+                [providerValues addObject:usage];
+            }
+            results[provider] = MergeModelUsageResults(providerValues);
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             UsageStoreResults = results;
+            UsageStoreProfileResults = profileResults;
             UsageStoreLoadedAt = NSDate.date.timeIntervalSince1970;
             UsageStoreLoadedDayStart = today.timeIntervalSince1970;
+            UsageStoreProfileFingerprint = fingerprint;
             UsageStoreLoading = NO;
             [NSNotificationCenter.defaultCenter postNotificationName:CCPetsUsageStoreDidChangeNotification object:nil];
         });
@@ -729,6 +796,10 @@ static double NiceStep(double peak) {
 @interface CCPetsUsagePage ()
 @property(nonatomic) CCPetsFormBuilder *form;
 @property(nonatomic) NSSegmentedControl *sourceControl;
+@property(nonatomic) NSPopUpButton *sourcePopup;
+@property(nonatomic) NSStackView *sourceSwitcher;
+// segment 0 是全部账号，其余与这里的 profile 顺序一一对应。
+@property(nonatomic) NSArray<NSDictionary *> *filterProfiles;
 @property(nonatomic) NSSegmentedControl *rangeControl;
 @property(nonatomic) NSSegmentedControl *metricControl;
 @property(nonatomic) NSProgressIndicator *spinner;
@@ -779,11 +850,22 @@ static double NiceStep(double peak) {
     self.form = [[CCPetsFormBuilder alloc] initWithTitle:L(@"Usage") subtitle:@""];
     __weak typeof(self) weakSelf = self;
 
-    self.sourceControl = [self segmentedWithLabels:@[L(@"All"), @"Claude Code", @"Codex"] selected:0];
+    self.sourceControl = [self segmentedWithLabels:@[L(@"All")] selected:0];
     [self bind:self.sourceControl to:^(id sender) {
         weakSelf.selectedKey = nil;
         [weakSelf render];
     }];
+    self.sourcePopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    self.sourcePopup.controlSize = NSControlSizeSmall;
+    self.sourcePopup.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    [self bind:self.sourcePopup to:^(id sender) {
+        weakSelf.selectedKey = nil;
+        [weakSelf render];
+    }];
+    self.sourceSwitcher = [NSStackView stackViewWithViews:@[self.sourceControl, self.sourcePopup]];
+    self.sourceSwitcher.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    self.sourceSwitcher.spacing = 0;
+    [self rebuildSourceControlSelectingProfileID:nil];
     NSMutableArray<NSString *> *ranges = [NSMutableArray array];
     for (NSNumber *days in @[@7, @30, @90]) {
         [ranges addObject:[NSString stringWithFormat:L(@"%ld Days"), (long)days.integerValue]];
@@ -796,7 +878,7 @@ static double NiceStep(double peak) {
     spinner.controlSize = NSControlSizeSmall;
     spinner.displayedWhenStopped = NO;
     self.spinner = spinner;
-    [self.form setAccessoryViews:@[spinner, self.sourceControl, self.rangeControl]];
+    [self.form setAccessoryViews:@[spinner, self.sourceSwitcher, self.rangeControl]];
 
     NSMutableArray<NSString *> *metrics = [NSMutableArray array];
     for (UsageMetric metric = UsageMetricTotal; metric <= UsageMetricRequests; metric++) [metrics addObject:MetricTitle(metric)];
@@ -838,6 +920,8 @@ static double NiceStep(double peak) {
 
 - (void)storeDidChange:(NSNotification *)notification {
     [self.spinner stopAnimation:nil];
+    NSString *selectedID = [self selectedAccountID];
+    [self rebuildSourceControlSelectingProfileID:selectedID];
     [self computeColorSlots];
     [self render];
 }
@@ -849,6 +933,57 @@ static double NiceStep(double peak) {
 
 - (UsageMetric)metric {
     return (UsageMetric)MAX(0, self.metricControl.selectedSegment);
+}
+
+- (void)rebuildSourceControlSelectingProfileID:(NSString *)selectedID {
+    NSMutableArray<NSDictionary *> *profiles = [NSMutableArray array];
+    // 同一家账号放在一起，顺序与面板一致：Codex 在前，Claude 在后。
+    [profiles addObjectsFromArray:CCPetsProfilesForProvider(CCPetsProfileProviderCodex)];
+    [profiles addObjectsFromArray:CCPetsProfilesForProvider(CCPetsProfileProviderClaude)];
+    self.filterProfiles = profiles;
+    self.sourceControl.segmentCount = profiles.count + 1;
+    [self.sourceControl setLabel:L(@"All") forSegment:0];
+    [self.sourceControl setWidth:0 forSegment:0];
+    [self.sourcePopup removeAllItems];
+    [self.sourcePopup addItemWithTitle:L(@"All")];
+    NSInteger selectedSegment = 0;
+    CGFloat estimatedWidth = 44;
+    for (NSUInteger index = 0; index < profiles.count; index++) {
+        NSDictionary *profile = profiles[index];
+        NSString *title = profile[@"displayName"] ?: profile[@"slug"] ?: profile[@"provider"];
+        NSInteger segment = (NSInteger)index + 1;
+        [self.sourceControl setLabel:title forSegment:segment];
+        [self.sourceControl setToolTip:CCPetsTildePath(profile[@"home"]) forSegment:segment];
+        [self.sourceControl setWidth:0 forSegment:segment];
+        [self.sourcePopup addItemWithTitle:title];
+        self.sourcePopup.lastItem.toolTip = CCPetsTildePath(profile[@"home"]);
+        estimatedWidth += MAX(54, [title sizeWithAttributes:@{
+            NSFontAttributeName: self.sourceControl.font
+        }].width + 22);
+        if (selectedID.length > 0 && [profile[@"id"] isEqualToString:selectedID]) {
+            selectedSegment = segment;
+        }
+    }
+    self.sourceControl.selectedSegment = selectedSegment;
+    [self.sourcePopup selectItemAtIndex:selectedSegment];
+    // 少量短名称保留快速分段切换；账号多或名称长时自动降级为下拉菜单，避免和
+    // 右侧时间范围控件互相挤压。下拉菜单仍完整保留每个账号和 Home 提示。
+    BOOL usePopup = profiles.count > 3 || estimatedWidth > 360;
+    self.sourceControl.hidden = usePopup;
+    self.sourcePopup.hidden = !usePopup;
+}
+
+- (NSDictionary *)selectedProfile {
+    NSInteger selected = self.sourcePopup.hidden
+        ? self.sourceControl.selectedSegment : self.sourcePopup.indexOfSelectedItem;
+    NSInteger index = selected - 1;
+    return index >= 0 && index < (NSInteger)self.filterProfiles.count
+        ? self.filterProfiles[(NSUInteger)index] : nil;
+}
+
+- (NSString *)selectedAccountID {
+    NSString *value = [self selectedProfile][@"id"];
+    return [value isKindOfClass:NSString.class] && value.length > 0 ? value : nil;
 }
 
 // 色板位置：90 天、全部来源里按总用量排名，前 8 名各占一色，其余归「其他」。
@@ -897,12 +1032,18 @@ static double NiceStep(double peak) {
 }
 
 // 按当前来源和区间整理条目。区间合计由截取后的每日数据现加，不用数据层的 models（那是整整 90 天的）。
-- (NSArray<NSDictionary *> *)entriesForSource:(NSInteger)source rangeDays:(NSInteger)rangeDays {
+- (NSArray<NSDictionary *> *)entriesForRangeDays:(NSInteger)rangeDays {
     NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
-    NSArray<NSString *> *providers = source == 1 ? @[@"claude"] : (source == 2 ? @[@"codex"] : @[@"claude", @"codex"]);
+    NSDictionary *selectedProfile = [self selectedProfile];
+    NSString *selectedProvider = selectedProfile[@"provider"];
+    NSArray<NSString *> *providers = selectedProvider.length > 0
+        ? @[selectedProvider] : @[@"claude", @"codex"];
     NSArray<NSNumber *> *stamps = nil;
     for (NSString *provider in providers) {
-        NSArray<NSDictionary *> *daily = CCPetsUsageStore.results[provider][@"daily"];
+        NSString *selectedID = selectedProfile[@"id"];
+        NSDictionary *result = selectedID.length > 0
+            ? CCPetsUsageStore.profileResults[selectedID] : CCPetsUsageStore.results[provider];
+        NSArray<NSDictionary *> *daily = result[@"daily"];
         if (daily.count > (NSUInteger)rangeDays) {
             daily = [daily subarrayWithRange:NSMakeRange(daily.count - (NSUInteger)rangeDays, (NSUInteger)rangeDays)];
         }
@@ -914,8 +1055,11 @@ static double NiceStep(double peak) {
             for (NSDictionary *day in daily) [days addObject:day[@"models"][model] ?: @{}];
             NSDictionary *counts = SummedCounts(days);
             if (CCPetsTotalTokens(counts) == 0 && Count(counts, @"requests") == 0) continue;
-            [entries addObject:@{@"key": [NSString stringWithFormat:@"%@|%@", provider, model],
-                                 @"provider": provider, @"model": model, @"counts": counts, @"days": days}];
+            NSMutableDictionary *entry = [@{@"key": [NSString stringWithFormat:@"%@|%@", provider, model],
+                @"provider": provider, @"model": model, @"counts": counts, @"days": days} mutableCopy];
+            NSString *accountName = selectedProfile[@"displayName"] ?: selectedProfile[@"slug"];
+            if (accountName.length > 0) entry[@"accountName"] = accountName;
+            [entries addObject:entry];
         }
     }
     self.dayStamps = stamps ?: @[];
@@ -939,7 +1083,7 @@ static double NiceStep(double peak) {
         return;
     }
     if (!self.colorSlots) [self computeColorSlots];
-    self.entries = [self entriesForSource:self.sourceControl.selectedSegment rangeDays:rangeDays];
+    self.entries = [self entriesForRangeDays:rangeDays];
     if (self.selectedKey && ![[self.entries valueForKey:@"key"] containsObject:self.selectedKey]) self.selectedKey = nil;
 
     NSMutableDictionary *sum = SummedCounts([self.entries valueForKey:@"counts"]);
@@ -1030,7 +1174,7 @@ static double NiceStep(double peak) {
         CCPetsLegendItem *item = [[CCPetsLegendItem alloc] initWithTitle:ModelTitle(entry[@"model"])
             color:[self colorForKey:key]];
         item.onClick = ^{ [weakSelf toggleModel:key]; };
-        item.toolTip = ProviderTitle(entry[@"provider"]);
+        item.toolTip = EntrySourceTitle(entry);
         self.legendItems[key] = item;
         [legend addSubview:item];
     }
@@ -1210,7 +1354,7 @@ static const CGFloat ModelShareWidth = 130, ModelNumberWidth = 66, ModelRateWidt
     NSStackView *nameLine = [NSStackView stackViewWithViews:@[swatch, name]];
     nameLine.spacing = 6;
     nameLine.alignment = NSLayoutAttributeCenterY;
-    NSTextField *provider = CCPetsLabel(ProviderTitle(entry[@"provider"]), 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    NSTextField *provider = CCPetsLabel(EntrySourceTitle(entry), 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
     NSStackView *nameCell = [NSStackView stackViewWithViews:@[nameLine, provider]];
     nameCell.orientation = NSUserInterfaceLayoutOrientationVertical;
     nameCell.alignment = NSLayoutAttributeLeading;
