@@ -216,7 +216,6 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (NSString *)approvalKeyForRecord:(NSDictionary *)record;
 - (void)displayAgentRecord:(NSDictionary *)record notify:(BOOL)shouldNotify;
 - (NSString *)agentSessionKeyForRecord:(NSDictionary *)record;
-- (NSString *)onlineAgentSessionKeyForProvider:(NSString *)provider tty:(NSString *)tty;
 - (NSString *)onlineAgentSessionKeyForRecord:(NSDictionary *)record;
 - (BOOL)isAgentSessionRecordLive:(NSDictionary *)record;
 - (void)pruneOfflineAgentSessionRecords;

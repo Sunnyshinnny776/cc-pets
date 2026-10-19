@@ -12,7 +12,9 @@
     for (NSString *key in self.agentSessionRecords) {
         NSDictionary *record = self.agentSessionRecords[key];
         NSString *provider = SanitizedShortString(record[@"provider"], 32).lowercaseString;
-        NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
+        // 和状态气泡一致：启动后一直没有后续事件，说明会话已就绪、在等输入。
+        NSString *state = SessionDisplayState([record[@"state"] isKindOfClass:NSString.class]
+            ? record[@"state"] : @"", [record[@"timestamp"] doubleValue], NSDate.date.timeIntervalSince1970);
         NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
         NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
         NSMutableDictionary *session = [NSMutableDictionary dictionary];

@@ -2025,6 +2025,8 @@ grep -q 'isTrailingRecord' "${PET_SOURCES[@]}"
 # "正在启动"超过宽限没有后续事件就落到"待机中"，否则启动态和空闲态长得一模一样。
 grep -q 'AgentStartingGraceInterval' "${PET_SOURCES[@]}"
 grep -q 'enterIdleStatus' "${PET_SOURCES[@]}"
+# 同一终端新起会话时，清掉该终端上其他账号残留的记录（客户端退出不补发结束事件）。
+grep -q 'terminalSlotKeyForRecord' "${PET_SOURCES[@]}"
 print "Agent 状态气泡终态保持与待机降级测试通过"
 
 TERMINAL_FOCUS_TMP="$(mktemp -d /tmp/cc-pets-terminal-focus-test.XXXXXX)"

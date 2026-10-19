@@ -372,16 +372,10 @@
     if (session.length > 0) return [NSString stringWithFormat:@"%@|%@", identity, session];
     return terminal.count > 0 ? [NSString stringWithFormat:@"%@|%@", identity, bundleID] : nil;
 }
-- (NSString *)onlineAgentSessionKeyForProvider:(NSString *)provider tty:(NSString *)tty {
-    provider = SanitizedShortString(provider, 32);
-    tty = SanitizedShortString(tty.lastPathComponent, 64);
-    if (provider.length == 0 || tty.length == 0) return nil;
-    return [NSString stringWithFormat:@"%@|%@", provider, tty];
-}
 - (NSString *)onlineAgentSessionKeyForRecord:(NSDictionary *)record {
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
-    return [self onlineAgentSessionKeyForProvider:record[@"provider"] tty:terminal[@"tty"]];
+    return OnlineAgentSessionKey(record[@"provider"], record[@"profileId"], terminal[@"tty"]);
 }
 // 在线判定优先用包装脚本写出的 pid 文件：它给出精确的退出信号，会话一关列表就更新。
 // 但直接跑 claude / codex（或终端窗口早于 shim 安装就已打开）的会话根本没有 pid 文件，
@@ -391,6 +385,11 @@
 - (BOOL)isAgentSessionRecordLive:(NSDictionary *)record {
     NSString *onlineKey = [self onlineAgentSessionKeyForRecord:record];
     if (onlineKey.length > 0 && [self.liveAgentSessionKeys containsObject:onlineKey]) return YES;
+    // 老版本包装脚本的 pid 文件不带账号，只能按 provider + tty 认领。
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    NSString *unscopedKey = OnlineAgentSessionKey(record[@"provider"], nil, terminal[@"tty"]);
+    if (unscopedKey.length > 0 && [self.liveAgentSessionKeys containsObject:unscopedKey]) return YES;
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
     if (provider.length > 0 && [self.liveClientProviders containsObject:provider]) return NO;
     return NSDate.date.timeIntervalSince1970 - [record[@"timestamp"] doubleValue]
@@ -404,10 +403,29 @@
         }
     }
 }
+- (NSString *)terminalSlotKeyForRecord:(NSDictionary *)record {
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    NSString *tty = SanitizedShortString(terminal[@"tty"], 64);
+    if (tty.length == 0) return nil;
+    return [NSString stringWithFormat:@"%@|%@|%@", SanitizedShortString(record[@"provider"], 32),
+        SanitizedShortString(terminal[@"bundleID"], 128), tty];
+}
 - (void)trackAgentSessionRecord:(NSDictionary *)record {
     NSString *key = [self agentSessionKeyForRecord:record];
     if (key.length == 0) return;
     if (!self.agentSessionRecords) self.agentSessionRecords = [NSMutableDictionary dictionary];
+    // 一个终端前台同时只跑一个客户端。同一终端里新起的会话（可能换了账号）说明之前那个
+    // 已经退出；它退出时不会补发结束事件，不在这里清掉就会在列表里留一行"正在启动"。
+    if ([record[@"event"] isEqual:@"SessionStart"]) {
+        NSString *ttyKey = [self terminalSlotKeyForRecord:record];
+        for (NSString *otherKey in self.agentSessionRecords.allKeys) {
+            if ([otherKey isEqualToString:key] || ttyKey.length == 0) continue;
+            if ([[self terminalSlotKeyForRecord:self.agentSessionRecords[otherKey]] isEqualToString:ttyKey]) {
+                [self.agentSessionRecords removeObjectForKey:otherKey];
+            }
+        }
+    }
     self.agentSessionRecords[key] = record;
     [self notePetCardChanged];
     if (self.agentSessionRecords.count <= AgentSessionRecordLimit) return;
