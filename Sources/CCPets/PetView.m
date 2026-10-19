@@ -12,6 +12,7 @@
 #import "CCPetsPetSize.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsProfiles.h"
+#import "CCPetsUsageMode.h"
 #import "CCPetsCLISupport.h"
 
 // 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate+Speech.m，这里只读不写；
@@ -1484,20 +1485,32 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
 - (NSMenuItem *)addUsageModeControlToMenu:(NSMenu *)menu
     provider:(NSString *)provider
     preferenceKey:(NSString *)preferenceKey
-    tag:(NSInteger)tag {
+    tag:(NSInteger)tag profile:(NSDictionary *)profile {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
-    NSView *row = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 134, 28)];
+    CGFloat labelWidth = MAX(48, MIN(180, ceil([provider sizeWithAttributes:
+        @{NSFontAttributeName: [NSFont menuFontOfSize:13]}].width) + 4));
+    NSView *row = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, labelWidth + 86, 28)];
+    // 菜单会按最宽的一行统一宽度；名称随之伸展，按钮始终贴住同一右边距。
+    row.autoresizingMask = NSViewWidthSizable;
     NSTextField *label = [NSTextField labelWithString:provider];
-    label.frame = NSMakeRect(12, 5, 48, 18);
+    label.frame = NSMakeRect(12, 5, labelWidth, 18);
+    label.autoresizingMask = NSViewWidthSizable;
     label.font = [NSFont menuFontOfSize:13];
     label.textColor = NSColor.labelColor;
+    label.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    label.toolTip = provider;
     [row addSubview:label];
 
-    MenuUsageModeButton *control = [[MenuUsageModeButton alloc] initWithFrame:NSMakeRect(68, 3, 58, 22)];
+    MenuUsageModeButton *control = [[MenuUsageModeButton alloc] initWithFrame:NSMakeRect(labelWidth + 20, 3, 58, 22)];
+    control.autoresizingMask = NSViewMinXMargin;
     control.target = NSApp.delegate;
     control.action = @selector(setUsageDisplayModeFromControl:);
-    control.state = [[NSUserDefaults.standardUserDefaults stringForKey:preferenceKey]
-        isEqualToString:@"api"] ? NSControlStateValueOn : NSControlStateValueOff;
+    BOOL api = profile ? CCPetsProfileShowsAPIUsage(profile)
+        : [[NSUserDefaults.standardUserDefaults stringForKey:preferenceKey] isEqualToString:@"api"];
+    control.state = api ? NSControlStateValueOn : NSControlStateValueOff;
+    control.identifier = profile[@"id"];
+    control.enabled = !profile || CCPetsProfileCanSwitchUsageMode(profile);
+    if (!control.enabled) control.toolTip = L(@"API authentication: usage display is fixed to API.");
     control.tag = tag;
     [control setAccessibilityLabel:[NSString stringWithFormat:L(@"%@ usage display"), provider]];
     [row addSubview:control];
@@ -1674,10 +1687,17 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         tag:0];
     NSMenuItem *usageModeItem = [menu addItemWithTitle:L(@"Usage Display") action:nil keyEquivalent:@""];
     NSMenu *usageModeMenu = [NSMenu new];
-    [self addUsageModeControlToMenu:usageModeMenu provider:@"Codex"
-        preferenceKey:CodexUsageDisplayModeKey tag:1];
-    [self addUsageModeControlToMenu:usageModeMenu provider:@"Claude"
-        preferenceKey:ClaudeUsageDisplayModeKey tag:2];
+    for (NSString *provider in @[@"Codex", @"Claude"]) {
+        BOOL codex = [provider isEqualToString:@"Codex"];
+        NSArray *profiles = CCPetsProfilesForProvider(provider.lowercaseString);
+        NSString *key = codex ? CodexUsageDisplayModeKey : ClaudeUsageDisplayModeKey;
+        if (profiles.count == 0) [self addUsageModeControlToMenu:usageModeMenu provider:provider
+            preferenceKey:key tag:codex ? 1 : 2 profile:nil];
+        for (NSDictionary *profile in profiles) {
+            [self addUsageModeControlToMenu:usageModeMenu provider:profile[@"displayName"] ?: provider
+                preferenceKey:key tag:codex ? 1 : 2 profile:profile];
+        }
+    }
     usageModeItem.submenu = usageModeMenu;
     NSMenuItem *themeItem = [menu addItemWithTitle:L(@"Panel Theme") action:nil keyEquivalent:@""];
     NSMenu *themeMenu = [[NSMenu alloc] initWithTitle:L(@"Panel Theme")];

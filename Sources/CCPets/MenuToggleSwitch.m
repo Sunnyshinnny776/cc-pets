@@ -73,6 +73,7 @@
     NSColor *pillColor = usesAPI
         ? [NSColor colorWithRed:0.12 green:0.52 blue:0.96 alpha:self.highlighted ? 0.78 : 0.96]
         : [NSColor colorWithRed:0.20 green:0.68 blue:0.36 alpha:self.highlighted ? 0.78 : 0.96];
+    if (!self.enabled) pillColor = [pillColor colorWithAlphaComponent:0.45];
     [pillColor setFill];
     NSBezierPath *pillPath = [NSBezierPath bezierPathWithRoundedRect:pill
         xRadius:NSHeight(pill) / 2.0 yRadius:NSHeight(pill) / 2.0];

@@ -8,6 +8,8 @@
 #import "CCPetsPetSize.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPreferences.h"
+#import "CCPetsProfiles.h"
+#import "CCPetsUsageMode.h"
 #import "CCPetsUIStyle.h"
 #import <QuartzCore/QuartzCore.h>
 
@@ -72,6 +74,8 @@ static void RevealFolder(NSString *path) {
     [self reloadValues];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
         name:CCPetsPreferencesDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
+        name:CCPetsAuthenticationModesDidChangeNotification object:nil];
 }
 
 - (void)dealloc {
@@ -502,9 +506,41 @@ static const NSUInteger PetPickerColumns = 4;
 
 @interface CCPetsGeneralPage ()
 @property(nonatomic) NSView *glassPreviewDim;
+@property(nonatomic, copy) NSArray<NSDictionary *> *usageProfiles;
 @end
 
 @implementation CCPetsGeneralPage
+
+- (void)loadView {
+    [super loadView];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
+        name:CCPetsProfilesDidChangeNotification object:nil];
+}
+
+- (void)viewWillAppear {
+    [super viewWillAppear];
+    [self reloadValues];
+}
+
+- (NSArray<NSDictionary *> *)currentUsageProfiles {
+    NSMutableArray<NSDictionary *> *profiles = [NSMutableArray array];
+    for (NSString *provider in @[@"claude", @"codex"]) {
+        NSArray *registered = CCPetsProfilesForProvider(provider);
+        [profiles addObjectsFromArray:registered.count > 0 ? registered : @[@{@"provider": provider}]];
+    }
+    return profiles.copy;
+}
+
+- (void)reloadValues {
+    if (![self.usageProfiles isEqualToArray:[self currentUsageProfiles]]) {
+        // 新增、移除、改名或重新定位账号后重建行，同时释放旧控件的闭包。
+        [self.handlers removeAllObjects];
+        [self.reloaders removeAllObjects];
+        [self.form removeAllContent];
+        [self buildContent];
+    }
+    [super reloadValues];
+}
 
 - (NSString *)pageTitle {
     return L(@"Settings");
@@ -672,23 +708,32 @@ static const NSUInteger PetPickerColumns = 4;
     // 悬停面板：每家一个胶囊，点一下在订阅额度和 Token 用量之间切换，和右键菜单同一个样子。
     [self.form addGroupTitle:L(@"Hover Panel") note:L(@"Click a pill to switch")];
     NSMutableArray<NSView *> *panelRows = [NSMutableArray array];
-    for (NSArray<NSString *> *provider in @[@[@"Claude", ClaudeUsageDisplayModeKey], @[@"Codex", CodexUsageDisplayModeKey]]) {
-        NSString *key = provider[1];
+    self.usageProfiles = [self currentUsageProfiles];
+    for (NSDictionary *profile in self.usageProfiles) {
+        NSString *provider = [profile[@"provider"] isEqualToString:@"codex"] ? @"Codex" : @"Claude";
+        NSString *name = profile[@"displayName"] ?: provider;
         CCPetsPillButton *pill = [CCPetsPillButton new];
-        [pill setAccessibilityLabel:[NSString stringWithFormat:L(@"%@ usage display"), provider[0]]];
-        NSView *row = [CCPetsFormBuilder rowWithTitle:provider[0] subtitle:@" " controls:@[pill]];
+        [pill setAccessibilityLabel:[NSString stringWithFormat:L(@"%@ usage display"), name]];
+        NSView *row = [CCPetsFormBuilder rowWithTitle:name subtitle:@" " controls:@[pill]];
         NSTextField *detail = [self subtitleLabelInRow:row];
         [self bind:pill to:^(id sender) {
-            BOOL api = [[NSUserDefaults.standardUserDefaults stringForKey:key] isEqualToString:@"api"];
-            [weakSelf.actions updateUsageDisplayMode:api ? @"subscription" : @"api" forKey:key];
+            NSDictionary *current = profile[@"id"] ? CCPetsProfileWithID(profile[@"id"]) : profile;
+            if (!current || !CCPetsProfileCanSwitchUsageMode(current)) return;
+            BOOL api = CCPetsProfileShowsAPIUsage(current);
+            if (current[@"id"]) [weakSelf.actions updateUsageDisplayMode:api ? @"subscription" : @"api" forProfileID:current[@"id"]];
+            else [weakSelf.actions updateUsageDisplayMode:api ? @"subscription" : @"api" forKey:CCPetsUsageModePreferenceKey(current)];
         }];
         [self.reloaders addObject:^{
-            BOOL api = [[NSUserDefaults.standardUserDefaults stringForKey:key] isEqualToString:@"api"];
+            NSDictionary *current = profile[@"id"] ? CCPetsProfileWithID(profile[@"id"]) : profile;
+            BOOL api = current && CCPetsProfileShowsAPIUsage(current);
+            pill.enabled = current && CCPetsProfileCanSwitchUsageMode(current);
+            pill.toolTip = pill.enabled ? nil : L(@"API authentication: usage display is fixed to API.");
             pill.title = api ? L(@"API") : L(@"Plan");
             // 订阅用绿、用量用蓝，和右键菜单里的胶囊一致。
             pill.fillColor = api ? CCPetsChartColor(6) : CCPetsChartColor(5);
-            detail.stringValue = api ? L(@"Token usage: today's new and cached tokens")
-                : L(@"Plan quota: what's left of the 5-hour and weekly limits");
+            detail.stringValue = !pill.enabled ? L(@"API authentication: usage display is fixed to API.")
+                : (api ? L(@"Token usage: today's new and cached tokens")
+                    : L(@"Plan quota: what's left of the 5-hour and weekly limits"));
         }];
         [panelRows addObject:row];
     }

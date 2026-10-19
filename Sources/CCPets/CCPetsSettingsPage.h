@@ -11,6 +11,7 @@
 - (void)updateStatusBubbleExpanded:(BOOL)expanded;
 - (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled;
 - (void)updateUsageDisplayMode:(NSString *)mode forKey:(NSString *)key;
+- (void)updateUsageDisplayMode:(NSString *)mode forProfileID:(NSString *)profileID;
 - (void)updateImportCodexPets:(BOOL)enabled;
 - (void)updatePanelTheme:(NSString *)theme;
 - (void)updateGlassDimLevel:(NSNumber *)level;

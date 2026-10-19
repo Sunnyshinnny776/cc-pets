@@ -1,5 +1,6 @@
 // 额度面板、用量刷新与系统指标。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsWorkbench.h"
 
 @implementation AppDelegate (Quota)
 - (void)rescheduleUsageTimer {
@@ -165,6 +166,7 @@
     self.quotaView.pendingApprovalProfileIDs = approvalProfiles;
     self.quotaView.hasUnlabeledClient = self.hasUnlabeledClient;
     self.quotaView.needsDisplay = YES;
+    [NSNotificationCenter.defaultCenter postNotificationName:CCPetsWorkbenchQuotasDidChangeNotification object:nil];
 }
 // 面板高度取决于渲染几张额度卡。调整玻璃容器后，内部内容随 autoresizingMask 铺满。
 - (void)resizeQuotaDashboard {
@@ -220,6 +222,7 @@
     self.quotaView.claudeHistory = QuotaHistorySeries(history, @"claude");
     self.quotaView.lastUpdatedAt = NSDate.date.timeIntervalSince1970;
     self.quotaView.needsDisplay = YES;
+    [NSNotificationCenter.defaultCenter postNotificationName:CCPetsWorkbenchQuotasDidChangeNotification object:nil];
 }
 - (void)refreshUsage:(id)sender {
     self.lastUsageRefreshAt = NSDate.date.timeIntervalSince1970;

@@ -265,6 +265,8 @@
             strongSelf.profileTask = nil;
             strongSelf.profileCommandRunning = NO;
             [strongSelf rebuildAgentProfilesMenu];
+            // 子进程即使适配失败也可能已经更新注册表，让打开的设置页同步账号。
+            [NSNotificationCenter.defaultCenter postNotificationName:CCPetsProfilesDidChangeNotification object:nil];
             if (finished.terminationStatus == EXIT_SUCCESS) {
                 [strongSelf refreshUsage:nil];
                 [strongSelf showAlertWithTitle:L(@"Agent Profile Ready") message:completionMessage];

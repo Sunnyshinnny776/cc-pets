@@ -475,11 +475,20 @@ if pet_store nope >/dev/null 2>&1; then
 fi
 print "cc-pets pet 素材仓库测试通过"
 
+# 共用真实的认证/展示模式实现；账号注册表使用只读桩，不链接安装栈。
+USAGE_MODE_SOURCES=(
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m"
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsCLISupport.m"
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsJSON.m"
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsUsageMode.m"
+  "${PROJECT_DIR}/tests/usage-profile-stubs.m"
+)
+
 TOKEN_USAGE_TMP="$(mktemp -d /tmp/cc-pets-token-usage-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
   "${PROJECT_DIR}/tests/token-usage-harness.m" \
   -o "${TOKEN_USAGE_TMP}/token-usage-test"
@@ -570,7 +579,7 @@ USAGE_MONITOR_TMP="$(mktemp -d /tmp/cc-pets-usage-monitor-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation -framework CoreServices \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsCodexRateLimits.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsageMonitor.m" \
@@ -599,7 +608,7 @@ SESSION_PICK_TMP="$(mktemp -d /tmp/cc-pets-session-pick-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
   "${PROJECT_DIR}/tests/session-pick-harness.m" \
   -o "${SESSION_PICK_TMP}/session-pick-test"
@@ -1723,6 +1732,7 @@ QUOTA_ONLINE_TMP="$(mktemp -d /tmp/cc-pets-quota-online-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Cocoa \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/QuotaDashboardView.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \

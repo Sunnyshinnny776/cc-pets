@@ -239,6 +239,19 @@ BOOL CCPetsIsManagedStatusLine(NSString *command, NSString *marker) {
 
 #pragma mark - 安装入口
 
+NSArray<NSString *> *CCPetsClaudeIntegrationFilesAtHome(NSString *claudeHome) {
+    NSString *settings = [claudeHome stringByAppendingPathComponent:@"settings.json"];
+    CCPetsJSONObject *config = LoadConfig(settings, NULL);
+    CCPetsJSONObject *statusLine = config[@"statusLine"];
+    NSString *command = [statusLine isKindOfClass:CCPetsJSONObject.class] &&
+        [statusLine[@"command"] isKindOfClass:NSString.class] ? statusLine[@"command"] : @"";
+    if (CCPetsIsManagedStatusLine(command, CCPetsStatusLineMarker) ||
+        CCPetsIsManagedStatusLine(command, CCPetsLegacyStatusLineMarker)) command = DecodeWrappedStatusLine(command);
+    if (command.length == 0) command = [claudeHome stringByAppendingPathComponent:@"statusline-command.sh"];
+    NSString *script = CCPetsParseStatusLineCommand(command)[@"script"];
+    return script.length > 0 ? @[settings, script] : @[settings];
+}
+
 int InstallClaudeHooksAtHome(NSString *binary, NSString *claudeHome) {
     if (binary.length == 0) {
         CCPetsPrintLine(stderr, L(@"Usage: cc-pets --install-claude-hooks /absolute/path/to/cc-pets"));

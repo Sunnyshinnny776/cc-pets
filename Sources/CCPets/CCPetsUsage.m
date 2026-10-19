@@ -1,5 +1,7 @@
 #import "CCPetsUsage.h"
 #import "CCPetsPaths.h"
+#import "CCPetsProfiles.h"
+#import "CCPetsUsageMode.h"
 #import <sys/file.h>
 #import <sys/stat.h>
 #import <errno.h>
@@ -545,8 +547,9 @@ static NSDictionary *LatestUsageInData(NSData *data, NSNumber **outExhaustedAt) 
 // 「本月 / 上月同期」只有 API 展示模式要用。让默认的订阅视图也回溯到上月月初，等于把上个月
 // 的全部会话白解析一遍：本机实测冷启动 7s vs 0.7s，扫描的文件数 327 vs 61。因此按每家自己的
 // 展示模式决定回溯多远，两家的读取窗口互不牵连。
-static BOOL ProviderShowsAPIUsage(NSString *preferenceKey) {
-    return [[NSUserDefaults.standardUserDefaults stringForKey:preferenceKey] isEqualToString:@"api"];
+static BOOL ProfileShowsAPIUsage(NSString *provider, NSString *home) {
+    return CCPetsProfileShowsAPIUsage(CCPetsProfileForHome(provider, home)
+        ?: @{@"provider": provider, @"home": home});
 }
 
 // resets_at 恒在未来，因此 7 天窗口的起点不可能早于 now - 7d；再留一天覆盖时区和跨日边界。
@@ -1375,7 +1378,7 @@ static NSDictionary *UsageByAddingTokenTotals(NSDictionary *usage, NSURL *sessio
     NSArray<NSURL *> *pinnedURLs, NSMutableDictionary *cache, NSMutableDictionary *archive,
     BOOL *archiveChanged) {
     if (![usage isKindOfClass:NSDictionary.class]) usage = @{};
-    BOOL apiMode = ProviderShowsAPIUsage(CodexUsageDisplayModeKey);
+    BOOL apiMode = ProfileShowsAPIUsage(@"codex", sessionsURL.path.stringByDeletingLastPathComponent);
     NSTimeInterval rollingFloor = RollingTokenWindowFloor();
     NSDictionary *monthWindows = CalendarMonthWindows(0);
     NSTimeInterval monthStart = [monthWindows[@"monthStart"] doubleValue];
@@ -1536,7 +1539,8 @@ static const NSTimeInterval TokenCacheSaveInterval = 60.0;
 - (NSDictionary *)usageWithTokenTotals:(NSDictionary *)usage {
     if (![usage isKindOfClass:NSDictionary.class]) usage = @{};
     usage = UsageByRemovingInactiveQuotaWindows(usage);
-    NSString *identity = TokenWindowIdentity(usage);
+    NSString *identity = [NSString stringWithFormat:@"%@:%d", TokenWindowIdentity(usage),
+        ProfileShowsAPIUsage(@"codex", self.sessionsURL.path.stringByDeletingLastPathComponent)];
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     BOOL reusable = !self.forcesTokenAggregation && self.tokenUsage &&
         [identity isEqualToString:self.tokenWindowIdentity] &&
@@ -2114,7 +2118,7 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
     TokenWindowOrFallback(five, FiveHourWindowMinutes, &fiveStart, &fiveEnd);
     TokenWindowOrFallback(week, SevenDayWindowMinutes, &weekStart, &weekEnd);
     // 自然日窗口和额度无关，即使两个额度窗口都不可用也照样统计。
-    BOOL apiMode = ProviderShowsAPIUsage(ClaudeUsageDisplayModeKey);
+    BOOL apiMode = ProfileShowsAPIUsage(@"claude", self.configDirectory);
     NSDictionary *monthWindows = CalendarMonthWindows(0);
     NSTimeInterval monthStart = [monthWindows[@"monthStart"] doubleValue];
     NSTimeInterval monthCurveEnd = [monthWindows[@"monthCurveEnd"] doubleValue];
@@ -2187,7 +2191,8 @@ static NSArray<NSDictionary *> *ClaudeDailyTokenSeries(NSArray<NSData *> *record
     // 全是 `--`，看起来像统计坏了。缺额度时百分比照样 `--`，用量正常显示。
     NSDictionary *limits = ClaudeRateLimitsForConfigDirectory(self.configDirectory) ?:
         @{@"fiveHour": NSNull.null, @"week": NSNull.null};
-    NSString *identity = TokenWindowIdentity(limits);
+    NSString *identity = [NSString stringWithFormat:@"%@:%d", TokenWindowIdentity(limits),
+        ProfileShowsAPIUsage(@"claude", self.configDirectory)];
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     BOOL reusable = !self.forcesTokenAggregation && self.tokenUsage &&
         [identity isEqualToString:self.tokenWindowIdentity] &&

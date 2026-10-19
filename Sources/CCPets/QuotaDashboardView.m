@@ -1,5 +1,6 @@
 #import "QuotaDashboardView.h"
 #import "CCPetsL10n.h"
+#import "CCPetsUsageMode.h"
 
 const CGFloat QuotaLogicalWidth = 760;
 const CGFloat QuotaLogicalHeight = 590;
@@ -146,8 +147,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 
 - (NSDictionary *)usageForProvider:(NSString *)name {
     NSDictionary *profile = [self selectedProfileForProvider:name];
-    NSDictionary *usage = profile ? self.profileUsages[profile[@"id"]] : nil;
-    if (usage) return usage;
+    if (profile) return self.profileUsages[profile[@"id"]] ?: @{};
     return [name isEqualToString:@"Codex"] ? (self.codexUsage ?: @{}) : (self.claudeUsage ?: @{});
 }
 
@@ -493,15 +493,18 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 // 在线 = 这一家还有活着的客户端，和有没有额度数据无关：额度会一直缓存着，
 // 拿它当在线信号会恒亮。身份不明的老客户端无法归属到某一家，保守地都算在线。
 - (BOOL)isProviderOnline:(NSString *)name {
-    NSString *profileID = [self selectedProfileForProvider:name][@"id"];
+    return [self isProfileOnline:[self selectedProfileForProvider:name] provider:name];
+}
+- (BOOL)isProfileOnline:(NSDictionary *)profile provider:(NSString *)name {
+    NSString *profileID = profile[@"id"];
     if ([self.liveUnscopedProviders containsObject:name] && [self.liveProviders containsObject:name]) {
         return YES;
     }
     // 只有同一个 Provider 已拿到精确 profileId 时才严格按账号判断。旧 Hook 或启动事件
     // 没有 profileId 时继续使用 provider 级进程信号，不能被另一家 Agent 的 ID 误伤。
     BOOL hasProfileAwareSessionForProvider = NO;
-    for (NSDictionary *profile in [self profilesForProvider:name]) {
-        NSString *candidateID = profile[@"id"];
+    for (NSDictionary *candidate in [self profilesForProvider:name]) {
+        NSString *candidateID = candidate[@"id"];
         if (candidateID.length > 0 && [self.liveProfileIDs containsObject:candidateID]) {
             hasProfileAwareSessionForProvider = YES;
             break;
@@ -512,7 +515,40 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     }
     return [self.liveProviders containsObject:name] || self.hasUnlabeledClient;
 }
-- (NSColor *)primaryColor { return [NSColor colorWithWhite:0.97 alpha:1]; }
+- (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage {
+    BOOL api = profile ? CCPetsProfileShowsAPIUsage(profile)
+        : ([name isEqualToString:@"Codex"] ? self.codexShowsAPIUsage : self.claudeShowsAPIUsage);
+    NSString *usedKey = [name isEqualToString:@"Claude"] ? @"used_percentage" : @"used_percent";
+    BOOL exhausted = [usage[@"exhaustedAt"] isKindOfClass:NSNumber.class];
+    BOOL hasData = api ? [self tokenTotals:usage key:@"month"] != nil
+        : ([self usedForQuota:[self quota:usage key:@"fiveHour"] usedKey:usedKey] ||
+           [self usedForQuota:[self quota:usage key:@"week"] usedKey:usedKey] ||
+           [self tokenTotals:usage key:@"fiveHour"] || [self tokenTotals:usage key:@"week"] || exhausted);
+    BOOL online = [self isProfileOnline:profile provider:name];
+    NSString *state = !api && exhausted ? @"limited" : (!hasData ? @"waiting" : (online ? @"online" : @"offline"));
+    NSString *text = !api && exhausted ? L(@"Rate limited")
+        : (!hasData ? L(@"Waiting for data") : (online ? L(@"● Online") : L(@"Offline")));
+    return @{@"apiMode": @(api), @"online": @(online), @"hasData": @(hasData), @"state": state, @"status": text};
+}
+- (NSDictionary *)accountSnapshotForProvider:(NSString *)name profile:(NSDictionary *)profile {
+    NSString *profileID = profile[@"id"];
+    NSDictionary *usage = profile ? (self.profileUsages[profileID] ?: @{}) : [self usageForProvider:name];
+    NSArray *history = profile ? (self.profileHistories[profileID] ?: @[])
+        : ([name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory);
+    NSMutableDictionary *snapshot = [[self accountStateForProvider:name profile:profile usage:usage] mutableCopy];
+    snapshot[@"provider"] = name;
+    snapshot[@"usage"] = usage ?: @{};
+    snapshot[@"history"] = history ?: @[];
+    if (profile) {
+        snapshot[@"profile"] = profile;
+        snapshot[@"profileId"] = profileID;
+        snapshot[@"profileName"] = profile[@"displayName"] ?: name.lowercaseString;
+    }
+    return snapshot;
+}
+- (NSColor *)primaryColor {
+    return [NSColor colorWithWhite:0.97 alpha:1];
+}
 - (NSColor *)secondaryColor {
     // 没有深色底托着时，0.68 的灰在亮壁纸上会发虚。
     return [NSColor colorWithWhite:self.usesLiquidGlass ? 0.84 : 0.68 alpha:1];
@@ -926,17 +962,17 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         ? usage[@"tokenUsage"] : nil;
     NSArray<NSDictionary *> *monthDaily = [tokenUsage[@"monthDaily"] isKindOfClass:NSArray.class]
         ? tokenUsage[@"monthDaily"] : @[];
-    BOOL apiMode = [name isEqualToString:@"Codex"]
-        ? self.codexShowsAPIUsage : self.claudeShowsAPIUsage;
+    NSDictionary *profile = [self selectedProfileForProvider:name];
+    NSDictionary *state = [self accountStateForProvider:name profile:profile usage:usage];
+    BOOL apiMode = [state[@"apiMode"] boolValue];
     NSNumber *fiveUsed = [self usedForQuota:five usedKey:usedKey];
     NSNumber *weekUsed = [self usedForQuota:week usedKey:usedKey];
     // usage_limit_exceeded 只能说明某次请求被额度限制，不能说明耗尽的是 5 小时还是
     // 7 天窗口；切到 credits 后请求还能继续成功，但 rate_limits 可能一直为空。因此把它
     // 作为独立的“额度受限”状态，不再拿一个无窗口归属的事件覆盖两个官方百分比。
     BOOL exhausted = [usage[@"exhaustedAt"] isKindOfClass:NSNumber.class];
-    BOOL hasData = apiMode ? (monthTokens != nil)
-        : (fiveUsed || weekUsed || fiveTokens || weekTokens || exhausted);
-    BOOL online = [self isProviderOnline:name];
+    BOOL hasData = [state[@"hasData"] boolValue];
+    BOOL online = [state[@"online"] boolValue];
 
     NSBezierPath *cardPath = [NSBezierPath bezierPathWithRoundedRect:card xRadius:18 yRadius:18];
     // 经典主题的浅色渐变放到玻璃上会变成磨砂；原生玻璃下改垫一层深色衬底托住文字。
@@ -997,8 +1033,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         withAttributes:nameAttributes];
     // 四态：额度被拒 → 额度受限（百分比仍是上次官方快照）；没有任何额度数据 → 等待数据；
     // 有数据但客户端已退出 → 离线；两者都有 → 在线。
-    NSString *statusText = (!apiMode && exhausted) ? L(@"Rate limited")
-        : (!hasData ? L(@"Waiting for data") : (online ? L(@"● Online") : L(@"Offline")));
+    NSString *statusText = state[@"status"];
     NSColor *statusColor = (!apiMode && exhausted) ? NSColor.systemOrangeColor
         : (online && hasData ? NSColor.systemGreenColor : secondary);
     if (self.usesLiquidGlass) {
@@ -1203,8 +1238,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     [L(@"Trend") drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
         withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
     NSString *profileID = [self selectedProfileForProvider:name][@"id"];
-    NSArray<NSDictionary *> *history = profileID.length > 0 ? self.profileHistories[profileID] : nil;
-    if (!history) history = [name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory;
+    NSArray<NSDictionary *> *history = profileID.length > 0 ? (self.profileHistories[profileID] ?: @[])
+        : ([name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory);
     NSNumber *currentUsed = weekUsed;
     NSArray<NSDictionary *> *points = [self curvePointsFromHistory:history currentUsed:currentUsed];
     // 趋势这一列算的是 7 天窗口（currentUsed 取 weekUsed）。而 exhaustedAt 来自

@@ -1,8 +1,10 @@
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsDoctor.h"
+#import "CCPetsCLISupport.h"
 #import "CCPetsFormBuilder.h"
 #import "CCPetsL10n.h"
 #import "CCPetsUIStyle.h"
+#import <objc/runtime.h>
 
 static void CopyToPasteboard(NSString *text) {
     [NSPasteboard.generalPasteboard clearContents];
@@ -15,6 +17,8 @@ NSNotificationName const CCPetsDiagnosticsDidChangeNotification = @"CCPetsDiagno
 static NSArray<NSDictionary *> *DiagnosticsSections;
 static NSDate *DiagnosticsCheckedAt;
 static BOOL DiagnosticsRunning;
+static BOOL DiagnosticsRepairing;
+static NSString *DiagnosticsRepairMessage;
 static const NSTimeInterval DiagnosticsFreshness = 600;
 
 @implementation CCPetsDiagnosticsStore
@@ -26,6 +30,9 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
 + (BOOL)running {
     return DiagnosticsRunning;
 }
+
++ (BOOL)repairing { return DiagnosticsRepairing; }
++ (NSString *)repairMessage { return DiagnosticsRepairMessage; }
 
 + (NSDate *)checkedAt {
     return DiagnosticsCheckedAt;
@@ -61,6 +68,64 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
     });
 }
 
++ (void)repairIssues:(NSArray<NSDictionary *> *)issues {
+    if (DiagnosticsRunning) return;
+    NSMutableOrderedSet<NSString *> *profileIDs = [NSMutableOrderedSet orderedSet];
+    for (NSDictionary *issue in issues) {
+        NSString *profileID = issue[@"repairProfileID"];
+        if ([profileID isKindOfClass:NSString.class] && profileID.length > 0) [profileIDs addObject:profileID];
+    }
+    if (profileIDs.count == 0) return;
+    DiagnosticsRunning = YES;
+    DiagnosticsRepairing = YES;
+    DiagnosticsRepairMessage = nil;
+    [NSNotificationCenter.defaultCenter postNotificationName:CCPetsDiagnosticsDidChangeNotification object:nil];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSMutableArray<NSString *> *details = [NSMutableArray array];
+        BOOL failed = NO;
+        for (NSString *profileID in profileIDs) {
+            NSString *output = nil, *errorOutput = nil;
+            int status = CCPetsRun(CCPetsExecutablePath(), @[@"doctor", @"--repair-profile", profileID],
+                nil, nil, 60, &output, &errorOutput);
+            if (status != 0) {
+                failed = YES;
+                NSString *reason = status == CCPetsRunTimedOut ? L(@"The repair timed out.")
+                    : (status == CCPetsRunLaunchFailed ? L(@"The repair command could not be started.") : nil);
+                if (reason) [details addObject:reason];
+                if (errorOutput.length > 0) [details addObject:errorOutput];
+                if (output.length > 0) [details addObject:output];
+            } else {
+                for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+                    // 安装器的详细输出只在失败时显示，成功保留备份位置。
+                    if ([line hasPrefix:[NSString stringWithFormat:L(@"Configuration backup: %@"), @""]]) {
+                        [details addObject:line];
+                    }
+                }
+            }
+        }
+        NSArray<NSDictionary *> *sections = CCPetsDoctorSectionsForApp();
+        BOOL unresolved = NO;
+        for (NSDictionary *section in sections) {
+            for (NSDictionary *result in section[@"results"]) {
+                if (result[@"repairProfileID"] && [profileIDs containsObject:result[@"repairProfileID"]] &&
+                    ([@[@"fail", @"warn"] containsObject:result[@"level"]])) unresolved = YES;
+            }
+        }
+        NSString *summary = failed ? L(@"Some repairs failed. See the details below or copy the command to retry in a terminal.")
+            : (unresolved ? L(@"Repair finished, but some issues still need attention. The checks have been refreshed.")
+                : L(@"Repair completed. The checks have been refreshed."));
+        NSString *message = [[@[summary] arrayByAddingObjectsFromArray:details] componentsJoinedByString:@"\n"];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            DiagnosticsSections = sections;
+            DiagnosticsCheckedAt = NSDate.date;
+            DiagnosticsRepairMessage = message;
+            DiagnosticsRepairing = NO;
+            DiagnosticsRunning = NO;
+            [NSNotificationCenter.defaultCenter postNotificationName:CCPetsDiagnosticsDidChangeNotification object:nil];
+        });
+    });
+}
+
 @end
 
 #pragma mark - 页面
@@ -82,7 +147,7 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
 @property(nonatomic) NSProgressIndicator *spinner;
 @property(nonatomic) NSButton *recheckButton;
 @property(nonatomic) NSButton *reportButton;
-@property(nonatomic) NSMutableArray<CCPetsDiagnosticsHandler *> *handlers;
+@property(nonatomic) NSButton *repairAllButton;
 // 正常项默认折叠；展开状态跨重新检查保留。
 @property(nonatomic) BOOL showsPassed;
 @end
@@ -95,14 +160,14 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
     button.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
     CCPetsDiagnosticsHandler *handler = [CCPetsDiagnosticsHandler new];
     handler.block = ^(id sender) { action(sender); };
-    [self.handlers addObject:handler];
     button.target = handler;
     button.action = @selector(invoke:);
+    static char HandlerKey;
+    objc_setAssociatedObject(button, &HandlerKey, handler, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return button;
 }
 
 - (void)loadView {
-    self.handlers = [NSMutableArray array];
     self.form = [[CCPetsFormBuilder alloc] initWithTitle:L(@"Diagnostics") subtitle:L(@"Checking…")];
 
     NSProgressIndicator *spinner = [NSProgressIndicator new];
@@ -115,7 +180,12 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
     self.recheckButton = [self buttonWithTitle:L(@"Re-check") action:^(NSButton *sender) {
         [CCPetsDiagnosticsStore refresh];
     }];
-    [self.form setAccessoryViews:@[spinner, self.reportButton, self.recheckButton]];
+    self.repairAllButton = [self buttonWithTitle:L(@"Fix All") action:^(NSButton *sender) {
+        NSArray *issues = [[weakSelf resultsWithLevels:@[@"fail"]]
+            arrayByAddingObjectsFromArray:[weakSelf resultsWithLevels:@[@"warn"]]];
+        [CCPetsDiagnosticsStore repairIssues:issues];
+    }];
+    [self.form setAccessoryViews:@[spinner, self.reportButton, self.recheckButton, self.repairAllButton]];
     self.view = self.form.view;
 
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(storeDidChange:)
@@ -153,6 +223,7 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
     NSArray<NSDictionary *> *sections = CCPetsDiagnosticsStore.sections;
     self.reportButton.enabled = sections.count > 0;
     [self.form removeAllContent];
+    self.repairAllButton.hidden = YES;
     if (!sections) {
         self.form.subtitleLabel.stringValue = L(@"Checking…");
         return;
@@ -163,14 +234,24 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
         arrayByAddingObjectsFromArray:[self resultsWithLevels:@[@"warn"]]];
     NSArray<NSDictionary *> *passed = [self resultsWithLevels:@[@"ok"]];
     NSArray<NSDictionary *> *notes = [self resultsWithLevels:@[@"info"]];
+    BOOL repairable = NO;
+    for (NSDictionary *issue in issues) if (issue[@"repairProfileID"]) repairable = YES;
+    self.repairAllButton.hidden = !repairable && !CCPetsDiagnosticsStore.repairing;
+    self.repairAllButton.enabled = repairable && !running;
+    self.repairAllButton.title = CCPetsDiagnosticsStore.repairing ? L(@"Repairing…") : L(@"Fix All");
     NSUInteger total = issues.count + passed.count + notes.count;
-    NSString *checked = running ? L(@"Checking…") : [NSString stringWithFormat:L(@"Last checked %@"),
+    NSString *checked = running ? (CCPetsDiagnosticsStore.repairing ? L(@"Repairing…") : L(@"Checking…"))
+        : [NSString stringWithFormat:L(@"Last checked %@"),
         [NSDateFormatter localizedStringFromDate:CCPetsDiagnosticsStore.checkedAt
             dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle]];
     self.form.subtitleLabel.stringValue = [NSString stringWithFormat:L(@"%1$@ · %2$lu checks"), checked,
         (unsigned long)total];
 
     [self.form addView:[self healthBannerForIssues:issues]];
+    if (CCPetsDiagnosticsStore.repairMessage.length > 0) {
+        NSTextField *message = [self.form addFootnote:CCPetsDiagnosticsStore.repairMessage];
+        message.selectable = YES;
+    }
     for (NSDictionary *issue in issues) [self.form addView:[self issueCard:issue]];
     if (passed.count > 0) [self.form addView:[self passedCard:passed]];
     for (NSDictionary *note in notes) {
@@ -200,7 +281,7 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
         : (issues.count == 1 ? L(@"1 item needs attention")
             : [NSString stringWithFormat:L(@"%lu items need attention"), (unsigned long)issues.count]);
     NSString *detail = issues.count == 0 ? L(@"Hooks, the status line and the command line tools are all in place.")
-        : L(@"Fixing these changes your shell and Claude Code / Codex settings, so the commands are shown here for you to run.");
+        : L(@"Auto-fix backs up your configuration and repairs registered Agent Hooks and the Claude status line. For other issues, copy the command and run it in a terminal.");
     NSTextField *titleLabel = CCPetsLabel(title, 15, NSFontWeightBold, CCPetsInkColor());
     NSTextField *detailLabel = CCPetsWrappingLabel(detail, 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
     NSStackView *texts = [NSStackView stackViewWithViews:@[titleLabel, detailLabel]];
@@ -254,7 +335,17 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
             [weakSelf flashCopied:sender original:L(@"Copy Command")];
         }];
         [copy setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        NSStackView *line = [NSStackView stackViewWithViews:@[code, copy]];
+        NSMutableArray<NSView *> *actions = [NSMutableArray arrayWithObjects:code, copy, nil];
+        if (issue[@"repairProfileID"]) {
+            NSButton *repair = [self buttonWithTitle:L(@"Auto-fix") action:^(NSButton *sender) {
+                [CCPetsDiagnosticsStore repairIssues:@[issue]];
+            }];
+            repair.enabled = !CCPetsDiagnosticsStore.running;
+            [repair setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+            [repair setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+            [actions addObject:repair];
+        }
+        NSStackView *line = [NSStackView stackViewWithViews:actions];
         line.spacing = 8;
         line.alignment = NSLayoutAttributeCenterY;
         [NSLayoutConstraint activateConstraints:@[
@@ -286,7 +377,11 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
 
 // 正常项折叠成一行"✓ 11 项正常"，点开看清单。
 - (NSView *)passedCard:(NSArray<NSDictionary *> *)passed {
-    NSButton *toggle = [self buttonWithTitle:@"" action:^(NSButton *sender) {}];
+    __weak typeof(self) weakSelf = self;
+    NSButton *toggle = [self buttonWithTitle:@"" action:^(NSButton *sender) {
+        weakSelf.showsPassed = !weakSelf.showsPassed;
+        [weakSelf render];
+    }];
     toggle.bordered = NO;
     toggle.imagePosition = NSImageLeft;
     toggle.image = [NSImage imageWithSystemSymbolName:self.showsPassed ? @"chevron.down" : @"chevron.right"
@@ -297,12 +392,6 @@ static const NSTimeInterval DiagnosticsFreshness = 600;
             (unsigned long)passed.count]] attributes:@{
         NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: CCPetsStatusColor(CCPetsStatusOK)}];
-    __weak typeof(self) weakSelf = self;
-    CCPetsDiagnosticsHandler *handler = self.handlers.lastObject;
-    handler.block = ^(id sender) {
-        weakSelf.showsPassed = !weakSelf.showsPassed;
-        [weakSelf render];
-    };
     NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:toggle];
     if (self.showsPassed) {
         for (NSDictionary *result in passed) {

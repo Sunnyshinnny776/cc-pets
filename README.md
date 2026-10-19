@@ -239,8 +239,17 @@ cc-pets open general       # also: pet, alerts, diagnostics
   (Overview, Sessions, Usage, Pet) and **General** (Alerts,
   Settings). Diagnostics sits at the bottom with a badge when something needs fixing.
 - **Overview** — the pet and what it is doing, today's total usage with input, output, cached input and requests,
-  a notice when diagnostics found problems, and your Claude / Codex plan quota as rings
-  (5-hour and weekly remaining, reset times, weekly pace).
+  a notice when diagnostics found problems, and compact account cards using the hover
+  panel's data. Plan mode shows 5-hour and weekly quota rings, reset times and weekly pace.
+  API mode shows monthly calls and total tokens, with daily call averages and input/output
+  tokens underneath. Every registered account has its own card in a two-column grid.
+  **Check Diagnostics** sits next to the account name only when that account has a
+  diagnostic warning or failure; missing quota data alone does not trigger it.
+  Existing Plan/API pills remain available per registered account, inheriting the old
+  provider preference until customized. Accounts identified as API authentication are
+  fixed to API usage and cannot switch; subscription accounts can still choose either
+  display. Unknown authentication keeps manual switching available. Detection runs in the
+  background without retaining keys or authentication command output.
 - **Sessions** — the Agent sessions online right now (sessions waiting for
   approval first, each with **Go to Terminal**) and CC Bridge traffic: messages waiting in
   an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
@@ -264,7 +273,11 @@ cc-pets open general       # also: pet, alerts, diagnostics
   order check only points you to `cc-pets doctor` in a terminal, since the pet's own PATH
   isn't your terminal's.
   **Re-check** and **Copy Report** (paths are shown as `~`, so it is safe to paste into an
-  issue). It only reads; run the fix commands yourself.
+  issue). Registered accounts' Hooks and Claude status line issues offer **Auto-fix** and
+  **Fix All**. Configuration and affected scripts are backed up before changes, then checks
+  run again automatically. The page shows backup locations and any failures; each backup's
+  `manifest.json` records original paths, permissions and backup files. Other issues retain
+  their manual commands. Plain `cc-pets doctor` remains read-only.
 
 The window is created when you open it and released when you close it, and nothing runs in
 the background while it is closed. The Dock icon and menu bar appear only while it is open;

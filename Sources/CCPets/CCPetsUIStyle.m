@@ -311,6 +311,12 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 
 @implementation CCPetsPillButton
 
+- (void)setEnabled:(BOOL)enabled {
+    [super setEnabled:enabled];
+    self.alphaValue = enabled ? 1.0 : 0.55;
+    [self.window invalidateCursorRectsForView:self];
+}
+
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         self.bordered = NO;
@@ -353,7 +359,7 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 }
 
 - (void)resetCursorRects {
-    [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+    [self addCursorRect:self.bounds cursor:self.enabled ? NSCursor.pointingHandCursor : NSCursor.arrowCursor];
 }
 
 @end

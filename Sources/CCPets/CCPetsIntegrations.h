@@ -25,6 +25,8 @@ BOOL CCPetsIsManagedHookCommand(id command, NSString *marker, NSString *executab
 BOOL CCPetsIsManagedStatusLine(NSString *command, NSString *marker);
 // 能就地注入 prelude 的 status line 命令解析出的脚本：@{script, target, interpreter, flags}，不能注入时为 nil。
 NSDictionary<NSString *, id> *CCPetsParseStatusLineCommand(id command);
+// 安装 Claude Hooks 可能修改的文件（配置与可注入的 status line 脚本），供诊断修复前备份。
+NSArray<NSString *> *CCPetsClaudeIntegrationFilesAtHome(NSString *claudeHome);
 
 // 写入 Hooks。binary 是写进 hook 命令的 cc-pets 路径，必须是 <包目录>/.build/release/cc-pets：
 // 卸载和 cc-pets doctor 按这个后缀认领条目。

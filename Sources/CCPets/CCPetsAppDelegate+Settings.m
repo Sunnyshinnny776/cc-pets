@@ -4,6 +4,8 @@
 // 真正写设置并让界面生效的是 updateXxx:，不认识任何菜单控件，主窗口设置页直接调它。
 // 写 defaults 一律经过 CCPetsPreferences，两边才拿得到同一套钳制和变更广播。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsUsageMode.h"
+#import "CCPetsWorkbench.h"
 
 @implementation AppDelegate (Settings)
 - (void)setPetSizeFromSlider:(NSSlider *)sender {
@@ -53,6 +55,15 @@
     self.quotaView.needsDisplay = YES;
 }
 - (void)setUsageDisplayModeFromControl:(NSButton *)sender {
+    if (sender.identifier.length > 0) {
+        NSDictionary *profile = CCPetsProfileWithID(sender.identifier);
+        if (!profile) { sender.enabled = NO; return; }
+        [self updateUsageDisplayMode:CCPetsProfileShowsAPIUsage(profile) ? @"subscription" : @"api"
+            forProfileID:sender.identifier];
+        sender.state = CCPetsProfileShowsAPIUsage(profile) ? NSControlStateValueOn : NSControlStateValueOff;
+        sender.enabled = CCPetsProfileCanSwitchUsageMode(profile);
+        return;
+    }
     NSString *key = sender.tag == 1 ? CodexUsageDisplayModeKey
         : (sender.tag == 2 ? ClaudeUsageDisplayModeKey : nil);
     NSString *mode = sender.state == NSControlStateValueOn ? @"api" : @"subscription";
@@ -67,6 +78,16 @@
     // 展示模式决定了会话要回溯多远（订阅 8 天 / API 到上月月初），切换之后必须重新聚合，
     // 否则刚打开 API 视图时手里只有一段按 8 天窗口扫出来的数据。
     [self refreshUsage:nil];
+    [NSNotificationCenter.defaultCenter postNotificationName:CCPetsWorkbenchQuotasDidChangeNotification object:nil];
+}
+- (void)updateUsageDisplayMode:(NSString *)mode forProfileID:(NSString *)profileID {
+    NSDictionary *profile = CCPetsProfileWithID(profileID);
+    if (!profile || !CCPetsProfileCanSwitchUsageMode(profile) ||
+        ![@[@"api", @"subscription"] containsObject:mode]) return;
+    CCPetsPrefSetObject(CCPetsUsageModePreferenceKey(profile), mode);
+    self.quotaView.needsDisplay = YES;
+    [self refreshUsage:nil];
+    [NSNotificationCenter.defaultCenter postNotificationName:CCPetsWorkbenchQuotasDidChangeNotification object:nil];
 }
 - (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled {
     if (![@[SystemCPUEnabledKey, SystemTemperatureEnabledKey, SystemMemoryEnabledKey]
