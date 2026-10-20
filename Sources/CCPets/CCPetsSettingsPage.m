@@ -895,8 +895,6 @@ static const NSUInteger PetPickerColumns = 4;
     [self.form addGroupWithTitle:L(@"Data") rows:@[
         [CCPetsFormBuilder rowWithTitle:L(@"Pet sprites folder") subtitle:[self displayPath:OwnPetsDirectory()]
             controls:@[[self smallButtonWithTitle:L(@"Show in Finder") action:^{ RevealFolder(OwnPetsDirectory()); }]]],
-        [CCPetsFormBuilder rowWithTitle:L(@"App data folder") subtitle:[self displayPath:ApplicationSupportDirectory()]
-            controls:@[[self smallButtonWithTitle:L(@"Show in Finder") action:^{ RevealFolder(ApplicationSupportDirectory()); }]]],
     ] footer:nil];
 }
 
