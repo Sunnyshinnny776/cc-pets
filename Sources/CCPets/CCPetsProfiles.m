@@ -10,6 +10,9 @@
 NSString *const CCPetsProfileProviderClaude = @"claude";
 NSString *const CCPetsProfileProviderCodex = @"codex";
 NSNotificationName const CCPetsProfilesDidChangeNotification = @"CCPetsProfilesDidChange";
+NSString *const CCPetsProfileStateIntegrated = @"integrated";
+NSString *const CCPetsProfileStateRepair = @"repair";
+NSString *const CCPetsProfileStateUnavailable = @"unavailable";
 
 static NSString *ProfilesDirectory(void) {
     return [CCPetsHomeDirectory() stringByAppendingPathComponent:@".cc-pets"];
@@ -251,7 +254,7 @@ static BOOL FileContainsMarker(NSString *path, NSString *marker) {
 NSDictionary *CCPetsProfileStatus(NSDictionary *profile) {
     NSString *provider = profile[@"provider"], *home = profile[@"home"];
     BOOL available = CCPetsDirectoryExists(home);
-    if (!available) return @{@"state": @"unavailable", @"available": @NO,
+    if (!available) return @{@"state": CCPetsProfileStateUnavailable, @"available": @NO,
         @"petHooks": @NO, @"bridge": @NO};
     NSString *config = [home stringByAppendingPathComponent:
         [provider isEqualToString:CCPetsProfileProviderClaude] ? @"settings.json" : @"hooks.json"];
@@ -266,8 +269,14 @@ NSDictionary *CCPetsProfileStatus(NSDictionary *profile) {
         (profileID.length == 0 || [configText containsString:profileID]);
     BOOL bridgeExpected = CCBridgeEnabled();
     BOOL healthy = petHooks && (!bridgeExpected || bridge) && ![profile[@"needsRepair"] boolValue];
-    return @{@"state": healthy ? @"integrated" : @"repair",
+    return @{@"state": healthy ? CCPetsProfileStateIntegrated : CCPetsProfileStateRepair,
         @"available": @YES, @"petHooks": @(petHooks), @"bridge": @(bridge)};
+}
+
+NSString *CCPetsProfileStateTitle(NSString *state) {
+    if ([state isEqualToString:CCPetsProfileStateIntegrated]) return L(@"Integrated");
+    if ([state isEqualToString:CCPetsProfileStateUnavailable]) return L(@"Home unavailable");
+    return L(@"Needs repair");
 }
 
 BOOL CCPetsMigrateManagedDefaultProfiles(NSString **errorMessage) {

@@ -1,5 +1,7 @@
 #import "CCPetsSettingsPage.h"
 #import "CCPetsBridge.h"
+#import "CCPetsCLISupport.h"
+#import "CCPetsDiagnosticsPage.h"
 #import "CCPetsFormBuilder.h"
 #import "CCPetsGlassView.h"
 #import "CCPetsImageLoader.h"
@@ -229,6 +231,139 @@ static void RevealFolder(NSString *path) {
     label.alignment = NSTextAlignmentRight;
     [label.widthAnchor constraintEqualToConstant:40].active = YES;
     return label;
+}
+
+@end
+
+#pragma mark - 多账号
+
+@interface CCPetsAccountsPage ()
+// 上次建页时的账号与集成状态；没变就不重建，免得切页、回到前台时整页闪一下。
+@property(nonatomic, copy) NSArray<NSDictionary *> *entries;
+// 控件回调（弹出菜单、确认框、选文件面板）期间主队列照样会跑，这时重建会释放正在执行的
+// 闭包和弹出菜单所依附的按钮，只记下来，等回调返回后再建。
+@property(nonatomic) NSInteger interactionDepth;
+@property(nonatomic) BOOL needsRebuild;
+@end
+
+@implementation CCPetsAccountsPage
+
+- (NSString *)pageTitle {
+    return L(@"Multi-Account");
+}
+
+- (NSString *)pageSubtitle {
+    return L(@"Add and manage Claude and Codex Homes.");
+}
+
+- (void)loadView {
+    [super loadView];
+    // 集成状态还取决于 CC Bridge 开关和各 Home 的配置文件：诊断修复、命令行改动之后回到 App 时也要重读。
+    for (NSNotificationName name in @[CCPetsProfilesDidChangeNotification, CCPetsDiagnosticsDidChangeNotification,
+        NSApplicationDidBecomeActiveNotification]) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(profilesDidChange:)
+            name:name object:nil];
+    }
+}
+
+- (void)viewWillAppear {
+    [super viewWillAppear];
+    [self profilesDidChange:nil];
+}
+
+- (void)profilesDidChange:(NSNotification *)notification {
+    if (notification && !self.view.window) return;
+    if (self.interactionDepth > 0) {
+        self.needsRebuild = YES;
+        return;
+    }
+    if ([self.entries isEqualToArray:[self currentEntries]]) return;
+    [self.handlers removeAllObjects];
+    [self.reloaders removeAllObjects];
+    [self.form removeAllContent];
+    [self buildContent];
+}
+
+- (NSArray<NSDictionary *> *)currentEntries {
+    NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+    for (NSDictionary *profile in CCPetsProfiles()) {
+        [entries addObject:@{@"profile": profile, @"state": CCPetsProfileStatus(profile)[@"state"] ?: @""}];
+    }
+    return entries.copy;
+}
+
+- (void)bind:(NSControl *)control to:(void (^)(id sender))block {
+    __weak typeof(self) weakSelf = self;
+    [super bind:control to:^(id sender) {
+        typeof(self) strongSelf = weakSelf;
+        strongSelf.interactionDepth++;
+        block(sender);
+        strongSelf.interactionDepth--;
+        if (strongSelf.interactionDepth > 0 || !strongSelf.needsRebuild) return;
+        strongSelf.needsRebuild = NO;
+        // 下一轮再建：现在还在这个控件的闭包里。
+        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf profilesDidChange:nil]; });
+    }];
+}
+
+- (NSButton *)manageButtonForProfile:(NSDictionary *)profile {
+    __weak typeof(self) weakSelf = self;
+    NSButton *button = [NSButton buttonWithTitle:L(@"Manage…") target:nil action:nil];
+    button.controlSize = NSControlSizeSmall;
+    button.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    [self bind:button to:^(NSButton *sender) {
+        NSMenu *menu = [NSMenu new];
+        NSMutableArray<NSArray *> *actions = [@[
+            @[L(@"Repair Integration"), NSStringFromSelector(@selector(repairAgentProfile:))],
+            @[L(@"Rename…"), NSStringFromSelector(@selector(renameAgentProfile:))]
+        ] mutableCopy];
+        if (!CCPetsProfileIsOfficialDefault(profile)) {
+            [actions addObject:@[L(@"Relocate Home…"), NSStringFromSelector(@selector(relocateAgentProfile:))]];
+            [actions addObject:@[L(@"Remove Integration…"), NSStringFromSelector(@selector(removeAgentProfile:))]];
+        }
+        for (NSArray *action in actions) {
+            NSMenuItem *item = [menu addItemWithTitle:action[0]
+                action:NSSelectorFromString(action[1]) keyEquivalent:@""];
+            item.target = weakSelf.actions;
+            item.representedObject = profile[@"id"];
+        }
+        [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSMaxY(sender.bounds)) inView:sender];
+    }];
+    return button;
+}
+
+- (void)buildContent {
+    __weak typeof(self) weakSelf = self;
+    [self.form setAccessoryViews:@[
+        [self smallButtonWithTitle:L(@"Add Claude Home…") action:^{ [weakSelf.actions addClaudeProfile:nil]; }],
+        [self smallButtonWithTitle:L(@"Add Codex Home…") action:^{ [weakSelf.actions addCodexProfile:nil]; }]
+    ]];
+    self.entries = [self currentEntries];
+    if (self.entries.count == 0) {
+        [self.form addGroupWithTitle:nil rows:@[
+            [CCPetsFormBuilder rowWithTitle:L(@"No Agent accounts detected")
+                subtitle:L(@"Use the buttons above to add an existing Claude or Codex Home.") controls:@[]]
+        ] footer:nil];
+        return;
+    }
+    for (NSString *provider in @[CCPetsProfileProviderClaude, CCPetsProfileProviderCodex]) {
+        NSMutableArray<NSView *> *rows = [NSMutableArray array];
+        for (NSDictionary *entry in self.entries) {
+            NSDictionary *profile = entry[@"profile"];
+            if (![profile[@"provider"] isEqualToString:provider]) continue;
+            NSString *state = entry[@"state"];
+            NSColor *color = [state isEqualToString:CCPetsProfileStateIntegrated]
+                ? CCPetsSecondaryInkColor() : NSColor.systemOrangeColor;
+            NSTextField *label = CCPetsLabel(CCPetsProfileStateTitle(state), 11, NSFontWeightRegular, color);
+            NSView *row = [CCPetsFormBuilder rowWithTitle:profile[@"displayName"] ?: profile[@"slug"]
+                subtitle:CCPetsTildePath(profile[@"home"])
+                controls:@[label, [self manageButtonForProfile:profile]]];
+            row.toolTip = profile[@"home"];
+            [rows addObject:row];
+        }
+        if (rows.count > 0) [self.form addGroupWithTitle:
+            [provider isEqualToString:CCPetsProfileProviderClaude] ? @"Claude" : @"Codex" rows:rows footer:nil];
+    }
 }
 
 @end

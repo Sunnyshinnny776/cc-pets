@@ -1430,7 +1430,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         [L(@"Official Homes appear automatically")
             drawInRect:NSMakeRect(28, noticeTop - 52, 560, 20)
             withAttributes:[self textAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
-        [L(@"Add custom Homes from Agent Accounts in the CC Pets menu")
+        [L(@"Add custom Homes from Multi-Account in the main window")
             drawInRect:NSMakeRect(28, noticeTop - 72, 560, 18)
             withAttributes:[self textAttributesWithSize:11
                 color:[NSColor colorWithWhite:0.52 alpha:1] weight:NSFontWeightRegular]];

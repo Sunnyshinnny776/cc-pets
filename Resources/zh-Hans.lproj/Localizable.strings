@@ -691,7 +691,7 @@
 "Refusing to delete: {targetApp} isn't the CC Pets app (bundle ID mismatch)." = "拒绝删除：{targetApp} 不是 CC Pets 应用（Bundle ID 不匹配）。";
 "App removed: {targetApp}" = "已删除应用: {targetApp}";
 "App not installed: {targetApp}" = "未安装应用: {targetApp}";
-"Usage: cc-pets [command]\n\n  cc-pets                    Start the pet (prefers the copy installed in ~/Applications)\n  cc-pets install            Install or repair the shell / Claude Code / Codex integrations\n  cc-pets uninstall          Remove the integrations and restore the status line\n  cc-pets uninstall --purge  Also delete the app, app data and preferences (asks first; keeps pets and lines in ~/.cc-pets)\n  cc-pets uninstall-app      Only delete ~/Applications/CC Pets.app\n  cc-pets build              Rebuild\n  cc-pets clean              Clear caches (quit the pet first)\n  cc-pets doctor             Check the installation and integrations, with suggested fixes\n  cc-pets open [page]        Open the main window (pages: overview, sessions, usage, pet, alerts, general, diagnostics)\n  cc-pets paths [--json]     List where settings, caches and data live, and their sizes\n  cc-pets pet <command>      Manage pet sprites; see cc-pets pet help\n  cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help\n  cc-pets --status           Print the current Codex quota\n  cc-pets --history          Print quota history (JSON)\n  cc-pets --foreground       Run the pet in the foreground (for debugging)\n  cc-pets -v, --version      Show the version\n  cc-pets -h, --help         Show this help\n\ncodex-with-pet / claude-with-pet start the pet along with the CLI." = "用法：cc-pets [命令]\n\n  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）\n  cc-pets install            安装或修复 shell / Claude Code / Codex 集成\n  cc-pets uninstall          移除集成并恢复 status line\n  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）\n  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app\n  cc-pets build              重新构建\n  cc-pets clean              清理缓存（需先退出桌宠）\n  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议\n  cc-pets open [页面]        打开主窗口（页面：overview、sessions、usage、pet、alerts、general、diagnostics）\n  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小\n  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help\n  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help\n  cc-pets --status           输出 Codex 当前额度\n  cc-pets --history          输出额度历史（JSON）\n  cc-pets --foreground       在前台运行桌宠（调试用）\n  cc-pets -v, --version      显示版本\n  cc-pets -h, --help         显示本帮助\n\ncodex-with-pet / claude-with-pet 会在启动 CLI 的同时拉起桌宠。";
+"Usage: cc-pets [command]\n\n  cc-pets                    Start the pet (prefers the copy installed in ~/Applications)\n  cc-pets install            Install or repair the shell / Claude Code / Codex integrations\n  cc-pets uninstall          Remove the integrations and restore the status line\n  cc-pets uninstall --purge  Also delete the app, app data and preferences (asks first; keeps pets and lines in ~/.cc-pets)\n  cc-pets uninstall-app      Only delete ~/Applications/CC Pets.app\n  cc-pets build              Rebuild\n  cc-pets clean              Clear caches (quit the pet first)\n  cc-pets doctor             Check the installation and integrations, with suggested fixes\n  cc-pets open [page]        Open the main window (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics)\n  cc-pets paths [--json]     List where settings, caches and data live, and their sizes\n  cc-pets pet <command>      Manage pet sprites; see cc-pets pet help\n  cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help\n  cc-pets --status           Print the current Codex quota\n  cc-pets --history          Print quota history (JSON)\n  cc-pets --foreground       Run the pet in the foreground (for debugging)\n  cc-pets -v, --version      Show the version\n  cc-pets -h, --help         Show this help\n\ncodex-with-pet / claude-with-pet start the pet along with the CLI." = "用法：cc-pets [命令]\n\n  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）\n  cc-pets install            安装或修复 shell / Claude Code / Codex 集成\n  cc-pets uninstall          移除集成并恢复 status line\n  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）\n  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app\n  cc-pets build              重新构建\n  cc-pets clean              清理缓存（需先退出桌宠）\n  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议\n  cc-pets open [页面]        打开主窗口（页面：overview、sessions、usage、pet、accounts、alerts、general、diagnostics）\n  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小\n  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help\n  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help\n  cc-pets --status           输出 Codex 当前额度\n  cc-pets --history          输出额度历史（JSON）\n  cc-pets --foreground       在前台运行桌宠（调试用）\n  cc-pets -v, --version      显示版本\n  cc-pets -h, --help         显示本帮助\n\ncodex-with-pet / claude-with-pet 会在启动 CLI 的同时拉起桌宠。";
 "Main menu" = "主菜单";
 "Settings…" = "设置…";
 "Window" = "窗口";
@@ -815,7 +815,8 @@
 "Pick the pet that lives on your desktop, its size, how chatty it is and how it reacts when poked." = "选一只住在桌面上的宠物，调整它的大小、话多不多，以及戳它时的反应。";
 "When to interrupt you: system notifications, the status card and message badges." = "什么时候打扰你：系统通知、桌面状态卡和消息角标。";
 "The main window can't see your terminal's PATH; run cc-pets doctor in a terminal to check the shim order" = "主窗口看不到终端的 PATH，要确认 shim 是否排在最前，请在终端里运行 cc-pets doctor";
-"Agent Accounts" = "Agent 账户";
+"Multi-Account" = "多账号";
+"Agent profiles" = "Agent 配置";
 "Add Claude Home…" = "添加 Claude Home…";
 "Add Codex Home…" = "添加 Codex Home…";
 "Repair Integration" = "修复集成";
@@ -850,9 +851,9 @@
 "Removing %@" = "正在移除 %@";
 "The CC Pets integration was removed. The Agent Home and its data were kept." = "CC Pets 集成已移除，Agent Home 及其数据已保留。";
 "All accounts" = "全部账号";
-"No Agent accounts detected" = "尚未检测到 Agent 账户";
+"No Agent accounts detected" = "尚未检测到账号";
 "Official Homes appear automatically" = "官方 Home 会自动显示";
-"Add custom Homes from Agent Accounts in the CC Pets menu" = "自定义 Home 请从 CC Pets 菜单的 Agent 账户中添加";
+"Add custom Homes from Multi-Account in the main window" = "自定义 Home 请从主窗口的“多账号”中添加";
 "Configuring {name}…" = "正在配置 {name}…";
 "{name}: {error}" = "{name}：{error}";
 "Rename…" = "重命名…";
@@ -869,12 +870,20 @@
 "Agent profile registry" = "Agent 配置注册表";
 "Agent profile: %@" = "Agent 配置：%@";
 "No registered Agent profiles" = "没有已登记的 Agent 配置";
-"Some registered Agent profiles need repair; open Agent Accounts from the CC Pets menu and retry." = "部分已登记的 Agent 账户需要修复；请从 CC Pets 菜单打开 Agent 账户后重试。";
-"Default Claude and Codex Homes were integrated automatically; add custom Homes from Agent Accounts in the CC Pets menu." = "Claude 和 Codex 的官方默认 Home 已自动集成；自定义 Home 请从 CC Pets 菜单的 Agent 账户中添加。";
-"No Agent Homes are registered; CC Bridge will be applied when you add one from the CC Pets menu." = "尚未登记 Agent Home；以后从 CC Pets 菜单添加时会自动接入 CC Bridge。";
+"Some registered Agent profiles need repair; open Multi-Account in the main window and retry." = "部分已登记的账号需要修复；请打开主窗口的“多账号”后重试。";
+"Default Claude and Codex Homes were integrated automatically; add custom Homes from Multi-Account in the main window." = "Claude 和 Codex 的官方默认 Home 已自动集成；自定义 Home 请从主窗口的“多账号”中添加。";
+"No Agent Homes are registered; CC Bridge will be applied when you add one from Multi-Account in the main window." = "尚未登记 Agent Home；以后从主窗口的“多账号”添加时会自动接入 CC Bridge。";
 "CC Bridge hooks installed in %@" = "%@ 已安装 CC Bridge Hooks";
 "CC Bridge hooks missing in %@" = "%@ 缺少 CC Bridge Hooks";
 "Claude Code executable not found; MCP registration was not removed." = "未找到 Claude Code 可执行文件，MCP 注册尚未移除。";
 "Codex executable not found; MCP registration was not removed." = "未找到 Codex 可执行文件，MCP 注册尚未移除。";
 "Agent usage account cards" = "Agent 用量账号卡片";
 "Click the arrows or page dots, swipe horizontally, or use the left and right arrow keys to switch accounts." = "点击箭头或页码圆点、横向滑动，或使用左右方向键切换账号。";
+
+/* 多账号页面。 */
+"Add and manage Claude and Codex Homes." = "添加和管理 Claude、Codex 的 Home。";
+"Manage…" = "管理…";
+"Integrated" = "已集成";
+"Home unavailable" = "Home 不可用";
+"Needs repair" = "需要修复";
+"Use the buttons above to add an existing Claude or Codex Home." = "使用上方按钮添加已有的 Claude 或 Codex Home。";

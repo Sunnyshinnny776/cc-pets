@@ -86,11 +86,7 @@
     [appMenu addItemWithTitle:L(@"About CC Pets") action:@selector(showAboutPanel:) keyEquivalent:@""].target = self;
     [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:L(@"Settings…") action:@selector(openMainWindow:) keyEquivalent:@","].target = self;
-    NSMenuItem *profilesItem = [appMenu addItemWithTitle:L(@"Agent Accounts") action:nil keyEquivalent:@""];
-    self.agentProfilesMenu = [NSMenu new];
-    self.agentProfilesMenu.delegate = (id<NSMenuDelegate>)self;
-    profilesItem.submenu = self.agentProfilesMenu;
-    [self rebuildAgentProfilesMenu];
+    [appMenu addItemWithTitle:L(@"Multi-Account") action:@selector(openAccountsPage:) keyEquivalent:@""].target = self;
     [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"].target = NSApp;
     appItem.submenu = appMenu;
@@ -130,6 +126,9 @@
 }
 - (void)openMainWindow:(id)sender {
     [CCPetsMainWindowController presentPage:nil];
+}
+- (void)openAccountsPage:(id)sender {
+    [CCPetsMainWindowController presentPage:CCPetsMainWindowPageAccounts];
 }
 - (void)openWindowRequested:(NSNotification *)notification {
     NSString *page = notification.userInfo[@"page"];

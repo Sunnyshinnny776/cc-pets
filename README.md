@@ -142,13 +142,13 @@ export CLAUDE_REAL_BIN=/absolute/path/to/claude
 The wrappers pass the current terminal environment through unchanged. They do not
 load or execute `.env` files.
 
-## Agent accounts
+## Multi-Account
 
 CC Pets automatically detects and integrates the official `~/.claude` and
 `~/.codex` Homes. Custom Homes such as `~/.claude-x` or `~/.codex-work` are never
-scanned automatically: add them explicitly from **CC Pets → Agent Accounts**.
+scanned automatically: add them explicitly from **Main menu → Multi-Account**.
 The folder name is used as the account name by default and is preserved exactly;
-you can rename a custom account from the same menu. Each provider has its own
+you can rename an account from its Manage menu on the same page. Each provider has its own
 circular quota-card carousel, and the Usage page can filter local token history
 by account.
 
@@ -168,7 +168,7 @@ cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
 cc-pets doctor                # Check the installation and integrations, with fixes.
-cc-pets open [page]           # Open the main window (pages: overview, sessions, usage, pet, alerts, general, diagnostics).
+cc-pets open [page]           # Open the main window (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics).
 cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
@@ -228,7 +228,7 @@ cc-pets open               # the page you used last
 cc-pets open overview
 cc-pets open sessions
 cc-pets open usage
-cc-pets open general       # also: pet, alerts, diagnostics
+cc-pets open general       # also: pet, accounts, alerts, diagnostics
 ```
 
 <p align="center">
@@ -236,7 +236,7 @@ cc-pets open general       # also: pet, alerts, diagnostics
 </p>
 
 - **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
-  (Overview, Sessions, Usage, Pet) and **General** (Alerts,
+  (Overview, Sessions, Usage, Pet, Multi-Account) and **General** (Alerts,
   Settings). Diagnostics sits at the bottom with a badge when something needs fixing.
 - **Overview** — the pet and what it is doing, today's total usage with input, output, cached input and requests,
   a notice when diagnostics found problems, and compact account cards using the hover
@@ -260,6 +260,7 @@ cc-pets open general       # also: pet, alerts, diagnostics
   model, and hover a bar for that day's numbers. Everything is counted from local session
   logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
   old transcripts.
+- **Multi-Account** — add Claude / Codex Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
 - **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
   picker, size, chatter, click reactions and Codex import; Alerts: notifications, the status
   card and system status; Settings: language, panel appearance and data folders), plus finer controls such as the click-reaction thresholds and a

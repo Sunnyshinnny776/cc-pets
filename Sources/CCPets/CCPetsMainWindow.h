@@ -9,11 +9,12 @@
 // 窗口懒创建，关闭即释放，不常驻内存；页面也只在显示时创建。
 
 // 页面标识，也是 `cc-pets open <page>` 的参数。侧边栏分两组：
-// 工作台（概览、会话、用量、宠物）和通用（提醒、设置），诊断单独放在底部。
+// 工作台（概览、会话、用量、宠物、多账号）和通用（提醒、设置），诊断单独放在底部。
 extern NSString *const CCPetsMainWindowPageOverview;
 extern NSString *const CCPetsMainWindowPageSessions;
 extern NSString *const CCPetsMainWindowPageUsage;
 extern NSString *const CCPetsMainWindowPagePet;
+extern NSString *const CCPetsMainWindowPageAccounts;
 extern NSString *const CCPetsMainWindowPageAlerts;
 extern NSString *const CCPetsMainWindowPageGeneral;
 extern NSString *const CCPetsMainWindowPageDiagnostics;

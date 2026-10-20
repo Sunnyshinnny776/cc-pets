@@ -32,6 +32,12 @@
 - (NSArray<NSDictionary *> *)petPickerOptions;
 - (NSString *)currentPetID;
 - (void)switchPetToID:(NSString *)petID;
+- (void)addClaudeProfile:(id)sender;
+- (void)addCodexProfile:(id)sender;
+- (void)repairAgentProfile:(NSMenuItem *)sender;
+- (void)renameAgentProfile:(NSMenuItem *)sender;
+- (void)relocateAgentProfile:(NSMenuItem *)sender;
+- (void)removeAgentProfile:(NSMenuItem *)sender;
 @end
 
 // 设置拆成三页，共用这个基类：控件状态一律现读 defaults；收到 CCPetsPreferencesDidChangeNotification
@@ -41,6 +47,10 @@
 
 // 宠物：选哪只、多大、碎碎念、戳它的反应。
 @interface CCPetsPetPage : CCPetsSettingsPageBase
+@end
+
+// 多账号：添加和管理 Claude / Codex Home，复用原有集成操作。
+@interface CCPetsAccountsPage : CCPetsSettingsPageBase
 @end
 
 // 提醒：系统通知、桌面状态卡与 CC Bridge 角标。

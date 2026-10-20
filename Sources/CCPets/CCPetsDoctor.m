@@ -442,7 +442,7 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
         [sections addObject:@{@"title": name, @"profileID": profile[@"id"], @"results": checks}];
     }
     if (registeredProfiles.count == 0) {
-        [sections addObject:@{@"title": L(@"Agent Accounts"), @"results": @[
+        [sections addObject:@{@"title": L(@"Agent profiles"), @"results": @[
             Result(@"info", L(@"No registered Agent profiles"), nil)]}];
     }
 
@@ -609,7 +609,7 @@ static int RepairProfile(NSString *profileID) {
     }
     NSMutableDictionary *verified = [CCPetsProfileWithID(profileID) mutableCopy];
     [verified removeObjectForKey:@"needsRepair"];
-    if (verified && [CCPetsProfileStatus(verified)[@"state"] isEqualToString:@"integrated"]) {
+    if (verified && [CCPetsProfileStatus(verified)[@"state"] isEqualToString:CCPetsProfileStateIntegrated]) {
         NSString *message = nil;
         if (!CCPetsSetProfileNeedsRepair(profileID, NO, &message)) {
             CCPetsPrintLine(stderr, message);

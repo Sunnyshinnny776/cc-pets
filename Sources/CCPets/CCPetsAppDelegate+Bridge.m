@@ -42,6 +42,8 @@
             if (!strongSelf) return;
             strongSelf.bridgeCommandRunning = NO;
             [strongSelf refreshBridgeState:nil];
+            // 开关 Bridge 会改各账号是否算"已集成"，让打开的多账号页重读。
+            [NSNotificationCenter.defaultCenter postNotificationName:CCPetsProfilesDidChangeNotification object:nil];
             if (finished.terminationStatus == EXIT_SUCCESS) {
                 if (successMessage.length > 0) {
                     [strongSelf sendNotificationWithTitle:@"CC Bridge" body:successMessage];

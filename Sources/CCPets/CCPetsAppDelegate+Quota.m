@@ -187,7 +187,7 @@
 // 目录暂时不可用时 profile 仍留在注册表，所以卡片也不会抖动消失。
 - (void)refreshDetectedProviders {
     // 运行期间后来安装 CLI、或首次生成官方 Home 时也应自动出现卡片；只检查两个
-    // 官方路径，自定义 Home 仍必须从 Agent 账户菜单手动添加。
+    // 官方路径，自定义 Home 仍必须从主窗口的多账号页手动添加。
     NSString *profileError = nil;
     if (!CCPetsEnsureOfficialDefaultProfiles(&profileError) && profileError.length > 0) {
         fprintf(stderr, "%s\n", profileError.UTF8String);

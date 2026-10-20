@@ -3,54 +3,6 @@
 
 @implementation AppDelegate (Profiles)
 
-- (void)menuWillOpen:(NSMenu *)menu {
-    if (menu == self.agentProfilesMenu) [self rebuildAgentProfilesMenu];
-}
-
-- (void)rebuildAgentProfilesMenu {
-    NSMenu *menu = self.agentProfilesMenu;
-    if (!menu) return;
-    [menu removeAllItems];
-    [menu addItemWithTitle:L(@"Add Claude Home…") action:@selector(addClaudeProfile:) keyEquivalent:@""].target = self;
-    [menu addItemWithTitle:L(@"Add Codex Home…") action:@selector(addCodexProfile:) keyEquivalent:@""].target = self;
-    NSArray<NSDictionary *> *profiles = CCPetsProfiles();
-    if (profiles.count == 0) return;
-    [menu addItem:NSMenuItem.separatorItem];
-    for (NSDictionary *profile in profiles) {
-        NSDictionary *status = CCPetsProfileStatus(profile);
-        NSString *symbol = [status[@"state"] isEqualToString:@"integrated"] ? @"✓"
-            : ([status[@"state"] isEqualToString:@"unavailable"] ? @"×" : @"!");
-        NSString *name = profile[@"displayName"] ?: profile[@"slug"];
-        NSMenuItem *item = [menu addItemWithTitle:[NSString stringWithFormat:@"%@  %@", symbol, name]
-            action:nil keyEquivalent:@""];
-        NSMenu *submenu = [NSMenu new];
-        NSMenuItem *path = [submenu addItemWithTitle:CCPetsTildePath(profile[@"home"])
-            action:nil keyEquivalent:@""];
-        path.enabled = NO;
-        NSMutableArray<NSArray *> *actions = [@[
-            @[L(@"Repair Integration"), NSStringFromSelector(@selector(repairAgentProfile:))],
-            @[L(@"Rename…"), NSStringFromSelector(@selector(renameAgentProfile:))]
-        ] mutableCopy];
-        if (!CCPetsProfileIsOfficialDefault(profile)) {
-            [actions addObject:@[L(@"Relocate Home…"), NSStringFromSelector(@selector(relocateAgentProfile:))]];
-        }
-        for (NSArray *action in actions) {
-            NSMenuItem *child = [submenu addItemWithTitle:action[0]
-                action:NSSelectorFromString(action[1]) keyEquivalent:@""];
-            child.target = self;
-            child.representedObject = profile[@"id"];
-        }
-        if (!CCPetsProfileIsOfficialDefault(profile)) {
-            [submenu addItem:NSMenuItem.separatorItem];
-            NSMenuItem *remove = [submenu addItemWithTitle:L(@"Remove Integration…")
-                action:@selector(removeAgentProfile:) keyEquivalent:@""];
-            remove.target = self;
-            remove.representedObject = profile[@"id"];
-        }
-        item.submenu = submenu;
-    }
-}
-
 - (void)addClaudeProfile:(id)sender {
     [self chooseProfileHomeForProvider:CCPetsProfileProviderClaude];
 }
@@ -69,11 +21,15 @@
     return NO;
 }
 
+// 设置页的按钮在命令执行期间仍可点，被挡下时要告诉用户，不能悄悄什么都不做。
+- (BOOL)rejectWhileProfileCommandRunning {
+    if (!self.profileCommandRunning) return NO;
+    [self showAlertWithTitle:L(@"Agent Profile Setup") message:L(@"Another Agent profile is still being configured.")];
+    return YES;
+}
+
 - (void)chooseProfileHomeForProvider:(NSString *)provider {
-    if (self.profileCommandRunning) {
-        [self showAlertWithTitle:L(@"Agent Profile Setup") message:L(@"Another Agent profile is still being configured.")];
-        return;
-    }
+    if ([self rejectWhileProfileCommandRunning]) return;
     NSOpenPanel *panel = [NSOpenPanel openPanel];
     panel.canChooseDirectories = YES;
     panel.canChooseFiles = NO;
@@ -117,7 +73,7 @@
 - (void)repairAgentProfile:(NSMenuItem *)sender {
     NSString *profileID = [sender.representedObject isKindOfClass:NSString.class] ? sender.representedObject : nil;
     NSDictionary *profile = CCPetsProfileWithID(profileID);
-    if (!profile) return;
+    if (!profile || [self rejectWhileProfileCommandRunning]) return;
     [self runProfileCommand:@[@"repair", @"--id", profileID]
         title:[NSString stringWithFormat:L(@"Repairing %@"), profile[@"displayName"]]
         completionMessage:L(@"The Agent profile integration was repaired.")];
@@ -126,7 +82,7 @@
 - (void)renameAgentProfile:(NSMenuItem *)sender {
     NSString *profileID = [sender.representedObject isKindOfClass:NSString.class] ? sender.representedObject : nil;
     NSDictionary *profile = CCPetsProfileWithID(profileID);
-    if (!profile || self.profileCommandRunning) return;
+    if (!profile || [self rejectWhileProfileCommandRunning]) return;
     NSAlert *alert = [NSAlert new];
     alert.messageText = L(@"Rename Agent Profile");
     alert.informativeText = L(@"This changes only the name shown in CC Pets.");
@@ -147,7 +103,7 @@
 - (void)relocateAgentProfile:(NSMenuItem *)sender {
     NSString *profileID = [sender.representedObject isKindOfClass:NSString.class] ? sender.representedObject : nil;
     NSDictionary *profile = CCPetsProfileWithID(profileID);
-    if (!profile || self.profileCommandRunning) return;
+    if (!profile || [self rejectWhileProfileCommandRunning]) return;
     NSOpenPanel *panel = [NSOpenPanel openPanel];
     panel.canChooseDirectories = YES;
     panel.canChooseFiles = NO;
@@ -173,7 +129,7 @@
 - (void)removeAgentProfile:(NSMenuItem *)sender {
     NSString *profileID = [sender.representedObject isKindOfClass:NSString.class] ? sender.representedObject : nil;
     NSDictionary *profile = CCPetsProfileWithID(profileID);
-    if (!profile) return;
+    if (!profile || [self rejectWhileProfileCommandRunning]) return;
     NSAlert *confirm = [NSAlert new];
     confirm.alertStyle = NSAlertStyleWarning;
     confirm.messageText = [NSString stringWithFormat:L(@"Remove integration for %@?"), profile[@"displayName"]];
@@ -264,7 +220,6 @@
             strongSelf.profileProgressIndicator = nil;
             strongSelf.profileTask = nil;
             strongSelf.profileCommandRunning = NO;
-            [strongSelf rebuildAgentProfilesMenu];
             // 子进程即使适配失败也可能已经更新注册表，让打开的设置页同步账号。
             [NSNotificationCenter.defaultCenter postNotificationName:CCPetsProfilesDidChangeNotification object:nil];
             if (finished.terminationStatus == EXIT_SUCCESS) {

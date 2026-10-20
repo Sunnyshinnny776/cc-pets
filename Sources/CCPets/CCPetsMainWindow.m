@@ -11,6 +11,7 @@ NSString *const CCPetsMainWindowPageOverview = @"overview";
 NSString *const CCPetsMainWindowPageSessions = @"sessions";
 NSString *const CCPetsMainWindowPageUsage = @"usage";
 NSString *const CCPetsMainWindowPagePet = @"pet";
+NSString *const CCPetsMainWindowPageAccounts = @"accounts";
 NSString *const CCPetsMainWindowPageAlerts = @"alerts";
 NSString *const CCPetsMainWindowPageGeneral = @"general";
 NSString *const CCPetsMainWindowPageDiagnostics = @"diagnostics";
@@ -45,6 +46,8 @@ static NSArray<NSDictionary *> *MainWindowPages(void) {
           @"group": @"workbench", @"class": CCPetsUsagePage.class},
         @{@"id": CCPetsMainWindowPagePet, @"title": L(@"Pet"), @"symbol": @"pawprint",
           @"group": @"workbench", @"class": CCPetsPetPage.class},
+        @{@"id": CCPetsMainWindowPageAccounts, @"title": L(@"Multi-Account"), @"symbol": @"person.2",
+          @"group": @"workbench", @"class": CCPetsAccountsPage.class},
         @{@"id": CCPetsMainWindowPageAlerts, @"title": L(@"Alerts"), @"symbol": @"bell",
           @"group": @"settings", @"class": CCPetsAlertsPage.class},
         @{@"id": CCPetsMainWindowPageGeneral, @"title": L(@"Settings"), @"symbol": @"gearshape",

@@ -53,7 +53,6 @@
 @property BOOL bridgeCommandRunning;
 // 手动 Agent Home 适配任务与其非阻塞进度窗口。
 @property BOOL profileCommandRunning;
-@property NSMenu *agentProfilesMenu;
 @property NSTask *profileTask;
 @property NSWindow *profileProgressWindow;
 @property NSTextField *profileProgressLabel;

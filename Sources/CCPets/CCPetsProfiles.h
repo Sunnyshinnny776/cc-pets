@@ -9,7 +9,12 @@ NSArray<NSDictionary *> *CCPetsProfiles(void);
 NSArray<NSDictionary *> *CCPetsProfilesForProvider(NSString *provider);
 NSDictionary *CCPetsProfileWithID(NSString *profileID);
 NSDictionary *CCPetsProfileForHome(NSString *provider, NSString *home);
+// 集成状态：state 取下面三个值之一；界面显示的文字统一走 CCPetsProfileStateTitle。
+extern NSString *const CCPetsProfileStateIntegrated;
+extern NSString *const CCPetsProfileStateRepair;
+extern NSString *const CCPetsProfileStateUnavailable;
 NSDictionary *CCPetsProfileStatus(NSDictionary *profile);
+NSString *CCPetsProfileStateTitle(NSString *state);
 NSString *CCPetsProfileID(NSString *provider, NSString *home);
 NSString *CCPetsProfileSlug(NSString *home);
 NSString *CCPetsProfileDefaultDisplayName(NSString *provider, NSString *home);

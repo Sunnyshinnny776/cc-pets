@@ -585,7 +585,7 @@ static BOOL InstallBridgeForRegisteredProfiles(NSDictionary *options, BOOL regis
     __block BOOL succeeded = YES;
     NSArray<NSDictionary *> *profiles = RegisteredProfiles();
     if (profiles.count == 0) {
-        Print(L(@"No Agent Homes are registered; CC Bridge will be applied when you add one from the CC Pets menu."));
+        Print(L(@"No Agent Homes are registered; CC Bridge will be applied when you add one from Multi-Account in the main window."));
         return succeeded;
     }
     for (NSDictionary *profile in profiles) {

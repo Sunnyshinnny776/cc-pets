@@ -275,7 +275,6 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)chooseProfileHomeForProvider:(NSString *)provider;
 - (void)runProfileCommand:(NSArray<NSString *> *)arguments
     title:(NSString *)title completionMessage:(NSString *)completionMessage;
-- (void)rebuildAgentProfilesMenu;
 @end
 
 // 主窗口工作台几页的数据快照，见 CCPetsWorkbench.h。

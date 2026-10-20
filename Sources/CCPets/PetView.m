@@ -1611,53 +1611,6 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
     alertItem.submenu = alertMenu;
 }
 
-- (void)addAgentProfilesMenuToMenu:(NSMenu *)menu {
-    NSMenuItem *profilesItem = [menu addItemWithTitle:L(@"Agent Accounts") action:nil keyEquivalent:@""];
-    NSMenu *profilesMenu = [NSMenu new];
-    profilesItem.submenu = profilesMenu;
-    NSMenuItem *addClaude = [profilesMenu addItemWithTitle:L(@"Add Claude Home…")
-        action:@selector(addClaudeProfile:) keyEquivalent:@""];
-    addClaude.target = NSApp.delegate;
-    NSMenuItem *addCodex = [profilesMenu addItemWithTitle:L(@"Add Codex Home…")
-        action:@selector(addCodexProfile:) keyEquivalent:@""];
-    addCodex.target = NSApp.delegate;
-    NSArray<NSDictionary *> *profiles = CCPetsProfiles();
-    if (profiles.count == 0) return;
-    [profilesMenu addItem:NSMenuItem.separatorItem];
-    for (NSDictionary *profile in profiles) {
-        NSString *name = [profile[@"displayName"] isKindOfClass:NSString.class]
-            ? profile[@"displayName"] : profile[@"slug"];
-        NSDictionary *status = CCPetsProfileStatus(profile);
-        NSString *symbol = [status[@"state"] isEqualToString:@"integrated"] ? @"✓"
-            : ([status[@"state"] isEqualToString:@"unavailable"] ? @"×" : @"!");
-        NSMenuItem *profileItem = [profilesMenu addItemWithTitle:
-            [NSString stringWithFormat:@"%@  %@", symbol, name] action:nil keyEquivalent:@""];
-        NSMenu *profileMenu = [NSMenu new];
-        NSMenuItem *path = [profileMenu addItemWithTitle:CCPetsTildePath(profile[@"home"])
-            action:nil keyEquivalent:@""];
-        path.enabled = NO;
-        NSMenuItem *repair = [profileMenu addItemWithTitle:L(@"Repair Integration")
-            action:@selector(repairAgentProfile:) keyEquivalent:@""];
-        repair.target = NSApp.delegate;
-        repair.representedObject = profile[@"id"];
-        NSMenuItem *rename = [profileMenu addItemWithTitle:L(@"Rename…")
-            action:@selector(renameAgentProfile:) keyEquivalent:@""];
-        rename.target = NSApp.delegate;
-        rename.representedObject = profile[@"id"];
-        if (!CCPetsProfileIsOfficialDefault(profile)) {
-            NSMenuItem *relocate = [profileMenu addItemWithTitle:L(@"Relocate Home…")
-                action:@selector(relocateAgentProfile:) keyEquivalent:@""];
-            relocate.target = NSApp.delegate;
-            relocate.representedObject = profile[@"id"];
-            [profileMenu addItem:NSMenuItem.separatorItem];
-            NSMenuItem *remove = [profileMenu addItemWithTitle:L(@"Remove Integration…")
-                action:@selector(removeAgentProfile:) keyEquivalent:@""];
-            remove.target = NSApp.delegate;
-            remove.representedObject = profile[@"id"];
-        }
-        profileItem.submenu = profileMenu;
-    }
-}
 - (void)rightMouseDown:(NSEvent *)event {
     NSArray<NSDictionary *> *availablePets = self.petOptionsRequested ? self.petOptionsRequested() : @[];
     NSMenu *menu = [NSMenu new];
@@ -1734,7 +1687,6 @@ typedef NS_ENUM(NSInteger, PetMicroBehaviorKind) {
         row.enabled = dimApplies();
     }
     themeItem.submenu = themeMenu;
-    [self addAgentProfilesMenuToMenu:menu];
     // 启用和免审批会改 Claude Code / Codex 的配置，主窗口还没有对应入口，先留在这里。
     [self addBridgeMenuToMenu:menu];
     // 检查更新和关于收进「帮助」；有新版本时在顶层临时多一项「更新到 x.y.z…」，一步就能更新，

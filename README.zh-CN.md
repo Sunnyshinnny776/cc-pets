@@ -65,14 +65,14 @@ cc-pets open               # 上次看的页面
 cc-pets open overview
 cc-pets open sessions
 cc-pets open usage
-cc-pets open general       # 还有 pet、alerts、diagnostics
+cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 ```
 
 <p align="center">
   <img src="docs/images/main-window.png" width="70%" alt="CC Pets 主窗口：宠物名片和设置页">
 </p>
 
-- **侧边栏**：顶部是会动的当前宠物和它的状态，下面分两组：**工作台**（概览、会话、用量、宠物）
+- **侧边栏**：顶部是会动的当前宠物和它的状态，下面分两组：**工作台**（概览、会话、用量、宠物、多账号）
   和**通用**（提醒、设置）。诊断放在最底下，有问题要处理时带角标。
 - **概览**：宠物和它此刻在做什么，今日总用量和输入、输出、缓存输入、请求数，诊断发现问题时的提醒，
   以及 Claude / Codex 的简洁账号卡片：订阅模式展示 5 小时和本周的剩余额度环、重置时间与本周节奏；API 模式展示本月调用、Token 总量，并补充日均调用及输入/输出 Token。数据与悬停面板同源。每个已登记账号独立显示一张卡片，两列排列；「查看诊断」位于名称后，仅在该账号确实有诊断问题时出现。暂未采集到额度不视为配置异常。
@@ -82,6 +82,7 @@ cc-pets open general       # 还有 pet、alerts、diagnostics
   （输入 + 缓存写 + 输出 + 缓存输入）、输入、输出、缓存输入（附命中率）、请求数。每日柱状图按模型分色堆叠，
   颜色固定跟着模型走，可以在这五项之间切换；点图例或表格里的模型只看它，鼠标移到柱子上看当天各模型的数值。
   数据全部来自本机会话日志，不会发送到任何地方；按日归档让 Claude Code 清理旧转录之后，历史仍然留得住。
+- **多账号**：添加 Claude / Codex Home，查看账号的目录与集成状态，并通过“管理”菜单修复、重命名、重新定位或移除自定义 Home 的集成。
 - **宠物 / 提醒 / 设置**：桌宠的全部设置拆成三页（宠物：选宠物、大小、碎碎念、点击互动、导入 Codex 素材；提醒：系统通知、桌面状态卡和系统状态；
   设置：语言、面板外观和数据目录），另有更细的项（比如连击阈值、可以连续调节的玻璃压暗，菜单里仍是四档）。
   右键菜单只留最常用的几项：管理桌宠、宠物大小、显示消息气泡、用量展示模式、面板主题和 CC Bridge，其余都到这里改。改动会立刻作用到桌面上的宠物，在菜单里改的也会同步显示在这里。
@@ -416,11 +417,11 @@ npm 的安装后脚本会自动构建原生应用、安装两套 Agent Hooks，�
 用 shim 而不是 alias，是因为 alias 名区分大小写而 macOS 文件系统默认不区分：`Claude`、`CODEX` 这类写法
 匹配不到 alias，会直接命中真二进制，桌宠不会被拉起。shim 让任意大小写写法都落到同一个文件上。
 
-### Agent 账户
+### 多账号
 
 CC Pets 会自动发现并集成官方 `~/.claude` 和 `~/.codex` Home。`~/.claude-x`、
-`~/.codex-work` 等自定义 Home 不会被自动扫描，必须从「CC Pets → Agent 账户」手动添加。
-默认使用文件夹名作为账号名称并保持原样，也可以在同一菜单中主动重命名。每个 Provider
+`~/.codex-work` 等自定义 Home 不会被自动扫描，必须从「主菜单 → 多账号」（位于“宠物”下方）手动添加。
+默认使用文件夹名作为账号名称并保持原样，也可以在该页的“管理”菜单中重命名。每个 Provider
 拥有独立的循环额度卡片，用量页也可以按账号筛选本机会话 Token 历史。
 
 添加账号时会配置 Pet Hooks 和用量采集。若 CC Bridge 已开启，会同时配置它的 Hooks、
@@ -480,7 +481,7 @@ cc-pets clean
 # 检查安装、Hooks、status line、shim 与 CC Bridge 是否正常，并给出修复建议；输出已脱敏，可直接贴进 issue
 cc-pets doctor
 
-# 打开主窗口并定位到页面（overview / sessions / usage / pet / alerts / general / diagnostics，省略则打开上次看的页面）
+# 打开主窗口并定位到页面（overview / sessions / usage / pet / accounts / alerts / general / diagnostics，省略则打开上次看的页面）
 cc-pets open [page]
 
 # 列出偏好、桌宠素材、台词、缓存与运行时状态的存放位置和大小（--json 输出机器可读格式）
