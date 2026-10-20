@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.2.1：宠物大小调整与台词来源选择">
+  <img src="docs/images/cover.png" alt="CC Pets v2.3.0：主窗口、多账号与按模型统计 Token 用量">
 </p>
 
 # CC Pets
@@ -9,20 +9,20 @@
 一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
 并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
 
-## v2.2.1 新功能
+## v2.3.0 新功能
 
-- **宠物大小调整**：右键「宠物大小」可实时缩放至 50%～200%，设置自动保存；
-  小尺寸宠物的状态卡与气泡同比例缩小，并修复 Retina 屏幕上的精灵图模糊。
-- **台词来源选择**：「碎碎念 → 台词来源」可选择「专属台词」或「默认台词」，
-  立即生效，切换宠物和重启后仍保留。
-- **菜单与编辑器修复**：单选后菜单保持展开、勾选即时更新，长英文标题完整显示；
-  台词编辑器切换语言时统一刷新文案，并保留未保存的编辑。
+- **主窗口**：从菜单或 `cc-pets open` 打开概览、会话、用量、宠物、提醒、设置和诊断，
+  集中查看在线会话、跳转终端和管理桌宠设置。
+- **多账号与模型用量**：登记多个 Claude / Codex Home，按账号隔离额度、历史和在线状态；
+  查看最近 7、30、90 天的 Token 图表，按账号和模型筛选，独立设置订阅额度或 API 用量展示。
+- **原生运行时与诊断修复**：Hooks、CC Bridge 和 CLI 工具运行时无需 Node.js；
+  诊断页可修复已登记账号的 Hooks 和 Claude status line，修改前自动备份配置。
 
-完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.2.1.md)。
+完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.3.0.md)。
 
 ## 界面预览
 
-简体中文：额度面板与右键菜单。
+简体中文：v2.2.0 额度面板与右键菜单；新版主窗口见下文。
 
 <p align="center">
   <img src="docs/images/liquid-glass-panel.png" width="45%" alt="Liquid Glass 主题下的中文额度面板">
@@ -69,8 +69,10 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 ```
 
 <p align="center">
-  <img src="docs/images/main-window.png" width="70%" alt="CC Pets 主窗口：宠物名片和设置页">
+  <img src="docs/images/main-window.png" width="70%" alt="CC Pets v2.3.0 会话页：演示 Agent 会话与 CC Bridge 投递状态">
 </p>
+
+v2.3.0 会话页，使用当前原生 UI 和演示会话数据渲染。
 
 - **侧边栏**：顶部是会动的当前宠物和它的状态，下面分两组：**工作台**（概览、会话、用量、宠物、多账号）
   和**通用**（提醒、设置）。诊断放在最底下，有问题要处理时带角标。

@@ -7,6 +7,8 @@ truth for the version.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-20
+
 ### Installation
 
 - Everything CC Pets runs is now native: hook installation and removal, CC Bridge (hooks, watcher, MCP server and `cc-pets bridge`), `cc-pets doctor` / `paths`, `cc-pets pet` and the zsh scripts' translations. Node.js is only needed by npm to install and update the package, and CC Bridge hooks no longer start a Node process on every event.
@@ -36,6 +38,7 @@ truth for the version.
 - The right-click menu is trimmed to the everyday items: Pets, Pet Size, Show Status Card, Usage Display, Panel Theme, CC Bridge, Help, Main menu and Quit. Import Codex Pets, Notifications, Click Reactions, System Status, Chatter and Language moved to the window's Pet, Alerts and Settings pages.
 - In full screen or when zoomed to fill the screen, the sidebar is 10 pt wider, its content moves 5 pt right, and menu items get more room between icon and title (and between Chinese characters). In full screen the pet card no longer sits against the top edge of the screen.
 - Glass dimming is now continuous (0–45%) with a slider on the Settings page; the right-click menu keeps its four presets and checks the closest one. The quota card scrim follows the value smoothly.
+- The main window has its own System Default / Light / Dark appearance setting, with teal control accents; the pet's panels keep their separate appearance preference.
 - **Diagnostics** page: the same checks as `cc-pets doctor`, problems first with their fix commands and copy buttons, passing checks folded into one line, **Re-check** and **Copy Report**. Registered accounts' Hooks and Claude status line issues now offer **Auto-fix** and **Fix All**. Configuration and affected scripts are backed up before changes, with a manifest of original paths and permissions; checks run again automatically after repair, and the page shows backup locations and any failures. Other issues retain their manual commands. The PATH order check is shown as a hint to run `cc-pets doctor` in a terminal, because the pet's own PATH is not the terminal's.
 - Added `cc-pets doctor --repair-profile <profile-id>` to repair a registered account's Hooks and Claude status line without reinstalling the app or changing shell configuration. Plain `cc-pets doctor` remains read-only.
 - Added `cc-pets open [page]`. If the pet is running it asks it to open the window; otherwise it launches the app and opens the window. Terminals launching Claude Code or Codex never pop the window up.
@@ -48,6 +51,8 @@ truth for the version.
 
 ### Fixes
 
+- Fixed clipping in scaled status cards and speech bubbles, including the speech bubble's click bounds.
+- Account-aware terminal focus is preserved, and starting a new session on the same terminal removes stale records left by the previous account instead of leaving a stuck Starting row.
 - CLI messages now fill in placeholders containing underscores; `cc-pets bridge enable` previously printed `{MCP_NAME}` instead of `cc-bridge`.
 - An account without quota data or history no longer falls back to another account's cached data in the hover panel or Overview.
 - On Overview, **Check Diagnostics** now sits after the account name and only appears when that account actually has diagnostic warnings or failures; quota data that hasn't been collected yet no longer triggers it.

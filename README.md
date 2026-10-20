@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.2.1: adjustable pet size and selectable speech sources">
+  <img src="docs/images/cover.png" alt="CC Pets v2.3.0: main window, multiple accounts and token usage by model">
 </p>
 
 # CC Pets
@@ -13,17 +13,19 @@ Codex App Server interface and Claude Code's official status line input.
 
 > The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
 
-## What's new in v2.2.1
+## What's new in v2.3.0
 
-- **Adjustable pet size** — use **Pet Size** in the right-click menu for live 50%–200%
-  scaling. The setting persists, smaller pets get proportionally smaller status cards
-  and bubbles, and sprites stay sharper on Retina displays.
-- **Selectable speech sources** — choose **Chatter → Line Source → Pet-specific Lines**
-  or **Default Lines**. The choice applies immediately and survives pet changes and restarts.
-- **Menu and editor fixes** — choice menus stay open and update their checkmarks,
-  longer English labels fit, and the lines editor refreshes its language without losing edits.
+- **A main window** — open Overview, Sessions, Usage, Pet, Alerts, Settings and
+  Diagnostics from the menu or `cc-pets open`. See live sessions, jump to their
+  terminals and manage settings in one place.
+- **Multiple accounts and model usage** — register Claude / Codex Homes with
+  isolated quota, history and live state. Filter 7-, 30- and 90-day token charts
+  by account and model, with per-account quota or API usage display.
+- **Native runtime and diagnostic repairs** — hooks, CC Bridge and CLI tools run
+  without Node.js. Repair registered accounts' hooks and Claude status lines
+  from Diagnostics, with configuration backups before changes.
 
-See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.2.1.md) for the full list.
+See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.3.0.md) for the full list.
 
 ## Screenshots
 
@@ -232,8 +234,10 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 ```
 
 <p align="center">
-  <img src="docs/images/main-window.en.png" width="70%" alt="CC Pets main window with the pet card and the Settings page">
+  <img src="docs/images/main-window.en.png" width="70%" alt="CC Pets v2.3.0 Sessions page with illustrative agent sessions and CC Bridge delivery status">
 </p>
+
+The v2.3.0 Sessions page, rendered from the native UI with illustrative session data.
 
 - **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
   (Overview, Sessions, Usage, Pet, Multi-Account) and **General** (Alerts,
