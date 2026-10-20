@@ -914,7 +914,11 @@ node -e '
       { type: "command", command: "existing-hook" },
       { type: "command", command: `CLAUDE_PET_AGENT_HOOK=1 ${quote}/old/.build/release/codex-pet${quote} --hook` },
       { type: "command", command: "CLAUDE_PET_AGENT_HOOK=1 /other/tool --hook" }
-    ] }] }
+    ] }], Stop: [
+      // 从 App 里修复时写下的条目指向包内程序，重装必须一并替换，不能越积越多。
+      { hooks: [{ type: "command", command: `CC_PETS_CLAUDE_AGENT_HOOK=1 CC_PETS_PROFILE_ID=${quote}claude:old${quote} ${quote}/Users/x/Applications/CC Pets.app/Contents/MacOS/cc-pets${quote} --hook` }] },
+      { hooks: [{ type: "command", command: `CC_PETS_CLAUDE_AGENT_HOOK=1 CC_PETS_PROFILE_ID=${quote}claude:old${quote} ${quote}/Users/x/Applications/CC Pets.app/Contents/MacOS/cc-pets${quote} --hook` }] }
+    ] }
   };
   fs.writeFileSync(process.argv[1], JSON.stringify(config));
 ' "${CLAUDE_TMP}/settings.json" "${CLAUDE_STATUS_SCRIPT}"
@@ -930,6 +934,7 @@ node -e '
   const petHandlers = handlers.filter(handler => handler.command?.includes("CC_PETS_CLAUDE_AGENT_HOOK=1"));
   if (petHandlers.length !== 14) process.exit(1);
   if (handlers.some(handler => handler.command?.includes("/.build/release/codex-pet"))) process.exit(1);
+  if (handlers.some(handler => handler.command?.includes("/Contents/MacOS/cc-pets"))) process.exit(1);
   if (!handlers.some(handler => handler.command === "CLAUDE_PET_AGENT_HOOK=1 /other/tool --hook")) process.exit(1);
   if (config.statusLine.refreshInterval !== 60 || config.statusLine.command !== process.argv[2]) process.exit(1);
   if ((script.match(/# >>> cc-pets-statusline >>>/g) || []).length !== 1) process.exit(1);

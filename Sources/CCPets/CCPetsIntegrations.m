@@ -31,10 +31,14 @@ static CCPetsJSONObject *LoadConfig(NSString *path, NSString **errorMessage) {
     return config;
 }
 
+// 从源码目录安装时指向 .build/release，从 App 里修复时指向包内的程序；两种都要认，
+// 否则另一种写进去的条目永远摘不掉，每装一次就多一份。
 BOOL CCPetsIsManagedHookCommand(id value, NSString *marker, NSString *executable) {
-    if (![value isKindOfClass:NSString.class]) return NO;
-    NSString *suffix = [NSString stringWithFormat:@"/.build/release/%@' --hook", executable];
-    return [value hasPrefix:[marker stringByAppendingString:@" "]] && [value hasSuffix:suffix];
+    if (![value isKindOfClass:NSString.class] || ![value hasPrefix:[marker stringByAppendingString:@" "]]) return NO;
+    for (NSString *directory in @[@"/.build/release/", @".app/Contents/MacOS/"]) {
+        if ([value hasSuffix:[NSString stringWithFormat:@"%@%@' --hook", directory, executable]]) return YES;
+    }
+    return NO;
 }
 
 // 摘掉 signatures 认领的 handler，别的工具的原样保留；一个 group 里只剩我们的条目时整个 group 删掉。
