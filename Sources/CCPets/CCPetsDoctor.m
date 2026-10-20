@@ -6,6 +6,7 @@
 #import "CCPetsCLISupport.h"
 #import "CCPetsCleanup.h"
 #import "CCPetsIntegrations.h"
+#import "CCPetsJSON.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsProfiles.h"
@@ -13,6 +14,7 @@
 #import <sys/stat.h>
 #import <sys/utsname.h>
 #import <math.h>
+#import <errno.h>
 
 #define LF(localized, values) CCPetsInterpolate(localized, values)
 
@@ -429,7 +431,15 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
         } else {
             [checks addObject:Result(@"info", L(@"Codex only runs CC Pets hooks after you trust them in /hooks (can't be checked automatically)"), nil)];
         }
-        [sections addObject:@{@"title": name, @"results": checks}];
+        for (NSUInteger index = 0; index < checks.count; index++) {
+            NSDictionary *check = checks[index];
+            if ([check[@"fix"] isEqualToString:@"cc-pets install"]) {
+                NSMutableDictionary *repairable = [check mutableCopy];
+                repairable[@"repairProfileID"] = profile[@"id"];
+                checks[index] = repairable;
+            }
+        }
+        [sections addObject:@{@"title": name, @"profileID": profile[@"id"], @"results": checks}];
     }
     if (registeredProfiles.count == 0) {
         [sections addObject:@{@"title": L(@"Agent Accounts"), @"results": @[
@@ -449,9 +459,12 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
         NSMutableArray *bridge = [NSMutableArray arrayWithObject:Result(@"ok", L(@"Enabled"), nil)];
         for (NSDictionary *profile in registeredProfiles) {
             NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: profile[@"provider"];
-            [bridge addObject:[profileBridgeHooks[profile[@"id"]] unsignedIntegerValue] > 0
+            NSDictionary *result = [profileBridgeHooks[profile[@"id"]] unsignedIntegerValue] > 0
                 ? Result(@"ok", [NSString stringWithFormat:L(@"CC Bridge hooks installed in %@"), name], nil)
-                : Result(@"warn", [NSString stringWithFormat:L(@"CC Bridge hooks missing in %@"), name], @"cc-pets bridge enable")];
+                : Result(@"warn", [NSString stringWithFormat:L(@"CC Bridge hooks missing in %@"), name], @"cc-pets bridge enable");
+            NSMutableDictionary *check = [result mutableCopy];
+            check[@"profileID"] = profile[@"id"];
+            [bridge addObject:check];
         }
         if (codexDetected) {
             if ([CCBridgeOptions()[@"wake"] boolValue]) {
@@ -520,10 +533,100 @@ static int RunDoctor(void) {
     return CCPetsDoctorHasFailures(sections) ? 1 : 0;
 }
 
+// 不运行完整安装脚本：它会安装 App、改 shell 并重启当前进程。
+// 诊断页只修复明确登记过的账号的 Hooks / status line，沿用安装器保留第三方配置的逻辑。
+static int RepairProfile(NSString *profileID) {
+    NSDictionary *profile = CCPetsProfileWithID(profileID);
+    if (!profile || !CCPetsDirectoryExists(profile[@"home"])) {
+        CCPetsPrintLine(stderr, L(@"The Agent profile or its Home is no longer available."));
+        return 1;
+    }
+    NSString *binary = PetBinary();
+    if (![NSFileManager.defaultManager isExecutableFileAtPath:binary]) {
+        CCPetsPrintLine(stderr, L(@"The CC Pets package binary is missing. Run cc-pets install in a terminal."));
+        return 1;
+    }
+    BOOL claude = [profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude];
+    NSArray<NSString *> *files = claude ? CCPetsClaudeIntegrationFilesAtHome(profile[@"home"])
+        : @[[profile[@"home"] stringByAppendingPathComponent:@"hooks.json"]];
+    NSString *parseError = nil;
+    id config = CCPetsReadConfig(files.firstObject, &parseError);
+    if (parseError || (config && ![config isKindOfClass:CCPetsJSONObject.class])) {
+        CCPetsPrintLine(stderr, parseError ?: L(@"The Agent configuration must be a JSON object."));
+        return 1;
+    }
+    NSString *backup = [[ApplicationSupportDirectory() stringByAppendingPathComponent:@"diagnostic-backups"]
+        stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:backup withIntermediateDirectories:YES
+            attributes:@{NSFilePosixPermissions: @0700} error:&error]) {
+        CCPetsPrintLine(stderr, error.localizedDescription);
+        return 1;
+    }
+    NSMutableArray<NSDictionary *> *manifest = [NSMutableArray array];
+    for (NSString *file in files) {
+        struct stat info;
+        BOOL exists = lstat(file.fileSystemRepresentation, &info) == 0;
+        if (!exists && errno != ENOENT) {
+            CCPetsPrintLine(stderr, [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil].localizedDescription);
+            return 1;
+        }
+        NSMutableDictionary *entry = [@{@"path": file, @"existed": @(exists)} mutableCopy];
+        if (exists) {
+            NSString *name = [NSString stringWithFormat:@"%lu-%@", (unsigned long)manifest.count, file.lastPathComponent];
+            NSData *data = [NSData dataWithContentsOfFile:file options:0 error:&error];
+            if (!data || ![NSFileManager.defaultManager createFileAtPath:[backup stringByAppendingPathComponent:name]
+                    contents:data attributes:@{NSFilePosixPermissions: @0600}]) {
+                CCPetsPrintLine(stderr, error.localizedDescription ?: L(@"Could not back up the configuration. No repair was attempted."));
+                return 1;
+            }
+            entry[@"backup"] = name;
+            entry[@"mode"] = @(info.st_mode & 07777);
+        }
+        [manifest addObject:entry];
+    }
+    NSData *json = [NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:&error];
+    if (!json || ![NSFileManager.defaultManager createFileAtPath:[backup stringByAppendingPathComponent:@"manifest.json"]
+            contents:json attributes:@{NSFilePosixPermissions: @0600}]) {
+        CCPetsPrintLine(stderr, error.localizedDescription ?: L(@"Could not back up the configuration. No repair was attempted."));
+        return 1;
+    }
+    CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"Configuration backup: %@"), CCPetsTildePath(backup)]);
+    int status = claude ? InstallClaudeHooksAtHome(binary, profile[@"home"])
+        : InstallCodexHooksAtHome(binary, profile[@"home"]);
+    if (status != 0) return status;
+
+    // 安装返回成功后重新读配置；未恢复的 Hooks / status line 不能清掉待修复状态。
+    NSUInteger bridgeHooks = 0;
+    NSMutableArray<NSDictionary *> *checks = [HookChecks(profile[@"displayName"] ?: profileID,
+        files.firstObject, claude ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker,
+        claude ? CCPetsLegacyClaudeHookMarker : CCPetsLegacyCodexHookMarker, &bridgeHooks) mutableCopy];
+    if (claude) [checks addObject:StatusLineCheckAtHome(profile[@"home"])];
+    for (NSDictionary *check in checks) {
+        if ([check[@"level"] isEqualToString:@"ok"]) continue;
+        CCPetsPrintLine(stderr, check[@"title"]);
+        return 1;
+    }
+    NSMutableDictionary *verified = [CCPetsProfileWithID(profileID) mutableCopy];
+    [verified removeObjectForKey:@"needsRepair"];
+    if (verified && [CCPetsProfileStatus(verified)[@"state"] isEqualToString:@"integrated"]) {
+        NSString *message = nil;
+        if (!CCPetsSetProfileNeedsRepair(profileID, NO, &message)) {
+            CCPetsPrintLine(stderr, message);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int CCPetsDoctorMain(NSArray<NSString *> *arguments) {
     NSString *command = arguments.firstObject;
     if ([command isEqualToString:@"paths"]) return PrintPaths([arguments containsObject:@"--json"]);
-    if ([command isEqualToString:@"doctor"]) return RunDoctor();
+    if ([command isEqualToString:@"doctor"]) {
+        if (arguments.count == 3 && [arguments[1] isEqualToString:@"--repair-profile"]) return RepairProfile(arguments[2]);
+        if (arguments.count != 1) return 2;
+        return RunDoctor();
+    }
     CCPetsPrintLine(stderr, L(@"Usage: cc-pets paths [--json] | cc-pets doctor"));
     return 2;
 }

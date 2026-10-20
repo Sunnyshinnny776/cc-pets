@@ -475,11 +475,20 @@ if pet_store nope >/dev/null 2>&1; then
 fi
 print "cc-pets pet 素材仓库测试通过"
 
+# 共用真实的认证/展示模式实现；账号注册表使用只读桩，不链接安装栈。
+USAGE_MODE_SOURCES=(
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m"
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsCLISupport.m"
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsJSON.m"
+  "${PROJECT_DIR}/Sources/CCPets/CCPetsUsageMode.m"
+  "${PROJECT_DIR}/tests/usage-profile-stubs.m"
+)
+
 TOKEN_USAGE_TMP="$(mktemp -d /tmp/cc-pets-token-usage-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
   "${PROJECT_DIR}/tests/token-usage-harness.m" \
   -o "${TOKEN_USAGE_TMP}/token-usage-test"
@@ -570,7 +579,7 @@ USAGE_MONITOR_TMP="$(mktemp -d /tmp/cc-pets-usage-monitor-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation -framework CoreServices \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsCodexRateLimits.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsageMonitor.m" \
@@ -599,7 +608,7 @@ SESSION_PICK_TMP="$(mktemp -d /tmp/cc-pets-session-pick-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
   "${PROJECT_DIR}/tests/session-pick-harness.m" \
   -o "${SESSION_PICK_TMP}/session-pick-test"
@@ -1723,6 +1732,7 @@ QUOTA_ONLINE_TMP="$(mktemp -d /tmp/cc-pets-quota-online-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
   -I"${PROJECT_DIR}/Sources/CCPets" \
   -framework Cocoa \
+  "${USAGE_MODE_SOURCES[@]}" \
   "${PROJECT_DIR}/Sources/CCPets/QuotaDashboardView.m" \
   "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \
@@ -2025,6 +2035,8 @@ grep -q 'isTrailingRecord' "${PET_SOURCES[@]}"
 # "正在启动"超过宽限没有后续事件就落到"待机中"，否则启动态和空闲态长得一模一样。
 grep -q 'AgentStartingGraceInterval' "${PET_SOURCES[@]}"
 grep -q 'enterIdleStatus' "${PET_SOURCES[@]}"
+# 同一终端新起会话时，清掉该终端上其他账号残留的记录（客户端退出不补发结束事件）。
+grep -q 'terminalSlotKeyForRecord' "${PET_SOURCES[@]}"
 print "Agent 状态气泡终态保持与待机降级测试通过"
 
 TERMINAL_FOCUS_TMP="$(mktemp -d /tmp/cc-pets-terminal-focus-test.XXXXXX)"

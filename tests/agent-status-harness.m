@@ -49,6 +49,34 @@ int main(void) {
                 ok = NO;
             }
         }
+
+        // 同一个终端先后跑过两个账号：在线 key 必须区分账号，否则已退出账号的记录会借着
+        // 另一个账号的 pid 文件一直算在线，会话页多出一行"正在启动"。
+        NSString *defaultKey = OnlineAgentSessionKey(@"Claude", @"claude:default", @"/dev/ttys003");
+        NSString *otherKey = OnlineAgentSessionKey(@"Claude", @"claude:other", @"ttys003");
+        if ([defaultKey isEqualToString:otherKey]) {
+            NSLog(@"同一 tty 上不同账号的在线 key 不应相同: %@", defaultKey);
+            ok = NO;
+        }
+        // pid 文件写的是 ttys003，事件里可能是 /dev/ttys003，两边必须对得上。
+        if (![OnlineAgentSessionKey(@"Claude", @"claude:other", @"/dev/ttys003") isEqualToString:otherKey]) {
+            NSLog(@"tty 写法不同导致在线 key 对不上");
+            ok = NO;
+        }
+        if (OnlineAgentSessionKey(@"Claude", @"claude:other", nil) != nil ||
+            OnlineAgentSessionKey(@"Claude", @"claude:other", @42) != nil) {
+            NSLog(@"没有 tty 的记录不应生成在线 key");
+            ok = NO;
+        }
+
+        // 会话页的"正在启动"超过宽限就按待机展示，和状态气泡一致。
+        NSTimeInterval now = 1000;
+        if (![SessionDisplayState(@"starting", now - 1, now) isEqualToString:@"starting"] ||
+            ![SessionDisplayState(@"starting", now - 14 * 60, now) isEqualToString:@"idle"] ||
+            ![SessionDisplayState(@"thinking", now - 14 * 60, now) isEqualToString:@"thinking"]) {
+            NSLog(@"会话页启动态降级为待机的判定不对");
+            ok = NO;
+        }
         if (!ok) return EXIT_FAILURE;
         puts("Agent 状态归一与终态尾巴事件判定测试通过");
     }

@@ -20,11 +20,12 @@
 //   deliveries（数组：from、to、toSession、at、unseen —— 最近送达的消息，新的在前）。
 - (NSDictionary *)workbenchMessages;
 
-// 订阅额度，每家一项（只列检测到的）。键：provider（Claude / Codex）、
-//   profileId / profileName（当前在额度轮播中选中的账号；未登记时没有）、
-//   fiveRemaining / weekRemaining（剩余百分比 NSNumber，没数据时没有这个键）、
-//   fiveReset / weekReset（重置时间戳）、pace（本周节奏的文字，如「平稳」）、
-//   paceLevel（0 充足 / 1 平稳 / 2 需关注 / 3 高风险，没数据时没有）。
+// 订阅额度，每个已登记账号一项（未登记的平台保留一张卡片）。键：provider（Claude / Codex）、
+//   profileId / profileName（账号身份与名称；未登记时没有）、
+//   profile（账号配置）、usage（与悬停面板相同的完整额度和本地 Token）、history（该账号额度历史）、
+//   apiMode（是否显示 API 用量）、online / hasData（在线与数据状态）、state / status（状态与显示文案）、
+//   fiveRemaining / weekRemaining（剩余百分比）、fiveReset / weekReset（重置时间）、pace / paceLevel（本周节奏）、
+//   hasDiagnosticIssues（该账号确实有 warn / fail 诊断结果，缺少额度不算问题）。
 - (NSArray<NSDictionary *> *)workbenchQuotas;
 
 // 跳到会话所在的终端。
@@ -35,3 +36,5 @@
 - (void)markWorkbenchMessagesSeen;
 
 @end
+
+extern NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification;

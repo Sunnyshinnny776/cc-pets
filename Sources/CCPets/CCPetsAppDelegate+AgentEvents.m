@@ -192,7 +192,8 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
             if (profileID.length > 0 && profileID.length <= 128) [profileIDs addObject:profileID];
             else [unscopedProviders addObject:label];
         } else unlabeled = YES;
-        NSString *sessionKey = [self onlineAgentSessionKeyForProvider:label tty:tty];
+        NSString *sessionKey = OnlineAgentSessionKey(label,
+            profileID.length <= 128 ? profileID : nil, tty);
         if (sessionKey.length > 0) [sessionKeys addObject:sessionKey];
     }
     // 包装脚本启动的客户端有精确的退出信号：pid 文件被回收。这一段不该被为"直接跑

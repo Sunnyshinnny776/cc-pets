@@ -89,6 +89,21 @@ NSString *NormalizedStateForEvent(NSString *event, BOOL failed) {
     return @"thinking";
 }
 
+NSString *OnlineAgentSessionKey(id provider, id profileID, id tty) {
+    NSString *providerName = SanitizedShortString(provider, 32);
+    NSString *profile = SanitizedShortString(profileID, 128);
+    // 先取末段再清洗：清洗会去掉 "/"，"/dev/ttys003" 就成了 "devttys003"。
+    NSString *ttyName = [tty isKindOfClass:NSString.class]
+        ? SanitizedShortString([(NSString *)tty lastPathComponent], 64) : @"";
+    if (providerName.length == 0 || ttyName.length == 0) return nil;
+    return [NSString stringWithFormat:@"%@|%@|%@", providerName, profile, ttyName];
+}
+
+NSString *SessionDisplayState(NSString *state, NSTimeInterval timestamp, NSTimeInterval now) {
+    if ([state isEqualToString:@"starting"] && now - timestamp >= AgentStartingGraceInterval) return @"idle";
+    return state;
+}
+
 static const off_t AgentEventLogSizeLimit = 4 * 1024 * 1024;
 
 BOOL AppendAgentEventRecord(NSDictionary *record) {

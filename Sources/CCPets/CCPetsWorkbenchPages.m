@@ -60,20 +60,17 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
 
 #pragma mark - 部件
 
-// 环形进度：底轨 + 剩余量的弧，从 12 点钟方向顺时针。
+// 环形进度：底轨 + 剩余量的弧。
 @interface CCPetsRingView : NSView
 @property(nonatomic) double fraction;
 @property(nonatomic) NSColor *color;
 @end
 
 @implementation CCPetsRingView
-- (NSSize)intrinsicContentSize {
-    return NSMakeSize(44, 44);
-}
+- (NSSize)intrinsicContentSize { return NSMakeSize(44, 44); }
 - (void)drawRect:(NSRect)dirtyRect {
     NSRect box = NSInsetRect(self.bounds, 3, 3);
     NSPoint center = NSMakePoint(NSMidX(box), NSMidY(box));
-    CGFloat radius = NSWidth(box) / 2;
     NSBezierPath *track = [NSBezierPath bezierPathWithOvalInRect:box];
     track.lineWidth = 5;
     [CCPetsRingTrackColor() set];
@@ -81,7 +78,8 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
     double fraction = MIN(1, MAX(0, self.fraction));
     if (fraction <= 0) return;
     NSBezierPath *arc = [NSBezierPath bezierPath];
-    [arc appendBezierPathWithArcWithCenter:center radius:radius startAngle:90 endAngle:90 - 360 * fraction clockwise:YES];
+    [arc appendBezierPathWithArcWithCenter:center radius:NSWidth(box) / 2 startAngle:90
+        endAngle:90 - 360 * fraction clockwise:YES];
     arc.lineWidth = 5;
     arc.lineCapStyle = NSLineCapStyleRound;
     [self.color set];
@@ -127,7 +125,7 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
     self.form = [[CCPetsFormBuilder alloc] initWithTitle:L(@"Overview") subtitle:[self dateText]];
     self.view = self.form.view;
     for (NSNotificationName name in @[CCPetsPetCardDidChangeNotification, CCPetsUsageStoreDidChangeNotification,
-                                      CCPetsDiagnosticsDidChangeNotification]) {
+                                      CCPetsDiagnosticsDidChangeNotification, CCPetsWorkbenchQuotasDidChangeNotification]) {
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(dataDidChange:) name:name object:nil];
     }
     [self render];
@@ -317,31 +315,134 @@ static const CGFloat HeroExtraPadding = 15;
 
 #pragma mark 额度
 
+- (NSView *)quotaCards {
+    NSArray<NSDictionary *> *quotas = [WorkbenchSource() workbenchQuotas];
+    if (quotas.count == 0) return nil;
+    NSMutableArray<NSView *> *cards = [NSMutableArray array];
+    for (NSDictionary *quota in quotas) {
+        CCPetsCardView *card = [CCPetsCardView new];
+        CCPetsColorDot *dot = [[CCPetsColorDot alloc] initWithColor:CCPetsProviderColor(quota[@"provider"]) diameter:8];
+        dot.layer.cornerRadius = 2;
+        NSString *quotaName = quota[@"profileName"] ?: quota[@"provider"];
+        NSTextField *name = CCPetsLabel(quotaName, 13, NSFontWeightSemibold, CCPetsInkColor());
+        name.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        name.toolTip = quotaName;
+        [name setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        NSStackView *title = [NSStackView stackViewWithViews:@[dot, name]];
+        title.spacing = 7;
+        title.alignment = NSLayoutAttributeCenterY;
+        if ([quota[@"hasDiagnosticIssues"] boolValue]) {
+            [title addArrangedSubview:ActionButton(L(@"Check Diagnostics"), NO, ^{
+                [CCPetsMainWindowController presentPage:CCPetsMainWindowPageDiagnostics];
+            })];
+        }
+        BOOL api = [quota[@"apiMode"] boolValue];
+        CCPetsChipView *badge = nil;
+        if (api) {
+            badge = [[CCPetsChipView alloc] initWithText:L(@"API") kind:CCPetsStatusIdle];
+        } else if (quota[@"paceLevel"]) {
+            NSInteger level = [quota[@"paceLevel"] integerValue];
+            CCPetsStatusKind kind = level >= 3 ? CCPetsStatusError : (level == 2 ? CCPetsStatusWarn
+                : (level == 0 ? CCPetsStatusOK : CCPetsStatusIdle));
+            badge = [[CCPetsChipView alloc] initWithText:quota[@"pace"] kind:kind];
+        }
+        badge.hidesDot = YES;
+        NSView *left, *right;
+        if (api) {
+            NSDictionary *usage = quota[@"usage"];
+            NSDictionary *tokens = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class] ? usage[@"tokenUsage"] : nil;
+            NSDictionary *month = [tokens[@"month"] isKindOfClass:NSDictionary.class] ? tokens[@"month"] : nil;
+            NSArray *daily = [tokens[@"monthDaily"] isKindOfClass:NSArray.class] ? tokens[@"monthDaily"] : @[];
+            NSUInteger elapsedDays = 0;
+            NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+            for (NSDictionary *day in daily) if ([day[@"timestamp"] doubleValue] <= now) elapsedDays++;
+            NSNumber *calls = [month[@"request_count"] isKindOfClass:NSNumber.class] ? month[@"request_count"] : nil;
+            NSNumber *total = [month[@"total_tokens"] isKindOfClass:NSNumber.class] ? month[@"total_tokens"] : nil;
+            NSNumber *output = [month[@"output_tokens"] isKindOfClass:NSNumber.class] ? month[@"output_tokens"] : nil;
+            NSString *average = calls ? [NSString stringWithFormat:L(@"%@/day avg"),
+                [NSNumberFormatter localizedStringFromNumber:@(llround(calls.doubleValue / MAX((NSUInteger)1, elapsedDays)))
+                    numberStyle:NSNumberFormatterDecimalStyle]] : L(@"--/day avg");
+            NSString *inputText = total ? CCPetsFormatTokens((unsigned long long)fmax(0, total.doubleValue - output.doubleValue)) : @"–";
+            NSString *outputText = total ? CCPetsFormatTokens(output.unsignedLongLongValue) : @"–";
+            NSString *split = [NSString stringWithFormat:@"%@ %@ · %@ %@", L(@"Input"), inputText, L(@"Output"), outputText];
+            left = [self apiMetric:calls title:L(@"Calls this month") tokens:NO detail:average];
+            right = [self apiMetric:total title:L(@"Tokens this month") tokens:YES detail:split];
+        } else {
+            left = [self ringWithRemaining:quota[@"fiveRemaining"] title:L(@"5-hour left") reset:quota[@"fiveReset"]];
+            right = [self ringWithRemaining:quota[@"weekRemaining"] title:L(@"Weekly left") reset:quota[@"weekReset"]];
+        }
+        NSStackView *metrics = [NSStackView stackViewWithViews:@[left, right]];
+        metrics.distribution = NSStackViewDistributionFillEqually;
+        metrics.alignment = NSLayoutAttributeTop;
+        metrics.spacing = 12;
+        for (NSView *view in @[title, metrics]) {
+            view.translatesAutoresizingMaskIntoConstraints = NO;
+            [card addSubview:view];
+        }
+        NSMutableArray *constraints = [NSMutableArray arrayWithArray:@[
+            [title.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
+            [title.topAnchor constraintEqualToAnchor:card.topAnchor constant:12],
+            [metrics.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
+            [metrics.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+            [metrics.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:12],
+            [metrics.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-14],
+        ]];
+        if (badge) {
+            badge.translatesAutoresizingMaskIntoConstraints = NO;
+            [card addSubview:badge];
+            [constraints addObjectsFromArray:@[
+                [badge.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
+                [badge.centerYAnchor constraintEqualToAnchor:title.centerYAnchor],
+                [title.trailingAnchor constraintLessThanOrEqualToAnchor:badge.leadingAnchor constant:-8],
+            ]];
+        } else {
+            [constraints addObject:[title.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-14]];
+        }
+        [NSLayoutConstraint activateConstraints:constraints];
+        [cards addObject:card];
+    }
+    NSStackView *grid = [NSStackView stackViewWithViews:@[]];
+    grid.orientation = NSUserInterfaceLayoutOrientationVertical;
+    grid.alignment = NSLayoutAttributeLeading;
+    grid.spacing = 12;
+    for (NSUInteger index = 0; index < cards.count; index += 2) {
+        NSView *right = index + 1 < cards.count ? cards[index + 1] : [NSView new];
+        NSStackView *row = [NSStackView stackViewWithViews:@[cards[index], right]];
+        row.distribution = NSStackViewDistributionFillEqually;
+        row.alignment = NSLayoutAttributeTop;
+        row.spacing = 12;
+        [grid addArrangedSubview:row];
+        [row.widthAnchor constraintEqualToAnchor:grid.widthAnchor].active = YES;
+    }
+    // 所有账号卡片使用相同高度，由内容最多的卡片决定，API 文案换行时也保持对齐。
+    for (NSUInteger index = 1; index < cards.count; index++) {
+        [cards[index].heightAnchor constraintEqualToAnchor:cards.firstObject.heightAnchor].active = YES;
+    }
+    return grid;
+}
+
 - (NSString *)resetText:(NSNumber *)reset {
     if (!reset) return L(@"Waiting for data");
-    NSDate *date = [NSDate dateWithTimeIntervalSince1970:reset.doubleValue];
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:CCPetsCurrentLanguage()];
-    // 一天之内只写钟点，再远就带上星期几。
     [formatter setLocalizedDateFormatFromTemplate:reset.doubleValue - NSDate.date.timeIntervalSince1970 < 86400
         ? @"HH:mm" : @"EEEHH:mm"];
-    return [NSString stringWithFormat:L(@"Resets %@"), [formatter stringFromDate:date]];
+    return [NSString stringWithFormat:L(@"Resets %@"),
+        [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:reset.doubleValue]]];
 }
 
 - (NSView *)ringWithRemaining:(NSNumber *)remaining title:(NSString *)title reset:(NSNumber *)reset {
     CCPetsRingView *ring = [CCPetsRingView new];
-    double value = remaining.doubleValue;
-    ring.fraction = remaining ? value / 100 : 0;
-    // 剩两成以下换提醒色，和面板里"需关注"的门槛同一个意思。
-    ring.color = remaining && value < 20 ? CCPetsStatusColor(CCPetsStatusWarn) : CCPetsAccentColor();
-    ring.translatesAutoresizingMaskIntoConstraints = NO;
     [ring.widthAnchor constraintEqualToConstant:44].active = YES;
     [ring.heightAnchor constraintEqualToConstant:44].active = YES;
-    NSTextField *percent = CCPetsNumberLabel(remaining ? [NSString stringWithFormat:@"%.0f%%", value] : @"–",
+    ring.fraction = remaining.doubleValue / 100;
+    ring.color = remaining && remaining.doubleValue < 20 ? CCPetsStatusColor(CCPetsStatusWarn) : CCPetsAccentColor();
+    NSTextField *percent = CCPetsNumberLabel(remaining ? [NSString stringWithFormat:@"%.0f%%", remaining.doubleValue] : @"–",
         17, NSFontWeightBold, CCPetsInkColor());
-    NSTextField *label = CCPetsLabel(title, 11, NSFontWeightRegular, CCPetsSecondaryInkColor());
-    NSTextField *resetLabel = CCPetsLabel([self resetText:reset], 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
-    NSStackView *texts = [NSStackView stackViewWithViews:@[percent, label, resetLabel]];
+    NSStackView *texts = [NSStackView stackViewWithViews:@[percent,
+        CCPetsLabel(title, 11, NSFontWeightRegular, CCPetsSecondaryInkColor()),
+        CCPetsLabel([self resetText:reset], 11, NSFontWeightRegular, CCPetsTertiaryInkColor())]];
     texts.orientation = NSUserInterfaceLayoutOrientationVertical;
     texts.alignment = NSLayoutAttributeLeading;
     texts.spacing = 0;
@@ -351,65 +452,18 @@ static const CGFloat HeroExtraPadding = 15;
     return block;
 }
 
-- (NSView *)quotaCards {
-    NSArray<NSDictionary *> *quotas = [WorkbenchSource() workbenchQuotas];
-    if (quotas.count == 0) return nil;
-    NSMutableArray<NSView *> *cards = [NSMutableArray array];
-    for (NSDictionary *quota in quotas) {
-        CCPetsCardView *card = [CCPetsCardView new];
-        CCPetsColorDot *dot = [[CCPetsColorDot alloc] initWithColor:CCPetsProviderColor(quota[@"provider"]) diameter:8];
-        dot.layer.cornerRadius = 2;
-        NSString *quotaName = [quota[@"profileName"] isKindOfClass:NSString.class]
-            ? quota[@"profileName"] : quota[@"provider"];
-        NSTextField *name = CCPetsLabel(quotaName, 13, NSFontWeightSemibold, CCPetsInkColor());
-        NSStackView *title = [NSStackView stackViewWithViews:@[dot, name]];
-        title.spacing = 7;
-        title.alignment = NSLayoutAttributeCenterY;
-        NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:title];
-        CCPetsChipView *pace = nil;
-        if ([quota[@"pace"] length] > 0 && quota[@"paceLevel"]) {
-            NSInteger level = [quota[@"paceLevel"] integerValue];
-            CCPetsStatusKind kind = level >= 3 ? CCPetsStatusError : (level == 2 ? CCPetsStatusWarn
-                : (level == 0 ? CCPetsStatusOK : CCPetsStatusIdle));
-            pace = [[CCPetsChipView alloc] initWithText:quota[@"pace"] kind:kind];
-            pace.hidesDot = YES;
-            [views addObject:pace];
-        }
-        NSView *five = [self ringWithRemaining:quota[@"fiveRemaining"] title:L(@"5-hour left") reset:quota[@"fiveReset"]];
-        NSView *week = [self ringWithRemaining:quota[@"weekRemaining"] title:L(@"Weekly left") reset:quota[@"weekReset"]];
-        NSStackView *rings = [NSStackView stackViewWithViews:@[five, week]];
-        rings.distribution = NSStackViewDistributionFillEqually;
-        rings.alignment = NSLayoutAttributeCenterY;
-        rings.spacing = 12;
-        [views addObject:rings];
-        for (NSView *view in views) {
-            view.translatesAutoresizingMaskIntoConstraints = NO;
-            [card addSubview:view];
-        }
-        NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
-            [title.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
-            [title.topAnchor constraintEqualToAnchor:card.topAnchor constant:12],
-            [rings.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
-            [rings.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
-            [rings.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:12],
-            [rings.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-14],
-        ]];
-        if (pace) {
-            [constraints addObjectsFromArray:@[
-                [pace.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
-                [pace.centerYAnchor constraintEqualToAnchor:title.centerYAnchor],
-            ]];
-        }
-        [NSLayoutConstraint activateConstraints:constraints];
-        [cards addObject:card];
-    }
-    // 只有一家时也占半行，卡片宽度和两家时一样，不会被拉成一长条。
-    if (cards.count == 1) [cards addObject:[NSView new]];
-    NSStackView *row = [NSStackView stackViewWithViews:cards];
-    row.distribution = NSStackViewDistributionFillEqually;
-    row.alignment = NSLayoutAttributeTop;
-    row.spacing = 12;
-    return row;
+- (NSView *)apiMetric:(NSNumber *)value title:(NSString *)title tokens:(BOOL)tokens detail:(NSString *)detail {
+    NSString *text = !value ? @"–" : (tokens ? CCPetsFormatTokens(value.unsignedLongLongValue)
+        : [NSNumberFormatter localizedStringFromNumber:value numberStyle:NSNumberFormatterDecimalStyle]);
+    NSTextField *caption = CCPetsWrappingLabel(detail, 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    NSStackView *stack = [NSStackView stackViewWithViews:@[
+        CCPetsLabel(title, 11, NSFontWeightRegular, CCPetsSecondaryInkColor()),
+        CCPetsNumberLabel(text, 20, NSFontWeightBold, CCPetsInkColor()), caption]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 3;
+    [caption.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+    return stack;
 }
 
 @end

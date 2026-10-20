@@ -2,26 +2,6 @@
 #import "CCPetsUsageMonitor.h"
 #import "CCPetsPaths.h"
 
-// UsageMonitor 的独立链接测试不引入完整的 Profile/Bridge 安装栈；这里提供只读注册表。
-// 正式监控器只会读取已登记的账号，因此测试桩必须保留两个官方默认 Home。
-NSString *const CCPetsProfileProviderClaude = @"claude";
-NSString *const CCPetsProfileProviderCodex = @"codex";
-NSArray<NSDictionary *> *CCPetsProfiles(void) {
-    return @[
-        @{ @"id": @"claude:default", @"provider": CCPetsProfileProviderClaude,
-           @"home": DefaultClaudeConfigDirectory() },
-        @{ @"id": @"codex:default", @"provider": CCPetsProfileProviderCodex,
-           @"home": DefaultCodexHomeDirectory() },
-    ];
-}
-NSArray<NSDictionary *> *CCPetsProfilesForProvider(NSString *provider) {
-    if (provider.length == 0) return @[];
-    NSMutableArray<NSDictionary *> *matches = [NSMutableArray array];
-    for (NSDictionary *profile in CCPetsProfiles()) {
-        if ([profile[@"provider"] isEqualToString:provider]) [matches addObject:profile];
-    }
-    return matches.copy;
-}
 #import "CCPetsCodexRateLimits.h"
 
 static NSData *CodexLine(double five, double week) {

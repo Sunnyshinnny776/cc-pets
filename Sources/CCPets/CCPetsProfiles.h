@@ -2,6 +2,7 @@
 
 extern NSString *const CCPetsProfileProviderClaude;
 extern NSString *const CCPetsProfileProviderCodex;
+extern NSNotificationName const CCPetsProfilesDidChangeNotification;
 
 NSString *CCPetsProfilesPath(void);
 NSArray<NSDictionary *> *CCPetsProfiles(void);

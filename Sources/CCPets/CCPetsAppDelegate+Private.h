@@ -168,6 +168,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)updatePetScale:(double)scale;
 - (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled;
 - (void)updateUsageDisplayMode:(NSString *)mode forKey:(NSString *)key;
+- (void)updateUsageDisplayMode:(NSString *)mode forProfileID:(NSString *)profileID;
 - (void)updateImportCodexPets:(BOOL)enabled;
 - (void)updatePanelTheme:(NSString *)theme;
 - (void)updateGlassDimLevel:(NSNumber *)level;
@@ -216,7 +217,6 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (NSString *)approvalKeyForRecord:(NSDictionary *)record;
 - (void)displayAgentRecord:(NSDictionary *)record notify:(BOOL)shouldNotify;
 - (NSString *)agentSessionKeyForRecord:(NSDictionary *)record;
-- (NSString *)onlineAgentSessionKeyForProvider:(NSString *)provider tty:(NSString *)tty;
 - (NSString *)onlineAgentSessionKeyForRecord:(NSDictionary *)record;
 - (BOOL)isAgentSessionRecordLive:(NSDictionary *)record;
 - (void)pruneOfflineAgentSessionRecords;

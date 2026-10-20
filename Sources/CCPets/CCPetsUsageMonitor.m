@@ -3,6 +3,7 @@
 #import "CCPetsCodexRateLimits.h"
 #import "CCPetsPaths.h"
 #import "CCPetsProfiles.h"
+#import "CCPetsUsageMode.h"
 #import <CoreServices/CoreServices.h>
 #import <fcntl.h>
 #import <unistd.h>
@@ -378,6 +379,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 }
 - (void)refreshOnQueue {
     if (!self.started) return;
+    CCPetsRefreshProfileAuthenticationModes(CCPetsProfiles());
     // 手动刷新、面板打开和 120 秒兜底都走全量路径，Token 聚合的节流只约束 FSEvents 热路径。
     BOOL hasDefaultCodex = HasRegisteredDefaultProfile(CCPetsProfileProviderCodex);
     BOOL hasDefaultClaude = HasRegisteredDefaultProfile(CCPetsProfileProviderClaude);

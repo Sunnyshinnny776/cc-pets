@@ -9,6 +9,7 @@
 
 NSString *const CCPetsProfileProviderClaude = @"claude";
 NSString *const CCPetsProfileProviderCodex = @"codex";
+NSNotificationName const CCPetsProfilesDidChangeNotification = @"CCPetsProfilesDidChange";
 
 static NSString *ProfilesDirectory(void) {
     return [CCPetsHomeDirectory() stringByAppendingPathComponent:@".cc-pets"];
