@@ -658,7 +658,7 @@ cc-pets pet search petdex:otter
 ```
 
 一个源的完整定义就是清单地址、资源 host 白名单和 Referer 三项，集中在
-`Sources/CCPets/CCPetsPetStore.m` 的 `Sources()` 表里。以后接自建 registry 时在表里加一行即可，
+`Sources/CCPets/Pet/CCPetsPetStore.m` 的 `Sources()` 表里。以后接自建 registry 时在表里加一行即可，
 命令、目录结构和桌宠端都不用改。默认源用 `CC_PETS_SOURCE` 切换。
 
 来源记录在宠物目录内的 `.source.json`（`{ "source", "slug", "installedAt" }`），下载来的

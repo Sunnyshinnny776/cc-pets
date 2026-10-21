@@ -29,7 +29,7 @@ See [release status](docs/release-status.md) for validation and handoff details.
 UI text is written in English in the source, and that text is the key into every
 other language's table:
 
-- Objective-C: wrap user-visible strings in `L(@"…")` (`Sources/CCPets/CCPetsL10n.h`).
+- Objective-C: wrap user-visible strings in `L(@"…")` (`Sources/CCPets/Support/CCPetsL10n.h`).
   Use `%1$@` / `%2$@` when a translation needs a different argument order. Command-line
   output can instead use `{name}` placeholders filled by `CCPetsInterpolate(L(@"…"), @{…})`.
 - zsh: use `cc_pets_t "…" name="$value"` from `scripts/i18n.zsh`, which looks the text up

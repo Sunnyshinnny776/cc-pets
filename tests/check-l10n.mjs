@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 多语言自检（开发和 CI 用，不随用户运行）。源码里写英文原文，它就是各语言表的 key：
-//   - 原生代码：L(@"…")（见 Sources/CCPets/CCPetsL10n.h），带参数的写 {name} 占位或 %@
+//   - 原生代码：L(@"…")（见 Sources/CCPets/Support/CCPetsL10n.h），带参数的写 {name} 占位或 %@
 //   - zsh 脚本：cc_pets_t "…"（见 scripts/i18n.zsh）
 // 两边共用 Resources/<语言>.lproj/Localizable.strings 一张表。
 // 改了英文原文却忘了改表，那种语言的界面就会漏出英文，而且不报任何错。这里把每种语言的表

@@ -1,4 +1,4 @@
-/* CC Pets 简体中文界面。key 是源码里 L(@"…") 的英文原文，见 Sources/CCPets/CCPetsL10n.h。
+/* CC Pets 简体中文界面。key 是源码里 L(@"…") 的英文原文，见 Sources/CCPets/Support/CCPetsL10n.h。
    改了英文原文要同步改这里的 key；node tests/check-l10n.mjs 会报出对不上的条目。
    新增语言：复制本文件到 <语言>.lproj/Localizable.strings 再逐条翻译，见 CONTRIBUTING.md。 */
 
