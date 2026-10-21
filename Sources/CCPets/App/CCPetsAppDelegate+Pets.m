@@ -123,7 +123,7 @@
         [NSApp activateIgnoringOtherApps:YES];
         NSAlert *alert = [NSAlert new];
         alert.messageText = L(@"No Pet Sprites Found");
-        alert.informativeText = L(@"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex Pets” on the Pet page of the CC Pets window. Then click “Rescan”.");
+        alert.informativeText = L(@"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex Pets” on the Pet page of the Main menu. Then click “Rescan”.");
         [alert addButtonWithTitle:L(@"Rescan")];
         [alert addButtonWithTitle:L(@"Open Pets Folder")];
         [alert addButtonWithTitle:L(@"Quit")];

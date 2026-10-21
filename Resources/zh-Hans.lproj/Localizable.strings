@@ -46,7 +46,7 @@
 "📬 %1$@ has %2$lu undelivered messages (say anything in that terminal to deliver)" = "📬 %@ 有 %lu 条消息待投递（去那个终端说句话即可送达）";
 "Jump to %@'s terminal" = "跳到 %@ 所在的终端";
 "No Pet Sprites Found" = "没有找到桌宠素材";
-"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex Pets” on the Pet page of the CC Pets window. Then click “Rescan”." = "用 `cc-pets pet add <名称>` 下载素材，或把 PNG / WebP 精灵图放入 ~/.cc-pets/pets/<名称>/。桌宠不会去读 ~/.petdex/pets/ 和 ~/.codex/pets/；要用 Codex 的素材，请在 CC Pets 主窗口的“宠物”页打开“导入 Codex 素材”。完成后点击“重新扫描”。";
+"Download one with `cc-pets pet add <name>`, or put a PNG / WebP sprite sheet in ~/.cc-pets/pets/<name>/. CC Pets doesn't read ~/.petdex/pets/ or ~/.codex/pets/; to use Codex pets, turn on “Import Codex Pets” on the Pet page of the Main menu. Then click “Rescan”." = "用 `cc-pets pet add <名称>` 下载素材，或把 PNG / WebP 精灵图放入 ~/.cc-pets/pets/<名称>/。桌宠不会去读 ~/.petdex/pets/ 和 ~/.codex/pets/；要用 Codex 的素材，请在 主菜单的“宠物”页打开“导入 Codex 素材”。完成后点击“重新扫描”。";
 "Rescan" = "重新扫描";
 "Open Pets Folder" = "打开素材目录";
 "Quit" = "退出";
@@ -594,8 +594,8 @@
 "The shim directory is first in PATH" = "PATH 中 shim 目录排在最前";
 "Found the real {name}: {real}" = "找到真实的 {name}：{real}";
 "The real {name} isn't in PATH, so the shim can't forward to it" = "PATH 中找不到真实的 {name}，shim 无法转发";
-"The main window couldn't find the real {name}; run cc-pets doctor in a terminal to confirm" = "主窗口没找到真实的 {name}，请在终端里运行 cc-pets doctor 确认";
-"The main window couldn't find codex to check whether it can be woken; run cc-pets doctor in a terminal to confirm" = "主窗口没找到 codex，无法确认能否唤醒，请在终端里运行 cc-pets doctor 确认";
+"The Main menu couldn't find the real {name}; run cc-pets doctor in a terminal to confirm" = "主菜单没找到真实的 {name}，请在终端里运行 cc-pets doctor 确认";
+"The Main menu couldn't find codex to check whether it can be woken; run cc-pets doctor in a terminal to confirm" = "主菜单没找到 codex，无法确认能否唤醒，请在终端里运行 cc-pets doctor 确认";
 "Auto-update isn't configured, so in-app updates won't work" = "自动更新未配置，应用内无法一键更新";
 "Auto-update config is valid" = "自动更新配置有效";
 "The {missing} recorded for auto-update no longer exist (changed Node versions?)" = "自动更新记录的 {missing} 已不存在（换过 Node 版本？）";
@@ -691,7 +691,7 @@
 "Refusing to delete: {targetApp} isn't the CC Pets app (bundle ID mismatch)." = "拒绝删除：{targetApp} 不是 CC Pets 应用（Bundle ID 不匹配）。";
 "App removed: {targetApp}" = "已删除应用: {targetApp}";
 "App not installed: {targetApp}" = "未安装应用: {targetApp}";
-"Usage: cc-pets [command]\n\n  cc-pets                    Start the pet (prefers the copy installed in ~/Applications)\n  cc-pets install            Install or repair the shell / Claude Code / Codex integrations\n  cc-pets uninstall          Remove the integrations and restore the status line\n  cc-pets uninstall --purge  Also delete the app, app data and preferences (asks first; keeps pets and lines in ~/.cc-pets)\n  cc-pets uninstall-app      Only delete ~/Applications/CC Pets.app\n  cc-pets build              Rebuild\n  cc-pets clean              Clear caches (quit the pet first)\n  cc-pets doctor             Check the installation and integrations, with suggested fixes\n  cc-pets open [page]        Open the main window (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics)\n  cc-pets paths [--json]     List where settings, caches and data live, and their sizes\n  cc-pets pet <command>      Manage pet sprites; see cc-pets pet help\n  cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help\n  cc-pets --status           Print the current Codex quota\n  cc-pets --history          Print quota history (JSON)\n  cc-pets --foreground       Run the pet in the foreground (for debugging)\n  cc-pets -v, --version      Show the version\n  cc-pets -h, --help         Show this help\n\ncodex-with-pet / claude-with-pet start the pet along with the CLI." = "用法：cc-pets [命令]\n\n  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）\n  cc-pets install            安装或修复 shell / Claude Code / Codex 集成\n  cc-pets uninstall          移除集成并恢复 status line\n  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）\n  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app\n  cc-pets build              重新构建\n  cc-pets clean              清理缓存（需先退出桌宠）\n  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议\n  cc-pets open [页面]        打开主窗口（页面：overview、sessions、usage、pet、accounts、alerts、general、diagnostics）\n  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小\n  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help\n  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help\n  cc-pets --status           输出 Codex 当前额度\n  cc-pets --history          输出额度历史（JSON）\n  cc-pets --foreground       在前台运行桌宠（调试用）\n  cc-pets -v, --version      显示版本\n  cc-pets -h, --help         显示本帮助\n\ncodex-with-pet / claude-with-pet 会在启动 CLI 的同时拉起桌宠。";
+"Usage: cc-pets [command]\n\n  cc-pets                    Start the pet (prefers the copy installed in ~/Applications)\n  cc-pets install            Install or repair the shell / Claude Code / Codex integrations\n  cc-pets uninstall          Remove the integrations and restore the status line\n  cc-pets uninstall --purge  Also delete the app, app data and preferences (asks first; keeps pets and lines in ~/.cc-pets)\n  cc-pets uninstall-app      Only delete ~/Applications/CC Pets.app\n  cc-pets build              Rebuild\n  cc-pets clean              Clear caches (quit the pet first)\n  cc-pets doctor             Check the installation and integrations, with suggested fixes\n  cc-pets open [page]        Open the Main menu (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics)\n  cc-pets paths [--json]     List where settings, caches and data live, and their sizes\n  cc-pets pet <command>      Manage pet sprites; see cc-pets pet help\n  cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help\n  cc-pets --status           Print the current Codex quota\n  cc-pets --history          Print quota history (JSON)\n  cc-pets --foreground       Run the pet in the foreground (for debugging)\n  cc-pets -v, --version      Show the version\n  cc-pets -h, --help         Show this help\n\ncodex-with-pet / claude-with-pet start the pet along with the CLI." = "用法：cc-pets [命令]\n\n  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）\n  cc-pets install            安装或修复 shell / Claude Code / Codex 集成\n  cc-pets uninstall          移除集成并恢复 status line\n  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）\n  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app\n  cc-pets build              重新构建\n  cc-pets clean              清理缓存（需先退出桌宠）\n  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议\n  cc-pets open [页面]        打开主菜单（页面：overview、sessions、usage、pet、accounts、alerts、general、diagnostics）\n  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小\n  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help\n  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help\n  cc-pets --status           输出 Codex 当前额度\n  cc-pets --history          输出额度历史（JSON）\n  cc-pets --foreground       在前台运行桌宠（调试用）\n  cc-pets -v, --version      显示版本\n  cc-pets -h, --help         显示本帮助\n\ncodex-with-pet / claude-with-pet 会在启动 CLI 的同时拉起桌宠。";
 "Main menu" = "主菜单";
 "Settings…" = "设置…";
 "Window" = "窗口";
@@ -813,7 +813,7 @@
 "Alerts" = "提醒";
 "Pick the pet that lives on your desktop, its size, how chatty it is and how it reacts when poked." = "选一只住在桌面上的宠物，调整它的大小、话多不多，以及戳它时的反应。";
 "When to interrupt you: system notifications, the status card and message badges." = "什么时候打扰你：系统通知、桌面状态卡和消息角标。";
-"The main window can't see your terminal's PATH; run cc-pets doctor in a terminal to check the shim order" = "主窗口看不到终端的 PATH，要确认 shim 是否排在最前，请在终端里运行 cc-pets doctor";
+"The Main menu can't see your terminal's PATH; run cc-pets doctor in a terminal to check the shim order" = "主菜单看不到终端的 PATH，要确认 shim 是否排在最前，请在终端里运行 cc-pets doctor";
 "Multi-Account" = "多账号";
 "Agent profiles" = "Agent 配置";
 "Add Claude Home…" = "添加 Claude Home…";
@@ -852,7 +852,7 @@
 "All accounts" = "全部账号";
 "No Agent accounts detected" = "尚未检测到账号";
 "Official Homes appear automatically" = "官方 Home 会自动显示";
-"Add custom Homes from Multi-Account in the main window" = "自定义 Home 请从主窗口的“多账号”中添加";
+"Add custom Homes from Multi-Account in the Main menu" = "自定义 Home 请从主菜单的“多账号”中添加";
 "Configuring {name}…" = "正在配置 {name}…";
 "{name}: {error}" = "{name}：{error}";
 "Rename…" = "重命名…";
@@ -869,9 +869,9 @@
 "Agent profile registry" = "Agent 配置注册表";
 "Agent profile: %@" = "Agent 配置：%@";
 "No registered Agent profiles" = "没有已登记的 Agent 配置";
-"Some registered Agent profiles need repair; open Multi-Account in the main window and retry." = "部分已登记的账号需要修复；请打开主窗口的“多账号”后重试。";
-"Default Claude and Codex Homes were integrated automatically; add custom Homes from Multi-Account in the main window." = "Claude 和 Codex 的官方默认 Home 已自动集成；自定义 Home 请从主窗口的“多账号”中添加。";
-"No Agent Homes are registered; CC Bridge will be applied when you add one from Multi-Account in the main window." = "尚未登记 Agent Home；以后从主窗口的“多账号”添加时会自动接入 CC Bridge。";
+"Some registered Agent profiles need repair; open Multi-Account in the Main menu and retry." = "部分已登记的账号需要修复；请打开主菜单的“多账号”后重试。";
+"Default Claude and Codex Homes were integrated automatically; add custom Homes from Multi-Account in the Main menu." = "Claude 和 Codex 的官方默认 Home 已自动集成；自定义 Home 请从主菜单的“多账号”中添加。";
+"No Agent Homes are registered; CC Bridge will be applied when you add one from Multi-Account in the Main menu." = "尚未登记 Agent Home；以后从主菜单的“多账号”添加时会自动接入 CC Bridge。";
 "CC Bridge hooks installed in %@" = "%@ 已安装 CC Bridge Hooks";
 "CC Bridge hooks missing in %@" = "%@ 缺少 CC Bridge Hooks";
 "Claude Code executable not found; MCP registration was not removed." = "未找到 Claude Code 可执行文件，MCP 注册尚未移除。";
