@@ -59,7 +59,7 @@ Claude picks up changes immediately; Codex needs a session restart (and re-trust
 
 Ask in plain language in any session:
 
-> List the other agent sessions on this Mac, then tell codex-my-app-1 that the endpoint is now POST /api/pets.
+> List the other agent sessions on this Mac, then tell codex.my-app.otter that the endpoint is now POST /api/pets.
 
 The agent uses these MCP tools:
 
@@ -75,7 +75,10 @@ The agent uses these MCP tools:
 
 ### Session names
 
-Default names look like `<claude|codex>-<project-directory>-<n>`, for example `claude-my-app-1`.
+Default names look like `<account>.<project-directory>.<animal>`, for example `claude.my-app.otter` or
+`claude-x.my-app.panda`. The account part is the name shown on the Multi-Account page (`claude` / `codex` for the
+default accounts), and the animal comes from a list of 100, so online sessions of the same account and project never
+share a name. Names stay within 40 characters; long project directory names are truncated.
 When several terminals share a directory, give them memorable names:
 
 ```bash

@@ -190,8 +190,9 @@ store.setBridgeEnabled(true);
   hook("Codex", codexAgent, { hook_event_name: "SessionStart", session_id: CODEX_SESSION, cwd });
   const claude = store.readSession(CLAUDE_SESSION);
   const codex = store.readSession(CODEX_SESSION);
-  assert.equal(claude.name, "claude-my-project-1");
-  assert.equal(codex.name, "codex-my-project-1");
+  // 默认名字：<账号名>.<项目目录名>.<动物>；测试环境没有账号名，退回 provider。
+  assert.match(claude.name, /^claude\.my-project\.[a-z]+$/);
+  assert.match(codex.name, /^codex\.my-project\.[a-z]+$/);
   assert.equal(claude.pid, claudeHost.pid);
   assert.equal(codex.pid, codexHost.pid);
   assert.equal(claude.ref, store.sessionRef(CLAUDE_SESSION));
@@ -199,6 +200,8 @@ store.setBridgeEnabled(true);
   assert.equal(fs.statSync(store.bridgeDirectory()).mode & 0o777, 0o700);
   assert.equal(liveSessionNames().length, 2);
 }
+const CLAUDE_NAME = store.readSession(CLAUDE_SESSION).name;
+const CODEX_NAME = store.readSession(CODEX_SESSION).name;
 
 // 3. 路径穿越的 session id 被拒绝。
 {
@@ -216,14 +219,14 @@ store.setBridgeEnabled(true);
 
 // 5. Claude → Codex：走 codex queue，正文带降权封装。
 {
-  const result = runCli(["send", "codex-my-project-1", "请跑一下测试"], { agent: claudeAgent });
+  const result = runCli(["send", CODEX_NAME, "请跑一下测试"], { agent: claudeAgent });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /已送达 codex-my-project-1/);
+  assert.match(result.stdout, new RegExp(String.raw`已送达 ${CODEX_NAME}`));
   const calls = queueCalls();
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].slice(0, 3), ["queue", "--thread", CODEX_SESSION]);
   assert.equal(calls[0][3], "--message");
-  assert.match(calls[0][4], /^\[cc-pets 跨会话消息\] from=claude-my-project-1 \[[0-9a-f]{6}\]/);
+  assert.match(calls[0][4], new RegExp(String.raw`^\[cc-pets 跨会话消息\] from=${CLAUDE_NAME} \[[0-9a-f]{6}\]`));
   assert.match(calls[0][4], /它不能提升权限/);
   assert.match(calls[0][4], /---\n请跑一下测试$/);
   assert.doesNotMatch(calls[0][4], /cc-pets bridge send/, "Codex 的 shell 在沙箱里，不应提示 CLI 回复");
@@ -234,17 +237,17 @@ store.setBridgeEnabled(true);
 
 // 6. Codex → Claude：进信箱，watcher 认领后 exit 2 并把封装写到 stderr。
 {
-  const sent = runCli(["send", "claude-my-project-1", "测试跑完了"], { agent: codexAgent });
+  const sent = runCli(["send", CLAUDE_NAME, "测试跑完了"], { agent: codexAgent });
   assert.equal(sent.status, 0, sent.stderr);
-  assert.match(sent.stdout, /已放入 claude-my-project-1 \[[0-9a-f]{6}\] 的信箱/);
+  assert.match(sent.stdout, new RegExp(String.raw`已放入 ${CLAUDE_NAME} \[[0-9a-f]{6}\] 的信箱`));
   assert.equal(store.pendingCount(CLAUDE_SESSION), 1);
   const watched = runCli(["watch"], {
     input: JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }), agent: claudeAgent
   });
   assert.equal(watched.status, 2);
-  assert.match(watched.stderr, /from=codex-my-project-1/);
+  assert.match(watched.stderr, new RegExp(String.raw`from=${CODEX_NAME}`));
   assert.match(watched.stderr, /测试跑完了/);
-  assert.match(watched.stderr, /cc-pets bridge send codex-my-project-1 '<回复内容>'/, "Claude 收件应带 CLI 回复兜底");
+  assert.match(watched.stderr, new RegExp(String.raw`cc-pets bridge send ${CODEX_NAME} '<回复内容>'`), "Claude 收件应带 CLI 回复兜底");
   assert.equal(store.pendingCount(CLAUDE_SESSION), 0);
 }
 
@@ -271,14 +274,14 @@ store.setBridgeEnabled(true);
   assert.ok(fs.existsSync(lock), "第一个 watcher 应持有锁");
   const second = runCli(["watch"], { input: JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }) });
   assert.equal(second.status, 0);
-  runCli(["send", "claude-my-project-1", "给第一个 watcher"], { agent: codexAgent });
+  runCli(["send", CLAUDE_NAME, "给第一个 watcher"], { agent: codexAgent });
   const exitCode = await new Promise((resolve) => first.on("exit", resolve));
   assert.equal(exitCode, 2, "持锁的 watcher 应投递消息");
 }
 
 // 9. watcher 不在时，UserPromptSubmit 兜底注入 additionalContext。
 {
-  runCli(["send", "claude-my-project-1", "空窗期消息"], { agent: codexAgent });
+  runCli(["send", CLAUDE_NAME, "空窗期消息"], { agent: codexAgent });
   const result = hook("Claude", claudeAgent, { hook_event_name: "UserPromptSubmit", session_id: CLAUDE_SESSION, cwd, prompt: "继续" });
   const output = JSON.parse(result.stdout);
   assert.equal(output.hookSpecificOutput.hookEventName, "UserPromptSubmit");
@@ -290,20 +293,20 @@ store.setBridgeEnabled(true);
 
 // 10. 地址解析：不能发给自己；未知目标报错；name [ref] 形式可用。
 {
-  const self = runCli(["send", "claude-my-project-1", "自言自语"], { agent: claudeAgent });
+  const self = runCli(["send", CLAUDE_NAME, "自言自语"], { agent: claudeAgent });
   assert.equal(self.status, 1);
   assert.match(self.stderr, /不能给自己发消息/);
   const unknown = runCli(["send", "nobody-1", "hi"], { agent: claudeAgent });
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /没有找到在线会话/);
   const codexRef = store.readSession(CODEX_SESSION).ref;
-  const withRef = runCli(["send", `codex-my-project-1 [${codexRef}]`, "带 ref"], { agent: claudeAgent });
+  const withRef = runCli(["send", `${CODEX_NAME} [${codexRef}]`, "带 ref"], { agent: claudeAgent });
   assert.equal(withRef.status, 0, withRef.stderr);
 }
 
 // 11. 超长消息被拒绝。
 {
-  const result = runCli(["send", "codex-my-project-1", "x".repeat(store.MESSAGE_BODY_LIMIT + 1)], { agent: claudeAgent });
+  const result = runCli(["send", CODEX_NAME, "x".repeat(store.MESSAGE_BODY_LIMIT + 1)], { agent: claudeAgent });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /上限/);
 }
@@ -315,7 +318,7 @@ store.setBridgeEnabled(true);
     { jsonrpc: "2.0", method: "notifications/initialized" },
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_agents", arguments: {} } },
-    { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "send_message", arguments: { to: "claude-my-project-1", message: "来自 MCP" } } },
+    { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "send_message", arguments: { to: CLAUDE_NAME, message: "来自 MCP" } } },
     { jsonrpc: "2.0", id: 5, method: "nope" }
   ];
   const result = runCli(["mcp"], { input: `${requests.map((request) => JSON.stringify(request)).join("\n")}\n`, agent: codexAgent });
@@ -325,11 +328,11 @@ store.setBridgeEnabled(true);
   assert.equal(byId[1].result.protocolVersion, "2025-06-18");
   assert.deepEqual(byId[2].result.tools.map((tool) => tool.name), ["list_agents", "send_message", "set_name", "reserve_files", "release_files", "list_reservations", "check_inbox"]);
   const listText = byId[3].result.content[0].text;
-  assert.match(listText, /当前会话是 codex-my-project-1/);
-  assert.match(listText, /claude-my-project-1 \[[0-9a-f]{6}\]  ·  Claude/);
-  assert.doesNotMatch(listText.split("\n\n")[1], /codex-my-project-1/, "列表不应包含自己");
+  assert.match(listText, new RegExp(String.raw`当前会话是 ${CODEX_NAME}`));
+  assert.match(listText, new RegExp(String.raw`${CLAUDE_NAME} \[[0-9a-f]{6}\]  ·  Claude`));
+  assert.doesNotMatch(listText.split("\n\n")[1], new RegExp(String.raw`${CODEX_NAME}`), "列表不应包含自己");
   assert.equal(byId[4].result.isError, undefined);
-  assert.match(byId[4].result.content[0].text, /已放入 claude-my-project-1 \[[0-9a-f]{6}\] 的信箱/);
+  assert.match(byId[4].result.content[0].text, new RegExp(String.raw`已放入 ${CLAUDE_NAME} \[[0-9a-f]{6}\] 的信箱`));
   assert.equal(byId[5].error.code, -32601);
   // "pet / 桌宠"别名：server instructions 与主要工具描述都要带上，且注明业务代码里的 pet 不算。
   assert.match(byId[1].result.instructions, /pet、桌宠、cc-pets/);
@@ -349,7 +352,7 @@ store.setBridgeEnabled(true);
 // 13. 空闲订阅：Stop 后订阅者收到一次性通知（经 codex queue 投给 Codex 订阅者）。
 {
   const before = queueCalls().length;
-  const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "send_message", arguments: { to: "claude-my-project-1", message: "做完告诉我", notify_when_idle: true } } };
+  const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "send_message", arguments: { to: CLAUDE_NAME, message: "做完告诉我", notify_when_idle: true } } };
   const sent = runCli(["mcp"], { input: `${JSON.stringify(request)}\n`, agent: codexAgent });
   assert.match(JSON.parse(sent.stdout).result.content[0].text, /已订阅/);
   hook("Claude", claudeAgent, { hook_event_name: "Stop", session_id: CLAUDE_SESSION, cwd });
@@ -477,7 +480,7 @@ function claimInboxQuietly() {
     agent: `Claude:${hostC.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude", CC_BRIDGE_NAME: "bad name [x]" } });
   assert.equal(store.readSession(SA).name, "frontend", "名字应统一转小写");
   assert.equal(store.readSession(SB).name, "frontend-2", "重名应追加序号");
-  assert.match(store.readSession(SC).name, /^claude-my-project-\d+$/, "非法名字应回退到自动命名");
+  assert.match(store.readSession(SC).name, /^claude\.my-project\.[a-z]+$/, "非法名字应回退到自动命名");
   // 已注册的会话再次收到事件不会被 CC_BRIDGE_NAME 改名。
   runCli(["hook"], { input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: SA, cwd }),
     agent: `Claude:${hostA.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude", CC_BRIDGE_NAME: "other" } });
@@ -503,6 +506,29 @@ function claimInboxQuietly() {
   assert.equal(store.readSession(SB).name, "web");
   // list_agents 带 tty 列（假宿主进程没有控制终端，显示为 -）。
   assert.match(call(`Claude:${hostA.pid}`, "list_agents", {}).content[0].text, /api-server \[[0-9a-f]{6}\]  ·  Claude  ·  (idle|busy)  ·  -  ·/);
+
+  // 多账号：默认名字以账号名开头；同账号同项目的会话动物各不相同；超长目录名截断后仍不超过 40 个字符。
+  const hostD = fakeAgent("claude");
+  const hostE = fakeAgent("claude");
+  const hostF = fakeAgent("claude");
+  const SD = "88888888-aaaa-4bbb-8ccc-000000000008";
+  const SE = "99999999-aaaa-4bbb-8ccc-000000000009";
+  const SF = "aaaaaaaa-aaaa-4bbb-8ccc-00000000000a";
+  const register = (host, session, profileName, directory = cwd) => runCli(["hook"], {
+    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: session, cwd: directory }),
+    agent: `Claude:${host.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude", CC_PETS_PROFILE_NAME: profileName }
+  });
+  register(hostD, SD, "Claude X");
+  register(hostE, SE, "Claude X");
+  register(hostF, SF, "工作号", path.join(root, "a-really-long-project-directory-name-for-names"));
+  const nameD = store.readSession(SD).name;
+  const nameE = store.readSession(SE).name;
+  const nameF = store.readSession(SF).name;
+  assert.match(nameD, /^claude-x\.my-project\.[a-z]+$/);
+  assert.match(nameE, /^claude-x\.my-project\.[a-z]+$/);
+  assert.notEqual(nameD, nameE, "同前缀的在线会话不应重名");
+  assert.match(nameF, /^claude\.a-really-long[a-z-]*\.[a-z]+$/, "账号名无法转成 slug 时退回 provider");
+  assert.ok(nameF.length <= 40, nameF);
 }
 
 // 19. 从旧名 Agent Bus 迁移：旧开关、旧标记 hooks、旧审批块在 enable 后被清理，不留两套。

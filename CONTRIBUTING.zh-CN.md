@@ -26,7 +26,7 @@ GitHub Release 和 tag。提交到 `main` 前，代码、文档、截图与验�
 
 界面文案在源码里写英文原文，这段原文就是其他各语言表的 key：
 
-- Objective-C：用户可见的字符串包在 `L(@"…")` 里（见 `Sources/CCPets/CCPetsL10n.h`）。
+- Objective-C：用户可见的字符串包在 `L(@"…")` 里（见 `Sources/CCPets/Support/CCPetsL10n.h`）。
   译文需要调换参数顺序时用 `%1$@` / `%2$@`；命令行输出也可以写 `{name}` 占位，
   用 `CCPetsInterpolate(L(@"…"), @{…})` 填参数。
 - zsh：用 `scripts/i18n.zsh` 的 `cc_pets_t "…" name="$value"`，查表交给原生的

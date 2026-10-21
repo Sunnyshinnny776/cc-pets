@@ -111,11 +111,24 @@ marked_event_count() {
 }
 
 # main.m 已按模块拆分，源码级断言要覆盖 Sources/CCPets 下所有实现与头文件。
-PET_SOURCES=("${PROJECT_DIR}"/Sources/CCPets/*.m(N) "${PROJECT_DIR}"/Sources/CCPets/*.h(N))
+# 源码按模块分子目录存放：PET_SRC 按文件名查路径，PET_INCLUDE_FLAGS 覆盖所有含头文件的目录，
+# 文件挪目录时这里的断言和 harness 编译命令都不用改。取值一律写 ${PET_SRC[名字]:?}，
+# 文件名写错或文件被删会直接报错退出，而不是让 grep 拿空路径静默放过。
+PET_SOURCE_DIR="${PROJECT_DIR}/Sources/CCPets"
+PET_SOURCES=("${PET_SOURCE_DIR}"/**/*.m(N) "${PET_SOURCE_DIR}"/**/*.h(N))
 if (( ${#PET_SOURCES[@]} == 0 )); then
   print -u2 "找不到任何 Objective-C 源文件"
   exit 1
 fi
+typeset -A PET_SRC=()
+for source_file in "${PET_SOURCES[@]}"; do
+  if (( ${+PET_SRC[${source_file:t}]} )); then
+    print -u2 "源文件重名：${PET_SRC[${source_file:t}]} 与 ${source_file}"
+    exit 1
+  fi
+  PET_SRC[${source_file:t}]="${source_file}"
+done
+PET_INCLUDE_FLAGS=(-I${^${(u)${(M)PET_SOURCES:#*.h}:h}})
 if /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${PROJECT_DIR}/Resources/Info.plist" >/dev/null 2>&1 || \
    /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${PROJECT_DIR}/Resources/Info.plist" >/dev/null 2>&1; then
   print -u2 "Info.plist 模板不应硬编码版本，版本必须来自 package.json"
@@ -138,8 +151,8 @@ print "空素材目录构建测试通过"
 NPM_CACHE_TMP="$(mktemp -d /tmp/cc-pets-npm-cache-test.XXXXXX)"
 PACK_LIST="$(cd "${PROJECT_DIR}" && env npm_config_cache="${NPM_CACHE_TMP}" \
   npm pack --dry-run --json --ignore-scripts 2>/dev/null)"
-for source_file in "${PROJECT_DIR}"/Sources/CCPets/*.m(N) "${PROJECT_DIR}"/Sources/CCPets/*.h(N); do
-  relative="Sources/CCPets/${source_file:t}"
+for source_file in "${PET_SOURCES[@]}"; do
+  relative="${source_file#${PROJECT_DIR}/}"
   if ! print -r -- "${PACK_LIST}" | grep -Fq "\"${relative}\""; then
     print -u2 "发布包缺少源文件 ${relative}；检查 package.json 的 files 字段"
     exit 1
@@ -240,11 +253,11 @@ grep -Fq -- "-g ${UPDATER_TMP}/Applications/CC Pets.app --args --managed" "${UPD
 grep -q 'Check for Updates…' "${PET_SOURCES[@]}"
 # 检查更新与关于收在「帮助」子菜单里；有新版本时顶层临时多一项「更新到 x.y.z…」，
 # 由 AppDelegate 通过 pendingUpdateVersionRequested 告知（更新进行中返回 nil）。
-grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:L(@"Help")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -Fq '[helpMenu addItemWithTitle:L(@"Check for Updates…")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -Fq '[helpMenu addItemWithTitle:L(@"About CC Pets")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -Fq 'L(@"Update to %@…")' "${PROJECT_DIR}/Sources/CCPets/PetView.m"
-grep -Fq 'return weakSelf.updating ? nil : weakSelf.pendingUpdateVersion;' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m"
+grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:L(@"Help")' "${PET_SRC[PetView+Menu.m]:?}"
+grep -Fq '[helpMenu addItemWithTitle:L(@"Check for Updates…")' "${PET_SRC[PetView+Menu.m]:?}"
+grep -Fq '[helpMenu addItemWithTitle:L(@"About CC Pets")' "${PET_SRC[PetView+Menu.m]:?}"
+grep -Fq 'L(@"Update to %@…")' "${PET_SRC[PetView+Menu.m]:?}"
+grep -Fq 'return weakSelf.updating ? nil : weakSelf.pendingUpdateVersion;' "${PET_SRC[CCPetsAppDelegate.m]:?}"
 grep -q 'https://registry.npmjs.org/cc-pets/latest' "${PET_SOURCES[@]}"
 grep -Fq 'environment[@"PATH"] = [NSString stringWithFormat:@"%@:%@", nodeDirectory, existingPath]' \
   "${PET_SOURCES[@]}"
@@ -306,9 +319,9 @@ print "Codex 会话增量读取与解析测试通过"
 
 PHRASES_TMP="$(mktemp -d /tmp/cc-pets-phrases-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrases.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PET_INCLUDE_FLAGS[@]}" -framework Foundation \
+  "${PET_SRC[CCPetsPhrases.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/phrases-harness.m" \
   -o "${PHRASES_TMP}/phrases-test"
 CC_PETS_PHRASES_FILE="${PHRASES_TMP}/speech.txt" \
@@ -335,7 +348,7 @@ fi
 grep -q 'restoreStatusDetail' "${PET_SOURCES[@]}"
 # 频率四档要同时出现在档位表和主窗口设置页里，少一头就是"界面上能选但没效果"。
 for freq in low normal high chatty; do
-  if ! grep -q "\"${freq}\"" "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"; then
+  if ! grep -q "\"${freq}\"" "${PET_SRC[CCPetsSettingsPage.m]:?}"; then
     print -u2 "设置页缺少碎碎念频率档位 ${freq}"
     exit 1
   fi
@@ -371,9 +384,9 @@ if grep -q 'openURL.*PetPhrasesFilePath\|PetPhrasesFilePath.*openURL' \
 fi
 grep -q 'PetPhrasesEditorController' "${PET_SOURCES[@]}"
 # 保存并关闭必须走同一条保存路径：保存失败/被取消时不能把窗口连同改动一起关掉。
-grep -q 'saveAndClose:' "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrasesEditor.m"
+grep -q 'saveAndClose:' "${PET_SRC[CCPetsPhrasesEditor.m]:?}"
 # 标签被删时要先补回原位再校验，光报错会让用户在编辑器里找不到该补什么。
-grep -q 'PetPhraseTextWithRestoredTags' "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrasesEditor.m"
+grep -q 'PetPhraseTextWithRestoredTags' "${PET_SRC[CCPetsPhrasesEditor.m]:?}"
 # ⌘C/⌘V/⌘A/⌘Z 靠主菜单的 keyEquivalent 分发。这个 app 是 LSUIElement，不设主菜单的话
 # 台词编辑器里这些快捷键全部落空（犯过一次）。
 grep -q 'NSApp.mainMenu = mainMenu' "${PET_SOURCES[@]}"
@@ -385,7 +398,7 @@ for selector in undo: redo: cut: copy: paste: selectAll:; do
 done
 print "编辑菜单快捷键接线测试通过"
 if ! grep -q 'if (!\[self performSave\]) return;' \
-    "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrasesEditor.m"; then
+    "${PET_SRC[CCPetsPhrasesEditor.m]:?}"; then
   print -u2 "保存并关闭必须在保存成功后才关窗"
   exit 1
 fi
@@ -393,8 +406,8 @@ print "默认词库与内置编辑器接线测试通过"
 
 IMPORT_PETS_TMP="$(mktemp -d /tmp/cc-pets-import-pets-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PET_INCLUDE_FLAGS[@]}" -framework Foundation \
+  "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PROJECT_DIR}/tests/import-codex-pets-harness.m" \
   -o "${IMPORT_PETS_TMP}/import-pets-test"
 CC_PETS_CODEX_HOME="${IMPORT_PETS_TMP}/codex" \
@@ -477,19 +490,19 @@ print "cc-pets pet 素材仓库测试通过"
 
 # 共用真实的认证/展示模式实现；账号注册表使用只读桩，不链接安装栈。
 USAGE_MODE_SOURCES=(
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m"
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsCLISupport.m"
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsJSON.m"
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsUsageMode.m"
+  "${PET_SRC[CCPetsPaths.m]:?}"
+  "${PET_SRC[CCPetsCLISupport.m]:?}"
+  "${PET_SRC[CCPetsJSON.m]:?}"
+  "${PET_SRC[CCPetsUsageMode.m]:?}"
   "${PROJECT_DIR}/tests/usage-profile-stubs.m"
 )
 
 TOKEN_USAGE_TMP="$(mktemp -d /tmp/cc-pets-token-usage-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
   "${PROJECT_DIR}/tests/token-usage-harness.m" \
   -o "${TOKEN_USAGE_TMP}/token-usage-test"
 # Token 摘要缓存落在 Application Support 下，测试必须用自己的目录，否则会往用户真实的
@@ -577,12 +590,12 @@ print "Codex/Claude 额度事件监听与缓存配置测试通过"
 
 USAGE_MONITOR_TMP="$(mktemp -d /tmp/cc-pets-usage-monitor-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework CoreServices \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsCodexRateLimits.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsUsageMonitor.m" \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
+  "${PET_SRC[CCPetsCodexRateLimits.m]:?}" \
+  "${PET_SRC[CCPetsUsageMonitor.m]:?}" \
   "${PROJECT_DIR}/tests/usage-monitor-harness.m" \
   -o "${USAGE_MONITOR_TMP}/usage-monitor-test"
 CC_PETS_CODEX_HOME="${USAGE_MONITOR_TMP}/codex" \
@@ -594,10 +607,10 @@ CC_PETS_APPLICATION_SUPPORT_DIR="${USAGE_MONITOR_TMP}/Application Support" \
 
 BRIDGE_STATE_TMP="$(mktemp -d /tmp/cc-pets-bridge-state-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridge.m" \
+  "${PET_SRC[CCPetsPaths.m]:?}" \
+  "${PET_SRC[CCPetsBridge.m]:?}" \
   "${PROJECT_DIR}/tests/bridge-state-harness.m" \
   -o "${BRIDGE_STATE_TMP}/bridge-state-test"
 CC_PETS_STATE_DIR="${BRIDGE_STATE_TMP}/state" \
@@ -606,10 +619,10 @@ CC_PETS_HOME="${BRIDGE_STATE_TMP}/home" \
 
 SESSION_PICK_TMP="$(mktemp -d /tmp/cc-pets-session-pick-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsUsage.m" \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
   "${PROJECT_DIR}/tests/session-pick-harness.m" \
   -o "${SESSION_PICK_TMP}/session-pick-test"
 CC_PETS_CODEX_HOME="${SESSION_PICK_TMP}/codex" \
@@ -629,9 +642,9 @@ print "精灵图降采样与有限预览缓存配置测试通过"
 
 IMAGE_LOADER_TMP="$(mktemp -d /tmp/cc-pets-image-loader-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Cocoa -framework ImageIO \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsImageLoader.m" \
+  "${PET_SRC[CCPetsImageLoader.m]:?}" \
   "${PROJECT_DIR}/tests/image-loader-harness.m" \
   -o "${IMAGE_LOADER_TMP}/image-loader-test"
 "${IMAGE_LOADER_TMP}/image-loader-test" \
@@ -914,7 +927,11 @@ node -e '
       { type: "command", command: "existing-hook" },
       { type: "command", command: `CLAUDE_PET_AGENT_HOOK=1 ${quote}/old/.build/release/codex-pet${quote} --hook` },
       { type: "command", command: "CLAUDE_PET_AGENT_HOOK=1 /other/tool --hook" }
-    ] }] }
+    ] }], Stop: [
+      // 从 App 里修复时写下的条目指向包内程序，重装必须一并替换，不能越积越多。
+      { hooks: [{ type: "command", command: `CC_PETS_CLAUDE_AGENT_HOOK=1 CC_PETS_PROFILE_ID=${quote}claude:old${quote} ${quote}/Users/x/Applications/CC Pets.app/Contents/MacOS/cc-pets${quote} --hook` }] },
+      { hooks: [{ type: "command", command: `CC_PETS_CLAUDE_AGENT_HOOK=1 CC_PETS_PROFILE_ID=${quote}claude:old${quote} ${quote}/Users/x/Applications/CC Pets.app/Contents/MacOS/cc-pets${quote} --hook` }] }
+    ] }
   };
   fs.writeFileSync(process.argv[1], JSON.stringify(config));
 ' "${CLAUDE_TMP}/settings.json" "${CLAUDE_STATUS_SCRIPT}"
@@ -930,6 +947,7 @@ node -e '
   const petHandlers = handlers.filter(handler => handler.command?.includes("CC_PETS_CLAUDE_AGENT_HOOK=1"));
   if (petHandlers.length !== 14) process.exit(1);
   if (handlers.some(handler => handler.command?.includes("/.build/release/codex-pet"))) process.exit(1);
+  if (handlers.some(handler => handler.command?.includes("/Contents/MacOS/cc-pets"))) process.exit(1);
   if (!handlers.some(handler => handler.command === "CLAUDE_PET_AGENT_HOOK=1 /other/tool --hook")) process.exit(1);
   if (config.statusLine.refreshInterval !== 60 || config.statusLine.command !== process.argv[2]) process.exit(1);
   if ((script.match(/# >>> cc-pets-statusline >>>/g) || []).length !== 1) process.exit(1);
@@ -1290,10 +1308,10 @@ touch -t 202001010000 "${STALE_TMP}/cc-pets-$(id -u)-agent-events.ndjson" \
   "${STALE_TMP}/cc-pets-$(id -u)-claude-usage.json" \
   "${STALE_TMP}/cc-pets-$(id -u)-claude-usage.json.lock"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsCleanup.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PET_INCLUDE_FLAGS[@]}" -framework Foundation \
+  "${PET_SRC[CCPetsPaths.m]:?}" \
+  "${PET_SRC[CCPetsCleanup.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/cleanup-harness.m" \
   -o "${STALE_TMP}/cleanup-test"
 CC_PETS_STATE_DIR="${STALE_TMP}" \
@@ -1450,8 +1468,8 @@ if doctor_env "${PROJECT_DIR}/.build/release/cc-pets" open no-such-page >/dev/nu
 fi
 # 设置拆成三页之前只有一个 settings 页；旧名字还认，换成「宠物」页再往下传，不在帮助里列出。
 grep -q '\[page isEqualToString:@"settings"\]) return CCPetsMainWindowPagePet' \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsMainWindow.m"
-grep -q 'CCPetsMainWindowResolvePage(page)' "${PROJECT_DIR}/Sources/CCPets/CCPetsOpenCommand.m"
+  "${PET_SRC[CCPetsMainWindow.m]:?}"
+grep -q 'CCPetsMainWindowResolvePage(page)' "${PET_SRC[CCPetsOpenCommand.m]:?}"
 # 桌宠没在运行且找不到 App：报错退出，不乱启动。复制一份二进制到 .build/release 之外，
 # 免得它按相对位置找到真正的开发版 App 并把它拉起来。
 cp "${PROJECT_DIR}/.build/release/cc-pets" "${DOCTOR_TMP}/bin/cc-pets-copy"
@@ -1472,16 +1490,16 @@ sys.exit(subprocess.run([sys.argv[2], "open", "diagnostics"], env=env).returncod
 PY
 # 点 Dock 图标恢复最小化的主窗口，但 `open -g` 发来的 reopen（每开一个终端一次）不能把窗口弹出来：
 # 只有 App 被激活（点 Dock 会激活，open -g 不会）时才恢复。
-grep -A8 'applicationShouldHandleReopen' "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate.m" \
+grep -A8 'applicationShouldHandleReopen' "${PET_SRC[CCPetsAppDelegate.m]:?}" \
   | grep -q 'if (NSApp.isActive) \[CCPetsMainWindowController restoreFromDock\]'
 # AppDelegate 侧：用带 uid 的分布式通知，而不是 reopen 事件。
-grep -q "CCPetsOpenWindowNotificationName" Sources/CCPets/CCPetsAppDelegate.m
+grep -q "CCPetsOpenWindowNotificationName" "${PET_SRC[CCPetsAppDelegate.m]:?}"
 # 结构化结果：主窗口诊断页直接用 CCPetsDoctorSections()，不经过 CLI 文本。
 # doctor 牵涉的模块太多，按全部源码（去掉 main.m）编进 harness。
-DOCTOR_SECTIONS_SOURCES=("${PROJECT_DIR}"/Sources/CCPets/*.m(N))
+DOCTOR_SECTIONS_SOURCES=("${PET_SOURCE_DIR}"/**/*.m(N))
 DOCTOR_SECTIONS_SOURCES=("${(@)DOCTOR_SECTIONS_SOURCES:#*/main.m}")
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -DCC_PETS_VERSION="\"0.0.0-test\"" \
   -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
   -framework QuartzCore -framework UserNotifications \
@@ -1497,6 +1515,20 @@ print -r -- '#!/bin/sh' > "${DOCTOR_SHADOW}/codex"
 chmod +x "${DOCTOR_SHADOW}/codex"
 doctor_env PATH="${DOCTOR_SHADOW}:${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test" shadow "${DOCTOR_SHADOW}"
 print "doctor 与 paths 只读诊断测试通过"
+
+# 添加 / 重新定位账号时的 Home 判定：带 sessions/ 的 Claude Home 不能被当成 Codex 登记。
+# CCPetsProfiles 牵涉集成和 Bridge，沿用上面的全量源码。
+PROFILE_HOME_TMP="$(mktemp -d /tmp/cc-pets-profile-home-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  "${PET_INCLUDE_FLAGS[@]}" \
+  -DCC_PETS_VERSION="\"0.0.0-test\"" \
+  -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
+  -framework QuartzCore -framework UserNotifications \
+  "${DOCTOR_SECTIONS_SOURCES[@]}" \
+  "${PROJECT_DIR}/tests/profile-home-harness.m" \
+  -o "${PROFILE_HOME_TMP}/profile-home-test"
+"${PROFILE_HOME_TMP}/profile-home-test" "${PROFILE_HOME_TMP}/homes"
+rm -rf "${PROFILE_HOME_TMP}"
 
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"
 mkdir -p "${FOREIGN_APP_TMP}/Applications/CC Pets.app/Contents"
@@ -1691,10 +1723,10 @@ print "本地额度历史格式与采样间隔测试通过"
 # 一个独立的支持目录：RecordQuotaHistory 有 15 分钟采样闸门，同目录跑第二次必被拒。
 QUOTA_HISTORY_TMP="$(mktemp -d /tmp/cc-pets-quota-history-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsQuotaHistory.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PET_SRC[CCPetsQuotaHistory.m]:?}" \
+  "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PROJECT_DIR}/tests/quota-history-harness.m" \
   -o "${QUOTA_HISTORY_TMP}/quota-history-test"
 CC_PETS_APPLICATION_SUPPORT_DIR="${QUOTA_HISTORY_TMP}/fresh" \
@@ -1730,11 +1762,11 @@ print "额度面板相对时间自刷新与状态配色测试通过"
 
 QUOTA_ONLINE_TMP="$(mktemp -d /tmp/cc-pets-quota-online-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Cocoa \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PROJECT_DIR}/Sources/CCPets/QuotaDashboardView.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PET_SOURCE_DIR}"/**/QuotaDashboardView(|+*).m \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \
   -o "${QUOTA_ONLINE_TMP}/quota-online-test"
 "${QUOTA_ONLINE_TMP}/quota-online-test"
@@ -1812,12 +1844,12 @@ grep -Fq 'CGEventSourceButtonState(kCGEventSourceStateCombinedSessionState, kCGM
   "${PET_SOURCES[@]}"
 grep -Fq '[self endPetDrag]' "${PET_SOURCES[@]}"
 if sed -n '/performWindowDragWithEvent:event/,/^- (void)endPetDrag/p' \
-  Sources/CCPets/PetView.m | grep -Fq 'self.draggingPet = NO'; then
+  "${PET_SRC[PetView+Interaction.m]:?}" | grep -Fq 'self.draggingPet = NO'; then
   print -u2 "performWindowDragWithEvent: 返回后不应立即结束奔跑动画"
   exit 1
 fi
 # PetView 仍需接受非激活窗口的第一次点击。
-grep -Fq 'acceptsFirstMouse:' Sources/CCPets/PetView.m
+grep -Fq 'acceptsFirstMouse:' "${PET_SRC[PetView+Interaction.m]:?}"
 # 拖动一旦退回主线程手工搬窗口，就会重新依赖“事件流完整送达”这个不成立的前提：
 # 首次点击被吞、mouseUp 丢失卡死、被其他面板截走事件、与 AppKit 抢 frame。
 # 下面这些是那套实现的残留特征，出现即视为回归。
@@ -2021,12 +2053,12 @@ print "客户端退出后状态气泡清场测试通过"
 
 AGENT_STATUS_TMP="$(mktemp -d /tmp/cc-pets-agent-status-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework AppKit \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsEvents.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PET_SRC[CCPetsPaths.m]:?}" \
+  "${PET_SRC[CCPetsEvents.m]:?}" \
+  "${PET_SRC[CCPetsTerminalFocus.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/agent-status-harness.m" \
   -o "${AGENT_STATUS_TMP}/agent-status-test"
 "${AGENT_STATUS_TMP}/agent-status-test"
@@ -2041,26 +2073,26 @@ print "Agent 状态气泡终态保持与待机降级测试通过"
 
 TERMINAL_FOCUS_TMP="$(mktemp -d /tmp/cc-pets-terminal-focus-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework AppKit \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsEvents.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PET_SRC[CCPetsPaths.m]:?}" \
+  "${PET_SRC[CCPetsEvents.m]:?}" \
+  "${PET_SRC[CCPetsTerminalFocus.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/terminal-focus-harness.m" \
   -o "${TERMINAL_FOCUS_TMP}/terminal-focus-test"
 "${TERMINAL_FOCUS_TMP}/terminal-focus-test"
 # 候选必须逐个试。只认第一个候选时，分支编辑器和映射值没在运行的宿主都会点了没反应。
 grep -q 'for (NSString \*bundleID in TerminalFocusBundleCandidates(target))' \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsTerminalFocus.m"
+  "${PET_SRC[CCPetsTerminalFocus.m]:?}"
 
 # 设置写入口：右键菜单和主窗口设置页共用的钳制、默认值与变更广播。
 PREFERENCES_TMP="$(mktemp -d /tmp/cc-pets-preferences-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Cocoa \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPreferences.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPetSize.m" \
+  "${PET_SRC[CCPetsPreferences.m]:?}" \
+  "${PET_SRC[CCPetsPetSize.m]:?}" \
   "${PROJECT_DIR}/tests/preferences-harness.m" \
   -o "${PREFERENCES_TMP}/preferences-test"
 "${PREFERENCES_TMP}/preferences-test"
@@ -2068,33 +2100,33 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
 # （方法分散在多个 category，采纳会触发编译告警）。逐条核对协议里的方法确实在私有头里声明过，
 # 否则改了签名只会在用户点开关时以 unrecognized selector 崩掉。
 while IFS= read -r declaration; do
-  if ! grep -Fq -- "${declaration}" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Private.h"; then
+  if ! grep -Fq -- "${declaration}" "${PET_SRC[CCPetsAppDelegate+Private.h]:?}"; then
     print -u2 "CCPetsSettingsActions 的方法未在 AppDelegate 中声明：${declaration}"
     exit 1
   fi
 done < <(sed -n '/^@protocol CCPetsSettingsActions/,/^@end/p' \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.h" | grep '^- (')
+  "${PET_SRC[CCPetsSettingsPage.h]:?}" | grep '^- (')
 # 工作台几页的数据协议同理。
 while IFS= read -r declaration; do
-  if ! grep -Fq -- "${declaration}" "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Private.h"; then
+  if ! grep -Fq -- "${declaration}" "${PET_SRC[CCPetsAppDelegate+Private.h]:?}"; then
     print -u2 "CCPetsWorkbenchSource 的方法未在 AppDelegate 中声明：${declaration}"
     exit 1
   fi
 done < <(sed -n '/^@protocol CCPetsWorkbenchSource/,/^@end/p' \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsWorkbench.h" | grep '^- (')
+  "${PET_SRC[CCPetsWorkbench.h]:?}" | grep '^- (')
 # 菜单 action 不许再绕过写入口直接写 defaults，否则设置页收不到变更广播。
 if grep -nE 'standardUserDefaults (setBool|setObject|setInteger|setDouble)' \
-    "${PROJECT_DIR}/Sources/CCPets/CCPetsAppDelegate+Settings.m"; then
+    "${PET_SRC[CCPetsAppDelegate+Settings.m]:?}"; then
   print -u2 "CCPetsAppDelegate+Settings.m 绕过了 CCPetsPreferences 直接写 defaults"
   exit 1
 fi
 
 UPDATE_RETRY_TMP="$(mktemp -d /tmp/cc-pets-update-retry-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PET_SRC[CCPetsVersion.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/update-retry-harness.m" \
   -o "${UPDATE_RETRY_TMP}/update-retry-test"
 "${UPDATE_RETRY_TMP}/update-retry-test"
@@ -2107,10 +2139,10 @@ print "自动更新暂时性故障重试测试通过"
 
 RELEASE_NOTES_TMP="$(mktemp -d /tmp/cc-pets-release-notes-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
+  "${PET_SRC[CCPetsVersion.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/release-notes-harness.m" \
   -o "${RELEASE_NOTES_TMP}/release-notes-test"
 "${RELEASE_NOTES_TMP}/release-notes-test"
@@ -2127,11 +2159,11 @@ done
 print "CLI 多语言占位符替换测试通过"
 L10N_TMP="$(mktemp -d /tmp/cc-pets-l10n-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPhrases.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsVersion.m" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
+  "${PET_SRC[CCPetsPhrases.m]:?}" \
+  "${PET_SRC[CCPetsVersion.m]:?}" \
   "${PROJECT_DIR}/tests/l10n-harness.m" \
   -o "${L10N_TMP}/l10n-test"
 CC_PETS_LANGUAGE=zh-Hans "${L10N_TMP}/l10n-test" "${PROJECT_DIR}/Resources" zh-Hans
@@ -2165,9 +2197,9 @@ CC_PETS_LANGUAGE=zh-Hans "${PROJECT_DIR}/bin/cc-pets" --help | grep -q '^用法�
 [[ "$(CC_PETS_LANGUAGE=zh_CN.UTF-8 zsh -c "source '${PROJECT_DIR}/scripts/i18n.zsh'; cc_pets_t 'App removed: {targetApp}' targetApp=/x")" == "已删除应用: /x" ]]
 CC_PETS_LANGUAGE=en "${PROJECT_DIR}/bin/cc-pets" bridge --help 2>&1 | grep -q 'Usage: cc-pets bridge'
 # 语言选项是"跟随系统"加上自动发现的语言，不能退回写死的列表；选项还得真的接到设置上。
-grep -q 'CCPetsLanguageSystem' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
-grep -q 'for (NSString \*language in CCPetsSupportedLanguages())' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
-grep -q 'CCPetsSetLanguagePreference(value)' "${PROJECT_DIR}/Sources/CCPets/CCPetsSettingsPage.m"
+grep -q 'CCPetsLanguageSystem' "${PET_SRC[CCPetsSettingsPage.m]:?}"
+grep -q 'for (NSString \*language in CCPetsSupportedLanguages())' "${PET_SRC[CCPetsSettingsPage.m]:?}"
+grep -q 'CCPetsSetLanguagePreference(value)' "${PET_SRC[CCPetsSettingsPage.m]:?}"
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/zh-Hans.lproj/Localizable.strings" ]]
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.en.txt" ]]
 [[ -f "${PROJECT_DIR}/.build/release/CC Pets.app/Contents/Resources/phrases.default.zh-Hans.txt" ]]
@@ -2181,16 +2213,16 @@ print "多语言测试通过"
 # 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。
 BRIDGE_UNITS_TMP="$(mktemp -d /tmp/cc-pets-bridge-units-test.XXXXXX)"
 clang -fobjc-arc -mmacosx-version-min=13.0 \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridge.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridgeCore.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridgeSetup.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsBridgeStore.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsCLISupport.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsJSON.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsL10n.m" \
-  "${PROJECT_DIR}/Sources/CCPets/CCPetsPaths.m" \
+  "${PET_SRC[CCPetsBridge.m]:?}" \
+  "${PET_SRC[CCPetsBridgeCore.m]:?}" \
+  "${PET_SRC[CCPetsBridgeSetup.m]:?}" \
+  "${PET_SRC[CCPetsBridgeStore.m]:?}" \
+  "${PET_SRC[CCPetsCLISupport.m]:?}" \
+  "${PET_SRC[CCPetsJSON.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
+  "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PROJECT_DIR}/tests/bridge-units-harness.m" \
   -o "${BRIDGE_UNITS_TMP}/bridge-units-test"
 "${BRIDGE_UNITS_TMP}/bridge-units-test" "${BRIDGE_UNITS_TMP}"
