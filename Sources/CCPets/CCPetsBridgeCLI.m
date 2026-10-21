@@ -195,8 +195,7 @@ static NSDictionary *RunHook(NSString *input) {
     // 每次都重新探测：`claude --resume` 会在新进程里沿用同一个 session id。
     NSDictionary *ancestor = CCBridgeFindAgentAncestor(getppid());
     NSNumber *pid = [ancestor[@"provider"] isEqual:provider] ? ancestor[@"pid"] : known[@"pid"];
-    // 账号名只写进 profileName 字段，不当会话名：同一账号开在多个项目里时，
-    // 会话名得按 provider-项目名-序号 区分，否则全成了 claude、claude-2……
+    // 账号名写进 profileName 字段，也作为默认会话名的前缀：<账号名>.<项目名>.<动物>。
     NSString *preferredName = CCPetsEnvironmentValue(@"CC_BRIDGE_NAME");
     CCBridgeUpsertSession(sessionId, provider, pid, StringValue(payload[@"cwd"]),
         pid ? CCBridgeProcessTty(pid.intValue) : nil, status,

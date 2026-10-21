@@ -700,8 +700,8 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
         [row.heightAnchor constraintEqualToConstant:40],
         [leading.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
         [leading.widthAnchor constraintEqualToConstant:44],
+        // 标题不设宽度上限：右边空着时名字能完整显示，最宽只到 detail / 右侧按钮之前。
         [title.leadingAnchor constraintEqualToAnchor:leading.trailingAnchor constant:8],
-        [title.widthAnchor constraintLessThanOrEqualToConstant:320],
         [detail.leadingAnchor constraintEqualToAnchor:title.trailingAnchor constant:12],
         [detail.trailingAnchor constraintLessThanOrEqualToAnchor:right.leadingAnchor constant:-12],
         [right.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14],
@@ -728,6 +728,8 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
     label.cell.wraps = NO;
     label.maximumNumberOfLines = 1;
     label.lineBreakMode = NSLineBreakByTruncatingTail;
+    // 窗口太窄仍被截断时，悬停能看到完整的发件人和收件人。
+    label.toolTip = [NSString stringWithFormat:@"%@ → %@", from ?: @"", to ?: @""];
     [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh
         forOrientation:NSLayoutConstraintOrientationHorizontal];
     return label;

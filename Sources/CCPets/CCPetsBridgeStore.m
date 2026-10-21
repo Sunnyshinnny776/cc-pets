@@ -279,13 +279,36 @@ void CCBridgeRemoveSession(id sessionId) {
     if (safe) unlink(SessionFile(safe).fileSystemRepresentation);
 }
 
-static NSString *ProjectSlug(NSString *cwd) {
-    NSString *base = cwd.length > 0 ? cwd.lastPathComponent.lowercaseString : @"";
+// 小写，连续的非 [a-z0-9] 合并成 -，截到 limit 后去掉首尾的 -；结果可能为空。
+static NSString *NameSlug(NSString *text, NSUInteger limit) {
+    NSString *base = text.lowercaseString ?: @"";
     NSRegularExpression *separators = [NSRegularExpression regularExpressionWithPattern:@"[^a-z0-9]+" options:0 error:nil];
     NSString *slug = [separators stringByReplacingMatchesInString:base options:0 range:NSMakeRange(0, base.length) withTemplate:@"-"];
-    slug = [slug stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-"]];
-    if (slug.length == 0) slug = @"session";
-    return slug.length > 32 ? [slug substringToIndex:32] : slug;
+    NSCharacterSet *dash = [NSCharacterSet characterSetWithCharactersInString:@"-"];
+    slug = [slug stringByTrimmingCharactersInSet:dash];
+    if (slug.length > limit) slug = [[slug substringToIndex:limit] stringByTrimmingCharactersInSet:dash];
+    return slug;
+}
+
+// 默认名字末尾的动物词：都是 7 个字母以内、好认好打的萌系动物，避开贬义词和编程语言 / 工具名。
+static NSArray<NSString *> *NameAnimals(void) {
+    static NSArray<NSString *> *animals;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        animals = @[
+            @"otter", @"panda", @"quokka", @"corgi", @"koala", @"capy", @"puffin", @"lemur", @"alpaca", @"wombat",
+            @"bunny", @"kitten", @"puppy", @"hamster", @"fox", @"owl", @"seal", @"penguin", @"duck", @"llama",
+            @"sloth", @"fennec", @"bear", @"cub", @"lamb", @"fawn", @"deer", @"dolphin", @"beluga", @"orca",
+            @"narwhal", @"walrus", @"manatee", @"turtle", @"frog", @"gecko", @"chick", @"robin", @"finch", @"wren",
+            @"sparrow", @"toucan", @"parrot", @"macaw", @"dove", @"swan", @"owlet", @"goose", @"koi", @"bee",
+            @"ladybug", @"raccoon", @"ferret", @"badger", @"beaver", @"marmot", @"meerkat", @"mouse", @"gerbil", @"pony",
+            @"foal", @"piglet", @"calf", @"giraffe", @"zebra", @"hippo", @"rhino", @"tapir", @"okapi", @"lynx",
+            @"tiger", @"cheetah", @"lion", @"husky", @"shiba", @"beagle", @"pug", @"poodle", @"collie", @"dingo",
+            @"newt", @"tadpole", @"octopus", @"squid", @"crab", @"snail", @"peacock", @"emu", @"quail", @"magpie",
+            @"kea", @"heron", @"stork", @"ibis", @"numbat", @"bilby", @"possum", @"dugong", @"yak", @"bison",
+        ];
+    });
+    return animals;
 }
 
 static NSDictionary *NameTakenBy(NSString *name, NSString *sessionId, NSArray<NSDictionary *> *liveSessions) {
@@ -295,12 +318,30 @@ static NSDictionary *NameTakenBy(NSString *name, NSString *sessionId, NSArray<NS
     return nil;
 }
 
-// 名字是给 Agent 和人看的地址：<provider>-<项目目录名>-<n>。n 取同前缀下在线会话未占用的最小正整数，
-// 会话结束后编号可以被复用；ref 由 session id 派生，永不变化，用于重名时消歧。
-static NSString *AllocateName(NSString *provider, NSString *cwd, NSString *sessionId, NSArray<NSDictionary *> *liveSessions) {
-    NSString *prefix = [NSString stringWithFormat:@"%@-%@", provider.lowercaseString, ProjectSlug(cwd)];
-    for (NSUInteger index = 1; ; index++) {
-        NSString *candidate = [NSString stringWithFormat:@"%@-%lu", prefix, (unsigned long)index];
+// 名字是给 Agent 和人看的地址：<账号名>.<项目目录名>.<动物>，例如 claude-x.my-app.otter。段内用 -，段间用 .，
+// 账号名和项目名本身带 - 时也分得清边界。
+// 账号名取多账号里的显示名（默认账号就是 claude / codex），取不到时退回 provider，这样多个账号开在同一项目里
+// 也一眼能分清。动物从 session id 的哈希位置开始找同前缀下第一个没被在线会话占用的，同一会话结果稳定；
+// 词库全被占用才追加序号。总长度控制在 40 以内：账号名最多 12 个字符，项目名用剩下的。
+// ref 由 session id 派生，永不变化，用于重名时消歧。
+static NSString *AllocateName(NSString *provider, NSString *profileName, NSString *cwd, NSString *sessionId,
+    NSArray<NSDictionary *> *liveSessions) {
+    NSString *account = NameSlug(profileName, 12);
+    if (account.length == 0) account = NameSlug(provider, 12);
+    if (account.length == 0) account = @"agent";
+    NSArray<NSString *> *animals = NameAnimals();
+    // 动物词最多 7 个字母，再给兜底序号留 2 位。
+    NSString *project = NameSlug(cwd.lastPathComponent, 40 - account.length - 9 - 2);
+    if (project.length == 0) project = @"session";
+    NSString *prefix = [NSString stringWithFormat:@"%@.%@", account, project];
+    unsigned long long hash = strtoull([CCBridgeSHA1Hex(sessionId) substringToIndex:8].UTF8String, NULL, 16);
+    for (NSUInteger offset = 0; offset < animals.count; offset++) {
+        NSString *candidate = [NSString stringWithFormat:@"%@.%@", prefix, animals[(hash + offset) % animals.count]];
+        if (!NameTakenBy(candidate, sessionId, liveSessions)) return candidate;
+    }
+    NSString *animal = animals[hash % animals.count];
+    for (NSUInteger index = 2; ; index++) {
+        NSString *candidate = [NSString stringWithFormat:@"%@.%@%lu", prefix, animal, (unsigned long)index];
         if (!NameTakenBy(candidate, sessionId, liveSessions)) return candidate;
     }
 }
@@ -344,7 +385,8 @@ NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSN
     if (!StringValue(record[@"name"])) {
         NSString *custom = CCBridgeNormalizeSessionName(preferredName);
         record[@"name"] = custom ? AllocateCustomName(custom, safe, liveSessions ?: @[])
-            : AllocateName(StringValue(record[@"provider"]) ?: @"", StringValue(record[@"cwd"]), safe, liveSessions ?: @[]);
+            : AllocateName(StringValue(record[@"provider"]) ?: @"", StringValue(record[@"profileName"]),
+                StringValue(record[@"cwd"]), safe, liveSessions ?: @[]);
     }
     if (status) record[@"status"] = status;
     record[@"updatedAt"] = @(now);
