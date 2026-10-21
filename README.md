@@ -15,11 +15,11 @@ Codex App Server interface and Claude Code's official status line input.
 
 ## What's new in v2.3.0
 
-- **A main window** — open Overview, Sessions, Usage, Pet, Alerts, Settings and
-  Diagnostics from the menu or `cc-pets open`. See live sessions, jump to their
+- **A main window** — open Overview, Sessions, Usage, Pet, Multi-Account, Alerts,
+  Settings and Diagnostics from the menu or `cc-pets open`. See live sessions, jump to their
   terminals and manage settings in one place.
-- **Multiple accounts and model usage** — register Claude / Codex Homes with
-  isolated quota, history and live state. Filter 7-, 30- and 90-day token charts
+- **Multiple accounts and model usage** — manage Claude / Codex Homes from the
+  Multi-Account page, with isolated quota, history and live state. Filter 7-, 30- and 90-day token charts
   by account and model, with per-account quota or API usage display.
 - **Native runtime and diagnostic repairs** — hooks, CC Bridge and CLI tools run
   without Node.js. Repair registered accounts' hooks and Claude status lines
@@ -230,6 +230,7 @@ cc-pets open               # the page you used last
 cc-pets open overview
 cc-pets open sessions
 cc-pets open usage
+cc-pets open accounts
 cc-pets open general       # also: pet, accounts, alerts, diagnostics
 ```
 
@@ -267,7 +268,7 @@ The v2.3.0 Sessions page, rendered from the native UI with illustrative session 
 - **Multi-Account** — add Claude / Codex Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
 - **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
   picker, size, chatter, click reactions and Codex import; Alerts: notifications, the status
-  card and system status; Settings: language, panel appearance and data folders), plus finer controls such as the click-reaction thresholds and a
+  card and system status; Settings: language, panel appearance and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
   Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
