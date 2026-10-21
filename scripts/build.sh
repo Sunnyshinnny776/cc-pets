@@ -21,7 +21,11 @@ if [[ "${CC_PETS_STRICT:-0}" == "1" ]]; then
   WARNING_FLAGS+=(-Werror)
 fi
 
-SOURCES=("${PROJECT_DIR}"/Sources/CCPets/*.m(N))
+# 源码按模块分子目录存放：递归收集 .m，并把每个含头文件的目录加进 -I，
+# 这样 #import "CCPetsXxx.h" 不用写相对路径，文件挪目录也不用改这里。
+SOURCES=("${PROJECT_DIR}"/Sources/CCPets/**/*.m(N))
+HEADERS=("${PROJECT_DIR}"/Sources/CCPets/**/*.h(N))
+INCLUDE_FLAGS=(-I${^${(u)HEADERS:h}})
 if (( ${#SOURCES[@]} == 0 )); then
   print -u2 "$(cc_pets_t "Build failed: no .m source files found in Sources/CCPets.")"
   exit 1
@@ -34,7 +38,7 @@ CLANG_MODULE_CACHE_PATH="${CACHE_DIR}" clang \
   -Os \
   "${WARNING_FLAGS[@]}" \
   "-DCC_PETS_VERSION=\"${PACKAGE_VERSION}\"" \
-  -I"${PROJECT_DIR}/Sources/CCPets" \
+  "${INCLUDE_FLAGS[@]}" \
   -framework Cocoa \
   -framework CoreServices \
   -framework ImageIO \

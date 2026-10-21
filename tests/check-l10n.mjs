@@ -45,8 +45,10 @@ function sourceKeys() {
   const keys = new Map();
   const call = /\bL\(\s*((?:@?"(?:[^"\\]|\\.)*"\s*)+)\)/g;
   const piece = /@?"((?:[^"\\]|\\.)*)"/g;
-  for (const name of fs.readdirSync(sourceDir).filter((file) => file.endsWith(".m")).sort()) {
-    const text = fs.readFileSync(path.join(sourceDir, name), "utf8");
+  // 源码按模块分子目录存放，递归扫描；位置用相对 Sources/CCPets 的路径标注。
+  for (const file of walk(sourceDir).filter((file) => file.endsWith(".m")).sort()) {
+    const name = path.relative(sourceDir, file);
+    const text = fs.readFileSync(file, "utf8");
     for (const match of text.matchAll(call)) {
       const key = [...match[1].matchAll(piece)].map((part) => unescapeC(part[1])).join("");
       if (!keys.has(key)) keys.set(key, `${name}:${lineOf(text, match.index)}`);
