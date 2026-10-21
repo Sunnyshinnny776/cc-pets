@@ -19,6 +19,8 @@ NSString *CCPetsProfileID(NSString *provider, NSString *home);
 NSString *CCPetsProfileSlug(NSString *home);
 NSString *CCPetsProfileDefaultDisplayName(NSString *provider, NSString *home);
 BOOL CCPetsProfileIsOfficialDefault(NSDictionary *profile);
+// 文件夹像不像这家的 Agent Home：有本家特征文件，且没有另一家独有的文件。添加和重新定位前用它挡住选错的目录。
+BOOL CCPetsProfileHomeMatchesProvider(NSString *provider, NSString *home);
 
 // 添加或更新登记。Home 必须是现有目录；保存前会解析真实路径。
 // existingID 非空用于“重新定位”，保留原身份与历史。

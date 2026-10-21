@@ -11,16 +11,6 @@
     [self chooseProfileHomeForProvider:CCPetsProfileProviderCodex];
 }
 
-- (BOOL)profileHome:(NSString *)home matchesProvider:(NSString *)provider {
-    NSArray<NSString *> *signals = [provider isEqualToString:CCPetsProfileProviderClaude]
-        ? @[@"settings.json", @".claude.json", @"projects"]
-        : @[@"config.toml", @"hooks.json", @"sessions"];
-    for (NSString *name in signals) {
-        if ([NSFileManager.defaultManager fileExistsAtPath:[home stringByAppendingPathComponent:name]]) return YES;
-    }
-    return NO;
-}
-
 // 设置页的按钮在命令执行期间仍可点，被挡下时要告诉用户，不能悄悄什么都不做。
 - (BOOL)rejectWhileProfileCommandRunning {
     if (!self.profileCommandRunning) return NO;
@@ -44,11 +34,11 @@
     [NSApp activateIgnoringOtherApps:YES];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString *home = panel.URL.path;
-    if (![self profileHome:home matchesProvider:provider]) {
+    if (!CCPetsProfileHomeMatchesProvider(provider, home)) {
         [self showAlertWithTitle:L(@"This folder doesn't look like an Agent Home")
             message:[provider isEqualToString:CCPetsProfileProviderClaude]
                 ? L(@"Choose a folder containing Claude settings, state, or projects.")
-                : L(@"Choose a folder containing Codex config, hooks, or sessions.")];
+                : L(@"Choose a folder containing Codex config, hooks, or sign-in state.")];
         return;
     }
     NSString *name = CCPetsProfileDefaultDisplayName(provider, home);
@@ -116,7 +106,7 @@
     [NSApp activateIgnoringOtherApps:YES];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString *home = panel.URL.path;
-    if (![self profileHome:home matchesProvider:profile[@"provider"]]) {
+    if (!CCPetsProfileHomeMatchesProvider(profile[@"provider"], home)) {
         [self showAlertWithTitle:L(@"This folder doesn't look like an Agent Home")
             message:L(@"Choose a folder containing the selected Agent's settings or state.")];
         return;

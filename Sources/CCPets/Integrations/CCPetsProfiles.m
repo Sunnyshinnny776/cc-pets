@@ -88,6 +88,37 @@ BOOL CCPetsProfileIsOfficialDefault(NSDictionary *profile) {
     return official.length > 0 && [CanonicalHome(profile[@"home"]) isEqualToString:official];
 }
 
+// sessions/ 不能当 Codex 的特征：Claude Code 也会建 <Home>/sessions/<pid>.json，靠它判定时
+// 选错的 Claude Home 会被当成 Codex 登记，集成步骤再把 Codex 的 config.toml / hooks.json 写进去。
+static NSArray<NSString *> *ProfileHomeMarkers(NSString *provider) {
+    return [provider isEqualToString:CCPetsProfileProviderClaude]
+        ? @[@"settings.json", @".claude.json", @"projects"]
+        : @[@"config.toml", @"hooks.json", @"auth.json", @"version.json"];
+}
+
+// 另一家独有、只会由 Agent 自己写出的文件。settings.json / config.toml / hooks.json 不算：
+// CC Pets 集成时会写它们，装错过一次的 Home 会因此被永久挡在外面。
+static NSArray<NSString *> *ProfileHomeExclusiveMarkers(NSString *provider) {
+    return [provider isEqualToString:CCPetsProfileProviderClaude]
+        ? @[@".claude.json", @"projects"]
+        : @[@"auth.json", @"version.json"];
+}
+
+static BOOL HomeContainsAny(NSString *home, NSArray<NSString *> *names) {
+    for (NSString *name in names) {
+        if ([NSFileManager.defaultManager fileExistsAtPath:[home stringByAppendingPathComponent:name]]) return YES;
+    }
+    return NO;
+}
+
+BOOL CCPetsProfileHomeMatchesProvider(NSString *provider, NSString *home) {
+    if (!ValidProvider(provider) || home.length == 0) return NO;
+    NSString *other = [provider isEqualToString:CCPetsProfileProviderClaude]
+        ? CCPetsProfileProviderCodex : CCPetsProfileProviderClaude;
+    return HomeContainsAny(home, ProfileHomeMarkers(provider)) &&
+        !HomeContainsAny(home, ProfileHomeExclusiveMarkers(other));
+}
+
 static NSDictionary *EmptyDocument(void) {
     return @{@"schemaVersion": @1, @"profiles": @[]};
 }

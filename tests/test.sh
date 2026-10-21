@@ -1516,6 +1516,20 @@ chmod +x "${DOCTOR_SHADOW}/codex"
 doctor_env PATH="${DOCTOR_SHADOW}:${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test" shadow "${DOCTOR_SHADOW}"
 print "doctor 与 paths 只读诊断测试通过"
 
+# 添加 / 重新定位账号时的 Home 判定：带 sessions/ 的 Claude Home 不能被当成 Codex 登记。
+# CCPetsProfiles 牵涉集成和 Bridge，沿用上面的全量源码。
+PROFILE_HOME_TMP="$(mktemp -d /tmp/cc-pets-profile-home-test.XXXXXX)"
+clang -fobjc-arc -mmacosx-version-min=13.0 \
+  "${PET_INCLUDE_FLAGS[@]}" \
+  -DCC_PETS_VERSION="\"0.0.0-test\"" \
+  -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
+  -framework QuartzCore -framework UserNotifications \
+  "${DOCTOR_SECTIONS_SOURCES[@]}" \
+  "${PROJECT_DIR}/tests/profile-home-harness.m" \
+  -o "${PROFILE_HOME_TMP}/profile-home-test"
+"${PROFILE_HOME_TMP}/profile-home-test" "${PROFILE_HOME_TMP}/homes"
+rm -rf "${PROFILE_HOME_TMP}"
+
 FOREIGN_APP_TMP="$(mktemp -d /tmp/cc-pets-foreign-app-test.XXXXXX)"
 mkdir -p "${FOREIGN_APP_TMP}/Applications/CC Pets.app/Contents"
 print -r -- '<?xml version="1.0" encoding="UTF-8"?>

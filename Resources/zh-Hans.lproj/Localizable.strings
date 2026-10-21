@@ -827,7 +827,7 @@
 "Choose an existing Codex Home folder, such as ~/.codex-work." = "选择已有的 Codex Home 文件夹，例如 ~/.codex-work。";
 "This folder doesn't look like an Agent Home" = "这个文件夹不像 Agent Home";
 "Choose a folder containing Claude settings, state, or projects." = "请选择包含 Claude 设置、状态或项目数据的文件夹。";
-"Choose a folder containing Codex config, hooks, or sessions." = "请选择包含 Codex 配置、Hooks 或会话数据的文件夹。";
+"Choose a folder containing Codex config, hooks, or sign-in state." = "请选择包含 Codex 配置、Hooks 或登录状态的文件夹。";
 "Integrate %@?" = "适配 %@？";
 "Pet Hooks, usage collection, CC Bridge Hooks, permissions, and MCP will be configured." = "将配置 Pet Hooks、用量采集、CC Bridge Hooks、权限和 MCP。";
 "Pet Hooks and usage collection will be configured. CC Bridge will be added automatically if you enable it later." = "将配置 Pet Hooks 和用量采集；以后开启 CC Bridge 时会自动补齐。";
