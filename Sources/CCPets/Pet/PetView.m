@@ -1,10 +1,6 @@
 #import "PetView+Private.h"
 #import "CCPetsPaths.h"
 
-// 碎碎念频率档位的 defaults 键。定义在 CCPetsAppDelegate+Speech.m，这里只读不写；
-// 单独 extern 而不 import 那个头文件，是因为它反过来 import 了 PetView.h。
-extern NSString *const PetSpeechFrequencyKey;
-
 // 呼吸：只向上浮，不做上下对称摆动。宠物视图在 230×170 的窗口里位于 (43,0,144,150)，
 // 下方一点余量都没有，往下 1px 就被窗口裁掉。静止位不变，所以离屏基准图不受影响。
 static const CGFloat PetBreathRise = 1.5;
