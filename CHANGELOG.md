@@ -7,6 +7,66 @@ truth for the version.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-21
+
+### Installation
+
+- Everything CC Pets runs is now native: hook installation and removal, CC Bridge (hooks, watcher, MCP server and `cc-pets bridge`), `cc-pets doctor` / `paths`, `cc-pets pet` and the zsh scripts' translations. Node.js is only needed by npm to install and update the package, and CC Bridge hooks no longer start a Node process on every event.
+- Rewritten `settings.json` / `hooks.json` keep their original key order and formatting, and numeric literals are preserved exactly (large integers no longer lose precision). Uninstalling no longer reformats a config file that had nothing of ours in it.
+- `cc-pets install` re-registers CC Bridge with the native binary; after upgrading, restart running Codex sessions and trust the updated hooks in `/hooks`.
+
+### Multi-Account
+
+- Official `~/.claude` and `~/.codex` Homes are detected and integrated automatically, while custom Homes are added explicitly from the main window's **Multi-Account** page. Folder names are preserved as account names unless the user renames them.
+- Each provider now has an independent circular quota-card carousel with arrow, page-dot, drag, trackpad and keyboard navigation. Quota history, usage totals, live state and approval state follow the selected account.
+- The Usage page can filter local token history by account and switches to a compact account menu when names or account counts no longer fit in the header.
+- Pet Hooks, usage collection, CC Bridge hooks, permissions and MCP registration are scoped to each Home. Custom Homes added before CC Bridge is enabled are integrated automatically when it is enabled later.
+- Claude and Codex launch wrappers attach the resolved account identity to startup and hook events, so status cards and speech bubbles use the exact account name from the first event.
+- CC Bridge default session names are now `<account>.<project-directory>.<animal>` (for example `claude-x.my-app.otter`), so sessions from different accounts in the same project are easy to tell apart. Already registered sessions keep their names.
+- Claude and Codex accounts now detect API or subscription authentication in the background. Accounts identified as API authentication are fixed to API usage; subscription accounts can still switch between plan quota and API usage. Unknown authentication keeps manual switching available, and missing quota data is not treated as evidence of API authentication. Detection does not retain keys or authentication command output.
+- Account management moved from the **Agent Accounts** submenus (right-click menu and app menu) to a **Multi-Account** page in the main window, also reachable from the app menu and `cc-pets open accounts`. It lists Claude and Codex Homes with their paths and integration status (Integrated, Needs repair, Home unavailable); each row's **Manage…** menu offers Repair Integration and Rename, plus Relocate Home and Remove Integration for custom Homes. The status refreshes after account changes, CC Bridge being turned on or off, Diagnostics checks and repairs, and when you return to the app after changing things in a terminal.
+- Usage Display pills in the right-click menu and Settings now apply to each registered account independently, inheriting the previous provider preference until customized. The Settings page updates when accounts are added, removed, renamed or relocated.
+
+### Main window
+
+- Added a regular app window. Open it from the right-click menu (**Main menu**), the app menu or `cc-pets open [page]` (pages: `overview`, `sessions`, `usage`, `pet`, `accounts`, `alerts`, `general`, `diagnostics`; `settings` still works and opens Pet). The Dock icon and menu bar appear only while it is open, and clicking the Dock icon brings a minimized window back; the window is created on open and released on close, and nothing runs while it is closed.
+- The sidebar shows the current pet, animated, with its status, then **Workbench** (Overview, Sessions, Usage, Pet, Multi-Account) and **General** (Alerts, Settings); Diagnostics sits at the bottom with a badge when something needs fixing. The window has its own look: a teal accent, cards on a cool neutral background, status colors used only for status, in light and dark.
+- **Overview** page: the pet and what it is doing, today's total usage with input, output, cached input and requests, a notice when diagnostics found problems, and compact cards for every registered Claude / Codex account, independent of the hover panel's carousel selection. Cards use the hover panel's data and refresh with usage and live-state changes. Plan mode shows 5-hour and weekly quota rings, reset times and weekly pace; API mode shows monthly calls and total tokens, with daily call averages and input/output tokens underneath. Cards form a two-column grid with equal heights across API and plan modes.
+- **Sessions** page: Agent sessions online right now, sessions waiting for approval first, each with **Go to Terminal**; and CC Bridge messages waiting in an inbox or recently delivered. Only who sent what to whom is shown, never the message.
+- **Usage** page: local Claude Code and Codex token usage for the last 7, 30 or 90 days. The same five-cell strip as the overview shows total usage (input + cache write + output + cached input), input, output, cached input with its hit rate, and requests for the chosen source and range. The daily chart stacks models in fixed colors (a color-blind-safe palette; models past the eighth fold into "Other") and switches between total, input, output, cached input and requests; click a model in the legend or the table to see only that model, and hover a bar for that day's per-model numbers and total. The columns are normalised so they never overlap (Codex cached tokens are subtracted from its input). Computed on a background queue from local session logs, with its own caches and a per-day archive that outlives Claude Code's transcript pruning. The hover panel's numbers and caches are unchanged. The first time after upgrading, session summaries are re-read once.
+- **Pet**, **Alerts** and **Settings** pages: every pet setting, split into three short pages (Pet holds the pet picker, size, chatter, click reactions and Codex import; Alerts holds notifications, the status card and system status; Settings holds language, panel appearance and the pet sprites folder), plus finer controls such as click-reaction thresholds. All settings go through one preferences layer, so the desktop pet, the menu and the window stay in sync. Options that rewrite Claude Code / Codex configuration (enabling CC Bridge, auto-approve) remain in the right-click menu.
+- The right-click menu is trimmed to the everyday items: Pets, Pet Size, Show Status Card, Usage Display, Panel Theme, CC Bridge, Help, Main menu and Quit. Import Codex Pets, Notifications, Click Reactions, System Status, Chatter and Language moved to the window's Pet, Alerts and Settings pages.
+- In full screen or when zoomed to fill the screen, the sidebar is 10 pt wider, its content moves 5 pt right, and menu items get more room between icon and title (and between Chinese characters). In full screen the pet card no longer sits against the top edge of the screen.
+- Glass dimming is now continuous (0–45%) with a slider on the Settings page; the right-click menu keeps its four presets and checks the closest one. The quota card scrim follows the value smoothly.
+- The main window has its own System Default / Light / Dark appearance setting, with teal control accents; the pet's panels keep their separate appearance preference.
+- **Diagnostics** page: the same checks as `cc-pets doctor`, problems first with their fix commands and copy buttons, passing checks folded into one line, **Re-check** and **Copy Report**. Registered accounts' Hooks and Claude status line issues now offer **Auto-fix** and **Fix All**. Configuration and affected scripts are backed up before changes, with a manifest of original paths and permissions; checks run again automatically after repair, and the page shows backup locations and any failures. Other issues retain their manual commands. The PATH order check is shown as a hint to run `cc-pets doctor` in a terminal, because the pet's own PATH is not the terminal's.
+- Added `cc-pets doctor --repair-profile <profile-id>` to repair a registered account's Hooks and Claude status line without reinstalling the app or changing shell configuration. Plain `cc-pets doctor` remains read-only.
+- Added `cc-pets open [page]`. If the pet is running it asks it to open the window; otherwise it launches the app and opens the window. Terminals launching Claude Code or Codex never pop the window up.
+- `cc-pets doctor` now also finds the npm package directory when run from the installed app, using a `package-dir` marker that `cc-pets install` leaves in the app data directory. Run `cc-pets install` once after upgrading.
+- Behavior changes: ⌘Q in the lines editor now quits the pet (it did nothing before), and unsaved text in the editor is lost; speech bubbles no longer hide when the app loses focus, matching the pet and status card; chatter frequency accepts only `low`, `normal`, `high` and `chatty`, and any other stored value is normalized to `normal` when written (reading behaves as before).
+
+### Pets
+
+- The built-in pet is now named **ByteMochi** (its file was `默认.webp`). Upgrading keeps it selected and moves its pet-specific lines from `builtin-默认.txt` to `builtin-ByteMochi.txt`; an existing `builtin-ByteMochi.txt` is never overwritten.
+
+### Fixes
+
+- Fixed clipping in scaled status cards and speech bubbles, including the speech bubble's click bounds.
+- Account-aware terminal focus is preserved, and starting a new session on the same terminal removes stale records left by the previous account instead of leaving a stuck Starting row.
+- CLI messages now fill in placeholders containing underscores; `cc-pets bridge enable` previously printed `{MCP_NAME}` instead of `cc-bridge`.
+- An account without quota data or history no longer falls back to another account's cached data in the hover panel or Overview.
+- On Overview, **Check Diagnostics** now sits after the account name and only appears when that account actually has diagnostic warnings or failures; quota data that hasn't been collected yet no longer triggers it.
+- Repairing, renaming, relocating or removing an account while another account is still being configured now says so, instead of silently doing nothing (Remove previously asked for confirmation and then did nothing).
+- In `cc-pets doctor`, the section shown when no accounts are registered is now titled **Agent profiles** instead of the main window page name.
+- Reinstalling or repairing an account now also replaces pet Hooks that point at the executable inside `CC Pets.app` (written when an account was repaired from the app). Previously they were not recognized as ours, so each repair added another copy and every event ran the pet hook several times. `cc-pets doctor` now reports such leftovers as stale; run `cc-pets profile repair --id <profile-id>` (or **Repair Integration** on the Multi-Account page) once to remove them.
+- Adding or relocating an account now validates provider-specific Home files, preventing a Claude Home's `sessions/` directory from being mistaken for a Codex Home and receiving Codex configuration.
+- Monthly token aggregation and its cache now follow each account's effective display mode, so switching an account to API usage refreshes the monthly data instead of reusing a shorter plan-mode window.
+- Usage Display buttons in the right-click menu now align with a shared right margin across account names of different lengths; long names have tooltips, and API accounts' disabled pills have a distinct appearance.
+
+### Development
+
+- Grouped native sources into module subdirectories and split the larger pet, usage and quota UI implementations. Build and test scripts discover sources and headers recursively; npm packaging checks cover the new layout.
+
 ## [2.2.1] - 2026-10-11
 
 ### Pet size and rendering

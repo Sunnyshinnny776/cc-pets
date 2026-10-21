@@ -266,11 +266,11 @@ int main(void) {
 
         // petID 转文件名：冒号要没，内置素材的扩展名要没，中文原样留着——
         // 用户得能在 Finder 里认出哪份是哪只的。
-        Check([PetPhrasesKeyForPetID(@"external:哆啦A梦") isEqualToString:@"external-哆啦A梦"],
+        Check([PetPhrasesKeyForPetID(@"external:团子") isEqualToString:@"external-团子"],
             @"external petID 应转成 external-<名字>");
-        Check([PetPhrasesKeyForPetID(@"builtin:默认.webp") isEqualToString:@"builtin-默认"],
+        Check([PetPhrasesKeyForPetID(@"builtin:ByteMochi.webp") isEqualToString:@"builtin-ByteMochi"],
             @"内置素材的扩展名不该进文件名");
-        Check([PetPhrasesKeyForPetID(@"builtin:默认.PNG") isEqualToString:@"builtin-默认"],
+        Check([PetPhrasesKeyForPetID(@"builtin:ByteMochi.PNG") isEqualToString:@"builtin-ByteMochi"],
             @"扩展名判断要忽略大小写");
         // 斜杠会让路径跑出 speech 目录，前导点会把文件藏起来——两者都必须被挡住。
         Check(![PetPhrasesKeyForPetID(@"external:../../etc/passwd") containsString:@"/"],
@@ -287,21 +287,21 @@ int main(void) {
             @"没有当前宠物时只认通用词库");
 
         // 设了宠物但它没有专属文件：同样全部走通用。
-        PetPhrasesSetCurrentPetID(@"external:多啦");
+        PetPhrasesSetCurrentPetID(@"external:团子");
         Check([PetPhraseForTag(PetPhraseTagIdle, @{}) isEqualToString:@"通用闲话。"],
             @"没有专属文件时全部回落到通用");
 
         // 专属文件只写一节：写了的那节整节接管，没写的照旧走通用。
-        NSString *petPath = PetPhrasesFilePathForPetID(@"external:多啦");
+        NSString *petPath = PetPhrasesFilePathForPetID(@"external:团子");
         Check([petPath hasPrefix:petDirectory], @"专属词库必须落在隔离目录里");
-        WriteUserPhrases(petPath, @"[idle]\n铜锣烧…\n");
-        Check([PetPhraseForTag(PetPhraseTagIdle, @{}) isEqualToString:@"铜锣烧…"],
+        WriteUserPhrases(petPath, @"[idle]\n想吃糯米团…\n");
+        Check([PetPhraseForTag(PetPhraseTagIdle, @{}) isEqualToString:@"想吃糯米团…"],
             @"专属词库里写了的小节要整节接管");
         Check([PetPhraseForTag(PetPhraseTagDone, @{}) isEqualToString:@"通用完工。"],
             @"专属词库里没写的小节要回落到通用");
 
         // 接管是整节的，不是按行合并：通用那节一句都不能混进来。
-        WriteUserPhrases(petPath, @"[idle]\n铜锣烧…\n口袋里有东西。\n");
+        WriteUserPhrases(petPath, @"[idle]\n想吃糯米团…\n兜里有点东西。\n");
         for (NSInteger attempt = 0; attempt < 20; attempt++) {
             NSString *spoken = PetPhraseForTag(PetPhraseTagIdle, @{});
             Check(![spoken isEqualToString:@"通用闲话。"],
@@ -320,7 +320,7 @@ int main(void) {
         PetPhrasesSetCurrentPetID(@"external:小炭");
         Check([PetPhraseForTag(PetPhraseTagIdle, @{}) isEqualToString:@"日之呼吸。"],
             @"切换宠物之后必须换成它自己的词库");
-        PetPhrasesSetCurrentPetID(@"external:多啦");
+        PetPhrasesSetCurrentPetID(@"external:团子");
         Check(PetPhraseForTag(PetPhraseTagIdle, @{}) == nil, @"切回去要拿回原来那份");
 
         // 专属词库的校验规则松：缺小节是常态（缺就回落），不该报错。
@@ -361,7 +361,7 @@ int main(void) {
                 @"注释掉的默认模板不该接管任何小节: %@", tag]);
         }
         WriteUserPhrases(petPath, commented);
-        PetPhrasesSetCurrentPetID(@"external:多啦");
+        PetPhrasesSetCurrentPetID(@"external:团子");
         Check([PetPhraseForTag(PetPhraseTagIdle, @{}) isEqualToString:@"通用闲话。"],
             @"填入注释模板之后必须仍然全部回落到通用");
         Check(!PetPhraseIssuesHaveError(PetPhraseValidateTextForPet(commented)),
@@ -378,6 +378,49 @@ int main(void) {
             @"仍然注释着的小节照旧回落到通用");
 
         PetPhrasesSetCurrentPetID(nil);
+
+        // ---- 内置素材改名（默认.webp → ByteMochi.webp）的迁移 ----
+        //
+        // 选中的宠物和专属台词都按 petID 存。不迁移的话，旧 ID 找不到，用户会被退回列表第一只，
+        // 写过的专属台词也悄悄失效。
+        NSString *suiteName = [NSString stringWithFormat:@"com.universewang.cc-pets.tests.migrate-%d", getpid()];
+        NSUserDefaults *migrationDefaults = [[NSUserDefaults alloc] initWithSuiteName:suiteName];
+        NSString *legacySpeech = PetPhrasesFilePathForPetID(@"builtin:默认.webp");
+        NSString *currentSpeech = PetPhrasesFilePathForPetID(@"builtin:ByteMochi.webp");
+        [NSFileManager.defaultManager removeItemAtPath:currentSpeech error:nil];
+
+        [migrationDefaults setObject:@"builtin:默认.webp" forKey:PetSelectedSpriteKey];
+        WriteUserPhrases(legacySpeech, @"[idle]\n旧的专属台词。\n");
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[migrationDefaults stringForKey:PetSelectedSpriteKey] isEqualToString:@"builtin:ByteMochi.webp"],
+            @"选中的旧内置宠物应改成新 ID");
+        Check(![NSFileManager.defaultManager fileExistsAtPath:legacySpeech], @"旧的专属台词文件应被改名");
+        Check([[NSString stringWithContentsOfFile:currentSpeech encoding:NSUTF8StringEncoding error:nil]
+            isEqualToString:@"[idle]\n旧的专属台词。\n"], @"专属台词的内容要原样带过去");
+
+        // 很早的版本存的是不带前缀的文件名。
+        [migrationDefaults setObject:@"默认.webp" forKey:PetSelectedSpriteKey];
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[migrationDefaults stringForKey:PetSelectedSpriteKey] isEqualToString:@"builtin:ByteMochi.webp"],
+            @"不带前缀的旧文件名也要迁移");
+
+        // 新文件已经存在时不覆盖：用户在新版本里写的内容更新。
+        WriteUserPhrases(legacySpeech, @"[idle]\n旧的。\n");
+        WriteUserPhrases(currentSpeech, @"[idle]\n新的。\n");
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[NSString stringWithContentsOfFile:currentSpeech encoding:NSUTF8StringEncoding error:nil]
+            isEqualToString:@"[idle]\n新的。\n"], @"新的专属台词已存在时不能被旧文件覆盖");
+        Check([NSFileManager.defaultManager fileExistsAtPath:legacySpeech], @"不覆盖时旧文件原样保留");
+
+        // 别的宠物、没有旧状态时什么都不动；重复执行无副作用。
+        [migrationDefaults setObject:@"external:团子" forKey:PetSelectedSpriteKey];
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        PetMigrateRenamedBuiltinSprite(migrationDefaults);
+        Check([[migrationDefaults stringForKey:PetSelectedSpriteKey] isEqualToString:@"external:团子"],
+            @"选的不是旧内置宠物时不能改");
+        [migrationDefaults removePersistentDomainForName:suiteName];
+        [NSFileManager.defaultManager removeItemAtPath:legacySpeech error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:currentSpeech error:nil];
 
         if (failures > 0) {
             fprintf(stderr, "词库测试失败 %ld 项\n", (long)failures);

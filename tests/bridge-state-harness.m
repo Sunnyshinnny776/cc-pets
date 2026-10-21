@@ -41,14 +41,17 @@ int main(void) {
         // CLI 定位：路径必须存在，否则返回 nil（桌宠据此提示用户重新 cc-pets install）。
         NSString *locator = [home stringByAppendingPathComponent:@"bridge-cli.json"];
         if (!Check(CCBridgeCLILocator() == nil, @"没有定位文件时应返回 nil")) return EXIT_FAILURE;
-        NSString *cli = [home stringByAppendingPathComponent:@"cli.mjs"];
-        [@"" writeToFile:cli atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        [[NSString stringWithFormat:@"{\"node\":\"/bin/sh\",\"cli\":\"%@\"}", cli]
+        [@"{\"schemaVersion\":2,\"binary\":\"/bin/sh\",\"path\":\"/opt/x/bin:/usr/bin\"}"
             writeToFile:locator atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        if (!Check([CCBridgeCLILocator()[@"cli"] isEqualToString:cli], @"有效定位应返回路径")) return EXIT_FAILURE;
-        [@"{\"node\":\"/nonexistent/node\",\"cli\":\"/tmp\"}" writeToFile:locator atomically:YES
-            encoding:NSUTF8StringEncoding error:nil];
-        if (!Check(CCBridgeCLILocator() == nil, @"node 不存在时应返回 nil")) return EXIT_FAILURE;
+        if (!Check([CCBridgeCLILocator()[@"binary"] isEqualToString:@"/bin/sh"], @"有效定位应返回可执行文件")) return EXIT_FAILURE;
+        if (!Check([CCBridgeCLILocator()[@"path"] isEqualToString:@"/opt/x/bin:/usr/bin"], @"定位应带上终端里的 PATH")) {
+            return EXIT_FAILURE;
+        }
+        [@"{\"binary\":\"/nonexistent/cc-pets\"}" writeToFile:locator atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        if (!Check(CCBridgeCLILocator() == nil, @"可执行文件不存在时应返回 nil")) return EXIT_FAILURE;
+        // 旧版（Node）留下的定位文件不再可用，要提示用户重新安装，而不是去跑 node。
+        [@"{\"node\":\"/bin/sh\",\"cli\":\"/tmp\"}" writeToFile:locator atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        if (!Check(CCBridgeCLILocator() == nil, @"旧格式定位应视为无效")) return EXIT_FAILURE;
 
         NSString *root = CCBridgeStateDirectory();
         if (!Check([root.lastPathComponent hasPrefix:@"cc-bridge-"], @"状态目录名应与 bridge 端一致")) {

@@ -54,7 +54,7 @@ Claude 侧的改动会被热加载；Codex 侧（审批、hooks）需要重启 C
 
 在任意一个会话里直接用自然语言：
 
-> 列出本机其他 Agent 会话，然后给 codex-my-app-1 发消息：接口改成了 POST /api/pets，你那边同步一下。
+> 列出本机其他 Agent 会话，然后给 codex.my-app.otter 发消息：接口改成了 POST /api/pets，你那边同步一下。
 
 Agent 会调用这些 MCP 工具：
 
@@ -70,7 +70,9 @@ Agent 会调用这些 MCP 工具：
 
 ### 会话名
 
-默认名字是 `<claude|codex>-<项目目录名>-<序号>`，例如 `claude-my-app-1`。同一目录开多个终端时，
+默认名字是 `<账号名>.<项目目录名>.<动物>`，例如 `claude.my-app.otter`、`claude-x.my-app.panda`。账号名取多账号页里的名称
+（默认账号就是 `claude` / `codex`），动物从 100 个萌系动物里挑，同账号同项目的在线会话不会重名。总长度不超过 40 个字符，
+项目目录名过长时会截断。同一目录开多个终端时，
 可以给它们起好记的名字：
 
 ```bash

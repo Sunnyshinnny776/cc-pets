@@ -1,14 +1,17 @@
 // CC Bridge 端到端测试：隔离的状态目录 + 假的 claude / codex 进程 + 假的 `codex queue`。
 // 不接触真实的 ~/.claude、~/.codex、$TMPDIR，也不调用真实 CLI。
+// 被测的是原生的 `cc-pets bridge`；状态直接读写磁盘上的文件（格式由原生端定义，桌宠也读同一份）。
+// 不经过进程边界的纯逻辑（模式匹配、选项解析、codex queue 探测）见 bridge-units-harness.m。
 
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const cli = path.join(projectDir, "scripts/bridge/cli.mjs");
+const binary = path.join(projectDir, ".build/release/cc-pets");
 const root = fs.mkdtempSync("/tmp/cc-bridge-");
 const children = [];
 
@@ -31,6 +34,9 @@ const env = {
   CC_PETS_SHIM_DIR: path.join(root, "shims"),
   CLAUDE_CONFIG_DIR: path.join(root, "claude"),
   CODEX_HOME: path.join(root, "codex"),
+  // bridge enable/disable 作用于 $HOME 下登记的账号 Home，CLAUDE_CONFIG_DIR / CODEX_HOME 挡不住；
+  // 不换 HOME 会改到开发机上真实的 ~/.claude、~/.codex。
+  HOME: path.join(root, "user-home"),
   CODEX_REAL_BIN: path.join(root, "bin/codex"),
   CC_BRIDGE_SKIP_MCP: "1",
   CC_PETS_ASSUME_CLI: "1",
@@ -40,8 +46,15 @@ delete env.CLAUDE_CODE_SESSION_ID;
 delete env.CODEX_THREAD_ID;
 delete env.CC_BRIDGE_AGENT;
 Object.assign(process.env, env);
-for (const directory of ["state", "home", "claude", "codex", "bin", "fake"]) {
+for (const directory of ["state", "home", "claude", "codex", "bin", "fake", "user-home"]) {
   fs.mkdirSync(path.join(root, directory), { recursive: true });
+}
+// 把测试用的配置目录挂成官方默认 Home 并登记，和 cc-pets install 的效果一致。
+fs.symlinkSync(env.CLAUDE_CONFIG_DIR, path.join(env.HOME, ".claude"));
+fs.symlinkSync(env.CODEX_HOME, path.join(env.HOME, ".codex"));
+{
+  const registered = spawnSync(binary, ["profile", "ensure-defaults"], { env, encoding: "utf8" });
+  assert.equal(registered.status, 0, registered.stderr);
 }
 
 // 假 codex：记录 queue 调用参数，按真实 CLI 的格式回显。
@@ -76,7 +89,7 @@ const fakeAgent = (name) => {
 };
 
 const runCli = (args, { input = "", agent, extraEnv = {} } = {}) => {
-  const result = spawnSync(process.execPath, [cli, ...args], {
+  const result = spawnSync(binary, ["bridge", ...args], {
     input,
     env: { ...env, ...(agent ? { CC_BRIDGE_AGENT: agent } : {}), ...extraEnv },
     encoding: "utf8"
@@ -92,8 +105,66 @@ const queueCalls = () => fs.existsSync(queueLog)
   ? fs.readFileSync(queueLog, "utf8").split("\x1e").filter(Boolean).map((line) => line.split("\0").filter(Boolean))
   : [];
 
-const store = await import("../scripts/bridge/store.mjs");
-const core = await import("../scripts/bridge/core.mjs");
+// 状态文件的直接读写，对应原生 CCPetsBridgeStore 的目录布局。
+const readJson = (file) => {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+};
+const jsonFiles = (directory) => {
+  try {
+    return fs.readdirSync(directory).filter((name) => name.endsWith(".json")).sort();
+  } catch {
+    return [];
+  }
+};
+const writeState = (file, value) => {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+};
+const store = {
+  MESSAGE_BODY_LIMIT: 16 * 1024,
+  PAIR_LIMIT_COUNT: 20,
+  bridgeDirectory: () => path.join(env.CC_PETS_STATE_DIR, `cc-bridge-${process.getuid()}`),
+  isBridgeEnabled: () => fs.existsSync(path.join(env.CC_PETS_HOME, "bridge-enabled")),
+  readBridgeOptions: () => readJson(path.join(env.CC_PETS_HOME, "bridge-enabled")) ?? {},
+  setBridgeEnabled: (enabled, options = {}) => {
+    const file = path.join(env.CC_PETS_HOME, "bridge-enabled");
+    if (enabled) writeState(file, options);
+    else fs.rmSync(file, { force: true });
+  },
+  sessionRef: (sessionId) => crypto.createHash("sha1").update(sessionId).digest("hex").slice(0, 6),
+  readSession: (sessionId) => readJson(path.join(store.bridgeDirectory(), "sessions", `${sessionId}.json`)),
+  listSessions: () => jsonFiles(path.join(store.bridgeDirectory(), "sessions"))
+    .map((name) => readJson(path.join(store.bridgeDirectory(), "sessions", name))).filter(Boolean),
+  listReceipts: () => jsonFiles(path.join(store.bridgeDirectory(), "sent"))
+    .map((name) => readJson(path.join(store.bridgeDirectory(), "sent", name))).filter(Boolean),
+  readReceipt: (id) => readJson(path.join(store.bridgeDirectory(), "sent", `${id}.json`)),
+  writeReceipt: (message) => writeState(path.join(store.bridgeDirectory(), "sent", `${message.id}.json`), message),
+  enqueueInbox: (message) => writeState(path.join(store.bridgeDirectory(), "inbox", message.to.session, `${message.id}.json`), message),
+  pendingCount: (sessionId) => jsonFiles(path.join(store.bridgeDirectory(), "inbox", sessionId)).length,
+  claimInbox: (sessionId) => {
+    for (const name of jsonFiles(path.join(store.bridgeDirectory(), "inbox", sessionId))) {
+      fs.rmSync(path.join(store.bridgeDirectory(), "inbox", sessionId, name), { force: true });
+    }
+  },
+  subscriptions: (sessionId) => jsonFiles(path.join(store.bridgeDirectory(), "subscriptions", sessionId)),
+  newMessageId: () => `m${Date.now().toString(36)}${crypto.randomBytes(5).toString("hex")}`,
+  reservations: () => jsonFiles(path.join(store.bridgeDirectory(), "reservations"))
+    .map((name) => readJson(path.join(store.bridgeDirectory(), "reservations", name))).filter(Boolean)
+};
+// 在线会话按原生 `bridge list` 的输出算：它会顺手把已退出的会话清出注册表。
+const liveSessionNames = () => runCli(["list"]).stdout.split("\n")
+  .map((line) => line.match(/^(\S+) \[[0-9a-f]{6}\]/)?.[1]).filter(Boolean);
+// 当前会话由原生端按祖先进程识别（CC_BRIDGE_AGENT 覆盖），从 list_agents 的抬头里取出名字。
+const identifyAs = (agent) => {
+  const result = runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_agents", arguments: {} } })}\n`, agent
+  });
+  return JSON.parse(result.stdout).result.content[0].text.match(/当前会话是 (\S+) \[/)?.[1] ?? null;
+};
 
 const claudeHost = fakeAgent("claude");
 const codexHost = fakeAgent("codex");
@@ -119,43 +190,43 @@ store.setBridgeEnabled(true);
   hook("Codex", codexAgent, { hook_event_name: "SessionStart", session_id: CODEX_SESSION, cwd });
   const claude = store.readSession(CLAUDE_SESSION);
   const codex = store.readSession(CODEX_SESSION);
-  assert.equal(claude.name, "claude-my-project-1");
-  assert.equal(codex.name, "codex-my-project-1");
+  // 默认名字：<账号名>.<项目目录名>.<动物>；测试环境没有账号名，退回 provider。
+  assert.match(claude.name, /^claude\.my-project\.[a-z]+$/);
+  assert.match(codex.name, /^codex\.my-project\.[a-z]+$/);
   assert.equal(claude.pid, claudeHost.pid);
   assert.equal(codex.pid, codexHost.pid);
   assert.equal(claude.ref, store.sessionRef(CLAUDE_SESSION));
   assert.equal(claude.status, "idle");
   assert.equal(fs.statSync(store.bridgeDirectory()).mode & 0o777, 0o700);
-  assert.equal(core.liveSessions().length, 2);
+  assert.equal(liveSessionNames().length, 2);
 }
+const CLAUDE_NAME = store.readSession(CLAUDE_SESSION).name;
+const CODEX_NAME = store.readSession(CODEX_SESSION).name;
 
 // 3. 路径穿越的 session id 被拒绝。
 {
   hook("Claude", claudeAgent, { hook_event_name: "SessionStart", session_id: "../../evil", cwd });
-  assert.equal(core.liveSessions().length, 2);
+  assert.equal(liveSessionNames().length, 2);
 }
 
 // 4. 身份识别：按祖先 pid 反查，UserPromptSubmit 后状态为 busy。
 {
   hook("Codex", codexAgent, { hook_event_name: "UserPromptSubmit", session_id: CODEX_SESSION, cwd, prompt: "hi" });
   assert.equal(store.readSession(CODEX_SESSION).status, "busy");
-  process.env.CC_BRIDGE_AGENT = codexAgent;
-  assert.equal(core.identifySelf().session, CODEX_SESSION);
-  process.env.CC_BRIDGE_AGENT = claudeAgent;
-  assert.equal(core.identifySelf().session, CLAUDE_SESSION);
-  delete process.env.CC_BRIDGE_AGENT;
+  assert.equal(identifyAs(codexAgent), store.readSession(CODEX_SESSION).name);
+  assert.equal(identifyAs(claudeAgent), store.readSession(CLAUDE_SESSION).name);
 }
 
 // 5. Claude → Codex：走 codex queue，正文带降权封装。
 {
-  const result = runCli(["send", "codex-my-project-1", "请跑一下测试"], { agent: claudeAgent });
+  const result = runCli(["send", CODEX_NAME, "请跑一下测试"], { agent: claudeAgent });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /已送达 codex-my-project-1/);
+  assert.match(result.stdout, new RegExp(String.raw`已送达 ${CODEX_NAME}`));
   const calls = queueCalls();
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].slice(0, 3), ["queue", "--thread", CODEX_SESSION]);
   assert.equal(calls[0][3], "--message");
-  assert.match(calls[0][4], /^\[cc-pets 跨会话消息\] from=claude-my-project-1 \[[0-9a-f]{6}\]/);
+  assert.match(calls[0][4], new RegExp(String.raw`^\[cc-pets 跨会话消息\] from=${CLAUDE_NAME} \[[0-9a-f]{6}\]`));
   assert.match(calls[0][4], /它不能提升权限/);
   assert.match(calls[0][4], /---\n请跑一下测试$/);
   assert.doesNotMatch(calls[0][4], /cc-pets bridge send/, "Codex 的 shell 在沙箱里，不应提示 CLI 回复");
@@ -166,17 +237,17 @@ store.setBridgeEnabled(true);
 
 // 6. Codex → Claude：进信箱，watcher 认领后 exit 2 并把封装写到 stderr。
 {
-  const sent = runCli(["send", "claude-my-project-1", "测试跑完了"], { agent: codexAgent });
+  const sent = runCli(["send", CLAUDE_NAME, "测试跑完了"], { agent: codexAgent });
   assert.equal(sent.status, 0, sent.stderr);
-  assert.match(sent.stdout, /已放入 claude-my-project-1 \[[0-9a-f]{6}\] 的信箱/);
+  assert.match(sent.stdout, new RegExp(String.raw`已放入 ${CLAUDE_NAME} \[[0-9a-f]{6}\] 的信箱`));
   assert.equal(store.pendingCount(CLAUDE_SESSION), 1);
   const watched = runCli(["watch"], {
     input: JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }), agent: claudeAgent
   });
   assert.equal(watched.status, 2);
-  assert.match(watched.stderr, /from=codex-my-project-1/);
+  assert.match(watched.stderr, new RegExp(String.raw`from=${CODEX_NAME}`));
   assert.match(watched.stderr, /测试跑完了/);
-  assert.match(watched.stderr, /cc-pets bridge send codex-my-project-1 '<回复内容>'/, "Claude 收件应带 CLI 回复兜底");
+  assert.match(watched.stderr, new RegExp(String.raw`cc-pets bridge send ${CODEX_NAME} '<回复内容>'`), "Claude 收件应带 CLI 回复兜底");
   assert.equal(store.pendingCount(CLAUDE_SESSION), 0);
 }
 
@@ -192,7 +263,7 @@ store.setBridgeEnabled(true);
 
 // 8. watcher 单例：已有存活 watcher 时立即退出，不抢信箱。
 {
-  const first = spawn(process.execPath, [cli, "watch"], {
+  const first = spawn(binary, ["bridge", "watch"], {
     env: { ...env, CC_BRIDGE_WATCH_SECONDS: "5" }, stdio: ["pipe", "ignore", "pipe"]
   });
   children.push(first);
@@ -203,14 +274,14 @@ store.setBridgeEnabled(true);
   assert.ok(fs.existsSync(lock), "第一个 watcher 应持有锁");
   const second = runCli(["watch"], { input: JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }) });
   assert.equal(second.status, 0);
-  runCli(["send", "claude-my-project-1", "给第一个 watcher"], { agent: codexAgent });
+  runCli(["send", CLAUDE_NAME, "给第一个 watcher"], { agent: codexAgent });
   const exitCode = await new Promise((resolve) => first.on("exit", resolve));
   assert.equal(exitCode, 2, "持锁的 watcher 应投递消息");
 }
 
 // 9. watcher 不在时，UserPromptSubmit 兜底注入 additionalContext。
 {
-  runCli(["send", "claude-my-project-1", "空窗期消息"], { agent: codexAgent });
+  runCli(["send", CLAUDE_NAME, "空窗期消息"], { agent: codexAgent });
   const result = hook("Claude", claudeAgent, { hook_event_name: "UserPromptSubmit", session_id: CLAUDE_SESSION, cwd, prompt: "继续" });
   const output = JSON.parse(result.stdout);
   assert.equal(output.hookSpecificOutput.hookEventName, "UserPromptSubmit");
@@ -222,20 +293,20 @@ store.setBridgeEnabled(true);
 
 // 10. 地址解析：不能发给自己；未知目标报错；name [ref] 形式可用。
 {
-  const self = runCli(["send", "claude-my-project-1", "自言自语"], { agent: claudeAgent });
+  const self = runCli(["send", CLAUDE_NAME, "自言自语"], { agent: claudeAgent });
   assert.equal(self.status, 1);
   assert.match(self.stderr, /不能给自己发消息/);
   const unknown = runCli(["send", "nobody-1", "hi"], { agent: claudeAgent });
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /没有找到在线会话/);
   const codexRef = store.readSession(CODEX_SESSION).ref;
-  const withRef = runCli(["send", `codex-my-project-1 [${codexRef}]`, "带 ref"], { agent: claudeAgent });
+  const withRef = runCli(["send", `${CODEX_NAME} [${codexRef}]`, "带 ref"], { agent: claudeAgent });
   assert.equal(withRef.status, 0, withRef.stderr);
 }
 
 // 11. 超长消息被拒绝。
 {
-  const result = runCli(["send", "codex-my-project-1", "x".repeat(store.MESSAGE_BODY_LIMIT + 1)], { agent: claudeAgent });
+  const result = runCli(["send", CODEX_NAME, "x".repeat(store.MESSAGE_BODY_LIMIT + 1)], { agent: claudeAgent });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /上限/);
 }
@@ -247,7 +318,7 @@ store.setBridgeEnabled(true);
     { jsonrpc: "2.0", method: "notifications/initialized" },
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_agents", arguments: {} } },
-    { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "send_message", arguments: { to: "claude-my-project-1", message: "来自 MCP" } } },
+    { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "send_message", arguments: { to: CLAUDE_NAME, message: "来自 MCP" } } },
     { jsonrpc: "2.0", id: 5, method: "nope" }
   ];
   const result = runCli(["mcp"], { input: `${requests.map((request) => JSON.stringify(request)).join("\n")}\n`, agent: codexAgent });
@@ -257,11 +328,11 @@ store.setBridgeEnabled(true);
   assert.equal(byId[1].result.protocolVersion, "2025-06-18");
   assert.deepEqual(byId[2].result.tools.map((tool) => tool.name), ["list_agents", "send_message", "set_name", "reserve_files", "release_files", "list_reservations", "check_inbox"]);
   const listText = byId[3].result.content[0].text;
-  assert.match(listText, /当前会话是 codex-my-project-1/);
-  assert.match(listText, /claude-my-project-1 \[[0-9a-f]{6}\]  ·  Claude/);
-  assert.doesNotMatch(listText.split("\n\n")[1], /codex-my-project-1/, "列表不应包含自己");
+  assert.match(listText, new RegExp(String.raw`当前会话是 ${CODEX_NAME}`));
+  assert.match(listText, new RegExp(String.raw`${CLAUDE_NAME} \[[0-9a-f]{6}\]  ·  Claude`));
+  assert.doesNotMatch(listText.split("\n\n")[1], new RegExp(String.raw`${CODEX_NAME}`), "列表不应包含自己");
   assert.equal(byId[4].result.isError, undefined);
-  assert.match(byId[4].result.content[0].text, /已放入 claude-my-project-1 \[[0-9a-f]{6}\] 的信箱/);
+  assert.match(byId[4].result.content[0].text, new RegExp(String.raw`已放入 ${CLAUDE_NAME} \[[0-9a-f]{6}\] 的信箱`));
   assert.equal(byId[5].error.code, -32601);
   // "pet / 桌宠"别名：server instructions 与主要工具描述都要带上，且注明业务代码里的 pet 不算。
   assert.match(byId[1].result.instructions, /pet、桌宠、cc-pets/);
@@ -281,7 +352,7 @@ store.setBridgeEnabled(true);
 // 13. 空闲订阅：Stop 后订阅者收到一次性通知（经 codex queue 投给 Codex 订阅者）。
 {
   const before = queueCalls().length;
-  const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "send_message", arguments: { to: "claude-my-project-1", message: "做完告诉我", notify_when_idle: true } } };
+  const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "send_message", arguments: { to: CLAUDE_NAME, message: "做完告诉我", notify_when_idle: true } } };
   const sent = runCli(["mcp"], { input: `${JSON.stringify(request)}\n`, agent: codexAgent });
   assert.match(JSON.parse(sent.stdout).result.content[0].text, /已订阅/);
   hook("Claude", claudeAgent, { hook_event_name: "Stop", session_id: CLAUDE_SESSION, cwd });
@@ -291,7 +362,7 @@ store.setBridgeEnabled(true);
   assert.equal(notice[2], CODEX_SESSION);
   assert.match(notice[4], /from=cc-pets/);
   assert.match(notice[4], /空闲通知/);
-  assert.equal(store.takeIdleSubscriptions(CLAUDE_SESSION).length, 0, "订阅应是一次性的");
+  assert.equal(store.subscriptions(CLAUDE_SESSION).length, 0, "订阅应是一次性的");
   claimInboxQuietly();
 }
 
@@ -299,18 +370,17 @@ function claimInboxQuietly() {
   store.claimInbox(CLAUDE_SESSION);
 }
 
-// 14. 目标 Codex 离线：不调用 queue（防止 resume 时执行过期任务），回执 undeliverable。
+// 14. 目标 Codex 离线：不调用 queue（防止 resume 时执行过期任务），离线会话被清出注册表。
 {
   const before = queueCalls().length;
   codexHost.kill("SIGKILL");
   await new Promise((resolve) => codexHost.on("exit", resolve));
-  process.env.CC_BRIDGE_AGENT = claudeAgent;
-  const codexRecord = store.readSession(CODEX_SESSION);
-  const result = await core.sendMessage({ from: store.readSession(CLAUDE_SESSION), to: codexRecord, body: "你还在吗" });
-  delete process.env.CC_BRIDGE_AGENT;
-  assert.equal(result.receipt.status, "undeliverable");
+  const codexName = store.readSession(CODEX_SESSION).name;
+  const result = runCli(["send", codexName, "你还在吗"], { agent: claudeAgent });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /没有找到在线会话/);
   assert.equal(queueCalls().length, before);
-  assert.equal(core.liveSessions().some((session) => session.session === CODEX_SESSION), false, "离线会话应被清出注册表");
+  assert.equal(store.readSession(CODEX_SESSION), null, "离线会话应被清出注册表");
 }
 
 // 15. 配对限流：同一对会话短时间内往来过多被拒绝。
@@ -319,25 +389,23 @@ function claimInboxQuietly() {
   const CODEX2 = "33333333-aaaa-4bbb-8ccc-000000000003";
   hook("Codex", `Codex:${codexHost2.pid}`, { hook_event_name: "SessionStart", session_id: CODEX2, cwd });
   const target = store.readSession(CODEX2);
-  const sender = store.readSession(CLAUDE_SESSION);
   for (let index = 0; index < store.PAIR_LIMIT_COUNT; index += 1) {
     store.writeReceipt({ id: store.newMessageId(), from: { session: CODEX2 }, to: { session: CLAUDE_SESSION }, body: "x", createdAt: Date.now(), status: "delivered" });
   }
-  const result = await core.sendMessage({ from: sender, to: target, body: "再来一条" });
-  assert.match(result.error, /循环/);
+  const result = runCli(["send", target.name, "再来一条"], { agent: claudeAgent });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /循环/);
 }
 
 // 16. SessionEnd：移出注册表，信箱里未投递的消息标记 undeliverable。
 {
   const codexHost3 = fakeAgent("codex");
-  process.env.CC_BRIDGE_AGENT = `Codex:${codexHost3.pid}`;
   const CODEX3 = "44444444-aaaa-4bbb-8ccc-000000000004";
   hook("Codex", `Codex:${codexHost3.pid}`, { hook_event_name: "SessionStart", session_id: CODEX3, cwd });
   const message = { id: store.newMessageId(), from: { session: CLAUDE_SESSION }, to: { session: CLAUDE_SESSION, name: "x" }, body: "b", createdAt: Date.now(), status: "pending" };
   store.writeReceipt(message);
   store.enqueueInbox(message);
   hook("Claude", claudeAgent, { hook_event_name: "SessionEnd", session_id: CLAUDE_SESSION });
-  delete process.env.CC_BRIDGE_AGENT;
   assert.equal(store.readSession(CLAUDE_SESSION), null);
   assert.equal(store.readReceipt(message.id).status, "undeliverable");
 }
@@ -412,7 +480,7 @@ function claimInboxQuietly() {
     agent: `Claude:${hostC.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude", CC_BRIDGE_NAME: "bad name [x]" } });
   assert.equal(store.readSession(SA).name, "frontend", "名字应统一转小写");
   assert.equal(store.readSession(SB).name, "frontend-2", "重名应追加序号");
-  assert.match(store.readSession(SC).name, /^claude-my-project-\d+$/, "非法名字应回退到自动命名");
+  assert.match(store.readSession(SC).name, /^claude\.my-project\.[a-z]+$/, "非法名字应回退到自动命名");
   // 已注册的会话再次收到事件不会被 CC_BRIDGE_NAME 改名。
   runCli(["hook"], { input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: SA, cwd }),
     agent: `Claude:${hostA.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude", CC_BRIDGE_NAME: "other" } });
@@ -438,6 +506,29 @@ function claimInboxQuietly() {
   assert.equal(store.readSession(SB).name, "web");
   // list_agents 带 tty 列（假宿主进程没有控制终端，显示为 -）。
   assert.match(call(`Claude:${hostA.pid}`, "list_agents", {}).content[0].text, /api-server \[[0-9a-f]{6}\]  ·  Claude  ·  (idle|busy)  ·  -  ·/);
+
+  // 多账号：默认名字以账号名开头；同账号同项目的会话动物各不相同；超长目录名截断后仍不超过 40 个字符。
+  const hostD = fakeAgent("claude");
+  const hostE = fakeAgent("claude");
+  const hostF = fakeAgent("claude");
+  const SD = "88888888-aaaa-4bbb-8ccc-000000000008";
+  const SE = "99999999-aaaa-4bbb-8ccc-000000000009";
+  const SF = "aaaaaaaa-aaaa-4bbb-8ccc-00000000000a";
+  const register = (host, session, profileName, directory = cwd) => runCli(["hook"], {
+    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: session, cwd: directory }),
+    agent: `Claude:${host.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude", CC_PETS_PROFILE_NAME: profileName }
+  });
+  register(hostD, SD, "Claude X");
+  register(hostE, SE, "Claude X");
+  register(hostF, SF, "工作号", path.join(root, "a-really-long-project-directory-name-for-names"));
+  const nameD = store.readSession(SD).name;
+  const nameE = store.readSession(SE).name;
+  const nameF = store.readSession(SF).name;
+  assert.match(nameD, /^claude-x\.my-project\.[a-z]+$/);
+  assert.match(nameE, /^claude-x\.my-project\.[a-z]+$/);
+  assert.notEqual(nameD, nameE, "同前缀的在线会话不应重名");
+  assert.match(nameF, /^claude\.a-really-long[a-z-]*\.[a-z]+$/, "账号名无法转成 slug 时退回 provider");
+  assert.ok(nameF.length <= 40, nameF);
 }
 
 // 19. 从旧名 Agent Bus 迁移：旧开关、旧标记 hooks、旧审批块在 enable 后被清理，不留两套。
@@ -473,27 +564,8 @@ function claimInboxQuietly() {
 
 // 20. 文件预留：模式匹配、冲突、编辑前提醒、释放、过期、会话结束自动释放。
 {
-  const reservations = await import("../scripts/bridge/reservations.mjs");
-  const { patternToRegExp, patternsOverlap, normalizePattern, editedFilesFromToolInput } = reservations;
-
-  assert.ok(patternToRegExp("src/**/*.ts").test("src/a.ts"));
-  assert.ok(patternToRegExp("src/**/*.ts").test("src/x/y.ts"));
-  assert.ok(!patternToRegExp("src/**/*.ts").test("srcx/a.ts"));
-  assert.ok(patternToRegExp("src/api").test("src/api/user.ts"), "不带通配符的目录应覆盖其下所有文件");
-  assert.ok(patternToRegExp("src/api").test("src/api"));
-  assert.ok(!patternToRegExp("src/api").test("src/apix"));
-  assert.ok(patternToRegExp("a[1].ts").test("a[1].ts"), "方括号按字面匹配");
-  assert.equal(patternsOverlap("src/api/**", "src/web/**"), false);
-  assert.equal(patternsOverlap("src/**/*.ts", "src/api/*"), true, "glob 对 glob 按前缀保守判断");
-  assert.equal(patternsOverlap("src/a.md", "src/**/*.ts"), false, "具体路径应精确匹配");
-  assert.equal(patternsOverlap("src/api/user.ts", "src/api/**"), true);
-  assert.equal(normalizePattern("/repo", "/repo/sub", "../x.ts"), "x.ts");
-  assert.equal(normalizePattern("/repo", "/repo", "../outside.ts"), null, "越出仓库根应拒绝");
-  assert.equal(normalizePattern("/repo", "/repo", "/repo/src/"), "src");
-  assert.deepEqual(editedFilesFromToolInput({ file_path: "/repo/a.ts", old_string: "x" }), ["/repo/a.ts"]);
-  assert.deepEqual(editedFilesFromToolInput({ input: "*** Begin Patch\n*** Update File: src/a.ts\n@@\n*** Add File: src/b.ts\n*** End Patch" }).sort(),
-    ["src/a.ts", "src/b.ts"]);
-
+  // 模式匹配、路径规范化、补丁解析等纯逻辑见 bridge-units-harness.m，这里只测端到端。
+  const reservations = { activeReservations: () => store.reservations() };
   const hostA = store.listSessions().find((session) => session.name === "frontend");
   const hostC = store.listSessions().find((session) => session.name === "api-server");
   assert.ok(hostA && hostC, "沿用第 18 组注册的会话");
@@ -562,7 +634,7 @@ function claimInboxQuietly() {
   assert.match(call(agentA, "release_files").content[0].text, /已释放 1 处/);
   assert.equal(preToolUse(agentC, hostC.session, { file_path: path.join(cwd, "src/api/login.ts") }).stdout, "");
 
-  // 过期自动失效。
+  // 过期自动失效（下一次读取预留时顺手清掉）。
   call(agentA, "reserve_files", { paths: ["docs/**"] });
   const directory = path.join(store.bridgeDirectory(), "reservations");
   for (const name of fs.readdirSync(directory)) {
@@ -570,6 +642,7 @@ function claimInboxQuietly() {
     const record = JSON.parse(fs.readFileSync(file, "utf8"));
     if (record.pattern === "docs/**") fs.writeFileSync(file, JSON.stringify({ ...record, expiresAt: Date.now() - 1 }));
   }
+  assert.doesNotMatch(call(agentC, "list_reservations").content[0].text, /docs\/\*\*/);
   assert.equal(reservations.activeReservations().some((entry) => entry.pattern === "docs/**"), false);
 
   // 会话结束自动释放（C 还持有 src/api/user.ts）。
@@ -581,16 +654,7 @@ function claimInboxQuietly() {
 
 // 21. 选项：分组展开、合并语义、configure 不重注册 MCP、Claude 放行规则、关闭唤醒 / 编辑拦截。
 {
-  const options = await import("../scripts/bridge/options.mjs");
-  assert.deepEqual(options.parseToolList("view,send_message", "--x"),
-    ["list_agents", "list_reservations", "check_inbox", "send_message"]);
-  assert.deepEqual(options.parseToolList("", "--x"), []);
-  assert.throws(() => options.parseToolList("rm_rf", "--x"), /只接受分组/);
-  assert.throws(() => options.parseSwitch("maybe", "--wake"), /on \/ off/);
-  const merged = options.mergeOptionFlags({ codexApprove: ["set_name"], wake: true, editGuard: true }, { wake: "off" });
-  assert.deepEqual(merged.codexApprove, ["set_name"], "未给出的选项保持原值");
-  assert.equal(merged.wake, false);
-
+  // 分组展开、合并语义等解析逻辑见 bridge-units-harness.m。
   const settingsPath = path.join(env.CLAUDE_CONFIG_DIR, "settings.json");
   const hooksPath = path.join(env.CODEX_HOME, "hooks.json");
   const configPath = path.join(env.CODEX_HOME, "config.toml");
@@ -639,8 +703,11 @@ function claimInboxQuietly() {
   const watched = runCli(["watch"], { input: JSON.stringify({ hook_event_name: "Stop", session_id: sender.session }),
     extraEnv: { CC_BRIDGE_WATCH_SECONDS: "5" } });
   assert.equal(watched.status, 0, "关闭唤醒后 watcher 应立即退出");
-  const reservations = await import("../scripts/bridge/reservations.mjs");
-  reservations.reserveFiles({ self: sender, paths: ["guarded/**"] });
+  const reserved = JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "reserve_files", arguments: { paths: ["guarded/**"] } } })}\n`,
+    agent: `Claude:${sender.pid}`
+  }).stdout).result;
+  assert.equal(reserved.isError, undefined, reserved.content[0].text);
   const unguarded = runCli(["hook"], {
     input: JSON.stringify({ hook_event_name: "PreToolUse", session_id: CODEX5, cwd, tool_name: "apply_patch",
       tool_input: { command: `*** Begin Patch\n*** Add File: ${path.join(cwd, "guarded/a.ts")}\n*** End Patch` } }),
@@ -654,37 +721,21 @@ function claimInboxQuietly() {
   assert.deepEqual(settings.permissions, { allow: ["Bash(npm test)"], deny: ["Read(.env)"] });
 }
 
-// 22. 桌宠侧的约定：refresh 未开启时也写 CLI 定位；原生分组定义与 options.mjs 一致。
+// 22. 桌宠侧的约定：refresh 未开启时也写 CLI 定位（cc-pets 本身 + 终端里的 PATH，桌宠从 Finder 启动时没有 nvm 的 PATH）。
 {
   const locator = path.join(env.CC_PETS_HOME, "bridge-cli.json");
   fs.rmSync(locator, { force: true });
   store.setBridgeEnabled(false);
   assert.equal(runCli(["refresh"]).status, 0);
   const written = JSON.parse(fs.readFileSync(locator, "utf8"));
-  assert.equal(written.cli, cli, "定位文件应指向当前 cli.mjs");
-  assert.equal(written.node, process.execPath);
+  assert.equal(written.binary, binary, "定位文件应指向当前的 cc-pets");
+  assert.equal(written.path, env.PATH);
   assert.equal(fs.statSync(locator).mode & 0o777, 0o600);
-
-  const { TOOL_GROUPS } = await import("../scripts/bridge/options.mjs");
-  const nativeSource = fs.readFileSync(path.join(projectDir, "Sources/CCPets/CCPetsBridge.m"), "utf8");
-  const nativeGroups = {};
-  for (const match of nativeSource.matchAll(/@"(\w+)": @\[((?:@"\w+"(?:, )?)+)\]/g)) {
-    nativeGroups[match[1]] = [...match[2].matchAll(/@"(\w+)"/g)].map((item) => item[1]);
-  }
-  assert.deepEqual(nativeGroups, TOOL_GROUPS, "CCPetsBridge.m 的分组必须与 options.mjs 的 TOOL_GROUPS 一致");
 }
 
 // 23. codex queue 能力探测：新版支持、旧版把 queue 当成交互参数打出总帮助、找不到可执行文件。
 {
-  const { probeCodexQueue } = await import("../scripts/bridge/process.mjs");
-  const { describeCodexQueue } = await import("../scripts/bridge/install.mjs");
-  const before = queueCalls().length;
-  const supported = probeCodexQueue(env.CODEX_REAL_BIN);
-  assert.equal(supported.status, "supported");
-  assert.equal(supported.version, "codex-cli 9.9.9");
-  assert.equal(describeCodexQueue(supported), null);
-  assert.equal(queueCalls().length, before, "探测不应产生 queue 投递");
-
+  // 探测本身的各种情况见 bridge-units-harness.m；这里测 enable 时把不支持的情况写进报告。
   const oldCodex = path.join(root, "bin/codex-old");
   fs.writeFileSync(oldCodex, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "codex-cli 0.100.0"; exit 0; fi
@@ -692,14 +743,6 @@ echo "Codex CLI"
 echo "If no subcommand is specified, options will be forwarded to the interactive CLI."
 exit 0
 `, { mode: 0o755 });
-  const unsupported = probeCodexQueue(oldCodex);
-  assert.equal(unsupported.status, "unsupported");
-  assert.match(describeCodexQueue(unsupported), /codex-cli 0\.100\.0.*不支持 codex queue/);
-
-  const missing = probeCodexQueue(path.join(root, "bin/no-such-codex"));
-  assert.equal(missing.status, "missing");
-  assert.match(describeCodexQueue(missing), /CODEX_REAL_BIN/);
-
   // enable 时把不支持的情况写进报告；不支持也照样开启。
   store.setBridgeEnabled(false);
   // 探测只在注册 MCP 时跑，所以这里要放开 CC_BRIDGE_SKIP_MCP；claude 换成假的，绝不能碰到真实 CLI。
