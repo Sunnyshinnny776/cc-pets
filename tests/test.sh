@@ -253,10 +253,10 @@ grep -Fq -- "-g ${UPDATER_TMP}/Applications/CC Pets.app --args --managed" "${UPD
 grep -q 'Check for Updates…' "${PET_SOURCES[@]}"
 # 检查更新与关于收在「帮助」子菜单里；有新版本时顶层临时多一项「更新到 x.y.z…」，
 # 由 AppDelegate 通过 pendingUpdateVersionRequested 告知（更新进行中返回 nil）。
-grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:L(@"Help")' "${PET_SRC[PetView.m]:?}"
-grep -Fq '[helpMenu addItemWithTitle:L(@"Check for Updates…")' "${PET_SRC[PetView.m]:?}"
-grep -Fq '[helpMenu addItemWithTitle:L(@"About CC Pets")' "${PET_SRC[PetView.m]:?}"
-grep -Fq 'L(@"Update to %@…")' "${PET_SRC[PetView.m]:?}"
+grep -Fq 'NSMenuItem *helpItem = [menu addItemWithTitle:L(@"Help")' "${PET_SRC[PetView+Menu.m]:?}"
+grep -Fq '[helpMenu addItemWithTitle:L(@"Check for Updates…")' "${PET_SRC[PetView+Menu.m]:?}"
+grep -Fq '[helpMenu addItemWithTitle:L(@"About CC Pets")' "${PET_SRC[PetView+Menu.m]:?}"
+grep -Fq 'L(@"Update to %@…")' "${PET_SRC[PetView+Menu.m]:?}"
 grep -Fq 'return weakSelf.updating ? nil : weakSelf.pendingUpdateVersion;' "${PET_SRC[CCPetsAppDelegate.m]:?}"
 grep -q 'https://registry.npmjs.org/cc-pets/latest' "${PET_SOURCES[@]}"
 grep -Fq 'environment[@"PATH"] = [NSString stringWithFormat:@"%@:%@", nodeDirectory, existingPath]' \
@@ -502,7 +502,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PET_SRC[CCPetsUsage.m]:?}" \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
   "${PROJECT_DIR}/tests/token-usage-harness.m" \
   -o "${TOKEN_USAGE_TMP}/token-usage-test"
 # Token 摘要缓存落在 Application Support 下，测试必须用自己的目录，否则会往用户真实的
@@ -593,7 +593,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework CoreServices \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PET_SRC[CCPetsUsage.m]:?}" \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
   "${PET_SRC[CCPetsCodexRateLimits.m]:?}" \
   "${PET_SRC[CCPetsUsageMonitor.m]:?}" \
   "${PROJECT_DIR}/tests/usage-monitor-harness.m" \
@@ -622,7 +622,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PET_SRC[CCPetsUsage.m]:?}" \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
   "${PROJECT_DIR}/tests/session-pick-harness.m" \
   -o "${SESSION_PICK_TMP}/session-pick-test"
 CC_PETS_CODEX_HOME="${SESSION_PICK_TMP}/codex" \
@@ -1751,7 +1751,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Cocoa \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PET_SRC[QuotaDashboardView.m]:?}" \
+  "${PET_SOURCE_DIR}"/**/QuotaDashboardView(|+*).m \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \
   -o "${QUOTA_ONLINE_TMP}/quota-online-test"
@@ -1830,12 +1830,12 @@ grep -Fq 'CGEventSourceButtonState(kCGEventSourceStateCombinedSessionState, kCGM
   "${PET_SOURCES[@]}"
 grep -Fq '[self endPetDrag]' "${PET_SOURCES[@]}"
 if sed -n '/performWindowDragWithEvent:event/,/^- (void)endPetDrag/p' \
-  "${PET_SRC[PetView.m]:?}" | grep -Fq 'self.draggingPet = NO'; then
+  "${PET_SRC[PetView+Interaction.m]:?}" | grep -Fq 'self.draggingPet = NO'; then
   print -u2 "performWindowDragWithEvent: 返回后不应立即结束奔跑动画"
   exit 1
 fi
 # PetView 仍需接受非激活窗口的第一次点击。
-grep -Fq 'acceptsFirstMouse:' "${PET_SRC[PetView.m]:?}"
+grep -Fq 'acceptsFirstMouse:' "${PET_SRC[PetView+Interaction.m]:?}"
 # 拖动一旦退回主线程手工搬窗口，就会重新依赖“事件流完整送达”这个不成立的前提：
 # 首次点击被吞、mouseUp 丢失卡死、被其他面板截走事件、与 AppKit 抢 frame。
 # 下面这些是那套实现的残留特征，出现即视为回归。
