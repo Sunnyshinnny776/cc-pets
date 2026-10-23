@@ -23,8 +23,7 @@
 ## 界面预览
 
 <p align="center">
-  <img src="docs/images/liquid-glass-panel.png" width="45%" alt="Liquid Glass 主题下的中文额度面板">
-  <img src="docs/images/liquid-glass-menu.png" width="45%" alt="中文右键菜单与面板主题子菜单">
+  <img src="docs/images/liquid-glass-panel.png" width="48%" alt="Liquid Glass 主题下的中文额度面板"> <img src="docs/images/liquid-glass-menu.png" width="48%" alt="中文右键菜单与面板主题子菜单">
 </p>
 
 ## 功能
@@ -68,8 +67,8 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 ```
 
 <p align="center">
-  <img src="docs/images/main-menu-overview.png" width="45%" alt="主菜单概览页：宠物、今日 Token 用量和各账号额度卡片">
-  <img src="docs/images/main-menu-usage.png" width="45%" alt="主菜单用量页：按模型堆叠的近 30 天每日用量图和模型明细表">
+  <img src="docs/images/main-menu-overview.png" width="48%" alt="主菜单概览页：宠物、今日 Token 用量和各账号额度卡片">
+<img src="docs/images/main-menu-usage.png" width="48%" alt="主菜单用量页：按模型堆叠的近 30 天每日用量图和模型明细表">
 </p>
 
 - **侧边栏**：顶部是会动的当前宠物和它的状态，下面分两组：**工作台**（概览、会话、用量、宠物、多账号）
