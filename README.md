@@ -30,7 +30,7 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/liquid-glass-panel.en.png" width="50%" alt="English Agent Usage panel with quota, tokens, trends, and system status"> <img src="docs/images/liquid-glass-menu.en.png" width="50%" alt="English right-click menu with English selected in the Language submenu">
+  <img src="docs/images/liquid-glass-panel.en.png" width="48%" alt="English Agent Usage panel with quota, tokens, trends, and system status"> <img src="docs/images/liquid-glass-menu.en.png" width="48%" alt="English right-click menu with English selected in the Language submenu">
 </p>
 
 ## Features
@@ -232,7 +232,7 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 ```
 
 <p align="center">
-  <img src="docs/images/main-menu-overview.en.png" width="50%" alt="Main menu Overview page with the pet, today's token usage and quota cards for each account"> <img src="docs/images/main-menu-usage.en.png" width="50%" alt="Main menu Usage page with a 30-day daily chart stacked by model and a per-model table">
+  <img src="docs/images/main-menu-overview.en.png" width="48%" alt="Main menu Overview page with the pet, today's token usage and quota cards for each account"> <img src="docs/images/main-menu-usage.en.png" width="48%" alt="Main menu Usage page with a 30-day daily chart stacked by model and a per-model table">
 </p>
 
 - **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
