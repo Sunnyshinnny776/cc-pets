@@ -7,6 +7,21 @@ truth for the version.
 
 ## [Unreleased]
 
+### CC Bridge
+
+- Validate explicit session IDs before PID lookup and reject ambiguous shared-host identities instead of selecting the most recently active session. This protects messaging, renaming, inbox access and file reservations.
+- Retain claimed inbox messages until output is flushed successfully, recover unconfirmed messages after crashes, and prevent delivered receipts from reverting to pending. Recovery can repeat a message ID if a crash occurs between output and confirmation; exactly-once delivery is not guaranteed.
+- Serialize session updates and renaming, use kernel-backed watcher locks, and preserve numeric suffixes when allocating duplicate 40-character session names.
+- Recheck enabled and auto-wake settings in running watchers, reject CLI mutations while disabled, and report integration removal failures with a nonzero exit code while keeping the runtime disabled.
+- Use the recipient's Codex Home for queue delivery, recognize literal bracketed file paths such as `[id]` in reservation checks, and preserve account and sender IDs for Bridge activity display.
+
+### Quota and interface
+
+- Track low-quota speech independently for each subscription account at the 20%, 10% and 5% thresholds. Queue reminders during cooldown, identify the triggering account, skip the first sample and expired windows, and exclude API-usage accounts. General quota placeholders use the account with the least remaining quota.
+- Apply the same Codex live-usage merge to default and custom Homes. Expire exhaustion markers from their original sampling time so repeated cache reads cannot extend their five-minute lifetime.
+- Simplify the monthly token trend layout: show today's usage and recorded days on separate lines, with peak usage in a tooltip for the selected account.
+- Normalize provider icon sizing and bundle fallback Claude and Codex icons for CLI-only installations. Include them in native builds and npm packages, and document their sources and separate ownership in the third-party notices.
+
 ## [2.3.0] - 2026-10-21
 
 ### Installation

@@ -886,3 +886,17 @@
 "Home unavailable" = "Home 不可用";
 "Needs repair" = "需要修复";
 "Use the buttons above to add an existing Claude or Codex Home." = "使用上方按钮添加已有的 Claude 或 Codex Home。";
+
+"The target Codex Home is unknown; send input in that session to refresh its registration." = "无法确定接收方的 Codex Home；请在该会话发送输入以刷新注册信息。";
+
+"Current session identity is unavailable or ambiguous; use a valid session ID, or --from <session-name> for an explicit CLI selection." = "当前会话身份缺失或不明确；请提供有效的会话 ID，或在 CLI 使用 --from <session-name> 显式指定。";
+
+"Current session identity is unavailable or ambiguous. Register this session through the bridge hooks and provide a valid session ID. A shared host PID cannot identify one of several sessions; no action was taken." = "当前会话身份缺失或不明确。请通过 bridge hooks 注册当前会话并提供有效的会话 ID。多个会话共享宿主 PID 时无法确定调用者，未执行操作。";
+
+"CC Bridge is off, but some integrations could not be removed. Retry disable after resolving the errors above." = "CC Bridge 已关闭，但部分集成未能移除。请解决上述错误后重新执行 disable。";
+
+"Could not remove MCP {name} from {home}." = "无法从 {home} 移除 MCP {name}。";
+
+"Removed MCP {name} from {home}." = "已从 {home} 移除 MCP {name}。";
+
+"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one)." = "当前会话身份缺失或不明确（可以查看会话列表，但不能以任何会话身份操作）。";

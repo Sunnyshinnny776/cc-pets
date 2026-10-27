@@ -2,9 +2,9 @@
 
 // CC Bridge 的存储层：会话注册表、信箱、回执、订阅、锁，以及选项解析与进程探测。
 //
-// 全部是"一条记录一个文件"，状态流转靠同一文件系统内的 rename 完成——rename 是原子的，
-// 多个终端的 hook / watcher / MCP 进程同时抢同一条消息时，只有一个能 rename 成功，
-// 其余拿到 ENOENT 直接跳过，不需要任何守护进程或数据库锁。
+// 一条记录一个文件，通过原子 rename 发布 JSON；读改写和消息认领使用 flock 串行化。
+// claimed 消息在输出成功后确认，进程崩溃由内核释放锁，下次消费者恢复未确认记录。
+// 不需要常驻守护进程或数据库。
 //
 // 目录在 CCBridgeStateDirectory()（默认 $TMPDIR 下），与桌宠事件流同级：会话本身活不过重启，
 // 注册表和未投递的消息也没有跨重启保留的意义。启用开关则放在 ~/.cc-pets 里持久保存。
@@ -49,8 +49,9 @@ NSString *CCBridgeSessionRef(NSString *sessionId);
 NSDictionary *CCBridgeReadSession(id sessionId);
 NSArray<NSDictionary *> *CCBridgeListSessions(void);
 void CCBridgeRemoveSession(id sessionId);
+void CCBridgeRemoveSessionIfOffline(id sessionId);
 NSString *CCBridgeNormalizeSessionName(id value);
-// liveSessions 用于给新会话分配不冲突的名字（已注册的会话不重新命名）。
+// liveSessions 参数保留兼容；名字分配/改名在注册表锁内重新读取在线会话，避免使用过期快照。
 NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
     NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,
     NSString *profileName, NSArray<NSDictionary *> *liveSessions);
@@ -67,8 +68,10 @@ NSArray<NSDictionary *> *CCBridgeListReceipts(void);
 // 发送前的配额检查。nil 表示放行，否则返回拒绝原因。
 NSString *CCBridgeCheckSendLimits(NSString *fromSession, NSString *toSession);
 void CCBridgeEnqueueInbox(NSDictionary *message);
-// 认领：inbox → claimed，rename 失败（被别的进程抢先）就跳过；过期的标记 expired 后丢弃。
+// 认领并持有信箱锁：恢复上次未确认的 claimed；调用方必须在输出后 FinishInbox。
 NSArray<NSDictionary *> *CCBridgeClaimInbox(id sessionId);
+// transport 非 nil 表示输出成功；nil 保留消息供重试。两种情况都会释放锁。
+void CCBridgeFinishInbox(id sessionId, NSArray<NSDictionary *> *messages, NSString *transport);
 NSUInteger CCBridgePendingCount(id sessionId);
 // 会话结束：信箱里还没投出去的消息标记为 undeliverable。
 void CCBridgeAbandonInbox(id sessionId);
@@ -82,7 +85,7 @@ NSArray<NSString *> *CCBridgeTakeIdleSubscriptions(NSString *targetSession);
 
 #pragma mark - 锁
 
-// O_EXCL 创建，内容是持有者 pid；持有者已死的锁视为陈旧，可以抢占。成功返回锁文件路径。
+// 稳定 inode 上的 flock；PID 文件只作诊断。进程退出自动释放，成功返回诊断文件路径。
 NSString *CCBridgeAcquireLock(NSString *name);
 void CCBridgeReleaseLock(NSString *lockFile);
 

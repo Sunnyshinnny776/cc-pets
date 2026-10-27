@@ -39,6 +39,32 @@ static void Print(NSString *text) {
     CCPetsPrintLine(stdout, text);
 }
 
+// stdio MCP 顺序处理请求；认领的消息在完整输出并 flush 成功后才确认。
+static NSDictionary *PendingInboxOutput;
+
+static NSArray<NSDictionary *> *ClaimForOutput(NSString *session, NSString *transport) {
+    NSArray *messages = CCBridgeClaimInbox(session);
+    if (messages.count > 0) PendingInboxOutput = @{@"session": session, @"messages": messages, @"transport": transport};
+    return messages;
+}
+
+static void FinishInboxOutput(BOOL written) {
+    NSDictionary *pending = PendingInboxOutput;
+    PendingInboxOutput = nil;
+    if (!pending) return;
+    @try {
+        CCBridgeFinishInbox(pending[@"session"], pending[@"messages"], written ? pending[@"transport"] : nil);
+    } @catch (NSException *exception) {
+        // 输出已经完成，不能再输出第二条协议响应；未确认文件留给下次恢复。
+    }
+}
+
+static BOOL WriteOutput(FILE *stream, NSString *text) {
+    NSData *data = [[text stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding];
+    BOOL written = data && fwrite(data.bytes, 1, data.length, stream) == data.length;
+    return fflush(stream) == 0 && written && !ferror(stream);
+}
+
 static NSString *USAGE(void) {
     return L(@"Usage: cc-pets bridge <command>\n"
         "\n"
@@ -117,6 +143,7 @@ static void PrintSessions(void) {
 }
 
 static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments) {
+    if (!CCBridgeEnabled()) Fail(L(@"CC Bridge is off. Run cc-pets bridge enable first."));
     NSString *from = ParseFlag(arguments, @"from");
     if (from.length > 0) {
         NSDictionary *resolved = CCBridgeResolveTarget(from, CCBridgeLiveSessions());
@@ -124,18 +151,17 @@ static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments) {
         return resolved[@"session"];
     }
     NSDictionary *session = CCBridgeIdentifySelf();
-    if (!session) Fail(L(@"Can't identify the current session; when debugging in a plain terminal, use --from <session-name>."));
+    if (!session) Fail(L(@"Current session identity is unavailable or ambiguous; use a valid session ID, or --from <session-name> for an explicit CLI selection."));
     return session;
 }
 
 #pragma mark - hook
 
 static NSDictionary *InjectPending(NSString *sessionId, NSString *eventName) {
-    NSArray<NSDictionary *> *messages = CCBridgeClaimInbox(sessionId);
+    NSArray<NSDictionary *> *messages = ClaimForOutput(sessionId, @"prompt-inject");
     if (messages.count == 0) return nil;
     NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
     for (NSDictionary *message in messages) {
-        CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"delivered", @"transport": @{@"kind": @"prompt-inject"}});
         [envelopes addObject:CCBridgeFormatEnvelope(message)];
     }
     return @{@"hookSpecificOutput": @{@"hookEventName": eventName, @"additionalContext": [envelopes componentsJoinedByString:@"\n\n"]}};
@@ -201,7 +227,7 @@ static NSDictionary *RunHook(NSString *input) {
         pid ? CCBridgeProcessTty(pid.intValue) : nil, status,
         // hook 继承宿主 CLI 的环境：`CC_BRIDGE_NAME=frontend claude` 即以 frontend 注册。只在首次注册时生效。
         preferredName, CCPetsEnvironmentValue(@"CC_PETS_PROFILE_ID"),
-        CCPetsEnvironmentValue(@"CC_PETS_PROFILE_NAME"), known ? @[] : CCBridgeLiveSessions());
+        CCPetsEnvironmentValue(@"CC_PETS_PROFILE_NAME"), @[]);
 
     if ([event isEqualToString:@"SessionStart"]) {
         CCBridgePruneReceipts();
@@ -217,13 +243,15 @@ static NSDictionary *RunHook(NSString *input) {
 
 // 这是别人 CLI 的关键路径：任何异常都吞掉并 exit 0，CC Bridge 出错不能拖垮对方的一轮对话。
 static int HookCommand(void) {
+    BOOL written = NO;
     @try {
         NSDictionary *output = RunHook(ReadStandardInput());
         if (output) {
-            fputs(CompactJSON(output).UTF8String, stdout);
-            fflush(stdout);
+            written = WriteOutput(stdout, CompactJSON(output));
         }
     } @catch (NSException *exception) {
+    } @finally {
+        FinishInboxOutput(written);
     }
     return 0;
 }
@@ -235,6 +263,7 @@ static int HookCommand(void) {
 
 static int WatchCommand(void) {
     NSString *lock = nil;
+    BOOL written = NO;
     @try {
         // 关闭"自动唤醒"后 watcher 本不会被安装；配置还没刷新到对方 CLI 时在这里兜底。
         if (!CCBridgeEnabled() || ![CCBridgeOptions()[@"wake"] boolValue]) return 0;
@@ -251,17 +280,18 @@ static int WatchCommand(void) {
         NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:seconds];
         pid_t parent = getppid();
         while (deadline.timeIntervalSinceNow > 0) {
+            if (!CCBridgeEnabled() || ![CCBridgeOptions()[@"wake"] boolValue]) return 0;
             // 宿主会话已经没了（被 kill -9 等，没来得及清理子进程）就别再占着锁。
             if (!CCBridgeProcessAlive(parent)) return 0;
-            NSArray<NSDictionary *> *messages = CCBridgeClaimInbox(sessionId);
+            NSArray<NSDictionary *> *messages = ClaimForOutput(sessionId, @"claude-rewake");
             if (messages.count > 0) {
                 NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
                 for (NSDictionary *message in messages) {
-                    CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"delivered", @"transport": @{@"kind": @"claude-rewake"}});
                     [envelopes addObject:CCBridgeFormatEnvelope(message)];
                 }
-                CCPetsPrintLine(stderr, [envelopes componentsJoinedByString:@"\n\n"]);
-                return 2;
+                if (!CCBridgeEnabled() || ![CCBridgeOptions()[@"wake"] boolValue]) return 0;
+                written = WriteOutput(stderr, [envelopes componentsJoinedByString:@"\n\n"]);
+                return written ? 2 : 0;
             }
             usleep((useconds_t)(poll * 1000));
         }
@@ -269,6 +299,7 @@ static int WatchCommand(void) {
     } @catch (NSException *exception) {
         return 0;
     } @finally {
+        FinishInboxOutput(written);
         CCBridgeReleaseLock(lock);
     }
 }
@@ -385,8 +416,7 @@ static NSString *AgeText(id since) {
 }
 
 static NSString *UnknownSelf(void) {
-    return [L(@"Can't identify the current session: it isn't in the registry yet. Make sure `cc-pets bridge enable` was run; ")
-        stringByAppendingString:L(@"Codex users also need to trust the cc-pets hooks in /hooks and send at least one message in this session.")];
+    return L(@"Current session identity is unavailable or ambiguous. Register this session through the bridge hooks and provide a valid session ID. A shared host PID cannot identify one of several sessions; no action was taken.");
 }
 
 static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
@@ -404,7 +434,7 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         }
         NSString *header = self
             ? LF(L(@"This session is {self}; other sessions use this name to message you (it isn't in the list below)."), @{@"self": CCBridgeDescribeSession(self)})
-            : L(@"This session isn't registered yet (you can see the list but can't send messages for now).");
+            : L(@"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one).");
         if (sessions.count == 0) {
             return TextResult(LF(L(@"{header}\n\nNo other sessions online. New sessions will show up here once they start."), @{@"header": header}), NO);
         }
@@ -440,7 +470,7 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
 
     if ([name isEqualToString:@"set_name"]) {
         if (!self) return TextResult(UnknownSelf(), YES);
-        NSDictionary *result = CCBridgeRenameSession(self[@"session"], arguments[@"name"], CCBridgeLiveSessions());
+        NSDictionary *result = CCBridgeRenameSession(self[@"session"], arguments[@"name"], @[]);
         if (result[@"error"]) return TextResult(result[@"error"], YES);
         return TextResult([LF(L(@"This session was renamed from {previous} to {session}. "),
             (@{@"previous": result[@"previous"], @"session": CCBridgeDescribeSession(result[@"session"])}))
@@ -497,11 +527,10 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
 
     if ([name isEqualToString:@"check_inbox"]) {
         if (!self) return TextResult(UnknownSelf(), YES);
-        NSArray<NSDictionary *> *messages = CCBridgeClaimInbox(self[@"session"]);
+        NSArray<NSDictionary *> *messages = ClaimForOutput(self[@"session"], @"check-inbox");
         if (messages.count == 0) return TextResult(L(@"No new messages in the inbox."), NO);
         NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
         for (NSDictionary *message in messages) {
-            CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"delivered", @"transport": @{@"kind": @"check-inbox"}});
             [envelopes addObject:CCBridgeFormatEnvelope(message)];
         }
         return TextResult([envelopes componentsJoinedByString:@"\n\n"], NO);
@@ -536,9 +565,8 @@ static NSDictionary *HandleRequest(NSDictionary *request, NSDictionary **error) 
     return nil;
 }
 
-static void WriteMessage(NSDictionary *message) {
-    fputs([CompactJSON(message) stringByAppendingString:@"\n"].UTF8String, stdout);
-    fflush(stdout);
+static BOOL WriteMessage(NSDictionary *message) {
+    return WriteOutput(stdout, CompactJSON(message));
 }
 
 static int MCPCommand(void) {
@@ -564,8 +592,14 @@ static int MCPCommand(void) {
             } @catch (NSException *exception) {
                 error = @{@"code": @(-32603), @"message": exception.reason ?: exception.name};
             }
-            WriteMessage(error ? @{@"jsonrpc": @"2.0", @"id": identifier, @"error": error}
-                : @{@"jsonrpc": @"2.0", @"id": identifier, @"result": result ?: @{}});
+            BOOL written = NO;
+            @try {
+                written = WriteMessage(error ? @{@"jsonrpc": @"2.0", @"id": identifier, @"error": error}
+                    : @{@"jsonrpc": @"2.0", @"id": identifier, @"result": result ?: @{}});
+            } @finally {
+                FinishInboxOutput(written && !error);
+            }
+            if (!written) { free(line); return 1; }
         }
     }
     free(line);
@@ -610,19 +644,25 @@ static BOOL InstallBridgeForRegisteredProfiles(NSDictionary *options, BOOL regis
     return succeeded;
 }
 
-static void UninstallBridgeForRegisteredProfiles(BOOL unregisterMcp) {
+static BOOL UninstallBridgeForRegisteredProfiles(BOOL unregisterMcp) {
+    BOOL succeeded = YES;
     NSArray<NSDictionary *> *profiles = RegisteredProfiles();
     if (profiles.count == 0) {
-        return;
+        return YES;
     }
     for (NSDictionary *profile in profiles) {
         @try {
-            for (NSString *line in CCBridgeUninstallForProfile(profile, unregisterMcp)) Print(line);
+            for (NSString *line in CCBridgeUninstallForProfile(profile, unregisterMcp)) {
+                Print(line);
+                if ([line hasPrefix:@"ERROR: "]) succeeded = NO;
+            }
         } @catch (NSException *exception) {
+            succeeded = NO;
             Print(LF(L(@"{name}: {error}"), (@{@"name": profile[@"displayName"] ?: profile[@"home"],
                 @"error": exception.reason ?: exception.name})));
         }
     }
+    return succeeded;
 }
 
 static int EnableCommand(NSMutableArray<NSString *> *arguments) {
@@ -659,19 +699,16 @@ static int RefreshCommand(void) {
 }
 
 static int DisableCommand(void) {
-    UninstallBridgeForRegisteredProfiles(CCBridgeShouldTouchMCP());
+    // 先关闭运行时入口，卸载耗时或失败也不能继续发送/唤醒。
     CCBridgeSetEnabled(NO, nil);
-    Print(L(@"CC Bridge is off."));
-    return 0;
+    BOOL succeeded = UninstallBridgeForRegisteredProfiles(CCBridgeShouldTouchMCP());
+    Print(succeeded ? L(@"CC Bridge is off.") : L(@"CC Bridge is off, but some integrations could not be removed. Retry disable after resolving the errors above."));
+    return succeeded ? 0 : 1;
 }
 
-// cc-pets uninstall 调用：移除全部 CC Bridge 集成并关掉开关。MCP 注册只在确实开启过时才去注销，
-// 避免卸载时无谓地拉起 claude / codex。
+// 即使之前卸载失败已关掉开关，再次 teardown 也必须重试清理 MCP。
 static int TeardownCommand(void) {
-    BOOL wasEnabled = CCBridgeEnabled();
-    UninstallBridgeForRegisteredProfiles(wasEnabled && CCBridgeShouldTouchMCP());
-    CCBridgeSetEnabled(NO, nil);
-    return 0;
+    return DisableCommand();
 }
 
 static int StatusCommand(void) {
@@ -724,7 +761,7 @@ static int SendCommand(NSMutableArray<NSString *> *arguments) {
 static int NameCommand(NSMutableArray<NSString *> *arguments) {
     NSDictionary *session = SelfOrFrom(arguments);
     if (arguments.count == 0) Fail(L(@"Usage: cc-pets bridge name <new-name>"));
-    NSDictionary *result = CCBridgeRenameSession(session[@"session"], arguments[0], CCBridgeLiveSessions());
+    NSDictionary *result = CCBridgeRenameSession(session[@"session"], arguments[0], @[]);
     if (result[@"error"]) Fail(result[@"error"]);
     Print(LF(L(@"Renamed {previous} to {session}."), (@{@"previous": result[@"previous"], @"session": CCBridgeDescribeSession(result[@"session"])})));
     return 0;
@@ -732,14 +769,14 @@ static int NameCommand(NSMutableArray<NSString *> *arguments) {
 
 static int InboxCommand(NSMutableArray<NSString *> *arguments) {
     NSDictionary *session = SelfOrFrom(arguments);
-    NSArray<NSDictionary *> *messages = CCBridgeClaimInbox(session[@"session"]);
+    NSArray<NSDictionary *> *messages = ClaimForOutput(session[@"session"], @"check-inbox");
     NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
     for (NSDictionary *message in messages) {
-        CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"delivered", @"transport": @{@"kind": @"check-inbox"}});
         [envelopes addObject:CCBridgeFormatEnvelope(message)];
     }
-    Print(envelopes.count > 0 ? [envelopes componentsJoinedByString:@"\n\n"] : L(@"No new messages in the inbox."));
-    return 0;
+    BOOL written = WriteOutput(stdout, envelopes.count > 0 ? [envelopes componentsJoinedByString:@"\n\n"] : L(@"No new messages in the inbox."));
+    FinishInboxOutput(written);
+    return written ? 0 : 1;
 }
 
 // Stop hook 脱离出来的子进程：给订阅了该会话空闲的会话发通知。
@@ -788,5 +825,7 @@ int CCBridgeCommandMain(NSArray<NSString *> *argv) {
     } @catch (NSException *exception) {
         CCPetsPrintLine(stderr, exception.reason ?: exception.name);
         return 1;
+    } @finally {
+        FinishInboxOutput(NO);
     }
 }

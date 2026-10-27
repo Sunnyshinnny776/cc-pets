@@ -217,7 +217,8 @@ static void SetCodexApprovalAtHome(NSArray<NSString *> *tools, NSString *codexHo
     NSString *file = [codexHome stringByAppendingPathComponent:@"config.toml"];
     struct stat info;
     BOOL exists = stat(file.fileSystemRepresentation, &info) == 0;
-    NSString *original = exists ? ([NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil] ?: @"") : @"";
+    NSString *original = exists ? [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil] : @"";
+    if (!original) [NSException raise:@"CCBridgeConfig" format:@"Cannot read %@", file];
     // 只把末尾的空白收成一个换行：开头的空白属于用户的文件，原样保留。
     NSString *stripped = StripTomlBlocks(original);
     NSUInteger end = stripped.length;
@@ -364,6 +365,43 @@ NSArray<NSString *> *CCBridgeInstallForProfile(NSDictionary *profile, NSDictiona
     return report;
 }
 
+// remove 对“本来就不存在”的注册也可能返回非零；只有确认不存在才按成功处理。
+static BOOL HasMCPRegistration(NSString *provider, NSString *home, NSString *name) {
+    if ([provider isEqualToString:@"claude"]) {
+        NSString *official = CCPetsRealPath([CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude"]);
+        NSString *file = official && [CCPetsRealPath(home) isEqualToString:official]
+            ? [CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude.json"]
+            : [home stringByAppendingPathComponent:@".claude.json"];
+        CCPetsJSONObject *config = ReadJSONConfig(file);
+        CCPetsJSONObject *servers = config[@"mcpServers"];
+        return [servers isKindOfClass:CCPetsJSONObject.class] && servers[name] != nil;
+    }
+    NSString *file = [home stringByAppendingPathComponent:@"config.toml"];
+    if (![NSFileManager.defaultManager fileExistsAtPath:file]) return NO;
+    NSString *text = [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil];
+    if (!text) [NSException raise:@"CCBridgeConfig" format:@"Cannot read %@", file];
+    // 常规表、带引号的键和 inline table 均保守识别；不能把读取失败当成已卸载。
+    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+        NSString *trimmed = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (![trimmed hasPrefix:@"#"] && [trimmed containsString:name]) return YES;
+    }
+    return NO;
+}
+
+static void RemoveMCPRegistration(NSString *executable, NSString *provider, NSString *home,
+    NSString *name, NSMutableArray<NSString *> *report) {
+    if (!HasMCPRegistration(provider, home, name)) return;
+    NSArray *arguments = [provider isEqualToString:@"claude"]
+        ? @[@"mcp", @"remove", @"--scope", @"user", name] : @[@"mcp", @"remove", name];
+    BOOL removed = executable && RunQuietlyForHome(executable, arguments, provider, home);
+    if (!removed || HasMCPRegistration(provider, home, name)) {
+        [report addObject:[@"ERROR: " stringByAppendingString:LF(L(@"Could not remove MCP {name} from {home}."),
+            (@{@"name": name, @"home": home}))]];
+    } else {
+        [report addObject:LF(L(@"Removed MCP {name} from {home}."), (@{@"name": name, @"home": home}))];
+    }
+}
+
 NSArray<NSString *> *CCBridgeUninstallForProfile(NSDictionary *profile, BOOL unregisterMcp) {
     NSString *provider = [profile[@"provider"] isKindOfClass:NSString.class] ? profile[@"provider"] : @"";
     NSString *home = [profile[@"home"] isKindOfClass:NSString.class] ? profile[@"home"] : @"";
@@ -374,28 +412,17 @@ NSArray<NSString *> *CCBridgeUninstallForProfile(NSDictionary *profile, BOOL unr
         }
         if (unregisterMcp) {
             NSString *claude = CCPetsFindRealExecutable(@"claude", @"CLAUDE_REAL_BIN");
-            if (!claude) [report addObject:[@"ERROR: " stringByAppendingString:
-                L(@"Claude Code executable not found; MCP registration was not removed.")]];
-            for (NSString *name in MCPNames()) {
-                if (claude && RunQuietlyForHome(claude, @[@"mcp", @"remove", @"--scope", @"user", name], provider, home)) {
-                    [report addObject:LF(L(@"Removed Claude Code MCP: {name}."), @{@"name": name})];
-                }
-            }
+            for (NSString *name in MCPNames()) RemoveMCPRegistration(claude, provider, home, name, report);
         }
     } else if ([provider isEqualToString:@"codex"]) {
         if (RemoveJSONHooks([home stringByAppendingPathComponent:@"hooks.json"], NO)) {
             [report addObject:L(@"Removed the cc-bridge hooks from Codex.")];
         }
-        SetCodexApprovalAtHome(@[], home);
+        if ([NSFileManager.defaultManager fileExistsAtPath:[home stringByAppendingPathComponent:@"config.toml"]])
+            SetCodexApprovalAtHome(@[], home);
         if (unregisterMcp) {
             NSString *codex = CCPetsFindRealExecutable(@"codex", @"CODEX_REAL_BIN");
-            if (!codex) [report addObject:[@"ERROR: " stringByAppendingString:
-                L(@"Codex executable not found; MCP registration was not removed.")]];
-            for (NSString *name in MCPNames()) {
-                if (codex && RunQuietlyForHome(codex, @[@"mcp", @"remove", name], provider, home)) {
-                    [report addObject:LF(L(@"Removed Codex MCP: {name}."), @{@"name": name})];
-                }
-            }
+            for (NSString *name in MCPNames()) RemoveMCPRegistration(codex, provider, home, name, report);
         }
     }
     return report;
@@ -473,29 +500,8 @@ static BOOL RemoveJSONHooks(NSString *file, BOOL claudeAllow) {
 }
 
 NSArray<NSString *> *CCBridgeUninstall(BOOL unregisterMcp) {
-    NSMutableArray<NSString *> *report = [NSMutableArray array];
-    if (RemoveJSONHooks([CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"], YES)) {
-        [report addObject:L(@"Removed the cc-bridge hooks and tool permissions from Claude Code.")];
-    }
-    if (RemoveJSONHooks([CCPetsCodexHome() stringByAppendingPathComponent:@"hooks.json"], NO)) {
-        [report addObject:L(@"Removed the cc-bridge hooks from Codex.")];
-    }
-    if ([NSFileManager.defaultManager fileExistsAtPath:[CCPetsCodexHome() stringByAppendingPathComponent:@"config.toml"]]) {
-        SetCodexApproval(@[]);
-    }
-    if (unregisterMcp) {
-        NSString *claude = CCPetsFindRealExecutable(@"claude", @"CLAUDE_REAL_BIN");
-        for (NSString *name in MCPNames()) {
-            if (claude && RunQuietly(claude, @[@"mcp", @"remove", @"--scope", @"user", name])) {
-                [report addObject:LF(L(@"Removed Claude Code MCP: {name}."), @{@"name": name})];
-            }
-        }
-        NSString *codex = CCPetsFindRealExecutable(@"codex", @"CODEX_REAL_BIN");
-        for (NSString *name in MCPNames()) {
-            if (codex && RunQuietly(codex, @[@"mcp", @"remove", name])) {
-                [report addObject:LF(L(@"Removed Codex MCP: {name}."), @{@"name": name})];
-            }
-        }
-    }
+    NSMutableArray *report = [NSMutableArray array];
+    [report addObjectsFromArray:CCBridgeUninstallForProfile(@{@"provider": @"claude", @"home": CCPetsClaudeHome()}, unregisterMcp)];
+    [report addObjectsFromArray:CCBridgeUninstallForProfile(@{@"provider": @"codex", @"home": CCPetsCodexHome()}, unregisterMcp)];
     return report;
 }

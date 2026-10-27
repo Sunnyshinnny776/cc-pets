@@ -12,6 +12,60 @@ CGFloat QuotaLogicalHeightForProviderCount(NSUInteger count) {
 }
 
 
+// 各家图标的透明边距不同。加载时按不透明主体裁切，再放进相同的留白画布，
+// 避免每次重绘扫描像素，也避免 ICNS 的阴影影响视觉尺寸。
+static NSImage *NormalizedAgentIcon(NSImage *image) {
+    const size_t side = 256;
+    CGImageRef source = [image CGImageForProposedRect:NULL context:nil hints:nil];
+    if (!source) return image;
+    unsigned char *pixels = calloc(side * side, 4);
+    if (!pixels) return image;
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(pixels, side, side, 8, side * 4,
+        colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(colorSpace);
+    if (!context) { free(pixels); return image; }
+    CGFloat width = CGImageGetWidth(source), height = CGImageGetHeight(source);
+    CGFloat scale = MIN(side / width, side / height);
+    CGContextDrawImage(context, CGRectMake((side - width * scale) / 2,
+        (side - height * scale) / 2, width * scale, height * scale), source);
+    size_t minX = side, minY = side, maxX = 0, maxY = 0;
+    for (size_t y = 0; y < side; y++) {
+        for (size_t x = 0; x < side; x++) {
+            if (pixels[(y * side + x) * 4 + 3] < 128) continue;
+            minX = MIN(minX, x); minY = MIN(minY, y);
+            maxX = MAX(maxX, x); maxY = MAX(maxY, y);
+        }
+    }
+    CGImageRef raster = CGBitmapContextCreateImage(context);
+    CGContextRelease(context);
+    free(pixels);
+    if (!raster || minX == side) {
+        if (raster) CGImageRelease(raster);
+        return image;
+    }
+    CGImageRef cropped = CGImageCreateWithImageInRect(raster,
+        CGRectMake(minX, minY, maxX - minX + 1, maxY - minY + 1));
+    CGImageRelease(raster);
+    if (!cropped) return image;
+    NSSize size = NSMakeSize(CGImageGetWidth(cropped), CGImageGetHeight(cropped));
+    NSImage *content = [[NSImage alloc] initWithCGImage:cropped size:size];
+    CGImageRelease(cropped);
+    return [NSImage imageWithSize:NSMakeSize(side, side) flipped:NO drawingHandler:^BOOL(NSRect bounds) {
+        NSRect available = NSInsetRect(bounds, 16, 16);
+        CGFloat fit = MIN(NSWidth(available) / size.width, NSHeight(available) / size.height);
+        NSRect target = NSMakeRect(NSMidX(bounds) - size.width * fit / 2,
+            NSMidY(bounds) - size.height * fit / 2, size.width * fit, size.height * fit);
+        [NSGraphicsContext saveGraphicsState];
+        CGFloat radius = MIN(NSWidth(target), NSHeight(target)) * 18 / 70;
+        [[NSBezierPath bezierPathWithRoundedRect:target xRadius:radius yRadius:radius] addClip];
+        [content drawInRect:target fromRect:NSZeroRect operation:NSCompositingOperationSourceOver
+            fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+        [NSGraphicsContext restoreGraphicsState];
+        return YES;
+    }];
+}
+
 NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSURL *appURL = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:bundleIdentifier];
     NSMutableArray<NSString *> *paths = [NSMutableArray array];
@@ -28,9 +82,28 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         [applicationName stringByAppendingPathComponent:[@"Contents/Resources" stringByAppendingPathComponent:resourceName]]]];
     for (NSString *path in paths) {
         NSImage *image = [[NSImage alloc] initWithContentsOfFile:path];
-        if (image) return image;
+        if (image) return NormalizedAgentIcon(image);
     }
-    return appURL ? [NSWorkspace.sharedWorkspace iconForFile:appURL.path] : nil;
+    if (appURL && [NSFileManager.defaultManager fileExistsAtPath:appURL.path]) {
+        NSImage *image = [NSWorkspace.sharedWorkspace iconForFile:appURL.path];
+        if (image) return NormalizedAgentIcon(image);
+    }
+    // 没装官方桌面端（例如只装 CLI）时，从发布包读取备用图标。
+    NSString *fallback = [bundleIdentifier isEqualToString:@"com.anthropic.claudefordesktop"]
+        ? @"claude.png" : ([bundleIdentifier isEqualToString:@"com.openai.codex"] ? @"codex.icns" : nil);
+    if (!fallback) return nil;
+    NSArray<NSString *> *directories = @[
+        NSBundle.mainBundle.resourcePath ?: @"",
+        NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent ?: @""
+    ];
+    for (NSString *directory in directories) {
+        if (directory.length == 0) continue;
+        NSString *path = [[directory stringByAppendingPathComponent:@"AgentIcons"]
+            stringByAppendingPathComponent:fallback];
+        NSImage *image = [[NSImage alloc] initWithContentsOfFile:path];
+        if (image) return NormalizedAgentIcon(image);
+    }
+    return nil;
 }
 
 
@@ -204,6 +277,59 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         cardTop -= cardHeight;
     }
     return NSZeroRect;
+}
+
+- (NSRect)logicalTrendRectForProvider:(NSString *)provider {
+    NSRect card = [self logicalCardRectForProvider:provider];
+    CGFloat contentOffset = (NSHeight(card) - QuotaBaseCardHeight) / 2;
+    return NSMakeRect(NSMinX(card) + 574, NSMinY(card) + contentOffset + 22, 145, 112);
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    [self removeAllToolTips];
+    for (NSString *provider in [self visibleProviders]) {
+        NSRect rect = [self logicalTrendRectForProvider:provider];
+        rect.origin.x *= QuotaScale;
+        rect.origin.y *= QuotaScale;
+        rect.size.width *= QuotaScale;
+        rect.size.height *= QuotaScale;
+        [self addToolTipRect:rect owner:self userData:NULL];
+    }
+}
+
+- (NSString *)view:(NSView *)view stringForToolTip:(NSToolTipTag)tag
+    point:(NSPoint)point userData:(void *)data {
+    // 在显示时读取当前账号，轮播或刷新数据后不会留下上一账号的统计。
+    if (self.animatingCarouselProvider.length > 0) return nil;
+    NSPoint logicalPoint = NSMakePoint(point.x / QuotaScale, point.y / QuotaScale);
+    for (NSString *provider in [self visibleProviders]) {
+        if (!NSPointInRect(logicalPoint, [self logicalTrendRectForProvider:provider])) continue;
+        NSDictionary *usage = [self usageForProvider:provider];
+        NSDictionary *state = [self accountStateForProvider:provider
+            profile:[self selectedProfileForProvider:provider] usage:usage];
+        if (![state[@"apiMode"] boolValue]) return nil;
+        NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
+            ? usage[@"tokenUsage"] : nil;
+        NSArray<NSDictionary *> *days = [tokenUsage[@"monthDaily"] isKindOfClass:NSArray.class]
+            ? tokenUsage[@"monthDaily"] : @[];
+        NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+        NSUInteger recordedDays = 0;
+        double peak = 0;
+        for (NSDictionary *day in days) {
+            if ([day[@"timestamp"] doubleValue] > now) continue;
+            NSDictionary *totals = [day[@"totals"] isKindOfClass:NSDictionary.class]
+                ? day[@"totals"] : nil;
+            peak = fmax(peak, [totals[@"total_tokens"] doubleValue]);
+            recordedDays += 1;
+        }
+        NSString *peakText = recordedDays > 0
+            ? [NSString stringWithFormat:L(@"Peak %@"), [self formattedTokenValue:peak]] : L(@"Peak --");
+        NSString *recordedText = [NSString stringWithFormat:L(@"%lu / %lu days recorded"),
+            (unsigned long)recordedDays, (unsigned long)days.count];
+        return [NSString stringWithFormat:@"%@\n%@\n%@", L(@"Daily tokens"), peakText, recordedText];
+    }
+    return nil;
 }
 
 - (NSString *)providerAtEvent:(NSEvent *)event includeArrowGutters:(BOOL)includeArrowGutters

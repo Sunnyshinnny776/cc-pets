@@ -211,7 +211,13 @@ Provider、脱敏状态和通用说明，不提供消息输入，也不会显示
 连续 1 分钟没有收到新的 Agent 状态事件时，卡片和圆钮会一起自动隐藏；下一次收到事件时
 会重新显示并重新计时。
 
+API 用量模式下，月度 Token 趋势将今日用量和记录天数分行显示；悬停可查看当前所选账号的峰值。
+Codex 耗尽标记从采样时起五分钟后失效，从缓存恢复也不会延长有效期。
+
 ## 碎碎念
+
+低额度提醒按订阅账号分别跟踪剩余 20%、10%、5% 阈值，注明触发账号，冷却期间排队播报。
+首次采样、过期额度和 API 用量账号不触发提醒；普通额度台词的槽位使用剩余额度最低的订阅账号。
 
 桌宠会以自己的口吻讲话：Agent 干活时讲的话直接写在状态卡副行上，闲着的时候单独冒气泡。
 主菜单「宠物」页的「碎碎念」里可以整体开关、调频率、选择台词来源、改台词。
@@ -358,6 +364,17 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown             # 交�
 - 已安装并登录 Codex CLI 和/或 Claude Code CLI
 - zsh
 - Xcode Command Line Tools，可通过 `xcode-select --install` 安装
+
+## CC Bridge
+
+[CC Bridge](./CC_BRIDGE.zh-CN.md) 是默认关闭的可选功能，让本机 Claude Code / Codex 会话互发消息并预留文件。
+身份识别优先验证会话 ID；按 PID 回退时只接受唯一在线会话，共享宿主下身份不明确会拒绝操作。
+Codex 消息使用接收方的 Home 投递。
+
+未确认的信箱消息可在异常退出后恢复。输出和确认之间崩溃时可能重复投递同一消息 ID；送达不代表已读或同意。
+关闭自动唤醒后，已运行的 watcher 也会停止主动取信；关闭 Bridge 后 CLI 拒绝发送、改名和收件。
+集成未能完整移除时会报错，可排除原因后重试。详细配置与投递边界见使用指南，修复列表见
+[未发布更新记录](./CHANGELOG.zh-CN.md#unreleased)。
 
 ## 安装
 
@@ -741,6 +758,8 @@ CC Pets 建立的软链，并恢复安装前的 Claude status line；其他用�
 
 CC Pets 是社区开源项目，与 OpenAI、Anthropic、PetDex 及任何角色版权方不存在隶属、授权
 或官方合作关系。Codex、ChatGPT、Claude 及相关图标和商标归各自权利人所有。
+未能读取已安装应用的图标时，会使用随包提供、统一视觉尺寸的 Claude 和 Codex 备用图标。
+来源及版权归属见[第三方声明](./THIRD_PARTY_NOTICES.zh-CN.md)，这些图标不适用本项目的 MIT License。
 
 ## License
 

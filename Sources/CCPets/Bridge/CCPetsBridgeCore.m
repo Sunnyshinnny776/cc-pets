@@ -2,6 +2,7 @@
 #import "CCPetsBridgeCore.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeStore.h"
+#import "CCPetsProfiles.h"
 #import "CCPetsCLISupport.h"
 #import <unistd.h>
 #import <math.h>
@@ -34,7 +35,7 @@ NSArray<NSDictionary *> *CCBridgeLiveSessions(void) {
     NSMutableArray<NSDictionary *> *live = [NSMutableArray array];
     for (NSDictionary *session in CCBridgeListSessions()) {
         if (CCBridgeSessionLive(session)) [live addObject:session];
-        else CCBridgeRemoveSession(session[@"session"]);
+        else CCBridgeRemoveSessionIfOffline(session[@"session"]);
     }
     [live sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
         double a = NumberValue(left[@"startedAt"]), b = NumberValue(right[@"startedAt"]);
@@ -49,19 +50,26 @@ NSString *CCBridgeDescribeSession(NSDictionary *session) {
 
 NSDictionary *CCBridgeIdentifySelf(void) {
     NSDictionary *ancestor = CCBridgeFindAgentAncestor(getppid());
-    if (ancestor) {
-        NSDictionary *best = nil;
-        for (NSDictionary *session in CCBridgeListSessions()) {
-            if (![session[@"provider"] isEqual:ancestor[@"provider"]] || ![session[@"pid"] isEqual:ancestor[@"pid"]]) continue;
-            if (!best || NumberValue(session[@"updatedAt"]) > NumberValue(best[@"updatedAt"])) best = session;
-        }
-        if (best) return best;
+    // 显式会话 ID 优先。存在但失效/不属于当前宿主时拒绝回退，避免 /resume 后冒认其他会话。
+    for (NSString *variable in @[@"CODEX_THREAD_ID", @"CLAUDE_CODE_SESSION_ID"]) {
+        NSString *provider = [variable isEqual:@"CODEX_THREAD_ID"] ? @"Codex" : @"Claude";
+        if (ancestor && ![ancestor[@"provider"] isEqual:provider]) continue;
+        NSString *identifier = CCPetsEnvironmentValue(variable);
+        if (identifier.length == 0) continue;
+        NSDictionary *record = CCBridgeReadSession(identifier);
+        if (!CCBridgeSessionLive(record) || ![record[@"provider"] isEqual:provider]) return nil;
+        if (ancestor && ![record[@"pid"] isEqual:ancestor[@"pid"]]) return nil;
+        return record;
     }
-    for (NSString *variable in @[@"CLAUDE_CODE_SESSION_ID", @"CODEX_THREAD_ID"]) {
-        NSDictionary *record = CCBridgeReadSession(CCPetsEnvironmentValue(variable));
-        if (record) return record;
+    if (!ancestor) return nil;
+    NSDictionary *match = nil;
+    for (NSDictionary *session in CCBridgeListSessions()) {
+        if (![session[@"provider"] isEqual:ancestor[@"provider"]] ||
+            ![session[@"pid"] isEqual:ancestor[@"pid"]] || !CCBridgeSessionLive(session)) continue;
+        if (match) return nil; // 一个宿主下多个会话，没有可靠 ID 时不猜。
+        match = session;
     }
-    return nil;
+    return match;
 }
 
 NSDictionary *CCBridgeResolveTarget(id address, NSArray<NSDictionary *> *sessions) {
@@ -137,11 +145,20 @@ static NSString *CodexExecutable(void) {
     return [executable hasPrefix:@"/"] ? executable : nil;
 }
 
-static NSDictionary *RunCodexQueue(NSString *threadId, NSString *text) {
+static NSDictionary *RunCodexQueue(NSDictionary *target, NSString *text) {
     NSString *codex = CodexExecutable();
     if (!codex) return @{@"ok": @NO, @"reason": L(@"codex executable not found")};
     NSString *output = nil, *errorOutput = nil;
-    int status = CCPetsRun(codex, @[@"queue", @"--thread", threadId, @"--message", text], nil, nil, 30, &output, &errorOutput);
+    // 队列属于接收方 Home，不能继承发送方的 CODEX_HOME。
+    NSString *home = StringValue(target[@"home"]);
+    if (home.length == 0) {
+        NSDictionary *profile = CCPetsProfileWithID(StringValue(target[@"profileId"]));
+        if ([profile[@"provider"] isEqual:CCPetsProfileProviderCodex]) home = StringValue(profile[@"home"]);
+    }
+    if (home.length == 0) return @{@"ok": @NO, @"reason": L(@"The target Codex Home is unknown; send input in that session to refresh its registration.")};
+    NSMutableDictionary *environment = [NSProcessInfo.processInfo.environment mutableCopy];
+    environment[@"CODEX_HOME"] = home;
+    int status = CCPetsRun(codex, @[@"queue", @"--thread", target[@"session"], @"--message", text], nil, environment, 30, &output, &errorOutput);
     if (status != 0) {
         NSString *combined = [[errorOutput ?: @"" stringByAppendingString:output ?: @""]
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -159,29 +176,34 @@ static NSDictionary *RunCodexQueue(NSString *threadId, NSString *text) {
 }
 
 static NSDictionary *Deliver(NSDictionary *message, NSDictionary *target) {
+    if (!CCBridgeEnabled()) return CCBridgeUpdateReceipt(message[@"id"],
+        @{@"status": @"undeliverable", @"reason": L(@"CC Bridge is off.")});
     // 关闭"自动唤醒"时两边都只进信箱：Claude 不装 watcher，Codex 不调 codex queue（queue 会立刻
     // 开启新回合）。消息在对方下次收到用户输入时由 UserPromptSubmit hook 带入，或用 check_inbox 读取。
     if (![CCBridgeOptions()[@"wake"] boolValue]) {
+        CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}, @"noWake": @YES});
         CCBridgeEnqueueInbox(message);
-        return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}, @"noWake": @YES});
+        return CCBridgeReadReceipt(message[@"id"]);
     }
     if ([target[@"provider"] isEqual:@"Codex"]) {
         // 投递前再确认一次在线：发给已关闭 Codex 会话的消息会在 resume 时被自动执行。
         if (!CCBridgeSessionLive(CCBridgeReadSession(target[@"session"]))) {
             return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": L(@"the target session is offline")});
         }
-        NSDictionary *result = RunCodexQueue(target[@"session"], CCBridgeFormatEnvelope(message));
+        NSDictionary *result = RunCodexQueue(target, CCBridgeFormatEnvelope(message));
         if ([result[@"ok"] boolValue]) {
             return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"delivered",
                 @"transport": @{@"kind": @"codex-queue", @"ref": result[@"ref"]}});
         }
         // queue 不可用（旧版本 Codex 等）时退回信箱，对方可以用 check_inbox 手动拉取。
-        CCBridgeEnqueueInbox(message);
-        return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"},
+        CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"},
             @"reason": result[@"reason"]});
+        CCBridgeEnqueueInbox(message);
+        return CCBridgeReadReceipt(message[@"id"]);
     }
+    CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}});
     CCBridgeEnqueueInbox(message);
-    return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}});
+    return CCBridgeReadReceipt(message[@"id"]);
 }
 
 static NSDictionary *Identity(NSDictionary *session) {
@@ -193,6 +215,7 @@ static NSDictionary *Identity(NSDictionary *session) {
 }
 
 NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body, BOOL notifyWhenIdle, BOOL system) {
+    if (!CCBridgeEnabled()) return @{@"error": L(@"CC Bridge is off. Run cc-pets bridge enable first.")};
     NSString *text = [body isKindOfClass:NSString.class] ? body : (body && body != NSNull.null ? [body description] : @"");
     if ([text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) {
         return @{@"error": L(@"The message is empty.")};
@@ -261,7 +284,7 @@ NSString *CCBridgeReceiptSummary(NSDictionary *receipt, NSDictionary *target) {
 #pragma mark - 文件预留
 
 static NSCharacterSet *GlobCharacters(void) {
-    return [NSCharacterSet characterSetWithCharactersInString:@"*?[]{}"];
+    return [NSCharacterSet characterSetWithCharactersInString:@"*?"];
 }
 
 static BOOL HasGlob(NSString *text) {
@@ -524,7 +547,7 @@ NSArray<NSDictionary *> *CCBridgeFindForeignReservations(NSString *sessionId, NS
     NSMutableArray<NSDictionary *> *hits = [NSMutableArray array];
     for (NSString *filePath in filePaths) {
         NSString *relative = CCBridgeNormalizePattern(root, cwd, filePath);
-        if (!relative || HasGlob(relative)) continue;
+        if (!relative) continue; // 编辑输入是具体路径；[id] 等合法名称不能当作模式跳过。
         for (NSDictionary *other in others) {
             if (CCBridgePatternMatches(other[@"pattern"], relative)) [hits addObject:@{@"file": relative, @"reservation": other}];
         }
