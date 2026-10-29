@@ -79,16 +79,16 @@ CCPetsStatusKind CCPetsStatusKindForAgentState(NSString *state) {
     return CCPetsStatusWork;
 }
 
-const NSInteger CCPetsChartColorCount = 8;
+const NSInteger CCPetsChartColorCount = 16;
 
-// 浅色、深色两套都用色盲模拟校验过：相邻两色在红、绿色盲下色差不低于 8，正常视力下不低于 15。
+// 保留原有八色，扩展常用模型色板；更多模型按色相生成颜色。
 NSColor *CCPetsChartColor(NSInteger slot) {
     static NSArray<NSColor *> *colors;
     static NSColor *other;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        const uint32_t light[] = {0x1597ac, 0xe05c86, 0x6874dc, 0xdd9a1f, 0x9a62d0, 0x3fa577, 0x3a7fc6, 0x8a9a2b};
-        const uint32_t dark[] = {0x22a2b8, 0xd65f86, 0x7d87e8, 0xb8841f, 0xa77ad8, 0x3fa577, 0x4c95dc, 0x879733};
+        const uint32_t light[] = {0x1597ac, 0xe05c86, 0x6874dc, 0xdd9a1f, 0x9a62d0, 0x3fa577, 0x3a7fc6, 0x8a9a2b, 0xc96b32, 0x258477, 0xb24baf, 0x5266a8, 0xb84c4c, 0x657d34, 0x9b6881, 0x397c99};
+        const uint32_t dark[] = {0x22a2b8, 0xd65f86, 0x7d87e8, 0xb8841f, 0xa77ad8, 0x3fa577, 0x4c95dc, 0x879733, 0xec965e, 0x68c5b5, 0xe18bd9, 0xa2b2f0, 0xef8b88, 0xb6c96c, 0xc997b0, 0x80c4df};
         NSMutableArray<NSColor *> *list = [NSMutableArray array];
         for (NSInteger index = 0; index < CCPetsChartColorCount; index++) {
             [list addObject:Dynamic(light[index], 1, dark[index], 1)];
@@ -96,7 +96,14 @@ NSColor *CCPetsChartColor(NSInteger slot) {
         colors = list;
         other = Dynamic(0x9aa3af, 1, 0x66707c, 1);
     });
-    return slot >= 0 && slot < CCPetsChartColorCount ? colors[(NSUInteger)slot] : other;
+    if (slot < 0) return other;
+    if (slot < CCPetsChartColorCount) return colors[(NSUInteger)slot];
+    CGFloat hue = fmod((slot - CCPetsChartColorCount) * 0.61803398875 + 0.05, 1.0);
+    return [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
+        BOOL dark = AppearanceIsDark(appearance);
+        return [NSColor colorWithHue:hue saturation:dark ? 0.48 : 0.65
+            brightness:dark ? 0.85 : 0.65 alpha:1];
+    }];
 }
 
 NSTextField *CCPetsLabel(NSString *text, CGFloat size, NSFontWeight weight, NSColor *color) {

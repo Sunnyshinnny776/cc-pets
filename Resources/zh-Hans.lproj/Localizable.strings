@@ -762,7 +762,6 @@
 "No usage in this period." = "这段时间没有用量。";
 "Click it again in the legend or the table to go back to all models." = "在图例或表格里再点一次，回到全部模型。";
 "Stacked by model. Click a model below to see only that one." = "按模型堆叠。点下面的模型只看它。";
-"Other" = "其他";
 "Model" = "模型";
 "Reading…" = "读取中…";
 "Hit rate %.0f%%" = "命中率 %.0f%%";

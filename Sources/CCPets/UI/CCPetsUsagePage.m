@@ -124,7 +124,7 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
 // 当前筛选下的模型条目：key、provider、model、counts（区间合计）、days（每天的 counts）。按总用量从大到小。
 @property(nonatomic) NSArray<NSDictionary *> *entries;
 // 模型 -> 色板位置。按 90 天、全部来源的总用量排序分配，之后切来源、区间、指标都不重新上色：
-// 颜色跟着模型走，不跟着名次走。数据重载时已经有颜色、仍在前 8 名的模型保留原色，见 computeColorSlots。
+// 颜色跟着模型走，不跟着名次走。数据重载时已有模型保留原色，见 computeColorSlots。
 @property(nonatomic) NSDictionary<NSString *, NSNumber *> *colorSlots;
 // 选中的模型 key；nil 是全部模型。
 @property(nonatomic, copy) NSString *selectedKey;
@@ -320,10 +320,9 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
     NSArray<NSString *> *ranked = [totals keysSortedByValueUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
         return [b compare:a];
     }];
-    NSUInteger colored = MIN(ranked.count, (NSUInteger)CCPetsChartColorCount);
     NSMutableDictionary<NSString *, NSNumber *> *slots = [NSMutableDictionary dictionary];
     NSMutableIndexSet *taken = [NSMutableIndexSet indexSet];
-    for (NSUInteger index = 0; index < colored; index++) {
+    for (NSUInteger index = 0; index < ranked.count; index++) {
         NSInteger previous = self.colorSlots[ranked[index]] ? self.colorSlots[ranked[index]].integerValue : -1;
         if (previous < 0) continue;
         slots[ranked[index]] = @(previous);
@@ -332,10 +331,6 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
     NSUInteger next = 0;
     for (NSUInteger index = 0; index < ranked.count; index++) {
         if (slots[ranked[index]]) continue;
-        if (index >= colored) {
-            slots[ranked[index]] = @(-1);
-            continue;
-        }
         while ([taken containsIndex:next]) next++;
         slots[ranked[index]] = @((NSInteger)next);
         [taken addIndex:next];
@@ -529,7 +524,6 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
 
     NSMutableArray<NSDictionary *> *series = [NSMutableArray array];
     NSUInteger dayCount = self.dayStamps.count;
-    NSMutableArray<NSNumber *> *otherValues = nil;
     for (NSDictionary *entry in self.entries) {
         if (selected && entry != selected) continue;
         NSString *key = entry[@"key"];
@@ -543,22 +537,8 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
             [values addObject:@(MetricValue(metric, day))];
             [counts addObject:day];
         }
-        // 第 9 名以后合并成一层「其他」，颜色不够分也看不清。单看一个模型时不合并。
-        if (!selected && [self.colorSlots[key] integerValue] < 0) {
-            if (!otherValues) {
-                otherValues = [NSMutableArray arrayWithCapacity:dayCount];
-                for (NSUInteger index = 0; index < dayCount; index++) [otherValues addObject:@0];
-            }
-            for (NSUInteger index = 0; index < dayCount; index++) {
-                otherValues[index] = @(otherValues[index].unsignedLongLongValue + values[index].unsignedLongLongValue);
-            }
-            continue;
-        }
         [series addObject:@{@"title": ModelTitle(entry[@"model"]), @"color": [self colorForKey:key],
                             @"values": values, @"counts": counts}];
-    }
-    if (otherValues) {
-        [series addObject:@{@"title": L(@"Other"), @"color": CCPetsChartColor(-1), @"values": otherValues, @"counts": @[]}];
     }
     self.chart.days = self.dayStamps;
     self.chart.series = series;
