@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.3.0：主窗口、多账号与按模型统计 Token 用量">
+  <img src="docs/images/cover.png" alt="CC Pets v2.3.0：主菜单、多账号与按模型统计 Token 用量">
 </p>
 
 # CC Pets
@@ -11,7 +11,7 @@
 
 ## v2.3.0 新功能
 
-- **主窗口**：从菜单或 `cc-pets open` 打开概览、会话、用量、宠物、多账号、提醒、设置和诊断，
+- **主菜单**：从菜单或 `cc-pets open` 打开概览、会话、用量、宠物、多账号、提醒、设置和诊断，
   集中查看在线会话、跳转终端和管理桌宠设置。
 - **多账号与模型用量**：在「多账号」页管理 Claude / Codex Home，按账号隔离额度、历史和在线状态；
   查看最近 7、30、90 天的 Token 图表，按账号和模型筛选，独立设置订阅额度或 API 用量展示。
@@ -22,11 +22,8 @@
 
 ## 界面预览
 
-简体中文：v2.2.0 额度面板与右键菜单；新版主窗口见下文。
-
 <p align="center">
-  <img src="docs/images/liquid-glass-panel.png" width="45%" alt="Liquid Glass 主题下的中文额度面板">
-  <img src="docs/images/liquid-glass-menu.png" width="45%" alt="中文右键菜单与面板主题子菜单">
+  <img src="docs/images/liquid-glass-panel.png" width="48%" alt="Liquid Glass 主题下的中文额度面板"> <img src="docs/images/liquid-glass-menu.png" width="48%" alt="中文右键菜单与面板主题子菜单">
 </p>
 
 ## 功能
@@ -52,10 +49,10 @@
 - 可选记录最近 7 天的本地额度历史，并在额度卡片中显示趋势
 - 可分别启用任务完成、失败、等待审批和响应超时的 macOS 系统通知
 - 内置一个原创素材，更多桌宠可从兼容 PetDex 的素材源按需下载到本机
-- 提供普通的主窗口：概览、会话与 CC Bridge 消息、按模型的 Token 用量、全部设置和内置诊断（见[主窗口](#主窗口)）
+- 提供普通的主菜单：概览、会话与 CC Bridge 消息、按模型的 Token 用量、全部设置和内置诊断（见[主菜单](#主菜单)）
 - 使用原生 AppKit，运行时不依赖 Electron
 
-## 主窗口
+## 主菜单
 
 除了右键菜单和悬停额度面板，CC Pets 还有一个普通的 App 窗口，集中看会话、用量和设置。
 从右键菜单（**主菜单**）、应用菜单或终端都能打开：
@@ -70,10 +67,9 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 ```
 
 <p align="center">
-  <img src="docs/images/main-window.png" width="70%" alt="CC Pets v2.3.0 会话页：演示 Agent 会话与 CC Bridge 投递状态">
+  <img src="docs/images/main-menu-overview.png" width="48%" alt="主菜单概览页：宠物、今日 Token 用量和各账号额度卡片">
+<img src="docs/images/main-menu-usage.png" width="48%" alt="主菜单用量页：按模型堆叠的近 30 天每日用量图和模型明细表">
 </p>
-
-v2.3.0 会话页，使用当前原生 UI 和演示会话数据渲染。
 
 - **侧边栏**：顶部是会动的当前宠物和它的状态，下面分两组：**工作台**（概览、会话、用量、宠物、多账号）
   和**通用**（提醒、设置）。诊断放在最底下，有问题要处理时带角标。
@@ -148,7 +144,7 @@ JetBrains IDE、Warp、WezTerm、Ghostty 等在不安装扩展的模式下仅激
 | 按住并向右拖动     | 播放向右拖行动画，同时移动桌宠                           |
 | 按住并向左拖动     | 播放向左拖行动画，同时移动桌宠                           |
 | 鼠标移开或拖动结束 | 恢复默认待机动画                                         |
-| 右键桌宠           | 切换桌宠、调大小、消息气泡、用量展示模式、面板主题、CC Bridge、「帮助」、打开主窗口、退出 |
+| 右键桌宠           | 切换桌宠、调大小、消息气泡、用量展示模式、面板主题、CC Bridge、「帮助」、打开主菜单、退出 |
 
 右键菜单「宠物大小」提供 50%～200% 的滑动条，拖动时实时缩放并显示百分比，
 点击「恢复默认」回到 100%。大小会自动保存，切换桌宠或重启后保留；缩放时脚底位置固定。
@@ -163,7 +159,7 @@ Hook 状态卡和消息气泡在宠物小于 100% 时同比例缩小，文字、
 
 ### 界面语言
 
-主窗口「设置」页的「语言」提供「跟随系统」和所有已打包的语言，目前是「English」「简体中文」。
+主菜单「设置」页的「语言」提供「跟随系统」和所有已打包的语言，目前是「English」「简体中文」。
 跟随系统时，取 macOS 首选语言里第一个支持的语言，都不支持就用英文。菜单和面板立即切换；对话框里的系统按钮在下次启动后跟上。
 选择会写入 `~/.cc-pets/language`，`cc-pets` 命令、hooks 和 CC Bridge 消息因此使用同一种语言；
 单次命令可以用 `CC_PETS_LANGUAGE=en` 或 `zh-Hans` 覆盖。如果从没改过 `~/.cc-pets/speech.txt`，
@@ -172,7 +168,7 @@ Hook 状态卡和消息气泡在宠物小于 100% 时同比例缩小，文字、
 
 右键菜单中的「管理桌宠」只扫描 `~/.cc-pets/pets/`（见 [素材管理](#素材管理)）和包内素材，
 **不会**去读 `~/.petdex/pets/` 和 `~/.codex/pets/`——那两个目录由 PetDex CLI 和 Codex 写入，
-混在一起就找不到自己装的宠物了。要用 Codex 那边的素材，打开主窗口「宠物」页的“导入 Codex
+混在一起就找不到自己装的宠物了。要用 Codex 那边的素材，打开主菜单「宠物」页的“导入 Codex
 素材”开关，它们会被复制进你自己的目录（见 [导入 Codex 素材](#导入-codex-素材)）。
 
 外部桌宠使用目录名作为菜单名称，内置桌宠使用素材文件名（不显示扩展名）。选择后立即
@@ -205,7 +201,7 @@ Agent 状态动画会优先播放。
 
 右键菜单中的“记录本地额度历史”默认关闭。启用后只在本机
 `~/Library/Application Support/CC Pets/quota-history.json` 保存最近 7 天的数据，
-每 15 分钟最多记录一次。系统通知也默认关闭，可在主窗口「提醒」页分别启用任务完成、
+每 15 分钟最多记录一次。系统通知也默认关闭，可在主菜单「提醒」页分别启用任务完成、
 任务失败、等待审批和响应超时通知。最后一项在 Agent 停在等待审批超过 2 分钟、
 或停在思考态超过 5 分钟时提醒一次；该会话有新事件后重新武装，下次卡住会再提醒。
 
@@ -215,10 +211,16 @@ Provider、脱敏状态和通用说明，不提供消息输入，也不会显示
 连续 1 分钟没有收到新的 Agent 状态事件时，卡片和圆钮会一起自动隐藏；下一次收到事件时
 会重新显示并重新计时。
 
+API 用量模式下，月度 Token 趋势将今日用量和记录天数分行显示；悬停可查看当前所选账号的峰值。
+Codex 耗尽标记从采样时起五分钟后失效，从缓存恢复也不会延长有效期。
+
 ## 碎碎念
 
+低额度提醒按订阅账号分别跟踪剩余 20%、10%、5% 阈值，注明触发账号，冷却期间排队播报。
+首次采样、过期额度和 API 用量账号不触发提醒；普通额度台词的槽位使用剩余额度最低的订阅账号。
+
 桌宠会以自己的口吻讲话：Agent 干活时讲的话直接写在状态卡副行上，闲着的时候单独冒气泡。
-主窗口「宠物」页的「碎碎念」里可以整体开关、调频率、选择台词来源、改台词。
+主菜单「宠物」页的「碎碎念」里可以整体开关、调频率、选择台词来源、改台词。
 
 「台词来源」里可单选 **专属台词** 或 **默认台词**：专属台词优先使用当前宠物的
 词库，缺少的小节沿用通用词库；默认台词只使用 `~/.cc-pets/speech.txt` 中的通用台词，
@@ -242,7 +244,7 @@ Agent **正在干活**时（思考、调用工具、等待审批、子 Agent 工
 
 ### 编辑台词
 
-主窗口「宠物」页「碎碎念」里的「编辑台词…」打开内置编辑器。桌宠说的**所有**话都在
+主菜单「宠物」页「碎碎念」里的「编辑台词…」打开内置编辑器。桌宠说的**所有**话都在
 `~/.cc-pets/speech.txt` 里，代码里没有第二份词库——首次启动时从 app 内的默认词库
 拷一份出来，之后就只认这个文件。
 
@@ -362,6 +364,17 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown             # 交�
 - 已安装并登录 Codex CLI 和/或 Claude Code CLI
 - zsh
 - Xcode Command Line Tools，可通过 `xcode-select --install` 安装
+
+## CC Bridge
+
+[CC Bridge](./CC_BRIDGE.zh-CN.md) 是默认关闭的可选功能，让本机 Claude Code / Codex 会话互发消息并预留文件。
+身份识别优先验证会话 ID；按 PID 回退时只接受唯一在线会话，共享宿主下身份不明确会拒绝操作。
+Codex 消息使用接收方的 Home 投递。
+
+未确认的信箱消息可在异常退出后恢复。输出和确认之间崩溃时可能重复投递同一消息 ID；送达不代表已读或同意。
+关闭自动唤醒后，已运行的 watcher 也会停止主动取信；关闭 Bridge 后 CLI 拒绝发送、改名和收件。
+集成未能完整移除时会报错，可排除原因后重试。详细配置与投递边界见使用指南，修复列表见
+[未发布更新记录](./CHANGELOG.zh-CN.md#unreleased)。
 
 ## 安装
 
@@ -484,7 +497,7 @@ cc-pets clean
 # 检查安装、Hooks、status line、shim 与 CC Bridge 是否正常，并给出修复建议；输出已脱敏，可直接贴进 issue
 cc-pets doctor
 
-# 打开主窗口并定位到页面（overview / sessions / usage / pet / accounts / alerts / general / diagnostics，省略则打开上次看的页面）
+# 打开主菜单并定位到页面（overview / sessions / usage / pet / accounts / alerts / general / diagnostics，省略则打开上次看的页面）
 cc-pets open [page]
 
 # 列出偏好、桌宠素材、台词、缓存与运行时状态的存放位置和大小（--json 输出机器可读格式）
@@ -682,7 +695,7 @@ cc-pets pet add boba --as 波霸
 
 #### 导入 Codex 素材
 
-桌宠不读 `~/.codex/pets/`。如果你在 Codex 桌面端已经装了一批素材，打开主窗口「宠物」页的
+桌宠不读 `~/.codex/pets/`。如果你在 Codex 桌面端已经装了一批素材，打开主菜单「宠物」页的
 **“导入 Codex 素材”** 开关，桌宠会把那里的素材**复制**进 `~/.cc-pets/pets/`：开关打开的
 当下导入一次，之后每次启动再导入一次。
 
@@ -716,6 +729,8 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 
 - Codex 额度通过本机 Codex CLI 启动的官方 App Server 读取，沿用 Codex CLI 自身的登录状态；Codex Token 只从本机 `~/.codex/sessions` 读取（可用 `CC_PETS_CODEX_HOME` 覆盖）。
 - Claude 额度只从 Claude Code 传给本机 status line 的 `rate_limits` 字段读取。
+- 为区分 API 账号和订阅账号，CC Pets 会读取各已登记 Home 中的认证配置（Claude 的 `settings.json`；Codex 的 `auth.json` 和 `config.toml`），并可能在本机运行该 Home 的 `claude auth status` / `codex login status`。只在内存中保留识别出的模式，不保存密钥、邮箱或命令输出。
+- 诊断页修复前，会把受影响的配置文件和脚本备份到 `~/Library/Application Support/CC Pets/diagnostic-backups/`（仅本人可读），备份只保存在本机。
 - Agent Hooks 只向当前用户的临时目录写入桌宠事件和额度缓存。
 - 额度历史默认关闭；启用后只在本机保留最近 7 天的剩余比例快照。
 - 状态气泡和通知只显示 Provider、状态及脱敏工具类别，不显示会话正文。
@@ -743,6 +758,8 @@ CC Pets 建立的软链，并恢复安装前的 Claude status line；其他用�
 
 CC Pets 是社区开源项目，与 OpenAI、Anthropic、PetDex 及任何角色版权方不存在隶属、授权
 或官方合作关系。Codex、ChatGPT、Claude 及相关图标和商标归各自权利人所有。
+未能读取已安装应用的图标时，会使用随包提供、统一视觉尺寸的 Claude 和 Codex 备用图标。
+来源及版权归属见[第三方声明](./THIRD_PARTY_NOTICES.zh-CN.md)，这些图标不适用本项目的 MIT License。
 
 ## License
 

@@ -160,6 +160,8 @@ NSDictionary<NSString *, NSDictionary *> *CCBridgeSessions(void) {
             @"ref": BridgeSafeString(record[@"ref"], 6),
             @"provider": BridgeSafeString(record[@"provider"], 16)
         } mutableCopy];
+        NSString *profileID = BridgeSafeString(record[@"profileId"], 128);
+        if (profileID.length > 0) entry[@"profileId"] = profileID;
         NSString *tty = BridgeSafeString(record[@"tty"], 32);
         if (tty.length > 0) entry[@"tty"] = tty;
         sessions[session] = entry;
@@ -190,6 +192,7 @@ NSArray<NSDictionary *> *CCBridgeRecentDeliveries(NSTimeInterval since, NSUInteg
             @"from": fromName,
             @"to": toName,
             @"toSession": toSession,
+            @"fromSession": BridgeSafeString(from[@"session"], 128),
             @"at": @(at)
         }];
     }
@@ -201,13 +204,15 @@ NSArray<NSDictionary *> *CCBridgeRecentDeliveries(NSTimeInterval since, NSUInteg
 }
 
 NSDictionary<NSString *, NSNumber *> *CCBridgePendingCounts(void) {
-    NSString *inbox = [CCBridgeStateDirectory() stringByAppendingPathComponent:@"inbox"];
     NSMutableDictionary<NSString *, NSNumber *> *counts = [NSMutableDictionary dictionary];
-    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:inbox error:nil]) {
-        NSString *session = BridgeSafeString(name, 128);
-        if (session.length == 0 || ![session isEqualToString:name]) continue;
-        NSUInteger count = JSONFilesInDirectory([inbox stringByAppendingPathComponent:name]).count;
-        if (count > 0) counts[session] = @(count);
+    for (NSString *kind in @[@"inbox", @"claimed"]) {
+        NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:kind];
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
+            NSString *session = BridgeSafeString(name, 128);
+            if (session.length == 0 || ![session isEqualToString:name]) continue;
+            NSUInteger count = JSONFilesInDirectory([directory stringByAppendingPathComponent:name]).count;
+            if (count > 0) counts[session] = @([counts[session] unsignedIntegerValue] + count);
+        }
     }
     return counts;
 }

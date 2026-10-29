@@ -1,12 +1,12 @@
 ## English
 
-CC Pets v2.3.0 adds a main window, multiple Claude / Codex accounts and token usage by model, with a native runtime and diagnostic repairs.
+CC Pets v2.3.0 adds the Main menu, multiple Claude / Codex accounts and token usage by model, with a native runtime and diagnostic repairs.
 
 - Manage sessions, usage and settings in one window.
 - Track accounts and token usage by model.
 - Run natively with backed-up diagnostic repairs.
 
-### Main window and usage
+### Main menu and usage
 
 Open Overview, Sessions, Usage, Pet, Multi-Account, Alerts, Settings or Diagnostics from the menu or `cc-pets open [page]`. Overview shows every registered account; Sessions lists live agents and CC Bridge delivery status, with terminal jump-back. New CC Bridge sessions use `<account>.<project-directory>.<animal>` names; existing sessions keep their names. The Usage page filters local history by account and model over 7, 30 or 90 days, with daily stacked charts, cache hit rates and request counts. Daily archives retain usage after old Claude transcripts are removed.
 
@@ -28,17 +28,17 @@ See [CHANGELOG.md](https://github.com/Sunnyshinnny776/cc-pets/blob/v2.3.0/CHANGE
 
 ## 简体中文
 
-CC Pets v2.3.0 新增主窗口、多 Claude / Codex 账号和按模型统计 Token 用量，并提供原生运行时与诊断修复。
+CC Pets v2.3.0 新增主菜单、多 Claude / Codex 账号和按模型统计 Token 用量，并提供原生运行时与诊断修复。
 
-- 主窗口集中管理会话、用量与桌宠设置。
+- 主菜单集中管理会话、用量与桌宠设置。
 - 多账号独立展示额度，按模型分析 Token 用量。
 - 原生运行时，诊断修复前自动备份。
 
-### 主窗口与用量
+### 主菜单与用量
 
 从菜单或 `cc-pets open [page]` 打开概览、会话、用量、宠物、多账号、提醒、设置或诊断。概览展示所有已登记账号；会话页列出在线 Agent 与 CC Bridge 投递状态，并可跳回终端。新建 CC Bridge 会话使用 `<账号名>.<项目目录名>.<动物>` 命名，已有会话保留原名。用量页支持最近 7、30、90 天，按账号和模型筛选，提供每日堆叠图、缓存命中率和请求数。按日归档让 Claude 旧转录被清理后仍保留历史用量。
 
-主窗口可独立选择跟随系统、浅色或深色外观。桌宠设置拆成更短的页面，右键菜单保留常用操作，玻璃压暗支持 0–45% 连续调节。
+主菜单可独立选择跟随系统、浅色或深色外观。桌宠设置拆成更短的页面，右键菜单保留常用操作，玻璃压暗支持 0–45% 连续调节。
 
 ### 账号、原生运行时与修复
 

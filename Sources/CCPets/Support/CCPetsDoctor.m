@@ -312,7 +312,7 @@ static NSArray<NSDictionary *> *ShimChecks(BOOL inApp) {
 
     // 在桌宠进程里读到的是它自己的 PATH，和终端无关；判对错会误报，只给一条去终端确认的提示。
     if (inApp) {
-        [results addObject:Result(@"info", L(@"The main window can't see your terminal's PATH; run cc-pets doctor in a terminal to check the shim order"), nil)];
+        [results addObject:Result(@"info", L(@"The Main menu can't see your terminal's PATH; run cc-pets doctor in a terminal to check the shim order"), nil)];
         return results;
     }
     NSMutableArray<NSString *> *entries = [NSMutableArray array];
@@ -350,7 +350,7 @@ static NSDictionary *RealBinaryCheck(NSString *name, NSString *variable, NSStrin
     if (real) return Result(@"ok", LF(L(@"Found the real {name}: {real}"), (@{@"name": name, @"real": CCPetsTildePath(real)})), nil);
     // 主窗口拿到的 PATH 未必等于终端里的（登录 shell 也可能起不来），找不到时不判错，交给终端里的 doctor。
     if (inApp) {
-        return Result(@"info", LF(L(@"The main window couldn't find the real {name}; run cc-pets doctor in a terminal to confirm"), @{@"name": name}), nil);
+        return Result(@"info", LF(L(@"The Main menu couldn't find the real {name}; run cc-pets doctor in a terminal to confirm"), @{@"name": name}), nil);
     }
     return Result(@"warn", LF(L(@"The real {name} isn't in PATH, so the shim can't forward to it"), @{@"name": name}),
         [NSString stringWithFormat:@"export %@=/absolute/path/to/%@", variable, name]);
@@ -477,7 +477,7 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
                 NSDictionary *probe = CCBridgeProbeCodexQueueWithEnvironment(FindRealBinary(@"codex", @"CODEX_REAL_BIN", searchPath), environment);
                 NSString *notice = CCBridgeDescribeCodexQueue(probe);
                 if (inApp && [probe[@"status"] isEqualToString:@"missing"]) {
-                    [bridge addObject:Result(@"info", L(@"The main window couldn't find codex to check whether it can be woken; run cc-pets doctor in a terminal to confirm"), nil)];
+                    [bridge addObject:Result(@"info", L(@"The Main menu couldn't find codex to check whether it can be woken; run cc-pets doctor in a terminal to confirm"), nil)];
                 } else {
                     [bridge addObject:notice ? Result(@"warn", notice, nil)
                         : Result(@"ok", L(@"Codex supports codex queue, so it can be woken automatically"), nil)];

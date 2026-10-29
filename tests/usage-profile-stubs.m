@@ -1,7 +1,7 @@
 #import "CCPetsProfiles.h"
 #import "CCPetsPaths.h"
 
-// 用量相关独立编译目标共用只读注册表，避免引入完整的 Profile/Bridge 安装栈。
+// 用量和 Bridge 独立编译目标共用只读注册表，避免引入完整的 Profile/Bridge 安装栈。
 // 正式监控器只会读取已登记的账号，因此测试桩必须保留两个官方默认 Home。
 NSString *const CCPetsProfileProviderClaude = @"claude";
 NSString *const CCPetsProfileProviderCodex = @"codex";
@@ -20,6 +20,14 @@ NSArray<NSDictionary *> *CCPetsProfilesForProvider(NSString *provider) {
         if ([profile[@"provider"] isEqualToString:provider]) [matches addObject:profile];
     }
     return matches.copy;
+}
+
+NSDictionary *CCPetsProfileWithID(NSString *profileID) {
+    if (profileID.length == 0) return nil;
+    for (NSDictionary *profile in CCPetsProfiles()) {
+        if ([profile[@"id"] isEqualToString:profileID]) return profile;
+    }
+    return nil;
 }
 
 NSDictionary *CCPetsProfileForHome(NSString *provider, NSString *home) {

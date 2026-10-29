@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.3.0: main window, multiple accounts and token usage by model">
+  <img src="docs/images/cover.png" alt="CC Pets v2.3.0: Main menu, multiple accounts and token usage by model">
 </p>
 
 # CC Pets
@@ -15,7 +15,7 @@ Codex App Server interface and Claude Code's official status line input.
 
 ## What's new in v2.3.0
 
-- **A main window** — open Overview, Sessions, Usage, Pet, Multi-Account, Alerts,
+- **Main menu** — open Overview, Sessions, Usage, Pet, Multi-Account, Alerts,
   Settings and Diagnostics from the menu or `cc-pets open`. See live sessions, jump to their
   terminals and manage settings in one place.
 - **Multiple accounts and model usage** — manage Claude / Codex Homes from the
@@ -29,11 +29,8 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
 
 ## Screenshots
 
-English — v2.2.0 quota panel and Language menu:
-
 <p align="center">
-  <img src="docs/images/liquid-glass-panel.en.png" width="45%" alt="English Agent Usage panel in v2.2.0 with quota, tokens, trends, and system status">
-  <img src="docs/images/liquid-glass-menu.en.png" width="45%" alt="English right-click menu with English selected in the Language submenu">
+  <img src="docs/images/liquid-glass-panel.en.png" width="48%" alt="English Agent Usage panel with quota, tokens, trends, and system status"> <img src="docs/images/liquid-glass-menu.en.png" width="48%" alt="English right-click menu with English selected in the Language submenu">
 </p>
 
 ## Features
@@ -58,7 +55,7 @@ English — v2.2.0 quota panel and Language menu:
   override shared sections; default lines use only the editable shared speech file. The
   selection persists across pet changes and restarts, with pet-specific lines selected initially.
 - Includes one original pet and can download compatible assets from PetDex.
-- Opens a regular main window with an overview, your sessions and CC Bridge messages, token usage by model, every setting and built-in diagnostics (see [Main window](#main-window)).
+- Opens the Main menu, a regular app window with an overview, your sessions and CC Bridge messages, token usage by model, every setting and built-in diagnostics (see [Main menu](#main-menu)).
 - Uses native AppKit with no Electron runtime.
 
 ## Requirements
@@ -159,6 +156,20 @@ Bridge is already enabled, its Hooks, permissions, and MCP registration are also
 configured immediately; otherwise they are added automatically when CC Bridge is
 enabled later.
 
+## CC Bridge
+
+[CC Bridge](./CC_BRIDGE.md) is optional and off by default. It lets local Claude Code
+and Codex sessions exchange messages and reserve files. Session IDs are validated;
+PID fallback is accepted only for a unique live session. Ambiguous shared-host identities
+are rejected rather than guessed. Codex delivery uses the recipient's Home.
+
+Unconfirmed inbox messages are recoverable after a crash. A crash between output and
+confirmation may repeat the same message ID; delivery does not mean the recipient has
+read or accepted it. Turning off auto-wake also stops existing watchers from taking new
+messages. Disabling Bridge blocks CLI send, rename and inbox operations; incomplete
+integration removal returns an error and can be retried. See the guide for configuration
+and delivery details, and the [unreleased changelog](./CHANGELOG.md#unreleased) for fixes.
+
 ## Commands
 
 ```bash
@@ -170,7 +181,7 @@ cc-pets --status              # Print parsed Codex quota data.
 cc-pets --history             # Print local quota history as JSON.
 cc-pets clean                 # Remove rebuildable state and caches.
 cc-pets doctor                # Check the installation and integrations, with fixes.
-cc-pets open [page]           # Open the main window (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics).
+cc-pets open [page]           # Open the Main menu (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics).
 cc-pets paths                 # List where settings, caches and data are stored.
 
 cc-pets pet search otter      # Search the configured asset source.
@@ -219,7 +230,7 @@ printf '%s' '{"schemaVersion":1,"provider":"MyAgent","state":"thinking"}' \
 See [Provider protocol](./PROVIDER_PROTOCOL.md). The protocol does not accept
 prompts, command text, file contents, or model output.
 
-## Main window
+## Main menu
 
 Besides the right-click menu and the hover quota panel, CC Pets has a regular app
 window for your sessions, usage and settings. Open it from the right-click menu
@@ -235,10 +246,8 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 ```
 
 <p align="center">
-  <img src="docs/images/main-window.en.png" width="70%" alt="CC Pets v2.3.0 Sessions page with illustrative agent sessions and CC Bridge delivery status">
+  <img src="docs/images/main-menu-overview.en.png" width="48%" alt="Main menu Overview page with the pet, today's token usage and quota cards for each account"> <img src="docs/images/main-menu-usage.en.png" width="48%" alt="Main menu Usage page with a 30-day daily chart stacked by model and a per-model table">
 </p>
-
-The v2.3.0 Sessions page, rendered from the native UI with illustrative session data.
 
 - **Sidebar** — the current pet, animated, with its status, then two groups: **Workbench**
   (Overview, Sessions, Usage, Pet, Multi-Account) and **General** (Alerts,
@@ -376,7 +385,16 @@ Local seven-day quota history is disabled by default. When enabled, it is stored
 only at `~/Library/Application Support/CC Pets/quota-history.json`, retains seven
 days, and records at most once every 15 minutes.
 
+In API usage mode, the monthly token trend shows today's usage and recorded days on
+separate lines; hover over it for the selected account's peak usage. Codex exhaustion
+markers expire five minutes after sampling, including when recovered from cache.
+
 ## Speech
+
+Low-quota reminders track subscription accounts independently at 20%, 10% and 5%
+remaining, name the triggering account, and queue during cooldown. Initial samples,
+expired windows and API-usage accounts do not trigger reminders. General quota
+placeholders use the subscription account with the least remaining quota.
 
 The pet's speech comes from `~/.cc-pets/speech.txt`. Open **Chatter → Edit Lines…**
 on the window's **Pet** page to edit, validate, preview, or restore it. Lines are grouped
@@ -455,6 +473,8 @@ external assets.
 ## Privacy
 
 - Codex quota is read through the official Codex App Server started from your installed Codex CLI with its existing sign-in; Claude quota comes from the status line input Claude Code passes locally. Token counts are read from local Codex and Claude Code files.
+- To tell API accounts from subscription accounts, CC Pets reads the authentication settings in each registered Home (Claude `settings.json`; Codex `auth.json` and `config.toml`) and may run that Home's `claude auth status` / `codex login status` locally. Only the resulting mode is kept, in memory; keys, emails and command output are not stored.
+- Diagnostics repairs back up the affected configuration files and scripts to `~/Library/Application Support/CC Pets/diagnostic-backups/` (owner-only) before changing them; the backups stay on this Mac.
 - Hooks write only redacted state events and quota cache files to the current user's temporary directory.
 - Local quota history is disabled by default and retains seven days when enabled.
 - Status cards and notifications show only provider, state, and redacted tool category.
@@ -484,7 +504,10 @@ and restores the previous Claude status line. Other user settings and hooks rema
 CC Pets is a community open-source project with no affiliation, authorization, or
 official partnership with OpenAI, Anthropic, PetDex, or any character rights holder.
 Codex, ChatGPT, Claude, their icons, and their trademarks belong to their respective
-owners.
+owners. When installed application icons are unavailable, CC Pets uses bundled Claude
+and Codex fallback icons with normalized sizing. Their sources and separate ownership
+are documented in [Third-party notices](./THIRD_PARTY_NOTICES.md); these icons are not
+covered by the project's MIT License.
 
 ## License
 

@@ -42,8 +42,7 @@ NSColor *CCPetsStatusBackgroundColor(CCPetsStatusKind kind);
 // Agent 状态（thinking / approval / failed …）归到哪一类。
 CCPetsStatusKind CCPetsStatusKindForAgentState(NSString *state);
 
-// 图表的模型色板，8 种按固定顺序分配；slot 超出范围时是「其他」的灰。
-// 顺序就是色盲安全的保证（相邻两色在三类色盲下都分得开），不要重排。
+// 图表模型色板：前 16 色固定，更多槽位生成颜色；负数表示未知模型的灰色。
 NSColor *CCPetsChartColor(NSInteger slot);
 extern const NSInteger CCPetsChartColorCount;
 

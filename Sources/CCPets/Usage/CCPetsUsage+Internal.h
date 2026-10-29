@@ -58,6 +58,7 @@ NSDictionary *LatestQuotaInRecentSessions(NSURL *sessionsURL, NSURL *skipURL);
 
 // Token 窗口聚合、摘要缓存与月度归档（CCPetsUsage+TokenTotals.m）
 BOOL IsPseudoModelName(NSString *model);
+NSDictionary *CodexBackgroundModelDays(NSString *home, NSTimeInterval start, NSTimeInterval end);
 NSDictionary *TokenSessionSummaryTracking(NSURL *url, NSMutableDictionary *cache,
     BOOL trackModels);
 BOOL TokenWindowOrFallback(NSDictionary *quota, double fallbackMinutes,

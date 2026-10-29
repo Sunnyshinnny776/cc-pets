@@ -1,8 +1,33 @@
 // 说话气泡与碎碎念。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsUsageMode.h"
 
 // 档位写进 defaults 的键；PetView 的右键菜单也要读它。
 NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
+
+// 两个 Provider 的字段名不同；已过期的窗口不能触发提醒或填入台词。
+static NSDictionary *SpeechFiveHourQuota(NSDictionary *usage) {
+    NSDictionary *quota = [usage[@"fiveHour"] isKindOfClass:NSDictionary.class] ? usage[@"fiveHour"] : nil;
+    NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class] ? quota[@"resets_at"] : nil;
+    if (reset && reset.doubleValue <= NSDate.date.timeIntervalSince1970) return nil;
+    return quota;
+}
+
+static NSInteger SpeechQuotaRemaining(NSDictionary *usage) {
+    NSDictionary *quota = SpeechFiveHourQuota(usage);
+    id used = quota[@"used_percentage"] ?: quota[@"used_percent"];
+    if (![used isKindOfClass:NSNumber.class]) return -1;
+    return MAX((NSInteger)0, MIN((NSInteger)100, 100 - [used integerValue]));
+}
+
+static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
+    id reset = SpeechFiveHourQuota(usage)[@"resets_at"];
+    if (![reset isKindOfClass:NSNumber.class]) return nil;
+    NSDateFormatter *formatter = [NSDateFormatter new];
+    formatter.dateFormat = @"HH:mm";
+    formatter.timeZone = NSTimeZone.systemTimeZone;
+    return [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:[reset doubleValue]]];
+}
 
 @implementation AppDelegate (Speech)
 - (BOOL)speechEnabled {
@@ -60,6 +85,9 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     return [self speechSlotsWithTool:self.lastSpeechTool];
 }
 - (NSDictionary<NSString *, NSString *> *)speechSlotsWithTool:(NSString *)tool {
+    return [self speechSlotsWithTool:tool usage:[self speechQuotaUsage]];
+}
+- (NSDictionary<NSString *, NSString *> *)speechSlotsWithTool:(NSString *)tool usage:(NSDictionary *)usage {
     NSMutableDictionary<NSString *, NSString *> *slots = [NSMutableDictionary dictionary];
     NSCalendar *calendar = NSCalendar.currentCalendar;
     slots[@"hour"] = [@([calendar component:NSCalendarUnitHour fromDate:NSDate.date]) stringValue];
@@ -71,11 +99,11 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
             self.sessionStartedAt) / 60.0);
         if (minutes > 0) slots[@"sessionMin"] = [@(minutes) stringValue];
     }
-    NSInteger remaining = [self remainingFiveHourQuotaPercent];
+    NSInteger remaining = SpeechQuotaRemaining(usage);
     if (remaining >= 0) {
         slots[@"quota5h"] = [NSString stringWithFormat:@"%ld%%", (long)remaining];
     }
-    NSString *reset = [self fiveHourResetTimeText];
+    NSString *reset = SpeechQuotaResetTime(usage);
     if (reset.length > 0) slots[@"resetTime"] = reset;
     // 工具名此前从来没被填过，导致 "{toolName} 这货不靠谱。" 这类台词永远被跳过。
     NSString *trimmed = [tool stringByTrimmingCharactersInSet:
@@ -83,54 +111,90 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
     if (trimmed.length > 0 && trimmed.length <= 24) slots[@"toolName"] = trimmed;
     return slots;
 }
-// 5 小时窗口的剩余百分比，取不到返回 -1。Claude 和 Codex 的字段名不一样，都认。
+// 普通台词的额度槽位选剩余最少的订阅账号；低额度播报会显式传入触发账号。
+- (NSDictionary *)speechQuotaUsage {
+    NSDictionary *selected = nil;
+    NSInteger lowest = 101;
+    NSDictionary *usages = self.quotaView.profileUsages;
+    for (NSDictionary *profile in self.quotaView.profiles) {
+        if (CCPetsProfileShowsAPIUsage(profile)) continue;
+        NSDictionary *usage = usages[profile[@"id"]];
+        NSInteger remaining = SpeechQuotaRemaining(usage);
+        if (remaining >= 0 && remaining < lowest) {
+            lowest = remaining;
+            selected = usage;
+        }
+    }
+    return selected;
+}
 - (NSInteger)remainingFiveHourQuotaPercent {
-    NSDictionary *usage = LatestClaudeUsage() ?: LatestUsage();
-    NSDictionary *fiveHour = [usage[@"fiveHour"] isKindOfClass:NSDictionary.class]
-        ? usage[@"fiveHour"] : nil;
-    id used = fiveHour[@"used_percentage"] ?: fiveHour[@"used_percent"];
-    if (![used isKindOfClass:NSNumber.class]) return -1;
-    NSInteger remaining = 100 - [used integerValue];
-    return MAX((NSInteger)0, MIN((NSInteger)100, remaining));
+    return SpeechQuotaRemaining([self speechQuotaUsage]);
 }
-// 回血时间，按本机时区格式化。没有这个槽位的话，带 {resetTime} 的词条会被整条跳过。
 - (NSString *)fiveHourResetTimeText {
-    NSDictionary *usage = LatestClaudeUsage() ?: LatestUsage();
-    NSDictionary *fiveHour = [usage[@"fiveHour"] isKindOfClass:NSDictionary.class]
-        ? usage[@"fiveHour"] : nil;
-    id resets = fiveHour[@"resets_at"];
-    if (![resets isKindOfClass:NSNumber.class]) return nil;
-    NSTimeInterval at = [resets doubleValue];
-    if (at <= NSDate.date.timeIntervalSince1970) return nil;
-    NSDateFormatter *formatter = [NSDateFormatter new];
-    formatter.dateFormat = @"HH:mm";
-    formatter.timeZone = NSTimeZone.systemTimeZone;
-    return [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:at]];
+    return SpeechQuotaResetTime([self speechQuotaUsage]);
 }
-// 额度是"跨阈值"事件，不是状态事件，所以单独判档。
-//
-// 只在向下穿档时说一次：低于 20%% 就一直念叨会变成唠叨，而额度刷新是每分钟级别的，
-// 不设档位的话一小时预算瞬间就被烧光。回血（档位回升）时把标记还回去，
-// 下个周期才能再触发。
+// 每个账号独立记档，首次采样只初始化。冷却期间排队，避免同时跨档时只播报第一个账号。
 - (void)considerQuotaSpeech {
-    NSInteger remaining = [self remainingFiveHourQuotaPercent];
-    if (remaining < 0) return;
-    NSInteger tier;
-    if (remaining <= 5) tier = 0;
-    else if (remaining <= 10) tier = 1;
-    else if (remaining <= 20) tier = 2;
-    else tier = 3;
-
-    NSInteger previous = self.lastQuotaTier;
-    self.lastQuotaTier = tier;
-    // 首次拿到数据只记档不出声，免得每次启动都通报一遍额度。
-    // （lastQuotaTier 的初值 0 恰好是最低档，不加这道判断的话冷启动必然误判成"刚跌到 5%"。）
-    if (!self.lastQuotaTierInitialized) {
-        self.lastQuotaTierInitialized = YES;
+    if (!self.quotaSpeechStates) self.quotaSpeechStates = [NSMutableDictionary dictionary];
+    if (!self.pendingQuotaSpeechProfileIDs) self.pendingQuotaSpeechProfileIDs = [NSMutableOrderedSet orderedSet];
+    NSArray<NSDictionary *> *profiles = self.quotaView.profiles;
+    NSDictionary *usages = self.quotaView.profileUsages;
+    NSMutableSet<NSString *> *liveIDs = [NSMutableSet set];
+    for (NSDictionary *profile in profiles) {
+        NSString *profileID = profile[@"id"];
+        if (profileID.length == 0 || CCPetsProfileShowsAPIUsage(profile)) continue;
+        [liveIDs addObject:profileID];
+        NSString *home = profile[@"home"] ?: @"";
+        NSDictionary *previous = self.quotaSpeechStates[profileID];
+        if (previous && ![previous[@"home"] isEqualToString:home]) {
+            [self.quotaSpeechStates removeObjectForKey:profileID];
+            [self.pendingQuotaSpeechProfileIDs removeObject:profileID];
+            previous = nil;
+        }
+        NSInteger remaining = SpeechQuotaRemaining(usages[profileID]);
+        if (remaining < 0) {
+            [self.pendingQuotaSpeechProfileIDs removeObject:profileID];
+            continue;
+        }
+        NSInteger tier = remaining <= 5 ? 0 : remaining <= 10 ? 1 : remaining <= 20 ? 2 : 3;
+        self.quotaSpeechStates[profileID] = @{@"home": home, @"tier": @(tier)};
+        if (!previous || tier > [previous[@"tier"] integerValue]) {
+            [self.pendingQuotaSpeechProfileIDs removeObject:profileID];
+        } else if (tier < [previous[@"tier"] integerValue]) {
+            [self.pendingQuotaSpeechProfileIDs addObject:profileID];
+        }
+    }
+    for (NSString *profileID in self.quotaSpeechStates.allKeys) {
+        if (![liveIDs containsObject:profileID]) {
+            [self.quotaSpeechStates removeObjectForKey:profileID];
+            [self.pendingQuotaSpeechProfileIDs removeObject:profileID];
+        }
+    }
+    // 用户关闭说话时不积攒提醒；更新气泡、冷却和预算只延后播报。
+    if (![self speechEnabled]) {
+        [self.pendingQuotaSpeechProfileIDs removeAllObjects];
         return;
     }
-    if (tier >= previous) return;  // 回血或没跨档
-    [self speakWithTag:PetPhraseTagQuotaLow];
+    if (self.updateBubbleVisible || ![self canSpeakNow]) return;
+    for (NSString *profileID in self.pendingQuotaSpeechProfileIDs.array) {
+        NSDictionary *profile = nil;
+        for (NSDictionary *candidate in profiles) {
+            if ([candidate[@"id"] isEqualToString:profileID]) { profile = candidate; break; }
+        }
+        [self.pendingQuotaSpeechProfileIDs removeObject:profileID];
+        if (!profile) continue;
+        NSDictionary *slots = [self speechSlotsWithTool:self.lastSpeechTool usage:usages[profileID]];
+        NSString *text = PetPhraseForTag(PetPhraseTagQuotaLow, slots);
+        if (text.length == 0) continue;
+        NSString *provider = [profile[@"provider"] isEqualToString:CCPetsProfileProviderCodex] ? @"Codex" : @"Claude";
+        NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: provider;
+        text = [NSString stringWithFormat:@"%@ · %@: %@", provider, name, text];
+        NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+        [self.speechTimestamps addObject:@(now)];
+        self.speechCooldownUntil = now + [self speechCooldownSeconds];
+        [self presentSpeechText:text];
+        break;
+    }
 }
 - (void)buildSpeechPanelIfNeeded {
     if (self.speechPanel) return;
@@ -307,6 +371,8 @@ NSString *const PetSpeechFrequencyKey = @"CCPetsSpeechFrequency";
 // 挂在已有的客户端存活定时器上，不新起 timer——常驻唤醒一个都不该多。
 - (void)considerIdleSpeech {
     [self consumeSpeechDebugTrigger];
+    // 复用存活定时器消费待播报账号，不等待下一次额度刷新，也不额外唤醒。
+    if (self.pendingQuotaSpeechProfileIDs.count > 0) [self considerQuotaSpeech];
     if (self.updateBubbleDeferred && ![self agentBusyForSpeech]) [self showUpdateBubble];
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     // 真正的判断最多 30 秒做一次，3 秒一跳的定时器上不必每次都算。

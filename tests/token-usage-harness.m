@@ -822,17 +822,18 @@ int main(void) {
         puts("按模型用量换时区后归档仍可读测试通过");
 
         // 版本 1 的归档键是日零点的时间戳，升级后要换成日期接着用，不能整份丢掉。
+        // 旧 Codex input 包含缓存写入：4 = 普通输入 1 + 缓存写入 3；迁移后 input 应为 1。
         NSString *codexArchivePath = TokenSummaryCachePath(@"codex-model-days",
             [modelCodexHome stringByAppendingPathComponent:@"sessions"]);
         NSDictionary *oldArchive = @{@"schema": @{@"version": @1}, @"days": @{
-            [NSString stringWithFormat:@"%.0f", rangeStartTime()]: @{@"gpt-old": @{@"input": @1,
+            [NSString stringWithFormat:@"%.0f", rangeStartTime()]: @{@"gpt-old": @{@"input": @4,
                 @"cacheRead": @2, @"cacheWrite": @3, @"output": @4, @"reasoning": @0, @"requests": @1}}}};
         [[NSPropertyListSerialization dataWithPropertyList:oldArchive
             format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil] writeToFile:codexArchivePath
             atomically:YES];
         codexModels = modelUsage(@"codex")[@"models"];
         if (!countsMatch(codexModels[@"gpt-old"], 1, 2, 3, 4, 1)) {
-            NSLog(@"版本 1 的归档应迁移成按日期的键: %@", codexModels);
+            NSLog(@"版本 1 的归档应迁移日期键并扣除输入中的缓存写入: %@", codexModels);
             return EXIT_FAILURE;
         }
         puts("按模型归档版本迁移测试通过");

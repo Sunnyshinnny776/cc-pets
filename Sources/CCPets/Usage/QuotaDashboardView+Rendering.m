@@ -198,46 +198,28 @@
             dotColor:tokenComparison[@"color"]];
 
         CGFloat trendX = NSMinX(card) + 574;
-        // 「按日 Token」跟在标题后面，与标题同一行：它是标题的限定语，单独占一行既浪费
-        // 竖向空间，也把曲线和脚注挤得没法与左边两列对齐。
-        [L(@"Month") drawInRect:NSMakeRect(trendX, NSMinY(card) + 114, 60, 20)
-            withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
-        if (self.usesLiquidGlass) {
-            [self drawText:L(@"Daily tokens") inRect:NSMakeRect(trendX + 62, NSMinY(card) + 114, 84, 20)
-                size:11 weight:NSFontWeightSemibold color:color dotColor:color];
-        } else {
-            NSDictionary *pillAttributes = [self textAttributesWithSize:11 color:color
-                weight:NSFontWeightSemibold];
-            NSRect pill = NSMakeRect(trendX + 59, NSMinY(card) + 113, 76, 22);
-            [self fillRoundedRect:pill radius:11 color:[color colorWithAlphaComponent:0.14]];
-            [L(@"Daily tokens") drawInRect:NSInsetRect(pill, 9, 3) withAttributes:pillAttributes];
-        }
-        NSRect curveRect = NSMakeRect(trendX, NSMinY(card) + 62, 135, 38);
+        // 今日用量和记录天数各占一行，峰值放进悬浮提示。
+        [self drawText:L(@"Month") inRect:NSMakeRect(trendX, NSMinY(card) + 114, 145, 20)
+            size:13 weight:NSFontWeightRegular color:secondary dotColor:nil];
+        NSRect curveRect = NSMakeRect(trendX, NSMinY(card) + 66, 135, 34);
         [self drawMonthlyTokenCurve:monthDaily inRect:curveRect color:color];
-        double peak = 0;
         NSDictionary *todayTotals = nil;
         for (NSDictionary *day in monthDaily) {
             if ([day[@"timestamp"] doubleValue] > now) break;
             NSDictionary *totals = [day[@"totals"] isKindOfClass:NSDictionary.class]
                 ? day[@"totals"] : nil;
-            peak = fmax(peak, [totals[@"total_tokens"] doubleValue]);
             todayTotals = totals;
         }
-        NSString *peakText = recordedDays > 0
-            ? [NSString stringWithFormat:L(@"Peak %@"), [self formattedTokenValue:peak]] : L(@"Peak --");
         NSString *todayText = todayTotals
             ? [NSString stringWithFormat:L(@"Today %@"),
                 [self formattedTokenValue:[todayTotals[@"total_tokens"] doubleValue]]] : L(@"Today --");
-        [peakText drawInRect:NSMakeRect(trendX, NSMinY(card) + 42, 74, 16)
-            withAttributes:[self textAttributesWithSize:10 color:secondary weight:NSFontWeightRegular]];
-        [todayText drawInRect:NSMakeRect(trendX + 61, NSMinY(card) + 42, 74, 16)
-            withAttributes:[self rightAlignedTextAttributesWithSize:10 color:secondary
-                weight:NSFontWeightRegular]];
-        // 与左边两列的"较上月同期"同一条基线（+22），三列脚注才在一条水平线上。
-        [[NSString stringWithFormat:L(@"%lu / %lu days recorded"),
-            (unsigned long)recordedDays, (unsigned long)monthDaily.count]
-            drawInRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18)
-            withAttributes:[self textAttributesWithSize:11 color:color weight:NSFontWeightMedium]];
+        [self drawText:todayText inRect:NSMakeRect(trendX, NSMinY(card) + 44, 145, 18)
+            size:11 weight:NSFontWeightRegular color:secondary dotColor:nil];
+        // 记录天数与左侧两列的月同比脚注保持相同基线和字号。
+        NSString *recordedText = [NSString stringWithFormat:L(@"%lu / %lu days recorded"),
+            (unsigned long)recordedDays, (unsigned long)monthDaily.count];
+        [self drawText:recordedText inRect:NSMakeRect(trendX, NSMinY(card) + 22, 145, 18)
+            size:11 weight:NSFontWeightMedium color:color dotColor:nil];
         [NSGraphicsContext restoreGraphicsState];
         return;
     }
@@ -487,7 +469,7 @@
         [L(@"Official Homes appear automatically")
             drawInRect:NSMakeRect(28, noticeTop - 52, 560, 20)
             withAttributes:[self textAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
-        [L(@"Add custom Homes from Multi-Account in the main window")
+        [L(@"Add custom Homes from Multi-Account in the Main menu")
             drawInRect:NSMakeRect(28, noticeTop - 72, 560, 18)
             withAttributes:[self textAttributesWithSize:11
                 color:[NSColor colorWithWhite:0.52 alpha:1] weight:NSFontWeightRegular]];

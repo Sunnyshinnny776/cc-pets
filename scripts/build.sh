@@ -45,6 +45,7 @@ CLANG_MODULE_CACHE_PATH="${CACHE_DIR}" clang \
   -framework IOKit \
   -framework QuartzCore \
   -framework UserNotifications \
+  -lsqlite3 \
   "${SOURCES[@]}" \
   -o "${BUILD_DIR}/cc-pets"
 
@@ -56,6 +57,10 @@ if (( ${#SPRITES[@]} > 0 )); then
   cp "${SPRITES[@]}" "${BUILD_DIR}/"
   cp "${SPRITES[@]}" "${APP_RESOURCES_DIR}/"
 fi
+# Agent 图标放独立目录，避免被当作宠物精灵图扫描；同时支持裸二进制与 App。
+mkdir -p "${BUILD_DIR}/AgentIcons" "${APP_RESOURCES_DIR}/AgentIcons"
+cp "${PROJECT_DIR}"/Resources/AgentIcons/* "${BUILD_DIR}/AgentIcons/"
+cp "${PROJECT_DIR}"/Resources/AgentIcons/* "${APP_RESOURCES_DIR}/AgentIcons/"
 # 默认台词。代码里不再留内置词库，这个文件就是默认台词的唯一来源，
 # 首次启动时被拷到 ~/.cc-pets/phrases.txt。
 # 裸二进制旁边也放一份：直接跑 .build/release/cc-pets 时没有 app bundle。

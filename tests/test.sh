@@ -502,7 +502,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m -lsqlite3 \
   "${PROJECT_DIR}/tests/token-usage-harness.m" \
   -o "${TOKEN_USAGE_TMP}/token-usage-test"
 # Token 摘要缓存落在 Application Support 下，测试必须用自己的目录，否则会往用户真实的
@@ -593,7 +593,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework CoreServices \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m -lsqlite3 \
   "${PET_SRC[CCPetsCodexRateLimits.m]:?}" \
   "${PET_SRC[CCPetsUsageMonitor.m]:?}" \
   "${PROJECT_DIR}/tests/usage-monitor-harness.m" \
@@ -622,7 +622,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
-  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m \
+  "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m -lsqlite3 \
   "${PROJECT_DIR}/tests/session-pick-harness.m" \
   -o "${SESSION_PICK_TMP}/session-pick-test"
 CC_PETS_CODEX_HOME="${SESSION_PICK_TMP}/codex" \
@@ -1502,7 +1502,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -DCC_PETS_VERSION="\"0.0.0-test\"" \
   -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
-  -framework QuartzCore -framework UserNotifications \
+  -framework QuartzCore -framework UserNotifications -lsqlite3 \
   "${DOCTOR_SECTIONS_SOURCES[@]}" \
   "${PROJECT_DIR}/tests/doctor-sections-harness.m" \
   -o "${DOCTOR_TMP}/doctor-sections-test"
@@ -1523,7 +1523,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -DCC_PETS_VERSION="\"0.0.0-test\"" \
   -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
-  -framework QuartzCore -framework UserNotifications \
+  -framework QuartzCore -framework UserNotifications -lsqlite3 \
   "${DOCTOR_SECTIONS_SOURCES[@]}" \
   "${PROJECT_DIR}/tests/profile-home-harness.m" \
   -o "${PROFILE_HOME_TMP}/profile-home-test"
@@ -2224,6 +2224,7 @@ clang -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PROJECT_DIR}/tests/bridge-units-harness.m" \
+  "${PROJECT_DIR}/tests/usage-profile-stubs.m" \
   -o "${BRIDGE_UNITS_TMP}/bridge-units-test"
 "${BRIDGE_UNITS_TMP}/bridge-units-test" "${BRIDGE_UNITS_TMP}"
 node "${PROJECT_DIR}/tests/bridge-harness.mjs"

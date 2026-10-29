@@ -32,7 +32,7 @@ PET_BINARY="${PROJECT_DIR}/.build/release/cc-pets"
 "${PROJECT_DIR}/scripts/install-app.sh"
 # 安装/升级适配官方默认 Home，并修复用户明确登记过的自定义 Home。
 "${PET_BINARY}" profile repair-all || \
-  print -u2 "$(cc_pets_t "Some registered Agent profiles need repair; open Multi-Account in the main window and retry.")"
+  print -u2 "$(cc_pets_t "Some registered Agent profiles need repair; open Multi-Account in the Main menu and retry.")"
 "${PET_BINARY}" --configure-updater
 # CC Bridge 默认关闭；用户开启过的话，包路径可能随升级变化，按原选项重写一遍集成。
 "${PET_BINARY}" bridge refresh || \
@@ -85,5 +85,5 @@ if ! grep -Fq "${SHIM_START_MARKER}" "${SHELL_RC}" 2>/dev/null; then
 fi
 
 print "$(cc_pets_t "Installed. CC Pets was added to {installedPetApp}. Run source {shellRc}; after that, running codex or claude (in any capitalization) starts the pet automatically." installedPetApp="${(q)INSTALLED_PET_APP}" shellRc="${(q)SHELL_RC}")"
-print "$(cc_pets_t "Default Claude and Codex Homes were integrated automatically; add custom Homes from Multi-Account in the main window.")"
+print "$(cc_pets_t "Default Claude and Codex Homes were integrated automatically; add custom Homes from Multi-Account in the Main menu.")"
 print "$(cc_pets_t "After the first launch, run /hooks and trust the CC Pets hooks to enable Agent animations.")"

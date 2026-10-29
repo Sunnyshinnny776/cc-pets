@@ -6,6 +6,7 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <sys/sysctl.h>
 #import <sys/stat.h>
+#import <sys/file.h>
 #import <fcntl.h>
 #import <signal.h>
 #import <unistd.h>
@@ -75,7 +76,8 @@ BOOL CCBridgeMigrateLegacyFlag(void) {
 
 void CCBridgeSetEnabled(BOOL enabled, NSDictionary *options) {
     if (!enabled) {
-        unlink(EnabledFlagPath().fileSystemRepresentation);
+        if (unlink(EnabledFlagPath().fileSystemRepresentation) != 0 && errno != ENOENT)
+            [NSException raise:@"CCBridgeConfig" format:@"%@: %s", EnabledFlagPath(), strerror(errno)];
         return;
     }
     EnsureHomeDirectory();
@@ -85,7 +87,9 @@ void CCBridgeSetEnabled(BOOL enabled, NSDictionary *options) {
     NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
     formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
     document[@"enabledAt"] = [formatter stringFromDate:NSDate.date];
-    CCPetsWriteFileAtomically(EnabledFlagPath(), [CCPetsJSONStringify(document) stringByAppendingString:@"\n"], 0600, NULL);
+    NSString *error = nil;
+    if (!CCPetsWriteFileAtomically(EnabledFlagPath(), [CCPetsJSONStringify(document) stringByAppendingString:@"\n"], 0600, &error))
+        [NSException raise:@"CCBridgeConfig" format:@"%@", error ?: @"Could not save bridge settings"];
 }
 
 void CCBridgeWriteCLILocator(void) {
@@ -247,6 +251,17 @@ static NSArray<NSString *> *ListJSON(NSString *directory) {
     return [names sortedArrayUsingSelector:@selector(compare:)];
 }
 
+static NSString *WaitForLock(NSString *name) {
+    // hook 有执行时限；锁繁忙时明确失败，不能无锁继续覆盖状态。
+    for (NSUInteger attempt = 0; attempt < 200; attempt++) {
+        NSString *lock = CCBridgeAcquireLock(name);
+        if (lock) return lock;
+        usleep(10000);
+    }
+    [NSException raise:@"CCBridgeLock" format:@"Timed out waiting for bridge lock: %@", name];
+    return nil;
+}
+
 #pragma mark - 会话注册表
 
 NSString *CCBridgeSessionRef(NSString *sessionId) {
@@ -276,7 +291,27 @@ NSArray<NSDictionary *> *CCBridgeListSessions(void) {
 
 void CCBridgeRemoveSession(id sessionId) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
-    if (safe) unlink(SessionFile(safe).fileSystemRepresentation);
+    if (!safe) return;
+    NSString *lock = WaitForLock(@"sessions");
+    @try { unlink(SessionFile(safe).fileSystemRepresentation); }
+    @finally { CCBridgeReleaseLock(lock); }
+}
+
+void CCBridgeRemoveSessionIfOffline(id sessionId) {
+    NSString *safe = CCBridgeSafeSessionId(sessionId);
+    if (!safe) return;
+    NSString *lock = WaitForLock(@"sessions");
+    @try {
+        if (!CCBridgeSessionLive(CCBridgeReadSession(safe))) unlink(SessionFile(safe).fileSystemRepresentation);
+    } @finally { CCBridgeReleaseLock(lock); }
+}
+
+static NSArray<NSDictionary *> *RegisteredLiveSessions(void) {
+    NSMutableArray *sessions = [NSMutableArray array];
+    for (NSDictionary *session in CCBridgeListSessions()) {
+        if (CCBridgeSessionLive(session)) [sessions addObject:session];
+    }
+    return sessions;
 }
 
 // 小写，连续的非 [a-z0-9] 合并成 -，截到 limit 后去掉首尾的 -；结果可能为空。
@@ -350,8 +385,9 @@ static NSString *AllocateName(NSString *provider, NSString *profileName, NSStrin
 static NSString *AllocateCustomName(NSString *name, NSString *sessionId, NSArray<NSDictionary *> *liveSessions) {
     if (!NameTakenBy(name, sessionId, liveSessions)) return name;
     for (NSUInteger index = 2; ; index++) {
-        NSString *candidate = [NSString stringWithFormat:@"%@-%lu", name, (unsigned long)index];
-        if (candidate.length > 40) candidate = [candidate substringToIndex:40];
+        NSString *suffix = [NSString stringWithFormat:@"-%lu", (unsigned long)index];
+        NSString *base = [name substringToIndex:MIN(name.length, 40 - suffix.length)];
+        NSString *candidate = [base stringByAppendingString:suffix];
         if (!NameTakenBy(candidate, sessionId, liveSessions)) return candidate;
     }
 }
@@ -365,7 +401,7 @@ NSString *CCBridgeNormalizeSessionName(id value) {
     return [pattern firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] ? name : nil;
 }
 
-NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
+static NSDictionary *UpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
     NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,
     NSString *profileName, NSArray<NSDictionary *> *liveSessions) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
@@ -381,6 +417,9 @@ NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSN
     if (cwd.length > 0) record[@"cwd"] = cwd;
     if (tty.length > 0) record[@"tty"] = tty;
     if (profileID.length > 0) record[@"profileId"] = profileID;
+    NSString *home = CCPetsEnvironmentValue(@"CC_PETS_PROFILE_HOME");
+    if (home.length == 0 && [provider isEqual:@"Codex"]) home = CCPetsCodexHome();
+    if (home.length > 0) record[@"home"] = home;
     if (profileName.length > 0) record[@"profileName"] = profileName;
     if (!StringValue(record[@"name"])) {
         NSString *custom = CCBridgeNormalizeSessionName(preferredName);
@@ -394,7 +433,7 @@ NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSN
     return record;
 }
 
-NSDictionary *CCBridgeRenameSession(NSString *sessionId, NSString *requestedName, NSArray<NSDictionary *> *liveSessions) {
+static NSDictionary *RenameSession(NSString *sessionId, NSString *requestedName, NSArray<NSDictionary *> *liveSessions) {
     NSMutableDictionary *record = [CCBridgeReadSession(sessionId) mutableCopy];
     if (!record) return @{@"error": L(@"This session isn't registered yet.")};
     NSString *name = CCBridgeNormalizeSessionName(requestedName);
@@ -411,6 +450,22 @@ NSDictionary *CCBridgeRenameSession(NSString *sessionId, NSString *requestedName
     record[@"updatedAt"] = @(CCPetsMilliseconds());
     CCBridgeWriteJSON(SessionFile(record[@"session"]), record);
     return @{@"session": record, @"previous": previous};
+}
+
+NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
+    NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,
+    NSString *profileName, NSArray<NSDictionary *> *liveSessions) {
+    NSString *lock = WaitForLock(@"sessions");
+    @try {
+        return UpsertSession(sessionId, provider, pid, cwd, tty, status, preferredName, profileID,
+            profileName, CCBridgeReadSession(sessionId) ? @[] : RegisteredLiveSessions());
+    } @finally { CCBridgeReleaseLock(lock); }
+}
+
+NSDictionary *CCBridgeRenameSession(NSString *sessionId, NSString *requestedName, NSArray<NSDictionary *> *liveSessions) {
+    NSString *lock = WaitForLock(@"sessions");
+    @try { return RenameSession(sessionId, requestedName, RegisteredLiveSessions()); }
+    @finally { CCBridgeReleaseLock(lock); }
 }
 
 #pragma mark - 消息
@@ -451,12 +506,18 @@ void CCBridgeWriteReceipt(NSDictionary *message) {
 }
 
 NSDictionary *CCBridgeUpdateReceipt(NSString *messageId, NSDictionary *patch) {
-    NSMutableDictionary *next = [CCBridgeReadReceipt(messageId) mutableCopy];
-    if (!next) return nil;
-    [next addEntriesFromDictionary:patch];
-    next[@"updatedAt"] = @(CCPetsMilliseconds());
-    CCBridgeWriteReceipt(next);
-    return next;
+    if (!IsMessageId(messageId)) return nil;
+    NSString *lock = WaitForLock(@"receipts");
+    @try {
+        NSMutableDictionary *next = [CCBridgeReadReceipt(messageId) mutableCopy];
+        if (!next) return nil;
+        // 终态不能被迟到的 pending、失败回调等覆盖。
+        if ([@[@"delivered", @"expired", @"undeliverable"] containsObject:next[@"status"]]) return next;
+        [next addEntriesFromDictionary:patch];
+        next[@"updatedAt"] = @(CCPetsMilliseconds());
+        CCBridgeWriteReceipt(next);
+        return next;
+    } @finally { CCBridgeReleaseLock(lock); }
 }
 
 NSArray<NSDictionary *> *CCBridgeListReceipts(void) {
@@ -501,46 +562,91 @@ void CCBridgeEnqueueInbox(NSDictionary *message) {
         [message[@"id"] stringByAppendingString:@".json"]], message);
 }
 
+static NSString *InboxLockFile(NSString *sessionId) {
+    return [CCBridgeSubdirectory(@[@"locks"]) stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"inbox-%@.pid", sessionId]];
+}
+
+// 持有每个信箱的内核锁直到输出成功。崩溃后 claimed 保留，下次消费者会重新读取。
 NSArray<NSDictionary *> *CCBridgeClaimInbox(id sessionId) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
     if (!safe) return @[];
-    NSString *inbox = CCBridgeSubdirectory(@[@"inbox", safe]);
-    NSString *claimed = CCBridgeSubdirectory(@[@"claimed", safe]);
-    long long now = CCPetsMilliseconds();
-    NSMutableArray<NSDictionary *> *messages = [NSMutableArray array];
-    for (NSString *name in ListJSON(inbox)) {
-        NSString *source = [inbox stringByAppendingPathComponent:name];
-        NSString *destination = [claimed stringByAppendingPathComponent:name];
-        if (rename(source.fileSystemRepresentation, destination.fileSystemRepresentation) != 0) continue;
-        id message = CCBridgeReadJSON(destination);
-        unlink(destination.fileSystemRepresentation);
-        if (![message isKindOfClass:NSDictionary.class]) continue;
-        if (now - NumberValue(message[@"createdAt"]) > CCBridgeMessageTTL) {
-            CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"expired"});
-            continue;
+    NSString *lock = CCBridgeAcquireLock([@"inbox-" stringByAppendingString:safe]);
+    if (!lock) return @[];
+    @try {
+        NSString *inbox = CCBridgeSubdirectory(@[@"inbox", safe]);
+        NSString *claimed = CCBridgeSubdirectory(@[@"claimed", safe]);
+        for (NSString *name in ListJSON(inbox)) {
+            NSString *source = [inbox stringByAppendingPathComponent:name];
+            NSString *destination = [claimed stringByAppendingPathComponent:name];
+            if ([NSFileManager.defaultManager fileExistsAtPath:destination]) continue;
+            if (rename(source.fileSystemRepresentation, destination.fileSystemRepresentation) != 0 && errno != ENOENT)
+                [NSException raise:@"CCBridgeInbox" format:@"%@: %s", source, strerror(errno)];
         }
-        [messages addObject:message];
+        NSMutableArray *messages = [NSMutableArray array];
+        for (NSString *name in ListJSON(claimed)) {
+            NSString *file = [claimed stringByAppendingPathComponent:name];
+            id message = CCBridgeReadJSON(file);
+            if (![message isKindOfClass:NSDictionary.class] || !IsMessageId(message[@"id"])) continue;
+            NSString *status = CCBridgeReadReceipt(message[@"id"])[@"status"];
+            if ([@[@"delivered", @"expired", @"undeliverable"] containsObject:status ?: @""]) {
+                unlink(file.fileSystemRepresentation);
+                continue;
+            }
+            if (CCPetsMilliseconds() - NumberValue(message[@"createdAt"]) > CCBridgeMessageTTL) {
+                CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"expired"});
+                unlink(file.fileSystemRepresentation);
+                continue;
+            }
+            [messages addObject:message];
+        }
+        if (messages.count == 0) CCBridgeReleaseLock(lock);
+        return messages;
+    } @catch (NSException *exception) {
+        CCBridgeReleaseLock(lock);
+        @throw;
     }
-    return messages;
+}
+
+void CCBridgeFinishInbox(id sessionId, NSArray<NSDictionary *> *messages, NSString *transport) {
+    NSString *safe = CCBridgeSafeSessionId(sessionId);
+    if (!safe) return;
+    @try {
+        if (!transport) return; // 输出失败：保留 claimed，供下次重新投递。
+        NSString *claimed = CCBridgeSubdirectory(@[@"claimed", safe]);
+        for (NSDictionary *message in messages) {
+            NSDictionary *receipt = CCBridgeUpdateReceipt(message[@"id"],
+                @{@"status": @"delivered", @"transport": @{@"kind": transport}});
+            if (!receipt) continue;
+            unlink([claimed stringByAppendingPathComponent:[message[@"id"] stringByAppendingString:@".json"]].fileSystemRepresentation);
+        }
+    } @finally { CCBridgeReleaseLock(InboxLockFile(safe)); }
 }
 
 NSUInteger CCBridgePendingCount(id sessionId) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
-    return safe ? ListJSON(CCBridgeSubdirectory(@[@"inbox", safe])).count : 0;
+    if (!safe) return 0;
+    return ListJSON(CCBridgeSubdirectory(@[@"inbox", safe])).count +
+        ListJSON(CCBridgeSubdirectory(@[@"claimed", safe])).count;
 }
 
 void CCBridgeAbandonInbox(id sessionId) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
     if (!safe) return;
-    NSString *inbox = CCBridgeSubdirectory(@[@"inbox", safe]);
-    for (NSString *name in ListJSON(inbox)) {
-        NSString *file = [inbox stringByAppendingPathComponent:name];
-        id message = CCBridgeReadJSON(file);
-        unlink(file.fileSystemRepresentation);
-        if ([message isKindOfClass:NSDictionary.class]) {
-            CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": L(@"the target session has ended")});
+    NSString *lock = WaitForLock([@"inbox-" stringByAppendingString:safe]);
+    @try {
+        for (NSString *kind in @[@"inbox", @"claimed"]) {
+            NSString *directory = CCBridgeSubdirectory(@[kind, safe]);
+            for (NSString *name in ListJSON(directory)) {
+                NSString *file = [directory stringByAppendingPathComponent:name];
+                id message = CCBridgeReadJSON(file);
+                if ([message isKindOfClass:NSDictionary.class]) {
+                    CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": L(@"the target session has ended")});
+                }
+                unlink(file.fileSystemRepresentation);
+            }
         }
-    }
+    } @finally { CCBridgeReleaseLock(lock); }
 }
 
 // 回执保留 TTL 两倍时长，够排查问题，又不会无限增长。
@@ -592,31 +698,43 @@ NSArray<NSString *> *CCBridgeTakeIdleSubscriptions(NSString *targetSession) {
 
 #pragma mark - 锁
 
-static pid_t LockHolder(NSString *file) {
-    NSString *text = [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil];
-    return (pid_t)text.intValue;
+// 内核锁文件保持稳定 inode，PID 文件仅用于诊断；不能通过删除“陈旧锁”抢占。
+static NSMutableDictionary<NSString *, NSNumber *> *HeldLocks(void) {
+    static NSMutableDictionary *locks;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ locks = [NSMutableDictionary dictionary]; });
+    return locks;
 }
 
 NSString *CCBridgeAcquireLock(NSString *name) {
     NSString *file = [CCBridgeSubdirectory(@[@"locks"]) stringByAppendingPathComponent:[name stringByAppendingString:@".pid"]];
-    for (int attempt = 0; attempt < 2; attempt++) {
-        int descriptor = open(file.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-        if (descriptor >= 0) {
-            NSData *pid = [[NSString stringWithFormat:@"%d", getpid()] dataUsingEncoding:NSUTF8StringEncoding];
-            write(descriptor, pid.bytes, pid.length);
+    @synchronized (HeldLocks()) {
+        if (HeldLocks()[file]) return nil;
+        NSString *guard = [file stringByAppendingString:@".lock"];
+        int descriptor = open(guard.fileSystemRepresentation, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+        if (descriptor < 0) [NSException raise:@"CCBridgeLock" format:@"%@: %s", guard, strerror(errno)];
+        if (flock(descriptor, LOCK_EX | LOCK_NB) != 0) {
+            int failure = errno;
             close(descriptor);
-            return file;
+            if (failure == EWOULDBLOCK || failure == EAGAIN) return nil;
+            [NSException raise:@"CCBridgeLock" format:@"%@: %s", guard, strerror(failure)];
         }
-        if (errno != EEXIST) [NSException raise:@"CCBridgeLock" format:@"%@: %s", file, strerror(errno)];
-        pid_t holder = LockHolder(file);
-        if (holder > 0 && CCBridgeProcessAlive(holder)) return nil;
-        unlink(file.fileSystemRepresentation);
+        HeldLocks()[file] = @(descriptor);
+        [[NSString stringWithFormat:@"%d", getpid()] writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        chmod(file.fileSystemRepresentation, 0600);
+        return file;
     }
-    return nil;
 }
 
 void CCBridgeReleaseLock(NSString *lockFile) {
-    if (lockFile && LockHolder(lockFile) == getpid()) unlink(lockFile.fileSystemRepresentation);
+    if (!lockFile) return;
+    @synchronized (HeldLocks()) {
+        NSNumber *descriptor = HeldLocks()[lockFile];
+        if (!descriptor) return;
+        unlink(lockFile.fileSystemRepresentation);
+        [HeldLocks() removeObjectForKey:lockFile];
+        close(descriptor.intValue); // 包括进程异常退出，内核都会释放 flock。
+    }
 }
 
 #pragma mark - 进程探测

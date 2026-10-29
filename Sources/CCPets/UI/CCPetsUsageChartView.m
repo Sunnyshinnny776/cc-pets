@@ -161,6 +161,10 @@ static double NiceStep(double peak) {
             [rows addObject:@{@"title": part[0], @"value": CCPetsFormatTokens(Count(counts, part[1])), @"color": color}];
         }
         [rows addObject:@{@"title": L(@"Requests"), @"value": FormatCount(Count(counts, @"requests")), @"color": color}];
+        if (Count(counts, @"background") > 0) {
+            [rows addObject:@{@"title": L(@"Background (breakdown unavailable)"),
+                @"value": CCPetsFormatTokens(Count(counts, @"background")), @"color": color}];
+        }
     } else {
         NSMutableArray<NSDictionary *> *layers = [NSMutableArray array];
         for (NSDictionary *layer in self.series) {
