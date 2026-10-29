@@ -136,6 +136,75 @@ NSTextField *CCPetsWrappingLabel(NSString *text, CGFloat size, NSFontWeight weig
     return label;
 }
 
+// 原生 toolTip 的等待时间由系统决定；指标说明用独立浮层固定为 0.3 秒。
+@interface CCPetsMetricInfoView : NSImageView
+@property(nonatomic, copy) NSString *helpText;
+@property(nonatomic, strong) NSTrackingArea *hoverArea;
+@property(nonatomic, strong) NSPopover *helpPopover;
+@property(nonatomic) NSUInteger hoverGeneration;
+@end
+
+@implementation CCPetsMetricInfoView
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (self.hoverArea) [self removeTrackingArea:self.hoverArea];
+    self.hoverArea = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
+        owner:self userInfo:nil];
+    [self addTrackingArea:self.hoverArea];
+}
+- (void)hideHelp {
+    self.hoverGeneration++;
+    [self.helpPopover close];
+    self.helpPopover = nil;
+}
+- (void)windowResignedKey:(NSNotification *)notification {
+    [self hideHelp];
+}
+- (void)viewWillMoveToWindow:(NSWindow *)window {
+    [self hideHelp];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:NSWindowDidResignKeyNotification object:self.window];
+    [super viewWillMoveToWindow:window];
+    if (window) [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowResignedKey:)
+        name:NSWindowDidResignKeyNotification object:window];
+}
+- (void)mouseExited:(NSEvent *)event {
+    [self hideHelp];
+}
+- (void)mouseEntered:(NSEvent *)event {
+    NSUInteger generation = ++self.hoverGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        CCPetsMetricInfoView *view = weakSelf;
+        if (!view || view.hoverGeneration != generation || !view.window.isKeyWindow ||
+            view.isHiddenOrHasHiddenAncestor || !view.helpText.length) return;
+        NSPoint point = [view convertPoint:view.window.mouseLocationOutsideOfEventStream fromView:nil];
+        if (!NSPointInRect(point, view.bounds)) return;
+        NSTextField *label = CCPetsWrappingLabel(view.helpText, 12, NSFontWeightRegular, CCPetsInkColor());
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+        NSViewController *controller = [NSViewController new];
+        controller.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 280, 64)];
+        [controller.view addSubview:label];
+        [NSLayoutConstraint activateConstraints:@[
+            [label.leadingAnchor constraintEqualToAnchor:controller.view.leadingAnchor constant:12],
+            [label.trailingAnchor constraintEqualToAnchor:controller.view.trailingAnchor constant:-12],
+            [label.topAnchor constraintEqualToAnchor:controller.view.topAnchor constant:10],
+            [label.bottomAnchor constraintEqualToAnchor:controller.view.bottomAnchor constant:-10],
+        ]];
+        NSPopover *popover = [NSPopover new];
+        popover.contentViewController = controller;
+        popover.behavior = NSPopoverBehaviorTransient;
+        popover.animates = NO;
+        view.helpPopover = popover;
+        [popover showRelativeToRect:view.bounds ofView:view preferredEdge:NSRectEdgeMaxY];
+    });
+}
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_helpPopover close];
+}
+@end
+
 NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
     NSMutableArray<NSView *> *cells = [NSMutableArray array];
     for (NSArray<NSString *> *item in items) {
@@ -145,12 +214,13 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
             NSFontWeightRegular, CCPetsTertiaryInkColor());
         NSView *heading = title;
         if (item.count > 3 && item[3].length > 0) {
-            NSImageView *icon = [NSImageView imageViewWithImage:
-                [NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:item[3]]];
+            CCPetsMetricInfoView *icon = [CCPetsMetricInfoView new];
+            icon.image = [NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:item[3]];
             icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:10
                 weight:NSFontWeightRegular];
             icon.contentTintColor = CCPetsTertiaryInkColor();
-            icon.toolTip = item[3];
+            icon.helpText = item[3];
+            icon.accessibilityHelp = item[3];
             [icon setContentHuggingPriority:NSLayoutPriorityRequired
                 forOrientation:NSLayoutConstraintOrientationHorizontal];
             NSStackView *line = [NSStackView stackViewWithViews:@[title, icon]];

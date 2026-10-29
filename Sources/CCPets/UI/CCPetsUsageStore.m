@@ -42,7 +42,7 @@ static NSDictionary *MergeModelUsageResults(NSArray<NSDictionary *> *values) {
                 NSMutableDictionary *counts = models[model];
                 if (!counts) { counts = [NSMutableDictionary dictionary]; models[model] = counts; }
                 NSDictionary *incoming = day[@"models"][model];
-                for (NSString *key in @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests"]) {
+                for (NSString *key in @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests", @"background"]) {
                     counts[key] = @(Count(counts, key) + Count(incoming, key));
                 }
             }
@@ -55,7 +55,7 @@ static NSDictionary *MergeModelUsageResults(NSArray<NSDictionary *> *values) {
         for (NSString *model in models) {
             NSMutableDictionary *sum = totals[model];
             if (!sum) { sum = [NSMutableDictionary dictionary]; totals[model] = sum; }
-            for (NSString *key in @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests"]) {
+            for (NSString *key in @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests", @"background"]) {
                 sum[key] = @(Count(sum, key) + Count(models[model], key));
             }
         }

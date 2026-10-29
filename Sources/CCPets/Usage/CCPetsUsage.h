@@ -44,7 +44,8 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 //   models: @{模型名: counts}   区间合计
 //   daily:  @[@{timestamp: 日零点, models: @{模型名: counts}}]   每天一项，没数据的天 models 为空
 // counts 的键：input（非缓存输入）/ cacheRead / cacheWrite / output / reasoning（output 的子集）/
-// requests。四栏 input + cacheRead + cacheWrite + output 互不重叠，等于总 Token。
+// requests / background（后台请求的总 Token，缺少分类明细）。
+// input + cacheRead + cacheWrite + output + background 互不重叠，等于总 Token。
 // 用自己的缓存和按日归档（Claude Code 默认约 30 天后清理转录，归档里留得更久），
 // 不碰桌宠悬停面板用的那套缓存。
 // 每次调用都会把缓存清理到只剩 [start, end) 涉及的会话文件，所以调用方应固定用同一个最长区间，
@@ -52,6 +53,6 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 NSDictionary *CCPetsModelUsage(NSString *provider, NSTimeInterval start, NSTimeInterval end);
 NSDictionary *CCPetsModelUsageAtHome(NSString *provider, NSString *home,
     NSTimeInterval start, NSTimeInterval end);
-// 一份 counts 的总 Token = input + cacheRead + cacheWrite + output（reasoning 是 output 的子集，不另加）。
+// 总 Token = input + cacheRead + cacheWrite + output + background（reasoning 不另加）。
 // 数据层归档取大和 UI 的合计共用这一个口径。
 unsigned long long CCPetsTotalTokens(NSDictionary *counts);

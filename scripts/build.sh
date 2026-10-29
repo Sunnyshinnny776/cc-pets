@@ -45,6 +45,7 @@ CLANG_MODULE_CACHE_PATH="${CACHE_DIR}" clang \
   -framework IOKit \
   -framework QuartzCore \
   -framework UserNotifications \
+  -lsqlite3 \
   "${SOURCES[@]}" \
   -o "${BUILD_DIR}/cc-pets"
 
