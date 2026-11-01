@@ -802,6 +802,15 @@ static const NSUInteger PetPickerColumns = 4;
             subtitle:L(@"Only this window; the pet's panels follow Panel Appearance below") controls:@[appearance]],
     ] footer:nil];
 
+    [self.form addGroupWithTitle:L(@"Launch Protection") rows:@[
+        [self switchRowWithTitle:@"Shadowrocket"
+            subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or DNS / HTTPS checks fail")
+            key:CCPetsShadowrocketLaunchCheckKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
+                CCPetsPrefSetBool(CCPetsShadowrocketLaunchCheckKey, enabled);
+            }],
+    ] footer:L(@"Off by default. Applies to launches through CC Pets wrappers. Checks official service domains; does not validate your account or API key.")];
+
     // 浮层外观：两张主题卡片 + 玻璃压暗滑块。
     [self.form addGroupTitle:L(@"Panel Appearance") note:nil];
     CCPetsTileView *classic = [self themeTileLiquid:NO];

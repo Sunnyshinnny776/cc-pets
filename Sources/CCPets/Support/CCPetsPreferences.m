@@ -10,6 +10,25 @@ NSString *const PetInteractionEnabledKey = @"CCPetsInteractionEnabled";
 NSString *const PetInteractionHeartThresholdKey = @"CCPetsInteractionHeartThreshold";
 NSString *const PetInteractionAnnoyedThresholdKey = @"CCPetsInteractionAnnoyedThreshold";
 NSString *const PetInteractionIntervalKey = @"CCPetsInteractionInterval";
+NSString *const CCPetsShadowrocketLaunchCheckKey = @"CCPetsLaunchProtection.Shadowrocket";
+
+// 包装器运行的是裸二进制，默认 preferences domain 与 App bundle 不同。
+// 启动保护的读取和写入统一走 CFPreferences 的同一个域、用户和主机。
+// 不混用临时 suite 的写入与 standardUserDefaults 的快照回读，避免控件刷新后弹回关闭。
+static NSString *LaunchPreferencesDomain(void) {
+    NSString *domain = NSProcessInfo.processInfo.environment[@"CC_PETS_PREFERENCES_DOMAIN"];
+    return domain.length ? domain : @"com.universewang.cc-pets";
+}
+
+static BOOL IsLaunchProtectionKey(NSString *key) {
+    return [key hasPrefix:@"CCPetsLaunchProtection."];
+}
+
+static id LaunchProtectionValue(NSString *key) {
+    return CFBridgingRelease(CFPreferencesCopyValue((__bridge CFStringRef)key,
+        (__bridge CFStringRef)LaunchPreferencesDomain(),
+        kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
+}
 
 // 没有注册默认值、缺省又是开启的键。碎碎念从第一版起就是"读不到就算开"，
 // 改成 registerDefaults 的话 CLI 子命令（没走 applicationDidFinishLaunching）会读成关。
@@ -18,7 +37,13 @@ static BOOL DefaultsToEnabled(NSString *key) {
 }
 
 BOOL CCPetsPrefBool(NSString *key) {
-    id value = [NSUserDefaults.standardUserDefaults objectForKey:key];
+    id value = IsLaunchProtectionKey(key)
+        ? LaunchProtectionValue(key)
+        : [NSUserDefaults.standardUserDefaults objectForKey:key];
+    // 兼容第一版总开关；一旦保存了 Shadowrocket 的独立开关（包括关闭），就以新值为准。
+    if (value == nil && [key isEqualToString:CCPetsShadowrocketLaunchCheckKey]) {
+        value = LaunchProtectionValue(@"CCPetsLaunchProxyCheck");
+    }
     if (value == nil) return DefaultsToEnabled(key);
     return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : NO;
 }
@@ -33,7 +58,14 @@ void CCPetsPrefPostChange(NSString *key) {
 void CCPetsPrefSetBool(NSString *key, BOOL value) {
     if (key.length == 0) return;
     BOOL changed = CCPetsPrefBool(key) != value;
-    [NSUserDefaults.standardUserDefaults setBool:value forKey:key];
+    if (IsLaunchProtectionKey(key)) {
+        CFStringRef domain = (__bridge CFStringRef)LaunchPreferencesDomain();
+        CFPreferencesSetValue((__bridge CFStringRef)key, value ? kCFBooleanTrue : kCFBooleanFalse,
+            domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+        CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    } else {
+        [NSUserDefaults.standardUserDefaults setBool:value forKey:key];
+    }
     if (changed) CCPetsPrefPostChange(key);
 }
 

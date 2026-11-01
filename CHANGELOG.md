@@ -14,6 +14,12 @@ truth for the version.
 - Serialize session updates and renaming, use kernel-backed watcher locks, and preserve numeric suffixes when allocating duplicate 40-character session names.
 - Recheck enabled and auto-wake settings in running watchers, reject CLI mutations while disabled, and report integration removal failures with a nonzero exit code while keeping the runtime disabled.
 - Use the recipient's Codex Home for queue delivery, recognize literal bracketed file paths such as `[id]` in reservation checks, and preserve account and sender IDs for Bridge activity display.
+- Shorten the cross-session message envelope to a source line, a one-line permission notice and a reply address that includes the sender's ref. MCP instructions now ask the receiving session to reply to the originating session with `send_message` when it needs clarification or finishes the request.
+
+### Launch protection
+
+- Added an optional Shadowrocket launch check under **Main menu → Settings → Launch Protection** (off by default). Before registering a session or sending a starting event, the `claude-with-pet` / `codex-with-pet` wrappers require a connected Shadowrocket VPN, system DNS resolution and HTTPS reachability (Claude: `api.anthropic.com`; Codex: `api.openai.com` and `chatgpt.com`). Failures print the reason and exit nonzero.
+- Probes use no account credentials, verify TLS certificates, ignore `~/.curlrc` and inherit terminal proxy variables. HTTP 4xx counts as reachable; 5xx, DNS, connection, TLS and timeout failures block launch. Routing rules, custom endpoints and third-party API gateways are not validated, and launches that bypass the wrappers are not checked.
 
 ### Quota and interface
 

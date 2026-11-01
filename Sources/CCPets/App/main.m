@@ -17,6 +17,7 @@
 #import "CCPetsCLISupport.h"
 #import "CCPetsTerminalFocus.h"
 #import "CCPetsProfiles.h"
+#import "CCPetsLaunchPreflight.h"
 #import <sys/file.h>
 #import <sys/stat.h>
 #import <fcntl.h>
@@ -26,6 +27,9 @@ int main(int argc, const char *argv[]) {
     @autoreleasepool {
         // 下面这些都是命令行入口，输出语言跟终端走；真正启动桌宠前再切回 App 的语言规则。
         CCPetsUseCommandLineLanguage(YES);
+        if (argc > 1 && strcmp(argv[1], "--launch-preflight") == 0) {
+            return CCPetsLaunchPreflight(argc == 3 ? @(argv[2]) : @"");
+        }
         if (argc > 1 && (strcmp(argv[1], "doctor") == 0 || strcmp(argv[1], "paths") == 0)) {
             NSMutableArray<NSString *> *arguments = [NSMutableArray array];
             for (int index = 1; index < argc; index++) [arguments addObject:@(argv[index])];

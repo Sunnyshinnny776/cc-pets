@@ -2000,11 +2000,12 @@ for invocation expected in Claude real-claude CLAUDE real-claude claude real-cla
   run_tmp="${SHIM_TMP}/run-${shim_case_index}"
   mkdir -p "${run_tmp}"
   # 逻辑写反时表现是无限 exec 自己（不是 fork bomb，但会永久挂住），必须限时。
+  # 只捕获 stdout 来校验真实 CLI 输出；启动检查的 stderr 提示保留在终端。
   env PATH="${SHIM_TMP}/shims:${SHIM_TMP}/bin:${PATH}" \
     CC_PETS_SHIM_DIR="${SHIM_TMP}/shims" TMPDIR="${run_tmp}/" \
     CC_PETS_STATE_DIR="${run_tmp}/state" CODEX_HOME="${run_tmp}/codex-home" \
     CC_PETS_APPLICATIONS_DIR="${SHIM_TMP}/Applications" \
-    zsh -c "${invocation} --version" > "${run_tmp}/out.txt" 2>&1 &
+    zsh -c "${invocation} --version" > "${run_tmp}/out.txt" &
   shim_pid=$!
   for _ in {1..100}; do
     kill -0 "${shim_pid}" 2>/dev/null || break

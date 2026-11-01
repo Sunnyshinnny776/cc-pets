@@ -156,6 +156,26 @@ Bridge is already enabled, its Hooks, permissions, and MCP registration are also
 configured immediately; otherwise they are added automatically when CC Bridge is
 enabled later.
 
+## Shadowrocket launch check
+
+Enable **Main menu → Settings → Launch Protection → Shadowrocket** (off by default).
+Each proxy app has its own preference; Shadowrocket is the first supported option.
+CC Pets wrappers require a connected Shadowrocket VPN, successful
+system DNS resolution and HTTPS connectivity before starting Claude / Codex. Failures
+print a reason and return a nonzero exit code before registering a session or sending
+a starting event. Disabling the option skips all network checks.
+
+Claude checks `api.anthropic.com`; Codex checks `api.openai.com` and `chatgpt.com`.
+Each hostname has a 4-second DNS budget and an 8-second HTTPS budget. Probes use no
+account credentials, verify TLS certificates and inherit terminal proxy variables.
+HTTP 4xx responses establish connectivity only; they do not validate account access.
+HTTP 5xx, DNS, connection, TLS and timeout failures block launch.
+
+This first version recognizes the Shadowrocket VPN configuration, not just its running
+process. It does not verify individual routing rules or read custom endpoints / proxy
+settings from CLI configuration files. Official-domain checks do not validate third-party
+API gateways. Launches using original CLI binaries or desktop clients bypass this check.
+
 ## CC Bridge
 
 [CC Bridge](./CC_BRIDGE.md) is optional and off by default. It lets local Claude Code
