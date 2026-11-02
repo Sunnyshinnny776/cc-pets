@@ -35,6 +35,8 @@
     "Resources/Info.plist",
     "Resources/AppIcon.icns",
     "Resources/AgentIcons",
+    "Resources/IDEPlugins",
+    "plugins/jetbrains",
     "Resources/phrases.default.*.txt",
     "Resources/*.lproj/*",
     "Sources/CCPets",

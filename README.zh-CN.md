@@ -96,6 +96,16 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 
 ## 互动方式
 
+### JetBrains IDE 终端跳转
+
+基于 IntelliJ 平台的 JetBrains IDE（IDEA、PyCharm、WebStorm、GoLand、CLion、PhpStorm、RubyMine、Rider 等）
+2026.2 / 2026.3 的本地 Reworked 终端可通过 **CC Pets Terminal** 插件精确跳转。
+在桌宠「设置 → 通用 → 终端跳转」中，每个检测到的 IDE 一行，点「安装」确认后插件会写入该 IDE 的插件目录；
+IDE 正在运行时重启即可加载，打开项目后自动连接，无需配置端口。随 CC Pets 带来新版插件时，该行会显示「更新」。
+自定义了插件目录（`idea.plugins.path`）的 IDE 退回手动安装：Settings → Plugins → ⚙ → Install Plugin from Disk。
+每个 IDE 以及稳定版与 EAP 的插件相互独立；Classic 和远程终端暂不支持。
+详细安装、构建和本机通信说明见 [插件说明](plugins/jetbrains/README.md)。
+
 ### Agent 工作状态
 
 | Agent 事件 | 桌宠反馈 |

@@ -61,6 +61,10 @@ fi
 mkdir -p "${BUILD_DIR}/AgentIcons" "${APP_RESOURCES_DIR}/AgentIcons"
 cp "${PROJECT_DIR}"/Resources/AgentIcons/* "${BUILD_DIR}/AgentIcons/"
 cp "${PROJECT_DIR}"/Resources/AgentIcons/* "${APP_RESOURCES_DIR}/AgentIcons/"
+# 离线 IDEA 插件随 App 和裸二进制分发；普通安装不需要 Java 或 IDEA SDK。
+mkdir -p "${BUILD_DIR}/IDEPlugins" "${APP_RESOURCES_DIR}/IDEPlugins"
+cp "${PROJECT_DIR}/Resources/IDEPlugins/cc-pets-terminal.zip" "${BUILD_DIR}/IDEPlugins/"
+cp "${PROJECT_DIR}/Resources/IDEPlugins/cc-pets-terminal.zip" "${APP_RESOURCES_DIR}/IDEPlugins/"
 # 默认台词。代码里不再留内置词库，这个文件就是默认台词的唯一来源，
 # 首次启动时被拷到 ~/.cc-pets/phrases.txt。
 # 裸二进制旁边也放一份：直接跑 .build/release/cc-pets 时没有 app bundle。

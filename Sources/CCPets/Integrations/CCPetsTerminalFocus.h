@@ -16,7 +16,8 @@ BOOL RegisterCodexLaunchForProcess(pid_t pid, NSString *cwd, NSDictionary *termi
     NSTimeInterval launchedAt);
 NSDictionary *CodexLaunchTerminalForThread(NSString *thread, NSDictionary *payload);
 
-// Terminal / iTerm2 按 TTY 精确选中 tab/session；其他终端在无扩展模式下激活应用。
+// Terminal / iTerm2 / Ghostty 按 TTY 精确选择；JetBrains IDE 通过插件异步聚焦。
+// YES 表示已执行或已交给 JetBrains 插件处理，其他终端在无扩展模式下激活应用。
 BOOL ActivateTerminalFocusTarget(NSDictionary *target);
 
 // 回跳目标的候选 bundle ID，按优先级排列，已去重去空。

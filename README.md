@@ -231,6 +231,21 @@ Commit the bilingual `docs/release-notes-vX.Y.Z.md` before tagging; follow the
 
 ## Agent integration
 
+### JetBrains IDE terminal jump
+
+Local Reworked terminals in IntelliJ-based IDEs 2026.2 / 2026.3 (IntelliJ IDEA,
+PyCharm, WebStorm, GoLand, CLion, PhpStorm, RubyMine, Rider, etc.) support exact tab selection through
+the **CC Pets Terminal** plugin. Open **Settings → General → Terminal Jump** in CC Pets:
+each detected IDE has its own row, and **Install** writes the bundled plugin into that IDE's
+plugin folder after you confirm. Restart the IDE if it was running, then open a project to
+connect automatically; no port configuration is needed. When a newer plugin ships with
+CC Pets, the row offers **Update**. IDEs with a customized plugin folder (`idea.plugins.path`)
+fall back to **Settings → Plugins → ⚙ → Install Plugin from Disk**. Each IDE, stable and EAP
+build keeps its own plugins. Classic and remote terminals are not supported yet.
+See [plugin details](plugins/jetbrains/README.md) for installation and build instructions.
+
+### Codex and Claude hooks
+
 Codex Hooks and Claude Code Hooks drive the pet's agent-state animations. After a
 first installation or a Codex Hook update, start Codex and run `/hooks` to review
 and trust the CC Pets Hook. Codex skips untrusted user hooks.

@@ -1,0 +1,23 @@
+<idea-plugin>
+  <id>com.ccpets.terminal</id>
+  <name>CC Pets Terminal</name>
+  <version>1.0.5</version>
+  <vendor url="https://github.com/Sunnyshinnny776/cc-pets">CC Pets</vendor>
+  <description><![CDATA[
+    Jump from a CC Pets agent card to its JetBrains IDE terminal tab.
+    Supports local Reworked terminals on macOS in IntelliJ-based IDEs 2026.2 and 2026.3
+    (IntelliJ IDEA, PyCharm, WebStorm, GoLand, CLion, PhpStorm, RubyMine, Rider, etc.).
+    Connects automatically to CC Pets over authenticated localhost communication.
+    Does not read terminal output or execute shell commands in your sessions.
+  ]]></description>
+  <idea-version since-build="262" until-build="263.*"/>
+  <depends>com.intellij.modules.platform</depends>
+  <depends>org.jetbrains.plugins.terminal</depends>
+  <extensions defaultExtensionNs="com.intellij">
+    <applicationService serviceImplementation="com.ccpets.terminal.TerminalBridge"/>
+    <postStartupActivity implementation="com.ccpets.terminal.TerminalStartup"/>
+  </extensions>
+  <extensions defaultExtensionNs="org.jetbrains.plugins.terminal">
+    <localTerminalCustomizer implementation="com.ccpets.terminal.TerminalIdentity"/>
+  </extensions>
+</idea-plugin>
