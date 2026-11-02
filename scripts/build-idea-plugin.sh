@@ -72,7 +72,7 @@ mkdir -p "${PLUGIN_BUILD_DIR}/classes/META-INF" "${PLUGIN_BUILD_DIR}/distributio
   -d "${PLUGIN_BUILD_DIR}/classes" \
   -classpath "${(j.:.)PLUGIN_JARS}" \
   "${PLUGIN_SOURCES[@]}"
-cp "${PLUGIN_SOURCE_DIR}/resources/META-INF/plugin.xml" "${PLUGIN_BUILD_DIR}/classes/META-INF/"
+cp -R "${PLUGIN_SOURCE_DIR}/resources/." "${PLUGIN_BUILD_DIR}/classes/"
 
 # Only archive files, in sorted order, with fixed timestamps and permissions.
 # This keeps repeated builds reproducible without Python or a jar launcher.
