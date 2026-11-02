@@ -896,22 +896,35 @@
 
 /* 启动前代理检查 */
 "Launch Protection" = "启动保护";
-"Block Claude / Codex when Shadowrocket is disconnected or DNS / HTTPS checks fail" = "Shadowrocket 未连接，或 DNS / HTTPS 检查失败时，阻止启动 Claude / Codex";
-"Off by default. Applies to launches through CC Pets wrappers. Checks official service domains; does not validate your account or API key." = "默认关闭，仅对通过 CC Pets 包装器的启动生效。检查官方服务域名，不验证账号或 API 密钥。";
+"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region" = "Shadowrocket 未连接，或出口为不支持的地区时，阻止启动 Claude / Codex";
+"Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key." = "默认关闭。通过 CC Pets 包装器分别检查各服务的出口 IP 和地区，不验证账号或 API 密钥。";
 "CC Pets blocked {provider}: {reason}" = "CC Pets 已阻止启动 {provider}：{reason}";
-"Connect Shadowrocket and check its node / DNS settings, then retry. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接小火箭并检查节点和 DNS 设置，然后重试。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
+"Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接小火箭，选择中国大陆和香港以外的出口，并检查分流及 DNS 设置。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
 "Unable to read the system VPN status." = "无法读取系统 VPN 状态。";
 "Shadowrocket is not connected. Opening the app alone is not enough." = "小火箭尚未连接，仅打开应用不代表代理已开启。";
 "No Shadowrocket VPN configuration was found." = "未找到小火箭的 VPN 配置。";
 "Launch check expects claude or codex." = "启动检查需要指定 claude 或 codex。";
-"CC Pets: checking Shadowrocket Proxy Status ..." = "CC Pets：正在检查Shadowrocket代理状态 ...";
-"DNS lookup failed or timed out for {host}." = "{host} 的 DNS 解析失败或超时。";
+"CC Pets: checking Shadowrocket and service exit regions ..." = "CC Pets：正在检查 Shadowrocket 连接状态及服务出口地区 ...";
 "The proxy or service hostname could not be resolved." = "无法解析代理或服务域名。";
-"The HTTPS connection timed out." = "HTTPS 连接超时。";
 "TLS negotiation or certificate verification failed." = "TLS 握手或证书校验失败。";
-"The service or proxy returned a server error." = "服务或代理返回服务器错误。";
-"Unable to establish an HTTPS connection." = "无法建立 HTTPS 连接。";
 "{host}: {detail}" = "{host}：{detail}";
+"Unable to read the CLI network configuration." = "无法读取 CLI 的网络配置。";
+"CLI arguments or project network overrides cannot be verified by this exit check." = "当前命令行参数或项目网络覆盖配置无法由出口检查可靠验证，请使用用户级网络配置或关闭启动保护。";
+"Unable to determine the CLI endpoint from its network configuration." = "无法从网络配置中可靠确定 CLI 的服务地址，未使用其他域名代替检查。";
+"The exit check requires an HTTPS endpoint without embedded credentials." = "出口检查需要不含内嵌账号凭据的 HTTPS 服务地址。";
+"Exit checks for this cloud provider are not supported. No official-domain fallback was used." = "暂不支持该云服务商的出口检查，未使用官方域名代替检查。";
+"Codex login mode is unknown; checking both ChatGPT and OpenAI API exits." = "无法确定 Codex 登录模式，将同时检查 ChatGPT 和 OpenAI API 的出口。";
+"The exit-check process exceeded its 16s limit." = "出口检测进程超过 16 秒保护时限，已终止。";
+"The exit request timed out; connection timing is unavailable." = "出口请求超时，未取得连接阶段耗时。";
+"Connection timed out before HTTPS was ready (DNS / TCP / TLS; 8s limit)." = "HTTPS 连接建立前超时（DNS / TCP / TLS 阶段，连接时限 8 秒）。";
+"HTTPS connected, but the response did not complete within the 15s request limit." = "HTTPS 已连接，但响应未在请求总时限 15 秒内完成。";
+"The exit-region endpoint returned HTTP {status}; the exit region could not be confirmed." = "出口检测地址返回 HTTP {status}，无法确认出口地区。";
+"The exit-region request failed; the exit region could not be confirmed." = "出口检测请求失败，无法确认出口地区。";
+"No valid exit IP / region was returned." = "未返回有效的出口 IP 或地区。";
+"Attempt {attempt}/{max}; elapsed {elapsed}s; curl={code}; HTTP={http}; DNS={dns}s, TCP={tcp}s, TLS={tls}s, first byte={first}s, request={total}s (cumulative timings)." = "第 {attempt}/{max} 次尝试，耗时 {elapsed} 秒；curl={code}，HTTP={http}；DNS={dns} 秒，TCP={tcp} 秒，TLS={tls} 秒，首字节={first} 秒，请求={total} 秒（各阶段为累计耗时）。";
+"CC Pets: {host}: {detail} Retrying in 1s (attempt 2/2)." = "CC Pets：{host}：{detail} 将在 1 秒后重试（第 2/2 次）。";
+"{host}: exit {ip} ({region}) is in mainland China / Hong Kong." = "{host}：出口 {ip}（{region}）位于中国大陆或香港。";
+"CC Pets: {host} exit {ip} ({region}) passed." = "CC Pets：{host} 出口 {ip}（{region}）检查通过。";
 
 // Terminal jump (Terminal / iTerm2 / Ghostty / JetBrains)
 "Done" = "完成";

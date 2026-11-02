@@ -7,6 +7,10 @@ truth for the version.
 
 ## [Unreleased]
 
+### Build reliability
+
+- Replace cached and uncached executables atomically after signing and verification, including the App's executable. This fixes macOS signature-related termination after in-place overwrites that could break Hooks, CLI launch and tests. Builds now check CLI execution before reporting success; early test failures report their phase, location and exit status.
+
 ### CC Bridge
 
 - Validate explicit session IDs before PID lookup and reject ambiguous shared-host identities instead of selecting the most recently active session. This protects messaging, renaming, inbox access and file reservations.
@@ -18,8 +22,9 @@ truth for the version.
 
 ### Launch protection
 
-- Added an optional Shadowrocket launch check under **Main menu → Settings → Launch Protection** (off by default). Before registering a session or sending a starting event, the `claude-with-pet` / `codex-with-pet` wrappers require a connected Shadowrocket VPN, system DNS resolution and HTTPS reachability (Claude: `api.anthropic.com`; Codex: `api.openai.com` and `chatgpt.com`). Failures print the reason and exit nonzero.
-- Probes use no account credentials, verify TLS certificates, ignore `~/.curlrc` and inherit terminal proxy variables. HTTP 4xx counts as reachable; 5xx, DNS, connection, TLS and timeout failures block launch. Routing rules, custom endpoints and third-party API gateways are not validated, and launches that bypass the wrappers are not checked.
+- Added an optional Shadowrocket launch check under **Main menu → Settings → Launch Protection** (off by default). Before registering a session or sending a starting event, wrappers verify the VPN connection and request each service's `/cdn-cgi/trace`. Mainland China (CN), Hong Kong (HK), unknown exits and failed requests block launch; successful checks show the exit IP and region.
+- Claude defaults to `api.anthropic.com`; Codex selects `chatgpt.com` or `api.openai.com` from its `auth.json` login mode, checking both when unknown. Common user-level endpoint settings are supported; custom endpoints must return valid trace data, with no unrelated-domain fallback. Removed separate DNS / homepage HEAD probes. Requests send no account credentials, verify TLS, ignore `~/.curlrc` and do not follow redirects. See README for complex configuration, project override and cloud-provider limitations. Launches bypassing wrappers are not checked.
+- Exit checks allow 8 seconds to connect and 15 seconds per request, with a 16-second process watchdog. Temporary transport failures and HTTP 502 / 503 / 504 retry once after 1 second. Failures report the timeout phase, attempt count and cumulative connection timings. Wrapper tests use a fresh preferences domain per run, keeping real VPN settings and network probes out of ordinary tests while preserving compile caching and phase timing.
 
 ### Quota and interface
 

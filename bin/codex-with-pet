@@ -36,7 +36,7 @@ if [[ ! -x "${PET_BIN}" || ! -d "${BUILD_APP}" ]]; then
 fi
 
 PET_APP="${BUILD_APP}"
-"${PET_BIN}" --launch-preflight codex || exit $?
+"${PET_BIN}" --launch-preflight codex "$@" || exit $?
 
 if [[ -d "${INSTALLED_APP}" ]]; then
   PET_APP="${INSTALLED_APP}"

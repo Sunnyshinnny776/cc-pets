@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
 #import "CCPetsTerminalFocus.h"
+#import <sqlite3.h>
+#import <math.h>
 
 // 回跳目标的身份来自两处：TERM_PROGRAM 的映射值，和包装脚本捕获的 bundleID。
 // 谁优先不是风格问题——选错了点状态卡片就完全没有反应：
@@ -67,6 +69,32 @@ static void WriteRollout(NSString *codexHome, NSString *thread, NSString *cwd, N
         [NSString stringWithFormat:@"rollout-2026-09-30T00-00-00-%@.jsonl", thread]] atomically:YES];
 }
 
+// 多客户端配对需要真实格式的就绪元数据，只有 rollout 创建时间不能确定所属 PID。
+static BOOL WriteReadyLog(NSString *codexHome, pid_t pid, NSTimeInterval readyAt) {
+    NSString *path = [codexHome stringByAppendingPathComponent:@"logs_2.sqlite"];
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    BOOL ok = sqlite3_open(path.fileSystemRepresentation, &database) == SQLITE_OK;
+    if (ok) ok = sqlite3_exec(database,
+        "CREATE TABLE IF NOT EXISTS logs (ts INTEGER, ts_nanos INTEGER, process_uuid TEXT, "
+        "target TEXT, feedback_log_body TEXT)", NULL, NULL, NULL) == SQLITE_OK;
+    if (ok) ok = sqlite3_prepare_v2(database,
+        "INSERT INTO logs VALUES (?, ?, ?, 'codex_tui::app::startup', 'tui startup initial frame scheduled')",
+        -1, &statement, NULL) == SQLITE_OK;
+    if (ok) {
+        sqlite3_int64 seconds = (sqlite3_int64)floor(readyAt);
+        NSString *process = [NSString stringWithFormat:@"pid:%d:fixture", pid];
+        sqlite3_bind_int64(statement, 1, seconds);
+        sqlite3_bind_int64(statement, 2, (sqlite3_int64)llround((readyAt - seconds) * 1e9));
+        sqlite3_bind_text(statement, 3, process.UTF8String, -1, SQLITE_TRANSIENT);
+        ok = sqlite3_step(statement) == SQLITE_DONE;
+    }
+    if (!ok) NSLog(@"无法写入测试用 TUI 就绪日志：%s", database ? sqlite3_errmsg(database) : "open failed");
+    if (statement) sqlite3_finalize(statement);
+    if (database) sqlite3_close(database);
+    return ok;
+}
+
 static BOOL ExpectTTY(NSString *name, NSString *thread, NSDictionary *payload, NSString *expected) {
     NSString *actual = CodexLaunchTerminalForThread(thread, payload)[@"tty"];
     if ((expected == nil && actual == nil) || [actual isEqualToString:expected]) return YES;
@@ -82,7 +110,9 @@ static BOOL CheckCodexLaunchPairing(void) {
     setenv("CC_PETS_STATE_DIR", [root stringByAppendingPathComponent:@"state"].UTF8String, 1);
     setenv("CC_PETS_CODEX_HOME", codexHome.UTF8String, 1);
     NSTask *first = SleepingProcess(), *second = SleepingProcess(), *third = SleepingProcess();
-    NSTimeInterval t = NSDate.date.timeIntervalSince1970 - 100;
+    // 就绪时间必须晚于真实子进程的创建时间，否则应被 PID 复用保护拒绝。
+    // 后续时间是模拟事件的时间线，无需真实 sleep 等待。
+    NSTimeInterval t = NSDate.date.timeIntervalSince1970;
     BOOL ok = RegisterCodexLaunchForProcess(first.processIdentifier, @"/work/a",
             @{@"tty": @"ttys011"}, t) &&
         RegisterCodexLaunchForProcess(second.processIdentifier, @"/work/a",
@@ -94,7 +124,11 @@ static BOOL CheckCodexLaunchPairing(void) {
     WriteRollout(codexHome, @"thread-y", @"/work/a", t + 11);
     WriteRollout(codexHome, @"thread-n", @"/work/b", t + 30);
     WriteRollout(codexHome, @"thread-m", @"/work/a", t + 40);
-    // 同一目录两个 CLI：按会话创建时刻配给紧挨在前面启动的那个，与查询先后无关。
+    // 同目录多个 CLI：无就绪证据时不猜归属，日志落盘后可以再次配对。
+    ok &= ExpectTTY(@"缺少就绪日志的多客户端会话", @"thread-x", @{}, nil);
+    ok &= WriteReadyLog(codexHome, first.processIdentifier, t + 0.5);
+    ok &= WriteReadyLog(codexHome, second.processIdentifier, t + 10.5);
+    // 两个会话分别只有一个 PID 在创建前一秒内就绪，与查询顺序无关。
     ok &= ExpectTTY(@"同目录较早的会话", @"thread-x", @{}, @"ttys011");
     ok &= ExpectTTY(@"同目录较晚的会话", @"thread-y", @{}, @"ttys012");
     ok &= ExpectTTY(@"已配对的会话再次查询", @"thread-x", @{}, @"ttys011");
@@ -114,6 +148,8 @@ static BOOL CheckCodexLaunchPairing(void) {
     ok &= ExpectTTY(@"CLI 退出后的会话", @"thread-z", @{@"cwd": @"/work/b"}, nil);
     [first terminate];
     [second terminate];
+    [first waitUntilExit];
+    [second waitUntilExit];
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
     return ok;
 }

@@ -4,6 +4,7 @@ set -eu
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
 source "${PROJECT_DIR}/scripts/i18n.zsh"
+source "${PROJECT_DIR}/scripts/compile-cached.zsh"
 BUILD_DIR="${PROJECT_DIR}/.build/release"
 CACHE_DIR="${PROJECT_DIR}/.build/clang-cache"
 APP_DIR="${BUILD_DIR}/CC Pets.app"
@@ -31,7 +32,7 @@ if (( ${#SOURCES[@]} == 0 )); then
   exit 1
 fi
 
-CLANG_MODULE_CACHE_PATH="${CACHE_DIR}" clang \
+CLANG_MODULE_CACHE_PATH="${CACHE_DIR}" cc_pets_compile \
   -fobjc-arc \
   -fmodules-cache-path="${CACHE_DIR}" \
   -mmacosx-version-min=13.0 \
@@ -81,7 +82,7 @@ for LPROJ_DIR in "${PROJECT_DIR}"/Resources/*.lproj(N/); do
   cp -R "${LPROJ_DIR}" "${APP_RESOURCES_DIR}/${LPROJ_DIR:t}"
   cp -R "${LPROJ_DIR}" "${BUILD_DIR}/${LPROJ_DIR:t}"
 done
-cp "${BUILD_DIR}/cc-pets" "${APP_MACOS_DIR}/cc-pets"
+cc_pets_publish_binary "${BUILD_DIR}/cc-pets" "${APP_MACOS_DIR}/cc-pets"
 cp "${PROJECT_DIR}/Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "${PROJECT_DIR}/Resources/AppIcon.icns" "${APP_RESOURCES_DIR}/AppIcon.icns"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${PACKAGE_VERSION}" "${APP_DIR}/Contents/Info.plist"
@@ -94,5 +95,15 @@ for LOCALIZATION in ${(u)LOCALIZATIONS}; do
     "${APP_DIR}/Contents/Info.plist"
 done
 /usr/bin/codesign --force --sign - "${APP_DIR}" >/dev/null
+/usr/bin/codesign --verify --strict "${APP_DIR}"
+# 磁盘签名可验证不等于能执行；被系统以 SIGKILL 拒绝时不能仍然报告构建成功。
+BUILT_VERSION="$("${BUILD_DIR}/cc-pets" --version)" || {
+  print -u2 -- '[build] cc-pets could not execute --version after signing.'
+  exit 1
+}
+if [[ "${BUILT_VERSION}" != "cc-pets ${PACKAGE_VERSION}" ]]; then
+  print -u2 -- "[build] Unexpected executable version: ${BUILT_VERSION}"
+  exit 1
+fi
 print "$(cc_pets_t "Built: {buildDir}/cc-pets" buildDir="${BUILD_DIR}")"
 print "$(cc_pets_t "App bundle ready: {appDir}" appDir="${APP_DIR}")"

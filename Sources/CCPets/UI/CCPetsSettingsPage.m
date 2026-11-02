@@ -958,12 +958,12 @@ static const NSUInteger PetPickerColumns = 4;
 
     [self.form addGroupWithTitle:L(@"Launch Protection") rows:@[
         [self switchRowWithTitle:@"Shadowrocket"
-            subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or DNS / HTTPS checks fail")
+            subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region")
             key:CCPetsShadowrocketLaunchCheckKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
                 CCPetsPrefSetBool(CCPetsShadowrocketLaunchCheckKey, enabled);
             }],
-    ] footer:L(@"Off by default. Applies to launches through CC Pets wrappers. Checks official service domains; does not validate your account or API key.")];
+    ] footer:L(@"Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key.")];
 
     // 浮层外观：两张主题卡片 + 玻璃压暗滑块。
     [self.form addGroupTitle:L(@"Panel Appearance") note:nil];

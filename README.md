@@ -160,21 +160,39 @@ enabled later.
 
 Enable **Main menu → Settings → Launch Protection → Shadowrocket** (off by default).
 Each proxy app has its own preference; Shadowrocket is the first supported option.
-CC Pets wrappers require a connected Shadowrocket VPN, successful
-system DNS resolution and HTTPS connectivity before starting Claude / Codex. Failures
+CC Pets wrappers require a connected Shadowrocket VPN and a valid exit IP / region from
+the service's HTTPS `/cdn-cgi/trace` endpoint before starting Claude / Codex. Failures
 print a reason and return a nonzero exit code before registering a session or sending
 a starting event. Disabling the option skips all network checks.
 
-Claude checks `api.anthropic.com`; Codex checks `api.openai.com` and `chatgpt.com`.
-Each hostname has a 4-second DNS budget and an 8-second HTTPS budget. Probes use no
-account credentials, verify TLS certificates and inherit terminal proxy variables.
-HTTP 4xx responses establish connectivity only; they do not validate account access.
-HTTP 5xx, DNS, connection, TLS and timeout failures block launch.
+Claude defaults to `api.anthropic.com`. Codex uses the current Home's `auth.json` to select
+`chatgpt.com` for ChatGPT login or `api.openai.com` for API-key login. If the mode is unknown
+(for example, credentials stored only in Keychain), both exits must pass.
+The response must contain valid `ip`, `loc` and matching `h` fields. `CN` and `HK` exits,
+unknown regions, invalid responses, non-200 HTTP responses and connection / TLS / timeout
+failures block launch. Successful probes print the domain, exit IP and region.
+Each attempt has an 8-second connect timeout, a 15-second total request timeout and a
+16-second process watchdog. Temporary transport failures and HTTP 502 / 503 / 504 retry
+once after 1 second; VPN status is checked again before retrying. Two timed-out requests
+take about 31 seconds per domain, plus VPN checks and process overhead. Blocked regions,
+invalid trace responses and certificate errors are not retried. Failure messages distinguish
+connection, response and process timeouts and include attempt counts and cumulative DNS /
+TCP / TLS / response timings. There is no separate DNS lookup or homepage HEAD request.
+Probes send no account credentials,
+verify TLS certificates, ignore `~/.curlrc` and do not follow redirects.
 
-This first version recognizes the Shadowrocket VPN configuration, not just its running
-process. It does not verify individual routing rules or read custom endpoints / proxy
-settings from CLI configuration files. Official-domain checks do not validate third-party
-API gateways. Launches using original CLI binaries or desktop clients bypass this check.
+Claude reads network environment settings from the current `CLAUDE_CONFIG_DIR/settings.json`
+and terminal proxy variables, including an overridden `ANTHROPIC_BASE_URL`. Codex supports
+common single-line string routing settings in `CODEX_HOME/config.toml` (`model_provider`,
+`profile`, `model_providers.<id>.base_url`, `chatgpt_base_url`), `--profile` / `-p`,
+`OPENAI_BASE_URL` and terminal proxy variables. Custom endpoints use their own origin's
+`/cdn-cgi/trace`, with no fallback to another domain. Gateways must serve valid trace data;
+this only describes the exit to the gateway, not the gateway's upstream exit.
+Complex routing TOML, unsupported cloud providers, command-line configuration overrides
+and project network overrides are rejected with an explanation. Enterprise-managed network
+configuration is outside the supported scope. The check does not validate account access,
+service-supported countries or future routing changes. It recognizes the Shadowrocket VPN
+configuration, not just its running process. Original CLI binaries and desktop clients bypass it.
 
 ## CC Bridge
 
