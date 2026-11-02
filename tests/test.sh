@@ -2085,6 +2085,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_SRC[CCPetsEvents.m]:?}" \
   "${PET_SRC[CCPetsTerminalFocus.m]:?}" \
   "${PET_SRC[CCPetsIDEIntegration.m]:?}" -lsqlite3 \
+  "${PET_SRC[CCPetsVSCodeIntegration.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/agent-status-harness.m" \
   -o "${AGENT_STATUS_TMP}/agent-status-test"
@@ -2106,6 +2107,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_SRC[CCPetsEvents.m]:?}" \
   "${PET_SRC[CCPetsTerminalFocus.m]:?}" \
   "${PET_SRC[CCPetsIDEIntegration.m]:?}" -lsqlite3 \
+  "${PET_SRC[CCPetsVSCodeIntegration.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/terminal-focus-harness.m" \
   -o "${TERMINAL_FOCUS_TMP}/terminal-focus-test"

@@ -106,6 +106,14 @@ IDE 正在运行时重启即可加载，打开项目后自动连接，无需配�
 每个 IDE 以及稳定版与 EAP 的插件相互独立；Classic 和远程终端暂不支持。
 详细安装、构建和本机通信说明见 [插件说明](plugins/jetbrains/README.md)。
 
+### VS Code 终端跳转
+
+VS Code 1.80+ 及其分支（Cursor、Windsurf、VSCodium、Insiders 等）可通过 **CC Pets Terminal** 扩展
+精确跳到集成终端，面板、分屏和编辑器区里的终端都支持。在「设置 → 通用 → 终端跳转」中每个检测到的应用一行，
+点「安装」确认后用该应用自带的命令行工具安装随包 VSIX；已打开的窗口通常自动连接，否则执行「Developer: Reload Window」。
+没有命令行工具的应用退回手动安装：扩展视图 → ⋯ → 从 VSIX 安装…。未安装扩展时点击卡片只会激活应用；
+远程窗口（SSH、WSL、容器）暂不支持。详见 [扩展说明](plugins/vscode/README.md)。
+
 ### Agent 工作状态
 
 | Agent 事件 | 桌宠反馈 |

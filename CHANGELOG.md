@@ -7,6 +7,11 @@ truth for the version.
 
 ## [Unreleased]
 
+### VS Code terminal jump
+
+- Add the CC Pets Terminal extension for VS Code 1.80+ and its forks (Cursor, Windsurf, VSCodium, …). Clicking an agent card selects the exact integrated terminal by TTY — in the panel, a split or the editor area — and brings its window forward by reopening that window's workspace, switching Spaces when needed. Forks are recognised by `product.json`, not a bundle ID list. Remote windows are not supported; without the extension the app is only brought forward, as before.
+- Settings → Terminal Jump lists each VS Code family app with install, update, reload-needed and disabled states. Install runs the app's own command line tool on the bundled VSIX after confirmation, with a manual "Install from VSIX…" fallback. The VSIX is built reproducibly with macOS tools only (`scripts/build-vscode-extension.sh`).
+
 ### Build reliability
 
 - Replace cached and uncached executables atomically after signing and verification, including the App's executable. This fixes macOS signature-related termination after in-place overwrites that could break Hooks, CLI launch and tests. Builds now check CLI execution before reporting success; early test failures report their phase, location and exit status.

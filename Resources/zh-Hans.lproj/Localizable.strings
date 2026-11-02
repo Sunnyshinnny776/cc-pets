@@ -956,7 +956,7 @@
 "Terminal Jump" = "终端跳转";
 "macOS Terminal" = "macOS 原生终端";
 "Click an agent card to return to its terminal" = "点击 Agent 卡片回到对应终端";
-"Terminal, iTerm2 and Ghostty are located by TTY through AppleScript and need CC Pets allowed under System Settings → Privacy & Security → Automation. JetBrains IDEs need the CC Pets Terminal plugin (2026.2 / 2026.3, local Reworked terminal), installed in each IDE separately. Other terminals such as VS Code or Warp are only brought forward." = "macOS 原生终端、iTerm2 和 Ghostty 通过 AppleScript 按 TTY 定位，需要在 系统设置 → 隐私与安全性 → 自动化 中允许 CC Pets。JetBrains IDE 需要安装 CC Pets Terminal 插件（2026.2 / 2026.3，本地 Reworked 终端），每个 IDE 单独安装。VS Code、Warp 等其他终端只会激活应用。";
+"Terminal, iTerm2 and Ghostty are located by TTY through AppleScript and need CC Pets allowed under System Settings → Privacy & Security → Automation. JetBrains IDEs need the CC Pets Terminal plugin (2026.2 / 2026.3, local Reworked terminal), installed in each IDE separately. VS Code and its forks such as Cursor and Windsurf need the CC Pets Terminal extension, installed in each app separately; remote windows are not supported. Other terminals such as Warp are only brought forward." = "macOS 原生终端、iTerm2 和 Ghostty 通过 AppleScript 按 TTY 定位，需要在 系统设置 → 隐私与安全性 → 自动化 中允许 CC Pets。JetBrains IDE 需要安装 CC Pets Terminal 插件（2026.2 / 2026.3，本地 Reworked 终端），每个 IDE 单独安装。VS Code 及 Cursor、Windsurf 等分支需要安装 CC Pets Terminal 扩展，每个应用单独安装，不支持远程窗口。Warp 等其他终端只会激活应用。";
 "Selects the tab by TTY" = "按 TTY 选中标签页";
 "Selects the session by TTY" = "按 TTY 选中会话";
 "Selects the tab and split by TTY" = "按 TTY 选中标签页和分屏";
@@ -979,3 +979,27 @@
 "Plugin not detected" = "未检测到插件";
 "Requires version 2026.2 or 2026.3" = "需要 2026.2 或 2026.3 版本";
 "No JetBrains IDE detected" = "未检测到 JetBrains IDE";
+
+// Terminal jump (VS Code family)
+"The VS Code extension is missing from this CC Pets installation. Reinstall CC Pets to restore it." = "当前 CC Pets 安装缺少 VS Code 扩展，请重新安装 CC Pets 以恢复。";
+"This app's command line tool was not found." = "未找到该应用的命令行工具。";
+"The command line tool did not finish in time." = "命令行工具未能及时完成。";
+"Install the VS Code extension" = "安装 VS Code 扩展";
+"In %@, open the Extensions view, choose ⋯ → Install from VSIX…, then pick cc-pets-terminal.vsix. Open windows connect automatically; reload a window if it does not." = "在 %@ 中打开扩展视图，选择 ⋯ → 从 VSIX 安装…，然后选择 cc-pets-terminal.vsix。已打开的窗口会自动连接；若未连接，请重新加载窗口。";
+"Copy VSIX Path" = "复制 VSIX 路径";
+"CC Pets installs the extension with %@'s command line tool." = "CC Pets 将使用 %@ 自带的命令行工具安装扩展。";
+"It loads the next time %@ starts." = "下次启动 %@ 时自动加载。";
+"Reload open windows afterwards to load the new version." = "完成后重新加载已打开的窗口即可使用新版本。";
+"Open windows connect automatically; reload a window if it does not." = "已打开的窗口会自动连接；若未连接，请重新加载窗口。";
+"Could not install the extension automatically" = "无法自动安装扩展";
+"Selects the terminal through the extension" = "通过扩展选中终端";
+"Installed — reload a window to connect" = "已安装，重新加载窗口后连接";
+"Installed — connects when the app starts" = "已安装，应用启动后连接";
+"Extension %@ is in place — reload open windows to load it" = "扩展 %@ 已就位，重新加载已打开的窗口后生效";
+"Reload needed" = "需要重新加载";
+"Extension %@ installed — %@ available" = "已安装扩展 %@，可更新到 %@";
+"Extension disabled — enable it in the Extensions view" = "扩展已禁用，请在扩展视图中启用";
+"Requires VS Code 1.80 or later" = "需要 VS Code 1.80 及以上";
+"Extension not detected" = "未检测到扩展";
+"Extension not detected — no command line tool, install manually" = "未检测到扩展；应用缺少命令行工具，请手动安装";
+"Install Extension…" = "安装扩展…";

@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### VS Code 终端跳转
+
+- 新增 VS Code 1.80+ 及其分支（Cursor、Windsurf、VSCodium 等）的 CC Pets Terminal 扩展。点击 Agent 卡片时按 TTY 精确选中集成终端，面板、分屏和编辑器区均支持；通过重新打开该窗口的工作区把对应窗口前置，必要时切换桌面。分支按 `product.json` 识别，不维护 bundle ID 名单。远程窗口不支持；未安装扩展时仍只激活应用。
+- 「设置 → 终端跳转」按应用列出 VS Code 家族，显示安装、更新、需要重新加载和已禁用等状态。确认后调用应用自带的命令行工具安装随包 VSIX，失败时可手动「从 VSIX 安装…」。VSIX 仅用 macOS 自带工具可复现构建（`scripts/build-vscode-extension.sh`）。
+
 ### 构建可靠性
 
 - 缓存与无缓存构建均在签名校验后原子替换可执行文件，覆盖裸 CLI 和 App 内的程序，修复原地覆盖导致 macOS 因签名问题终止进程、连带 Hook、CLI 启动和测试失败的问题。构建报告成功前检查 CLI 能否执行；测试提前失败时显示阶段、位置与退出码。

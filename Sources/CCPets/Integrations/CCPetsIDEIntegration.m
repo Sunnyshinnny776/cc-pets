@@ -1,6 +1,7 @@
 #import "CCPetsIDEIntegration.h"
 #import "CCPetsEvents.h"
 #import "CCPetsL10n.h"
+#import "CCPetsVSCodeIntegration.h"
 #import <sys/stat.h>
 #import <sys/time.h>
 #import <unistd.h>
@@ -30,7 +31,7 @@ static NSString *IDERegistryDirectory(void) {
 }
 @end
 
-static NSDictionary *IDERequest(NSDictionary *instance, NSString *route, NSDictionary *body) {
+NSDictionary *CCPetsIDEBridgeRequest(NSDictionary *instance, NSString *route, NSDictionary *body) {
     NSInteger port = [instance[@"port"] integerValue];
     NSString *token = instance[@"token"];
     if (port < 1 || port > 65535 || ![token isKindOfClass:NSString.class] || token.length < 32) return nil;
@@ -70,7 +71,7 @@ static NSDictionary *IDERequest(NSDictionary *instance, NSString *route, NSDicti
     return result;
 }
 
-static NSArray<NSDictionary *> *IDEInstances(void) {
+NSArray<NSDictionary *> *CCPetsIDEBridgeInstances(BOOL (^accept)(NSDictionary *record, NSRunningApplication *app)) {
     NSMutableArray *instances = [NSMutableArray array];
     NSString *directory = IDERegistryDirectory();
     for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
@@ -85,12 +86,19 @@ static NSArray<NSDictionary *> *IDEInstances(void) {
             ![record[@"instanceID"] isKindOfClass:NSString.class] ||
             ![[file stringByDeletingPathExtension] isEqualToString:record[@"instanceID"]]) continue;
         NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:[record[@"pid"] intValue]];
-        if (app.terminated || !IDEBundleIsJetBrains(app.bundleIdentifier) ||
-            ![app.bundleURL.path isEqualToString:record[@"appPath"]]) continue;
+        if (!app || app.terminated || ![app.bundleURL.path isEqualToString:record[@"appPath"]] ||
+            !accept(record, app)) continue;
         [instances addObject:record];
         if (instances.count >= 16) break;
     }
     return instances;
+}
+
+// JetBrains registrations carry no "kind"; other bridges (VS Code) tag themselves.
+static NSArray<NSDictionary *> *IDEInstances(void) {
+    return CCPetsIDEBridgeInstances(^BOOL(NSDictionary *record, NSRunningApplication *app) {
+        return record[@"kind"] == nil && IDEBundleIsJetBrains(app.bundleIdentifier);
+    });
 }
 
 static NSString *IDEPluginArchive(void) {
@@ -232,7 +240,7 @@ NSArray<NSDictionary *> *CCPetsIDEIntegrationSnapshot(void) {
     NSArray *instances = IDEInstances();
     NSMutableDictionary *connected = [NSMutableDictionary dictionary];
     for (NSDictionary *instance in instances) {
-        NSDictionary *status = IDERequest(instance, @"status", nil);
+        NSDictionary *status = CCPetsIDEBridgeRequest(instance, @"status", nil);
         if ([status[@"instanceID"] isEqual:instance[@"instanceID"]] && [status[@"schemaVersion"] integerValue] == 1)
             connected[instance[@"appPath"]] = status;
     }
@@ -465,6 +473,9 @@ BOOL CCPetsRequestIDETerminalFocus(NSDictionary *target) {
     NSString *terminalID = SanitizedShortString(target[@"ideTerminal"], 64);
     NSString *tty = SanitizedShortString([target[@"tty"] isKindOfClass:NSString.class]
         ? [target[@"tty"] lastPathComponent] : nil, 64);
+    // A VS Code window started from a JetBrains terminal inherits its CC_PETS_IDE_* values;
+    // those never name a VS Code terminal.
+    if (CCPetsBundleIsVSCodeFamily(bundle)) return NO;
     if (!IDEBundleIsJetBrains(bundle) && instanceID.length == 0) return NO;
     // AppKit stays responsive while the IDE selects its content on its own UI thread.
     static BOOL focusing = NO;
@@ -478,7 +489,7 @@ BOOL CCPetsRequestIDETerminalFocus(NSDictionary *target) {
             NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:[instance[@"pid"] intValue]];
             if (!instanceID.length && ![app.bundleIdentifier isEqualToString:bundle]) continue;
             found = YES;
-            NSDictionary *response = IDERequest(instance, @"focus", @{@"tty": tty ?: @"", @"terminalID": terminalID ?: @""});
+            NSDictionary *response = CCPetsIDEBridgeRequest(instance, @"focus", @{@"tty": tty ?: @"", @"terminalID": terminalID ?: @""});
             if ([response[@"focused"] boolValue]) { focused = YES; break; }
         }
         dispatch_async(dispatch_get_main_queue(), ^{

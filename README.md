@@ -262,6 +262,17 @@ fall back to **Settings → Plugins → ⚙ → Install Plugin from Disk**. Each
 build keeps its own plugins. Classic and remote terminals are not supported yet.
 See [plugin details](plugins/jetbrains/README.md) for installation and build instructions.
 
+### VS Code terminal jump
+
+VS Code 1.80+ and its forks (Cursor, Windsurf, VSCodium, Insiders, etc.) jump to the exact
+integrated terminal — in the panel, a split or the editor area — through the **CC Pets Terminal**
+extension. In **Settings → General → Terminal Jump**, each detected app has its own row;
+**Install** runs that app's own command line tool with the bundled VSIX after you confirm.
+Open windows usually connect on their own; otherwise run **Developer: Reload Window**. Apps
+without a command line tool fall back to **Extensions → ⋯ → Install from VSIX…**. Without the
+extension, a card only brings the app forward. Remote windows (SSH, WSL, containers) are not
+supported. See [extension details](plugins/vscode/README.md).
+
 ### Codex and Claude hooks
 
 Codex Hooks and Claude Code Hooks drive the pet's agent-state animations. After a

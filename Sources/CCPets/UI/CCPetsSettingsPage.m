@@ -7,6 +7,7 @@
 #import "CCPetsImageLoader.h"
 #import "CCPetsIDEIntegration.h"
 #import "CCPetsTerminalIntegration.h"
+#import "CCPetsVSCodeIntegration.h"
 #import "CCPetsL10n.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPetSize.h"
@@ -644,10 +645,11 @@ static const NSUInteger PetPickerColumns = 4;
 @interface CCPetsGeneralPage ()
 @property(nonatomic) NSView *glassPreviewDim;
 @property(nonatomic, copy) NSArray<NSDictionary *> *usageProfiles;
-// 终端跳转三张卡片：终端 / iTerm2、Ghostty、JetBrains。行随检测结果重建。
+// 终端跳转四张卡片：终端 / iTerm2、Ghostty、JetBrains、VS Code 家族。行随检测结果重建。
 @property(nonatomic) NSView *appleTerminalCard;
 @property(nonatomic) NSView *ghosttyCard;
 @property(nonatomic) NSView *jetBrainsCard;
+@property(nonatomic) NSView *vscodeCard;
 @property(nonatomic, copy) NSArray *terminalJumpSnapshot;
 @property(nonatomic) NSTimer *ideStatusTimer;
 @property(nonatomic) BOOL ideStatusRefreshing;
@@ -683,7 +685,8 @@ static const NSUInteger PetPickerColumns = 4;
     self.ideStatusRefreshing = YES;
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        NSArray *snapshot = @[CCPetsTerminalIntegrationSnapshot(), CCPetsIDEIntegrationSnapshot()];
+        NSArray *snapshot = @[CCPetsTerminalIntegrationSnapshot(), CCPetsIDEIntegrationSnapshot(),
+            CCPetsVSCodeIntegrationSnapshot()];
         dispatch_async(dispatch_get_main_queue(), ^{
             CCPetsGeneralPage *page = weakSelf;
             if (!page) return;
@@ -785,6 +788,48 @@ static const NSUInteger PetPickerColumns = 4;
     return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
 }
 
+- (NSView *)vscodeRow:(NSDictionary *)app {
+    __weak typeof(self) weakSelf = self;
+    NSString *state = app[@"state"];
+    NSString *title = app[@"name"];
+    NSString *version = app[@"version"];
+    if (version.length && ![title containsString:version]) title = [NSString stringWithFormat:@"%@ %@", title, version];
+    BOOL automatic = [app[@"autoInstall"] boolValue];
+    void (^install)(void) = ^{
+        CCPetsPromptInstallVSCodeExtension(app, ^{
+            weakSelf.terminalJumpSnapshot = nil;
+            [weakSelf refreshIDEIntegration];
+        });
+    };
+    NSString *subtitle;
+    NSArray<NSView *> *controls;
+    if ([state isEqualToString:@"connected"]) {
+        subtitle = L(@"Selects the terminal through the extension");
+        controls = @[[self terminalJumpBadge:L(@"Connected") dotColor:NSColor.systemGreenColor]];
+    } else if ([state isEqualToString:@"installed"]) {
+        subtitle = [app[@"running"] boolValue] ? L(@"Installed — reload a window to connect")
+            : L(@"Installed — connects when the app starts");
+        controls = @[[self terminalJumpBadge:L(@"Waiting to connect") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"pendingRestart"]) {
+        subtitle = [NSString stringWithFormat:L(@"Extension %@ is in place — reload open windows to load it"), app[@"pluginVersion"] ?: @""];
+        controls = @[[self terminalJumpBadge:L(@"Reload needed") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"outdated"]) {
+        subtitle = [NSString stringWithFormat:L(@"Extension %@ installed — %@ available"),
+            app[@"pluginVersion"] ?: @"?", app[@"bundledVersion"] ?: @"?"];
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Update") : L(@"Update…") action:install]];
+    } else if ([state isEqualToString:@"disabled"]) {
+        subtitle = L(@"Extension disabled — enable it in the Extensions view");
+        controls = @[[self terminalJumpBadge:L(@"Plugin disabled") dotColor:nil]];
+    } else if ([state isEqualToString:@"unsupported"]) {
+        subtitle = L(@"Requires VS Code 1.80 or later");
+        controls = @[[self terminalJumpBadge:L(@"Unsupported") dotColor:nil]];
+    } else {
+        subtitle = automatic ? L(@"Extension not detected") : L(@"Extension not detected — no command line tool, install manually");
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Install") : L(@"Install Extension…") action:install]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
+}
+
 - (void)applyTerminalJumpSnapshot:(NSArray *)snapshot {
     NSMutableArray<NSView *> *appleRows = [NSMutableArray array];
     NSMutableArray<NSView *> *ghosttyRows = [NSMutableArray array];
@@ -809,6 +854,14 @@ static const NSUInteger PetPickerColumns = 4;
     self.ghosttyCard.hidden = ghosttyRows.count == 0;
     [CCPetsFormBuilder replaceRowsInCard:self.jetBrainsCard withRows:ideRows];
     self.jetBrainsCard.hidden = NO;
+    // VS Code 家族只在检测到应用时出现。
+    NSArray *editors = [snapshot[2] sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [@([order indexOfObject:a[@"state"]]) compare:@([order indexOfObject:b[@"state"]])];
+    }];
+    NSMutableArray<NSView *> *editorRows = [NSMutableArray array];
+    for (NSDictionary *app in editors) [editorRows addObject:[self vscodeRow:app]];
+    [CCPetsFormBuilder replaceRowsInCard:self.vscodeCard withRows:editorRows];
+    self.vscodeCard.hidden = editorRows.count == 0;
 }
 
 - (NSArray<NSDictionary *> *)currentUsageProfiles {
@@ -1057,13 +1110,15 @@ static const NSUInteger PetPickerColumns = 4;
 
     // 终端跳转：按终端分卡片，行在 refreshIDEIntegration 拿到检测结果后填入。
     [self.form addGroupTitle:L(@"Terminal Jump") note:L(@"Click an agent card to return to its terminal")
-        info:L(@"Terminal, iTerm2 and Ghostty are located by TTY through AppleScript and need CC Pets allowed under System Settings → Privacy & Security → Automation. JetBrains IDEs need the CC Pets Terminal plugin (2026.2 / 2026.3, local Reworked terminal), installed in each IDE separately. Other terminals such as VS Code or Warp are only brought forward.")];
+        info:L(@"Terminal, iTerm2 and Ghostty are located by TTY through AppleScript and need CC Pets allowed under System Settings → Privacy & Security → Automation. JetBrains IDEs need the CC Pets Terminal plugin (2026.2 / 2026.3, local Reworked terminal), installed in each IDE separately. VS Code and its forks such as Cursor and Windsurf need the CC Pets Terminal extension, installed in each app separately; remote windows are not supported. Other terminals such as Warp are only brought forward.")];
     NSView *checking = [CCPetsFormBuilder rowWithTitle:L(@"Checking…") controls:@[]];
     self.appleTerminalCard = [self.form addGroupWithTitle:nil rows:@[checking] footer:nil];
     self.ghosttyCard = [self.form addGroupWithTitle:nil rows:@[] footer:nil];
     self.ghosttyCard.hidden = YES;
     self.jetBrainsCard = [self.form addGroupWithTitle:nil rows:@[] footer:nil];
     self.jetBrainsCard.hidden = YES;
+    self.vscodeCard = [self.form addGroupWithTitle:nil rows:@[] footer:nil];
+    self.vscodeCard.hidden = YES;
     self.terminalJumpSnapshot = nil;
 
     [self.form addGroupWithTitle:L(@"Data") rows:@[

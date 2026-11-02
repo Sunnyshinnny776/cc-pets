@@ -2,6 +2,7 @@
 #import "CCPetsEvents.h"
 #import "CCPetsPaths.h"
 #import "CCPetsIDEIntegration.h"
+#import "CCPetsVSCodeIntegration.h"
 #import <fcntl.h>
 #import <sys/file.h>
 #import <sys/sysctl.h>
@@ -231,7 +232,7 @@ NSArray<NSString *> *TerminalFocusBundleCandidates(NSDictionary *target) {
     return candidates;
 }
 
-// 没有脚本或插件接口的宿主（如 VS Code）退回激活应用。activateWithOptions:
+// 没有脚本或插件接口的宿主（如 Warp、未装扩展的 VS Code）退回激活应用。activateWithOptions:
 // 在 macOS 14 起走协作式激活：状态卡是 NonactivatingPanel，桌宠自己不在前台，请求可能
 // 被系统拒绝，窗口在别的桌面时更是不会切过去。改走和点 Dock 图标同一条路，让系统负责
 // 切到应用窗口所在的桌面；拿不到 bundleURL 时才退回旧接口。
@@ -254,6 +255,7 @@ static BOOL ActivateApplicationAcrossSpaces(NSRunningApplication *application) {
 
 BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
     if (CCPetsRequestIDETerminalFocus(target)) return YES;
+    if (CCPetsRequestVSCodeTerminalFocus(target)) return YES;
     NSString *tty = SanitizedShortString(target[@"tty"], 64);
     // 候选按优先级往下试，没在运行的直接跳过：映射值和捕获值总有一个指向真正承载
     // 会话的那个应用，卡在第一个候选上就会白白丢掉一次可用的回跳。

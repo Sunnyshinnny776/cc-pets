@@ -37,6 +37,7 @@
     "Resources/AgentIcons",
     "Resources/IDEPlugins",
     "plugins/jetbrains",
+    "plugins/vscode",
     "Resources/phrases.default.*.txt",
     "Resources/*.lproj/*",
     "Sources/CCPets",

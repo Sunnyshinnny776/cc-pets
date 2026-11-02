@@ -1,0 +1,18 @@
+{
+  "name": "cc-pets-terminal",
+  "displayName": "CC Pets Terminal",
+  "description": "Lets CC Pets jump back to the exact integrated terminal that hosts an agent session (macOS).",
+  "version": "1.0.0",
+  "publisher": "ccpets",
+  "license": "MIT",
+  "private": true,
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "extensionKind": ["ui"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": true },
+    "virtualWorkspaces": true
+  }
+}

@@ -13,3 +13,9 @@ void CCPetsPromptInstallIDEPlugin(NSDictionary *ide, void (^completion)(void));
 BOOL CCPetsRequestIDETerminalFocus(NSDictionary *target);
 // Reveals the bundled ZIP and explains the IDE's own install-from-disk workflow.
 void CCPetsShowIDEPluginInstaller(void);
+
+// Shared with other IDE bridges (VS Code). Registrations live in
+// ~/Library/Application Support/CC Pets/ide-instances/; accept filters validated records
+// whose pid belongs to a running app at record[@"appPath"]. Both block: call off main.
+NSArray<NSDictionary *> *CCPetsIDEBridgeInstances(BOOL (^accept)(NSDictionary *record, NSRunningApplication *app));
+NSDictionary *CCPetsIDEBridgeRequest(NSDictionary *instance, NSString *route, NSDictionary *body);
