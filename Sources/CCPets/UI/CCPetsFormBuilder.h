@@ -32,6 +32,8 @@
 // 一张卡片，rows 之间自动加分隔线。title 非 nil 时先加分组标题；footer 是卡片下方的小字。
 // 返回卡片。
 - (NSView *)addGroupWithTitle:(NSString *)title rows:(NSArray<NSView *> *)rows footer:(NSString *)footer;
+// 替换 addGroupWithTitle 返回的卡片里的行（分隔线同样自动加），用于行数随数据变化的卡片。
++ (void)replaceRowsInCard:(NSView *)card withRows:(NSArray<NSView *> *)rows;
 // 拉满宽度加到内容里。
 - (void)addView:(NSView *)view;
 // 卡片下方那种灰色小字。

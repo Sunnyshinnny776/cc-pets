@@ -12,6 +12,23 @@
 
 建议先开一个 GitHub Issue 描述较大的功能改动，达成一致后再提交 Pull Request。
 
+## 构建与测试缓存
+
+`npm run build` 与 `npm test` 共用 `.build/clang-cache/cc-pets` 下的目标文件和链接产物。
+源码、项目头文件、编译参数、工具链或 SDK 变化时自动失效；临时输出目录的变化不影响复用。
+空素材构建、正常构建和安装测试仍会更新资源与签名，所有测试每次都执行，不缓存通过结果。
+日志显示当前编译文件、编译/复用数量、测试阶段及耗时。
+可执行文件先在目标文件系统中暂存，完成临时签名与校验后再原子替换；关闭缓存时也使用此流程，
+避免在 macOS 上原地覆盖可执行文件。构建完成前确认 CLI 可以执行 `--version`，
+测试提前失败时输出所属阶段、代码位置与退出码。
+
+测试入口每轮设置全新的 `CC_PETS_PREFERENCES_DOMAIN`。仅修改 `HOME` 无法隔离 macOS
+`CFPreferences`；独立偏好域中的启动保护默认关闭，包装器和 shim 测试不依赖本机 VPN 或真实出口探测。
+
+需要绕过缓存完整重编译时，使用 `CC_PETS_NO_BUILD_CACHE=1 npm run build`，
+或 `CC_PETS_NO_BUILD_CACHE=1 npm test`。该开关直接使用原始 clang 命令，不读写这份缓存。
+缓存位于现有构建缓存目录内，`cc-pets clean` 清理应用缓存时也会一并清理它。
+
 ## 分支与发布规则
 
 在 `publish` 完成开发、修改、测试和测试版本准备。测试版本必须在 GitHub 标记为

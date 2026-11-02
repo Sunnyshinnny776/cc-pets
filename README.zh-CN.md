@@ -96,6 +96,24 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 
 ## 互动方式
 
+### JetBrains IDE 终端跳转
+
+基于 IntelliJ 平台的 JetBrains IDE（IDEA、PyCharm、WebStorm、GoLand、CLion、PhpStorm、RubyMine、Rider 等）
+2026.2 / 2026.3 的本地 Reworked 终端可通过 **CC Pets Terminal** 插件精确跳转。
+在桌宠「设置 → 通用 → 终端跳转」中，每个检测到的 IDE 一行，点「安装」确认后插件会写入该 IDE 的插件目录；
+IDE 正在运行时重启即可加载，打开项目后自动连接，无需配置端口。随 CC Pets 带来新版插件时，该行会显示「更新」。
+自定义了插件目录（`idea.plugins.path`）的 IDE 退回手动安装：Settings → Plugins → ⚙ → Install Plugin from Disk。
+每个 IDE 以及稳定版与 EAP 的插件相互独立；Classic 和远程终端暂不支持。
+详细安装、构建和本机通信说明见 [插件说明](plugins/jetbrains/README.md)。
+
+### VS Code 终端跳转
+
+VS Code 1.80+ 及其分支（Cursor、Windsurf、VSCodium、Insiders 等）可通过 **CC Pets Terminal** 扩展
+精确跳到集成终端，面板、分屏和编辑器区里的终端都支持。在「设置 → 通用 → 终端跳转」中每个检测到的应用一行，
+点「安装」确认后用该应用自带的命令行工具安装随包 VSIX；已打开的窗口通常自动连接，否则执行「Developer: Reload Window」。
+没有命令行工具的应用退回手动安装：扩展视图 → ⋯ → 从 VSIX 安装…。未安装扩展时点击卡片只会激活应用；
+远程窗口（SSH、WSL、容器）暂不支持。详见 [扩展说明](plugins/vscode/README.md)。
+
 ### Agent 工作状态
 
 | Agent 事件 | 桌宠反馈 |
@@ -156,6 +174,35 @@ Hook 状态卡和消息气泡在宠物小于 100% 时同比例缩小，文字、
 仅在 macOS 26 及以上可选；构建原生玻璃支持需要 macOS 26 或更新的 SDK。同一子菜单里的「玻璃压暗」
 可在通透（0%）、轻度（15%）、标准（25%，默认）、清晰（45%）之间切换，作用于额度面板、状态卡和
 说话气泡：档位越低越通透，档位越高在浅色背景上越容易看清。
+
+### 启动前检查小火箭
+
+在 **主菜单 → 设置 → 启动保护** 打开「Shadowrocket」开关（默认关闭）。
+启动保护按软件分别配置，当前提供 Shadowrocket，后续软件可在同一分组增加独立开关。
+通过 CC Pets 包装器启动 `claude` / `codex` 时，会先确认 Shadowrocket 的系统 VPN
+状态为已连接，再向对应服务的 `/cdn-cgi/trace` 发起 HTTPS GET，检查出口 IP 和地区；失败会在终端提示原因并返回非零退出码，
+不会启动 CLI，也不会登记会话或发送启动事件。关闭开关后不进行网络检查。
+
+仅识别 Shadowrocket 的 VPN 配置，不把「应用进程正在运行」当成代理已连接。
+Claude 默认检查 `api.anthropic.com`；Codex 根据当前 Home 的 `auth.json` 选择：ChatGPT 登录检查
+`chatgpt.com`，API Key 登录检查 `api.openai.com`。模式未知（例如凭据仅在 Keychain 中）时，两者都必须通过。
+返回的 `ip`、`loc`、`h` 必须有效且匹配目标域名；`loc=CN` 或 `HK` 会阻止启动。
+请求失败、非 HTTP 200、无效响应、未知地区、TLS 错误或超时也会阻止启动；成功时在终端显示域名、出口 IP 和地区。
+每次尝试连接最多等待 8 秒，请求总计最多 15 秒，外层进程保护时限为 16 秒。
+临时传输故障或 HTTP 502 / 503 / 504 会间隔 1 秒重试一次，重试前再次确认 VPN 连接状态。
+两次请求均超时时，每个域名约等待 31 秒，另加 VPN 检查及进程开销。
+被拦截地区、无效 trace 和证书错误不重试。失败提示区分连接、响应及进程超时，
+显示尝试次数和 DNS / TCP / TLS / 响应的累计耗时。不再额外做系统 DNS 或首页 HEAD 探测。
+请求不带账号凭据，正常校验证书，忽略 `~/.curlrc`，不跟随重定向。
+
+Claude 支持当前 `CLAUDE_CONFIG_DIR` 下 `settings.json` 中的网络环境变量及终端代理变量，
+优先使用其中的 `ANTHROPIC_BASE_URL`。Codex 支持 `CODEX_HOME/config.toml` 中常见的单行字符串
+路由配置（`model_provider`、`profile`、`model_providers.<id>.base_url`、`chatgpt_base_url`）、
+`--profile` / `-p`、`OPENAI_BASE_URL` 和终端代理变量。自定义地址检查同一源站的 `/cdn-cgi/trace`，
+不回退到其他域名；网关必须提供有效 trace，且结果只代表到网关的出口，不代表网关到上游的出口。
+复杂路由 TOML、未支持的云服务商、命令行配置覆盖及项目网络覆盖会拒绝检查并提示原因。
+企业托管网络配置不在支持范围内。此检查不验证账号、密钥或服务支持地区，也不能保证探测后出口不变。
+直接启动原始 CLI 二进制或桌面客户端不会经过此保护。
 
 ### 界面语言
 

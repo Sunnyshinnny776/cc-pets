@@ -5,6 +5,9 @@
 #import "CCPetsFormBuilder.h"
 #import "CCPetsGlassView.h"
 #import "CCPetsImageLoader.h"
+#import "CCPetsIDEIntegration.h"
+#import "CCPetsTerminalIntegration.h"
+#import "CCPetsVSCodeIntegration.h"
 #import "CCPetsL10n.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPetSize.h"
@@ -642,6 +645,14 @@ static const NSUInteger PetPickerColumns = 4;
 @interface CCPetsGeneralPage ()
 @property(nonatomic) NSView *glassPreviewDim;
 @property(nonatomic, copy) NSArray<NSDictionary *> *usageProfiles;
+// 终端跳转四张卡片：终端 / iTerm2、Ghostty、JetBrains、VS Code 家族。行随检测结果重建。
+@property(nonatomic) NSView *appleTerminalCard;
+@property(nonatomic) NSView *ghosttyCard;
+@property(nonatomic) NSView *jetBrainsCard;
+@property(nonatomic) NSView *vscodeCard;
+@property(nonatomic, copy) NSArray *terminalJumpSnapshot;
+@property(nonatomic) NSTimer *ideStatusTimer;
+@property(nonatomic) BOOL ideStatusRefreshing;
 @end
 
 @implementation CCPetsGeneralPage
@@ -655,6 +666,202 @@ static const NSUInteger PetPickerColumns = 4;
 - (void)viewWillAppear {
     [super viewWillAppear];
     [self reloadValues];
+    [self refreshIDEIntegration];
+    [self.ideStatusTimer invalidate];
+    __weak typeof(self) weakSelf = self;
+    self.ideStatusTimer = [NSTimer scheduledTimerWithTimeInterval:5 repeats:YES block:^(NSTimer *timer) {
+        [weakSelf refreshIDEIntegration];
+    }];
+}
+
+- (void)viewDidDisappear {
+    [super viewDidDisappear];
+    [self.ideStatusTimer invalidate];
+    self.ideStatusTimer = nil;
+}
+
+- (void)refreshIDEIntegration {
+    if (self.ideStatusRefreshing) return;
+    self.ideStatusRefreshing = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSArray *snapshot = @[CCPetsTerminalIntegrationSnapshot(), CCPetsIDEIntegrationSnapshot(),
+            CCPetsVSCodeIntegrationSnapshot()];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CCPetsGeneralPage *page = weakSelf;
+            if (!page) return;
+            page.ideStatusRefreshing = NO;
+            // 每 5 秒刷新一次，状态没变就不重建，免得行闪烁、按钮丢焦点。
+            if ([snapshot isEqual:page.terminalJumpSnapshot]) return;
+            page.terminalJumpSnapshot = snapshot;
+            [page applyTerminalJumpSnapshot:snapshot];
+        });
+    });
+}
+
+// 右侧的状态小标：可选的彩色圆点 + 灰字。
+- (NSTextField *)terminalJumpBadge:(NSString *)text dotColor:(NSColor *)color {
+    NSMutableAttributedString *value = [NSMutableAttributedString new];
+    NSFont *font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    if (color) {
+        [value appendAttributedString:[[NSAttributedString alloc] initWithString:@"● "
+            attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}]];
+    }
+    [value appendAttributedString:[[NSAttributedString alloc] initWithString:text
+        attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: CCPetsSecondaryInkColor()}]];
+    NSTextField *label = [NSTextField labelWithAttributedString:value];
+    [label setContentCompressionResistancePriority:NSLayoutPriorityRequired
+        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    return label;
+}
+
+- (NSView *)scriptTerminalRow:(NSDictionary *)terminal {
+    __weak typeof(self) weakSelf = self;
+    NSString *state = terminal[@"state"];
+    NSString *bundleID = terminal[@"bundleID"];
+    BOOL ghostty = [terminal[@"group"] isEqualToString:@"ghostty"];
+    NSString *title = [bundleID isEqualToString:@"com.apple.Terminal"] ? L(@"macOS Terminal") : terminal[@"name"];
+    if (ghostty && [terminal[@"version"] length]) title = [NSString stringWithFormat:@"%@ %@", title, terminal[@"version"]];
+    NSString *granted = ghostty ? L(@"Selects the tab and split by TTY")
+        : ([bundleID isEqualToString:@"com.googlecode.iterm2"] ? L(@"Selects the session by TTY") : L(@"Selects the tab by TTY"));
+    NSString *subtitle;
+    NSArray<NSView *> *controls;
+    if ([state isEqualToString:@"granted"]) {
+        subtitle = granted;
+        controls = @[[self terminalJumpBadge:L(@"Allowed") dotColor:NSColor.systemGreenColor]];
+    } else if ([state isEqualToString:@"denied"]) {
+        subtitle = L(@"Automation denied — the jump only brings the app forward");
+        controls = @[[self smallButtonWithTitle:L(@"Open System Settings…") action:^{ CCPetsOpenAutomationSettings(); }]];
+    } else if ([state isEqualToString:@"notDetermined"]) {
+        subtitle = L(@"macOS asks for permission on the first jump");
+        controls = @[[self smallButtonWithTitle:L(@"Allow…") action:^{
+            CCPetsRequestTerminalAutomation(bundleID, ^{ [weakSelf refreshIDEIntegration]; });
+        }]];
+    } else if ([state isEqualToString:@"unsupported"]) {
+        subtitle = L(@"Requires Ghostty 1.4 or later for exact jumps");
+        controls = @[[self terminalJumpBadge:L(@"Needs 1.4+") dotColor:nil]];
+    } else {
+        subtitle = L(@"Open the app to check automation permission");
+        controls = @[[self terminalJumpBadge:L(@"Not running") dotColor:nil]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
+}
+
+- (NSView *)jetBrainsRow:(NSDictionary *)ide {
+    __weak typeof(self) weakSelf = self;
+    NSString *state = ide[@"state"];
+    NSString *title = ide[@"name"];
+    NSString *version = ide[@"version"];
+    if (version.length && ![title containsString:version]) title = [NSString stringWithFormat:@"%@ %@", title, version];
+    BOOL automatic = [ide[@"autoInstall"] boolValue];
+    void (^install)(void) = ^{
+        CCPetsPromptInstallIDEPlugin(ide, ^{
+            weakSelf.terminalJumpSnapshot = nil;
+            [weakSelf refreshIDEIntegration];
+        });
+    };
+    NSString *subtitle;
+    NSArray<NSView *> *controls;
+    if ([state isEqualToString:@"connected"]) {
+        subtitle = L(@"Selects the terminal tab through the plugin");
+        controls = @[[self terminalJumpBadge:L(@"Connected") dotColor:NSColor.systemGreenColor]];
+    } else if ([state isEqualToString:@"installed"]) {
+        subtitle = L(@"Installed — open a project or restart the IDE to connect");
+        controls = @[[self terminalJumpBadge:L(@"Waiting to connect") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"pendingRestart"]) {
+        subtitle = [NSString stringWithFormat:L(@"Plugin %@ is in place — restart the IDE to load it"), ide[@"pluginVersion"] ?: @""];
+        controls = @[[self terminalJumpBadge:L(@"Restart needed") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"outdated"]) {
+        subtitle = [NSString stringWithFormat:L(@"Plugin %@ installed — %@ available"),
+            ide[@"pluginVersion"] ?: @"?", ide[@"bundledVersion"] ?: @"?"];
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Update") : L(@"Update…") action:install]];
+    } else if ([state isEqualToString:@"disabled"]) {
+        subtitle = L(@"Plugin disabled — enable it in the IDE's Plugins settings");
+        controls = @[[self terminalJumpBadge:L(@"Plugin disabled") dotColor:nil]];
+    } else if ([state isEqualToString:@"unsupported"]) {
+        subtitle = L(@"Requires version 2026.2 or 2026.3");
+        controls = @[[self terminalJumpBadge:L(@"Unsupported") dotColor:nil]];
+    } else {
+        subtitle = automatic ? L(@"Plugin not detected") : L(@"Plugin not detected — custom plugin folder, install manually");
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Install") : L(@"Install Plugin…") action:install]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
+}
+
+- (NSView *)vscodeRow:(NSDictionary *)app {
+    __weak typeof(self) weakSelf = self;
+    NSString *state = app[@"state"];
+    NSString *title = app[@"name"];
+    NSString *version = app[@"version"];
+    if (version.length && ![title containsString:version]) title = [NSString stringWithFormat:@"%@ %@", title, version];
+    BOOL automatic = [app[@"autoInstall"] boolValue];
+    void (^install)(void) = ^{
+        CCPetsPromptInstallVSCodeExtension(app, ^{
+            weakSelf.terminalJumpSnapshot = nil;
+            [weakSelf refreshIDEIntegration];
+        });
+    };
+    NSString *subtitle;
+    NSArray<NSView *> *controls;
+    if ([state isEqualToString:@"connected"]) {
+        subtitle = L(@"Selects the terminal through the extension");
+        controls = @[[self terminalJumpBadge:L(@"Connected") dotColor:NSColor.systemGreenColor]];
+    } else if ([state isEqualToString:@"installed"]) {
+        subtitle = [app[@"running"] boolValue] ? L(@"Installed — reload a window to connect")
+            : L(@"Installed — connects when the app starts");
+        controls = @[[self terminalJumpBadge:L(@"Waiting to connect") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"pendingRestart"]) {
+        subtitle = [NSString stringWithFormat:L(@"Extension %@ is in place — reload open windows to load it"), app[@"pluginVersion"] ?: @""];
+        controls = @[[self terminalJumpBadge:L(@"Reload needed") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"outdated"]) {
+        subtitle = [NSString stringWithFormat:L(@"Extension %@ installed — %@ available"),
+            app[@"pluginVersion"] ?: @"?", app[@"bundledVersion"] ?: @"?"];
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Update") : L(@"Update…") action:install]];
+    } else if ([state isEqualToString:@"disabled"]) {
+        subtitle = L(@"Extension disabled — enable it in the Extensions view");
+        controls = @[[self terminalJumpBadge:L(@"Plugin disabled") dotColor:nil]];
+    } else if ([state isEqualToString:@"unsupported"]) {
+        subtitle = L(@"Requires VS Code 1.80 or later");
+        controls = @[[self terminalJumpBadge:L(@"Unsupported") dotColor:nil]];
+    } else {
+        subtitle = automatic ? L(@"Extension not detected") : L(@"Extension not detected — no command line tool, install manually");
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Install") : L(@"Install Extension…") action:install]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
+}
+
+- (void)applyTerminalJumpSnapshot:(NSArray *)snapshot {
+    NSMutableArray<NSView *> *appleRows = [NSMutableArray array];
+    NSMutableArray<NSView *> *ghosttyRows = [NSMutableArray array];
+    for (NSDictionary *terminal in snapshot[0]) {
+        NSView *row = [self scriptTerminalRow:terminal];
+        [[terminal[@"group"] isEqualToString:@"ghostty"] ? ghosttyRows : appleRows addObject:row];
+    }
+    // 已连接的排前面，其次是还能操作的，不支持的放最后。
+    NSArray *order = @[@"connected", @"pendingRestart", @"installed", @"outdated", @"missing", @"disabled", @"unsupported"];
+    NSArray *ides = [snapshot[1] sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [@([order indexOfObject:a[@"state"]]) compare:@([order indexOfObject:b[@"state"]])];
+    }];
+    NSMutableArray<NSView *> *ideRows = [NSMutableArray array];
+    for (NSDictionary *ide in ides) [ideRows addObject:[self jetBrainsRow:ide]];
+    if (ideRows.count == 0) {
+        [ideRows addObject:[CCPetsFormBuilder rowWithTitle:@"JetBrains IDE"
+            subtitle:L(@"No JetBrains IDE detected") controls:@[]]];
+    }
+    if (appleRows.count) [CCPetsFormBuilder replaceRowsInCard:self.appleTerminalCard withRows:appleRows];
+    self.appleTerminalCard.hidden = appleRows.count == 0;
+    [CCPetsFormBuilder replaceRowsInCard:self.ghosttyCard withRows:ghosttyRows];
+    self.ghosttyCard.hidden = ghosttyRows.count == 0;
+    [CCPetsFormBuilder replaceRowsInCard:self.jetBrainsCard withRows:ideRows];
+    self.jetBrainsCard.hidden = NO;
+    // VS Code 家族只在检测到应用时出现。
+    NSArray *editors = [snapshot[2] sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [@([order indexOfObject:a[@"state"]]) compare:@([order indexOfObject:b[@"state"]])];
+    }];
+    NSMutableArray<NSView *> *editorRows = [NSMutableArray array];
+    for (NSDictionary *app in editors) [editorRows addObject:[self vscodeRow:app]];
+    [CCPetsFormBuilder replaceRowsInCard:self.vscodeCard withRows:editorRows];
+    self.vscodeCard.hidden = editorRows.count == 0;
 }
 
 - (NSArray<NSDictionary *> *)currentUsageProfiles {
@@ -802,6 +1009,15 @@ static const NSUInteger PetPickerColumns = 4;
             subtitle:L(@"Only this window; the pet's panels follow Panel Appearance below") controls:@[appearance]],
     ] footer:nil];
 
+    [self.form addGroupWithTitle:L(@"Launch Protection") rows:@[
+        [self switchRowWithTitle:@"Shadowrocket"
+            subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region")
+            key:CCPetsShadowrocketLaunchCheckKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
+                CCPetsPrefSetBool(CCPetsShadowrocketLaunchCheckKey, enabled);
+            }],
+    ] footer:L(@"Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key.")];
+
     // 浮层外观：两张主题卡片 + 玻璃压暗滑块。
     [self.form addGroupTitle:L(@"Panel Appearance") note:nil];
     CCPetsTileView *classic = [self themeTileLiquid:NO];
@@ -891,6 +1107,19 @@ static const NSUInteger PetPickerColumns = 4;
     }];
     [panelRows addObject:[CCPetsFormBuilder rowWithTitle:L(@"System Status") controls:@[metrics]]];
     [self.form addGroupWithTitle:nil rows:panelRows footer:nil];
+
+    // 终端跳转：按终端分卡片，行在 refreshIDEIntegration 拿到检测结果后填入。
+    [self.form addGroupTitle:L(@"Terminal Jump") note:L(@"Click an agent card to return to its terminal")
+        info:L(@"Terminal, iTerm2 and Ghostty are located by TTY through AppleScript and need CC Pets allowed under System Settings → Privacy & Security → Automation. JetBrains IDEs need the CC Pets Terminal plugin (2026.2 / 2026.3, local Reworked terminal), installed in each IDE separately. VS Code and its forks such as Cursor and Windsurf need the CC Pets Terminal extension, installed in each app separately; remote windows are not supported. Other terminals such as Warp are only brought forward.")];
+    NSView *checking = [CCPetsFormBuilder rowWithTitle:L(@"Checking…") controls:@[]];
+    self.appleTerminalCard = [self.form addGroupWithTitle:nil rows:@[checking] footer:nil];
+    self.ghosttyCard = [self.form addGroupWithTitle:nil rows:@[] footer:nil];
+    self.ghosttyCard.hidden = YES;
+    self.jetBrainsCard = [self.form addGroupWithTitle:nil rows:@[] footer:nil];
+    self.jetBrainsCard.hidden = YES;
+    self.vscodeCard = [self.form addGroupWithTitle:nil rows:@[] footer:nil];
+    self.vscodeCard.hidden = YES;
+    self.terminalJumpSnapshot = nil;
 
     [self.form addGroupWithTitle:L(@"Data") rows:@[
         [CCPetsFormBuilder rowWithTitle:L(@"Pet sprites folder") subtitle:[self displayPath:OwnPetsDirectory()]

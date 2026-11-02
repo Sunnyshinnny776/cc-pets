@@ -156,6 +156,44 @@ Bridge is already enabled, its Hooks, permissions, and MCP registration are also
 configured immediately; otherwise they are added automatically when CC Bridge is
 enabled later.
 
+## Shadowrocket launch check
+
+Enable **Main menu → Settings → Launch Protection → Shadowrocket** (off by default).
+Each proxy app has its own preference; Shadowrocket is the first supported option.
+CC Pets wrappers require a connected Shadowrocket VPN and a valid exit IP / region from
+the service's HTTPS `/cdn-cgi/trace` endpoint before starting Claude / Codex. Failures
+print a reason and return a nonzero exit code before registering a session or sending
+a starting event. Disabling the option skips all network checks.
+
+Claude defaults to `api.anthropic.com`. Codex uses the current Home's `auth.json` to select
+`chatgpt.com` for ChatGPT login or `api.openai.com` for API-key login. If the mode is unknown
+(for example, credentials stored only in Keychain), both exits must pass.
+The response must contain valid `ip`, `loc` and matching `h` fields. `CN` and `HK` exits,
+unknown regions, invalid responses, non-200 HTTP responses and connection / TLS / timeout
+failures block launch. Successful probes print the domain, exit IP and region.
+Each attempt has an 8-second connect timeout, a 15-second total request timeout and a
+16-second process watchdog. Temporary transport failures and HTTP 502 / 503 / 504 retry
+once after 1 second; VPN status is checked again before retrying. Two timed-out requests
+take about 31 seconds per domain, plus VPN checks and process overhead. Blocked regions,
+invalid trace responses and certificate errors are not retried. Failure messages distinguish
+connection, response and process timeouts and include attempt counts and cumulative DNS /
+TCP / TLS / response timings. There is no separate DNS lookup or homepage HEAD request.
+Probes send no account credentials,
+verify TLS certificates, ignore `~/.curlrc` and do not follow redirects.
+
+Claude reads network environment settings from the current `CLAUDE_CONFIG_DIR/settings.json`
+and terminal proxy variables, including an overridden `ANTHROPIC_BASE_URL`. Codex supports
+common single-line string routing settings in `CODEX_HOME/config.toml` (`model_provider`,
+`profile`, `model_providers.<id>.base_url`, `chatgpt_base_url`), `--profile` / `-p`,
+`OPENAI_BASE_URL` and terminal proxy variables. Custom endpoints use their own origin's
+`/cdn-cgi/trace`, with no fallback to another domain. Gateways must serve valid trace data;
+this only describes the exit to the gateway, not the gateway's upstream exit.
+Complex routing TOML, unsupported cloud providers, command-line configuration overrides
+and project network overrides are rejected with an explanation. Enterprise-managed network
+configuration is outside the supported scope. The check does not validate account access,
+service-supported countries or future routing changes. It recognizes the Shadowrocket VPN
+configuration, not just its running process. Original CLI binaries and desktop clients bypass it.
+
 ## CC Bridge
 
 [CC Bridge](./CC_BRIDGE.md) is optional and off by default. It lets local Claude Code
@@ -210,6 +248,32 @@ Commit the bilingual `docs/release-notes-vX.Y.Z.md` before tagging; follow the
 [Release notes rules](./CONTRIBUTING.md#github-release-notes).
 
 ## Agent integration
+
+### JetBrains IDE terminal jump
+
+Local Reworked terminals in IntelliJ-based IDEs 2026.2 / 2026.3 (IntelliJ IDEA,
+PyCharm, WebStorm, GoLand, CLion, PhpStorm, RubyMine, Rider, etc.) support exact tab selection through
+the **CC Pets Terminal** plugin. Open **Settings → General → Terminal Jump** in CC Pets:
+each detected IDE has its own row, and **Install** writes the bundled plugin into that IDE's
+plugin folder after you confirm. Restart the IDE if it was running, then open a project to
+connect automatically; no port configuration is needed. When a newer plugin ships with
+CC Pets, the row offers **Update**. IDEs with a customized plugin folder (`idea.plugins.path`)
+fall back to **Settings → Plugins → ⚙ → Install Plugin from Disk**. Each IDE, stable and EAP
+build keeps its own plugins. Classic and remote terminals are not supported yet.
+See [plugin details](plugins/jetbrains/README.md) for installation and build instructions.
+
+### VS Code terminal jump
+
+VS Code 1.80+ and its forks (Cursor, Windsurf, VSCodium, Insiders, etc.) jump to the exact
+integrated terminal — in the panel, a split or the editor area — through the **CC Pets Terminal**
+extension. In **Settings → General → Terminal Jump**, each detected app has its own row;
+**Install** runs that app's own command line tool with the bundled VSIX after you confirm.
+Open windows usually connect on their own; otherwise run **Developer: Reload Window**. Apps
+without a command line tool fall back to **Extensions → ⋯ → Install from VSIX…**. Without the
+extension, a card only brings the app forward. Remote windows (SSH, WSL, containers) are not
+supported. See [extension details](plugins/vscode/README.md).
+
+### Codex and Claude hooks
 
 Codex Hooks and Claude Code Hooks drive the pet's agent-state animations. After a
 first installation or a Codex Hook update, start Codex and run `/hooks` to review

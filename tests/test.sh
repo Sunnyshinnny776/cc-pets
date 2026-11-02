@@ -4,6 +4,23 @@ setopt NO_BG_NICE
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
+source "${PROJECT_DIR}/scripts/compile-cached.zsh"
+TEST_STARTED=$SECONDS
+print -u2 -- '[test] 开始完整测试（复用编译缓存，所有测试照常执行）'
+TEST_PHASE='准备隔离环境'
+TEST_PHASE_STARTED=$SECONDS
+test_phase() {
+  print -u2 -- "[test] ${TEST_PHASE}: $(( SECONDS - TEST_PHASE_STARTED ))s"
+  TEST_PHASE="$1"
+  TEST_PHASE_STARTED=$SECONDS
+  print -u2 -- "[test] 开始：${TEST_PHASE}"
+}
+# 裸 [[ ... ]] 断言在 set -e 下会静默退出；保留失败码并报告阶段及调用位置。
+TRAPZERR() {
+  local failure_status=$?
+  print -u2 -- "[test] 失败：${TEST_PHASE}；位置 ${funcfiletrace[1]:-unknown}；退出码 ${failure_status}"
+  return "${failure_status}"
+}
 typeset -a TEST_EXTRA_TEMP_DIRS=()
 
 cleanup_test_temp_dirs() {
@@ -35,6 +52,10 @@ trap cleanup_test_temp_dirs EXIT
 # 撞上就会莫名其妙失败。标记由 CC_PETS_TEST_MARK 注入，测试起的每个子进程都带着它，
 # 漏设 CC_PETS_STATE_DIR 的用例照样会被抓到。
 export CC_PETS_TEST_MARK="test-$$"
+# CFPreferences 按当前 macOS 用户读取，不受下面的临时 HOME 隔离影响。
+# 每轮使用全新的偏好域，不继承开发者的启动保护开关，也不复用旧测试的设置。
+# 未设置的启动保护默认关闭，包装器 / shim 测试因此不依赖 VPN 或真实网络。
+export CC_PETS_PREFERENCES_DOMAIN="com.universewang.cc-pets.tests.$(/usr/bin/uuidgen)"
 # 界面语言固定为中文：断言都按中文写，不能随开发机的系统语言变。
 # 源码里是英文原文，中文要查 Resources/zh-Hans.lproj 的表；harness 是单独编译的、没有
 # app bundle，所以统一指过去。英文输出由下面的多语言测试单独覆盖。
@@ -134,6 +155,7 @@ if /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${PROJECT_DIR
   print -u2 "Info.plist 模板不应硬编码版本，版本必须来自 package.json"
   exit 1
 fi
+test_phase '构建、资源与发布包'
 EMPTY_RESOURCE_TMP="$(mktemp -d /tmp/cc-pets-empty-resources-test.XXXXXX)"
 CC_PETS_RESOURCE_DIR="${EMPTY_RESOURCE_TMP}" "${PROJECT_DIR}/scripts/build.sh" >/dev/null
 if find "${PROJECT_DIR}/.build/release" \
@@ -317,8 +339,9 @@ grep -q '@interface CodexUsageReader' "${PET_SOURCES[@]}"
 grep -q 'consumeIncrementalData' "${PET_SOURCES[@]}"
 print "Codex 会话增量读取与解析测试通过"
 
+test_phase '台词、素材、用量与动画'
 PHRASES_TMP="$(mktemp -d /tmp/cc-pets-phrases-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" -framework Foundation \
   "${PET_SRC[CCPetsPhrases.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
@@ -405,7 +428,7 @@ fi
 print "默认词库与内置编辑器接线测试通过"
 
 IMPORT_PETS_TMP="$(mktemp -d /tmp/cc-pets-import-pets-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" -framework Foundation \
   "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PROJECT_DIR}/tests/import-codex-pets-harness.m" \
@@ -498,7 +521,7 @@ USAGE_MODE_SOURCES=(
 )
 
 TOKEN_USAGE_TMP="$(mktemp -d /tmp/cc-pets-token-usage-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
@@ -589,7 +612,7 @@ grep -q 'claudeModifiedAt' "${PET_SOURCES[@]}"
 print "Codex/Claude 额度事件监听与缓存配置测试通过"
 
 USAGE_MONITOR_TMP="$(mktemp -d /tmp/cc-pets-usage-monitor-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework CoreServices \
   "${USAGE_MODE_SOURCES[@]}" \
@@ -606,7 +629,7 @@ CC_PETS_APPLICATION_SUPPORT_DIR="${USAGE_MONITOR_TMP}/Application Support" \
   "${USAGE_MONITOR_TMP}/usage-monitor-test"
 
 BRIDGE_STATE_TMP="$(mktemp -d /tmp/cc-pets-bridge-state-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsPaths.m]:?}" \
@@ -618,7 +641,7 @@ CC_PETS_HOME="${BRIDGE_STATE_TMP}/home" \
   "${BRIDGE_STATE_TMP}/bridge-state-test"
 
 SESSION_PICK_TMP="$(mktemp -d /tmp/cc-pets-session-pick-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${USAGE_MODE_SOURCES[@]}" \
@@ -641,7 +664,7 @@ grep -q 'NSFileModificationDate' "${PET_SOURCES[@]}"
 print "精灵图降采样与有限预览缓存配置测试通过"
 
 IMAGE_LOADER_TMP="$(mktemp -d /tmp/cc-pets-image-loader-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Cocoa -framework ImageIO \
   "${PET_SRC[CCPetsImageLoader.m]:?}" \
@@ -706,6 +729,7 @@ assert_file_contains() {
   fi
 }
 
+test_phase 'Hooks、安装卸载与清理'
 HOOK_TMP="$(mktemp -d /tmp/cc-pets-hook-test.XXXXXX)"
 HOOK_EVENT_FILE="${HOOK_TMP}/cc-pets-$(id -u)-agent-events.ndjson"
 print -n '{"hook_event_name":"PreToolUse","tool_name":"Bash"}' | \
@@ -1307,7 +1331,7 @@ print stale-lock > "${STALE_TMP}/cc-pets-$(id -u)-claude-usage.json.lock"
 touch -t 202001010000 "${STALE_TMP}/cc-pets-$(id -u)-agent-events.ndjson" \
   "${STALE_TMP}/cc-pets-$(id -u)-claude-usage.json" \
   "${STALE_TMP}/cc-pets-$(id -u)-claude-usage.json.lock"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" -framework Foundation \
   "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PET_SRC[CCPetsCleanup.m]:?}" \
@@ -1354,7 +1378,6 @@ CC_PETS_STATE_DIR="${PURGE_TMP}/state" \
 CC_PETS_APPLICATIONS_DIR="${PURGE_TMP}/Applications" \
 CC_PETS_APPLICATION_SUPPORT_DIR="${PURGE_TMP}/Application Support/CC Pets" \
 CC_PETS_BUILD_CACHE_DIR="${PURGE_TMP}/.build/clang-cache" \
-CC_PETS_PREFERENCES_DOMAIN="com.universewang.cc-pets.tests" \
 CC_PETS_HOME="${PURGE_TMP}/home" \
   "${PROJECT_DIR}/scripts/uninstall-shell-integration.sh" --purge --yes >/dev/null
 [[ ! -e "${PURGE_TMP}/Application Support/CC Pets" ]]
@@ -1367,6 +1390,7 @@ CC_PETS_HOME="${PURGE_TMP}/home" \
 print "带确认的完整卸载边界测试通过"
 
 # ---- cc-pets doctor / paths：只读诊断 ----
+test_phase '诊断、账号与额度历史'
 DOCTOR_TMP="$(mktemp -d /tmp/cc-pets-doctor-test.XXXXXX)"
 mkdir -p "${DOCTOR_TMP}/claude" "${DOCTOR_TMP}/codex" "${DOCTOR_TMP}/zdot" "${DOCTOR_TMP}/bin" \
   "${DOCTOR_TMP}/state" "${DOCTOR_TMP}/support" "${DOCTOR_TMP}/home" "${DOCTOR_TMP}/Applications"
@@ -1382,7 +1406,6 @@ doctor_env() {
     CC_PETS_PETS_DIR="${DOCTOR_TMP}/home/pets" \
     CC_PETS_SHIM_DIR="${DOCTOR_TMP}/shims" \
     CC_PETS_APPLICATIONS_DIR="${DOCTOR_TMP}/Applications" \
-    CC_PETS_PREFERENCES_DOMAIN="com.universewang.cc-pets.tests" \
     CLAUDE_CONFIG_DIR="${DOCTOR_TMP}/claude" CODEX_HOME="${DOCTOR_TMP}/codex" \
     ZDOTDIR="${DOCTOR_TMP}/zdot" \
     CODEX_REAL_BIN="${DOCTOR_TMP}/bin/codex" CLAUDE_REAL_BIN="${DOCTOR_TMP}/bin/claude" \
@@ -1498,7 +1521,7 @@ grep -q "CCPetsOpenWindowNotificationName" "${PET_SRC[CCPetsAppDelegate.m]:?}"
 # doctor 牵涉的模块太多，按全部源码（去掉 main.m）编进 harness。
 DOCTOR_SECTIONS_SOURCES=("${PET_SOURCE_DIR}"/**/*.m(N))
 DOCTOR_SECTIONS_SOURCES=("${(@)DOCTOR_SECTIONS_SOURCES:#*/main.m}")
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -DCC_PETS_VERSION="\"0.0.0-test\"" \
   -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
@@ -1519,7 +1542,7 @@ print "doctor 与 paths 只读诊断测试通过"
 # 添加 / 重新定位账号时的 Home 判定：带 sessions/ 的 Claude Home 不能被当成 Codex 登记。
 # CCPetsProfiles 牵涉集成和 Bridge，沿用上面的全量源码。
 PROFILE_HOME_TMP="$(mktemp -d /tmp/cc-pets-profile-home-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -DCC_PETS_VERSION="\"0.0.0-test\"" \
   -framework Cocoa -framework CoreServices -framework ImageIO -framework IOKit \
@@ -1722,7 +1745,7 @@ print "本地额度历史格式与采样间隔测试通过"
 # 在 7 天里攒不下一个历史点，趋势曲线只剩"当前"这一个点、画不出线。两个用例各用
 # 一个独立的支持目录：RecordQuotaHistory 有 15 分钟采样闸门，同目录跑第二次必被拒。
 QUOTA_HISTORY_TMP="$(mktemp -d /tmp/cc-pets-quota-history-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsQuotaHistory.m]:?}" \
@@ -1761,7 +1784,7 @@ grep -q 'agentStatusColor' "${PET_SOURCES[@]}"
 print "额度面板相对时间自刷新与状态配色测试通过"
 
 QUOTA_ONLINE_TMP="$(mktemp -d /tmp/cc-pets-quota-online-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Cocoa \
   "${USAGE_MODE_SOURCES[@]}" \
@@ -1894,6 +1917,7 @@ print "npm 安装后自动初始化测试通过"
 print "npm version 自动验证配置测试通过"
 print "CLI 包装器语法测试通过"
 
+test_phase '包装器、状态、设置与多语言'
 WRAPPER_TMP="$(mktemp -d /tmp/cc-pets-wrapper-env-test.XXXXXX)"
 mkdir -p "${WRAPPER_TMP}/bin" "${WRAPPER_TMP}/codex-home"
 print -r -- '#!/bin/zsh
@@ -2000,11 +2024,13 @@ for invocation expected in Claude real-claude CLAUDE real-claude claude real-cla
   run_tmp="${SHIM_TMP}/run-${shim_case_index}"
   mkdir -p "${run_tmp}"
   # 逻辑写反时表现是无限 exec 自己（不是 fork bomb，但会永久挂住），必须限时。
+  # 全局独立偏好域让启动保护保持关闭；此处的 10 秒只防 shim 递归，不承担网络等待。
+  # 只捕获 stdout 来校验真实 CLI 输出，stderr 保留诊断信息。
   env PATH="${SHIM_TMP}/shims:${SHIM_TMP}/bin:${PATH}" \
     CC_PETS_SHIM_DIR="${SHIM_TMP}/shims" TMPDIR="${run_tmp}/" \
     CC_PETS_STATE_DIR="${run_tmp}/state" CODEX_HOME="${run_tmp}/codex-home" \
     CC_PETS_APPLICATIONS_DIR="${SHIM_TMP}/Applications" \
-    zsh -c "${invocation} --version" > "${run_tmp}/out.txt" 2>&1 &
+    zsh -c "${invocation} --version" > "${run_tmp}/out.txt" &
   shim_pid=$!
   for _ in {1..100}; do
     kill -0 "${shim_pid}" 2>/dev/null || break
@@ -2052,12 +2078,14 @@ grep -q 'self.lastStatusProvider = provider' "${PET_SOURCES[@]}"
 print "客户端退出后状态气泡清场测试通过"
 
 AGENT_STATUS_TMP="$(mktemp -d /tmp/cc-pets-agent-status-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework AppKit \
   "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PET_SRC[CCPetsEvents.m]:?}" \
   "${PET_SRC[CCPetsTerminalFocus.m]:?}" \
+  "${PET_SRC[CCPetsIDEIntegration.m]:?}" -lsqlite3 \
+  "${PET_SRC[CCPetsVSCodeIntegration.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/agent-status-harness.m" \
   -o "${AGENT_STATUS_TMP}/agent-status-test"
@@ -2072,12 +2100,14 @@ grep -q 'terminalSlotKeyForRecord' "${PET_SOURCES[@]}"
 print "Agent 状态气泡终态保持与待机降级测试通过"
 
 TERMINAL_FOCUS_TMP="$(mktemp -d /tmp/cc-pets-terminal-focus-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation -framework AppKit \
   "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PET_SRC[CCPetsEvents.m]:?}" \
   "${PET_SRC[CCPetsTerminalFocus.m]:?}" \
+  "${PET_SRC[CCPetsIDEIntegration.m]:?}" -lsqlite3 \
+  "${PET_SRC[CCPetsVSCodeIntegration.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/terminal-focus-harness.m" \
   -o "${TERMINAL_FOCUS_TMP}/terminal-focus-test"
@@ -2088,7 +2118,7 @@ grep -q 'for (NSString \*bundleID in TerminalFocusBundleCandidates(target))' \
 
 # 设置写入口：右键菜单和主窗口设置页共用的钳制、默认值与变更广播。
 PREFERENCES_TMP="$(mktemp -d /tmp/cc-pets-preferences-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Cocoa \
   "${PET_SRC[CCPetsPreferences.m]:?}" \
@@ -2122,7 +2152,7 @@ if grep -nE 'standardUserDefaults (setBool|setObject|setInteger|setDouble)' \
 fi
 
 UPDATE_RETRY_TMP="$(mktemp -d /tmp/cc-pets-update-retry-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsVersion.m]:?}" \
@@ -2138,7 +2168,7 @@ grep -q 'update-retry-cache' "${PET_SOURCES[@]}"
 print "自动更新暂时性故障重试测试通过"
 
 RELEASE_NOTES_TMP="$(mktemp -d /tmp/cc-pets-release-notes-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsVersion.m]:?}" \
@@ -2158,7 +2188,7 @@ for language in en zh-Hans; do
 done
 print "CLI 多语言占位符替换测试通过"
 L10N_TMP="$(mktemp -d /tmp/cc-pets-l10n-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsL10n.m]:?}" \
@@ -2211,8 +2241,9 @@ print "多语言测试通过"
 
 # CC Bridge 自带隔离（临时状态目录、假 claude / codex 进程、假 codex queue），
 # 不碰真实的 ~/.claude、~/.codex 和 $TMPDIR。
+test_phase 'CC Bridge 与环境污染检查'
 BRIDGE_UNITS_TMP="$(mktemp -d /tmp/cc-pets-bridge-units-test.XXXXXX)"
-clang -fobjc-arc -mmacosx-version-min=13.0 \
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsBridge.m]:?}" \
@@ -2261,3 +2292,5 @@ if [[ "$(live_shim_snapshot)" != "${LIVE_SHIM_BASELINE}" ]]; then
   exit 1
 fi
 print "测试不污染真实 shim 目录测试通过"
+print -u2 -- "[test] ${TEST_PHASE}: $(( SECONDS - TEST_PHASE_STARTED ))s"
+print -u2 -- "[test] 完整测试通过，总耗时 $(( SECONDS - TEST_STARTED ))s"

@@ -553,6 +553,7 @@ static NSDictionary *HandleRequest(NSDictionary *request, NSDictionary **error) 
                 L(@"“message another session / terminal / Claude / Codex”, or names a session or tty (e.g. ttys003), "),
                 L(@"use this server's tools directly; there's no need to look up bridge usage in project files. "), AliasNote(),
                 L(@"Find the recipient's name with list_agents, then send with send_message. "),
+                L(@"When a cross-session request needs clarification or is complete, reply to the originating session using send_message. "),
                 L(@"When several sessions work in the same repository, reserve files with reserve_files before a larger change and release them with release_files afterwards. "),
                 SafetyNote()
             ] componentsJoinedByString:@""]
