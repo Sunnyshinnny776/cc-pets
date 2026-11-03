@@ -32,6 +32,8 @@
 - (NSArray<NSDictionary *> *)petPickerOptions;
 - (NSString *)currentPetID;
 - (void)switchPetToID:(NSString *)petID;
+// 删掉自己素材文件夹里的一只（builtin 的删不了）；删的是当前那只会自动换到下一只。成功返回 YES。
+- (BOOL)deletePetWithID:(NSString *)petID;
 - (void)addClaudeProfile:(id)sender;
 - (void)addCodexProfile:(id)sender;
 - (void)repairAgentProfile:(NSMenuItem *)sender;

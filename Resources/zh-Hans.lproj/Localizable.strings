@@ -1009,3 +1009,5 @@
 "Extension not detected" = "未检测到扩展";
 "Extension not detected — no command line tool, install manually" = "未检测到扩展；应用缺少命令行工具，请手动安装";
 "Install Extension…" = "安装扩展…";
+"Delete “%@”?" = "删除「%@」？";
+"This can't be undone. Continue?" = "删除后无法撤销，是否继续？";

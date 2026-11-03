@@ -17,6 +17,8 @@
 #import "CCPetsUsageMode.h"
 #import "CCPetsUIStyle.h"
 #import <QuartzCore/QuartzCore.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 // 定义在 CCPetsAppDelegate+Speech.m；那边的头文件是 AppDelegate 私有的，这里单独 extern。
 extern NSString *const PetSpeechFrequencyKey;
@@ -378,6 +380,13 @@ static void RevealFolder(NSString *path) {
 @property(nonatomic) NSMutableDictionary<NSString *, CCPetsTileView *> *petTiles;
 @property(nonatomic) NSMutableDictionary<NSString *, CCPetsSpriteView *> *petSprites;
 @property(nonatomic) NSMutableDictionary<NSString *, NSImage *> *sheetCache;
+// 自己素材文件夹里的宠物才有：卡片右上角的删除按钮和右键菜单项。当前这只不让删，和桌宠右键菜单一致。
+@property(nonatomic) NSMutableDictionary<NSString *, NSButton *> *petDeleteButtons;
+@property(nonatomic) NSMutableDictionary<NSString *, NSMenuItem *> *petDeleteItems;
+// 列表现在画的是哪几只（按 id 次序）。外面增删了宠物，对不上就重排。
+@property(nonatomic) NSArray<NSString *> *renderedPetIDs;
+// 盯着自己的素材文件夹：桌宠右键菜单删除、`cc-pets pet add/remove`、Finder 里拖进拖出都会改它。
+@property(nonatomic) dispatch_source_t petsWatcher;
 @property(nonatomic) NSTextField *sampleLine;
 @end
 
@@ -398,14 +407,68 @@ static const NSUInteger PetPickerColumns = 4;
     self.petTiles = [NSMutableDictionary dictionary];
     self.petSprites = [NSMutableDictionary dictionary];
     self.sheetCache = [NSMutableDictionary dictionary];
+    self.petDeleteButtons = [NSMutableDictionary dictionary];
+    self.petDeleteItems = [NSMutableDictionary dictionary];
     [super loadView];
     // 切宠物不走 defaults 写入口（选中项记在桌宠自己身上），靠名片通知得知换了。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(petDidChange:)
         name:CCPetsPetCardDidChangeNotification object:nil];
+    // 文件夹一开始可能不存在（监视不上），回到窗口时再对一次，兜住这种情况。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowDidBecomeKey:)
+        name:NSWindowDidBecomeKeyNotification object:nil];
+    [self startWatchingPetsDirectory];
+}
+
+- (void)dealloc {
+    [self stopWatchingPetsDirectory];
 }
 
 - (void)petDidChange:(NSNotification *)notification {
+    // 删掉当前那只时 AppDelegate 会换到下一只并发这条通知，此时列表也少了一只。
+    [self reloadPickerIfChanged];
     [self updatePetSelection];
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification {
+    if (notification.object != self.view.window) return;
+    if (!self.petsWatcher) [self startWatchingPetsDirectory];
+    [self reloadPickerIfChanged];
+}
+
+- (void)startWatchingPetsDirectory {
+    [self stopWatchingPetsDirectory];
+    int descriptor = open(OwnPetsDirectory().fileSystemRepresentation, O_EVTONLY);
+    if (descriptor < 0) return;
+    dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, (uintptr_t)descriptor,
+        DISPATCH_VNODE_WRITE | DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME, dispatch_get_main_queue());
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(source, ^{
+        typeof(self) page = weakSelf;
+        if (!page) return;
+        // 文件夹本身被删或改名，旧描述符就废了，重新打开。
+        if (dispatch_source_get_data(source) & (DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME)) {
+            [page startWatchingPetsDirectory];
+        }
+        // `pet add` 会连着改好几次（临时目录、改名），合并成一次重排。
+        [NSObject cancelPreviousPerformRequestsWithTarget:page selector:@selector(reloadPickerIfChanged) object:nil];
+        [page performSelector:@selector(reloadPickerIfChanged) withObject:nil afterDelay:0.3];
+    });
+    dispatch_source_set_cancel_handler(source, ^{ close(descriptor); });
+    self.petsWatcher = source;
+    dispatch_resume(source);
+}
+
+- (void)stopWatchingPetsDirectory {
+    if (!self.petsWatcher) return;
+    dispatch_source_cancel(self.petsWatcher);
+    self.petsWatcher = nil;
+}
+
+- (void)reloadPickerIfChanged {
+    NSMutableArray<NSString *> *ids = [NSMutableArray array];
+    for (NSDictionary *option in [self.actions petPickerOptions] ?: @[]) [ids addObject:option[@"id"]];
+    if (self.renderedPetIDs && [ids isEqualToArray:self.renderedPetIDs]) return;
+    [self rebuildPicker];
 }
 
 - (void)buildContent {
@@ -502,7 +565,10 @@ static const NSUInteger PetPickerColumns = 4;
     }
     [self.petTiles removeAllObjects];
     [self.petSprites removeAllObjects];
+    [self.petDeleteButtons removeAllObjects];
+    [self.petDeleteItems removeAllObjects];
     NSArray<NSDictionary *> *options = [self.actions petPickerOptions] ?: @[];
+    self.renderedPetIDs = [options valueForKey:@"id"];
     NSMutableArray<NSView *> *tiles = [NSMutableArray array];
     __weak typeof(self) weakSelf = self;
     for (NSDictionary *option in options) {
@@ -514,6 +580,7 @@ static const NSUInteger PetPickerColumns = 4;
         tile.toolTip = option[@"name"];
         self.petTiles[petID] = tile;
         self.petSprites[petID] = sprite;
+        if (![option[@"builtin"] boolValue]) [self attachDeleteControlsToTile:tile option:option];
         [tiles addObject:tile];
         [self loadSheetForOption:option intoSprite:sprite];
     }
@@ -539,6 +606,62 @@ static const NSUInteger PetPickerColumns = 4;
         [row.widthAnchor constraintEqualToAnchor:self.pickerRows.widthAnchor].active = YES;
     }
     [self updatePetSelection];
+}
+
+- (void)attachDeleteControlsToTile:(CCPetsTileView *)tile option:(NSDictionary *)option {
+    NSString *petID = option[@"id"];
+    NSString *name = option[@"name"];
+    __weak typeof(self) weakSelf = self;
+    void (^confirm)(void) = ^{ [weakSelf confirmDeletePetWithID:petID name:name]; };
+
+    NSButton *trash = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"trash"
+        accessibilityDescription:L(@"Delete pet")] target:nil action:nil];
+    trash.bordered = NO;
+    trash.contentTintColor = CCPetsSecondaryInkColor();
+    trash.toolTip = L(@"Delete pet");
+    [self bind:trash to:^(id sender) { confirm(); }];
+    trash.translatesAutoresizingMaskIntoConstraints = NO;
+    [tile addSubview:trash];
+    [NSLayoutConstraint activateConstraints:@[
+        [trash.topAnchor constraintEqualToAnchor:tile.topAnchor constant:6],
+        [trash.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor constant:-6],
+        [trash.widthAnchor constraintEqualToConstant:20],
+        [trash.heightAnchor constraintEqualToConstant:20],
+    ]];
+    tile.hoverAccessoryView = trash;
+
+    // 右键菜单：键盘 / 旁白用户摸不到悬停按钮，也给他们一条路。
+    CCPetsSettingsHandler *handler = [CCPetsSettingsHandler new];
+    handler.block = ^(id sender) { confirm(); };
+    [self.handlers addObject:handler];
+    NSMenu *menu = [NSMenu new];
+    menu.autoenablesItems = NO;
+    NSMenuItem *item = [menu addItemWithTitle:L(@"Delete pet") action:@selector(invoke:) keyEquivalent:@""];
+    item.target = handler;
+    tile.menu = menu;
+
+    self.petDeleteButtons[petID] = trash;
+    self.petDeleteItems[petID] = item;
+}
+
+- (void)confirmDeletePetWithID:(NSString *)petID name:(NSString *)name {
+    if ([petID isEqualToString:[self.actions currentPetID]]) return;
+    NSAlert *alert = [NSAlert new];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = [NSString stringWithFormat:L(@"Delete “%@”?"), name ?: @""];
+    alert.informativeText = L(@"This can't be undone. Continue?");
+    NSButton *deleteButton = [alert addButtonWithTitle:L(@"Delete")];
+    deleteButton.hasDestructiveAction = YES;
+    [alert addButtonWithTitle:L(@"Cancel")];
+    __weak typeof(self) weakSelf = self;
+    void (^finish)(NSModalResponse) = ^(NSModalResponse response) {
+        if (response != NSAlertFirstButtonReturn) return;
+        // 删除失败时 AppDelegate 自己会弹错误，这里只管成功后重排列表。
+        if ([weakSelf.actions deletePetWithID:petID]) [weakSelf rebuildPicker];
+    };
+    NSWindow *window = self.view.window;
+    if (window) [alert beginSheetModalForWindow:window completionHandler:finish];
+    else finish([alert runModal]);
 }
 
 - (CCPetsTileView *)tileWithTop:(NSView *)top title:(NSString *)title subtitle:(NSString *)subtitle {
@@ -599,6 +722,12 @@ static const NSUInteger PetPickerColumns = 4;
         tile.selected = selected;
         // 只让选中的那只动，其余停在第一帧。
         self.petSprites[petID].playing = selected;
+        NSButton *trash = self.petDeleteButtons[petID];
+        if (trash) {
+            trash.hidden = YES;
+            tile.hoverAccessoryView = selected ? nil : trash;
+            self.petDeleteItems[petID].enabled = !selected;
+        }
     }];
 }
 

@@ -282,7 +282,36 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 
 @end
 
+@interface CCPetsTileView ()
+@property(nonatomic) NSTrackingArea *hoverTracking;
+@end
+
 @implementation CCPetsTileView
+
+- (void)setHoverAccessoryView:(NSView *)view {
+    _hoverAccessoryView = view;
+    view.hidden = YES;
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (self.hoverTracking) [self removeTrackingArea:self.hoverTracking];
+    self.hoverTracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
+        owner:self userInfo:nil];
+    [self addTrackingArea:self.hoverTracking];
+    // 卡片重排后鼠标可能已经不在上面，按实际位置校正一次。
+    NSPoint mouse = [self convertPoint:self.window.mouseLocationOutsideOfEventStream fromView:nil];
+    self.hoverAccessoryView.hidden = !(self.window && NSPointInRect(mouse, self.bounds));
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    self.hoverAccessoryView.hidden = NO;
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    self.hoverAccessoryView.hidden = YES;
+}
 
 - (void)mouseDown:(NSEvent *)event {
     // 按下不立刻触发，松开时还在卡片上才算一次点击，和按钮一个手感。
