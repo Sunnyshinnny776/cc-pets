@@ -9,6 +9,10 @@ truth for the version.
 
 ## [2.4.0] - 2026-11-03
 
+### Diagnostics
+
+- Distinguish local source packages, local npm packages and unknown local package locations in Diagnostics, copied reports and `cc-pets paths`. Local version mismatch warnings no longer imply that a version has been published on npm; published updates are checked separately.
+
 ### Terminal jump and settings
 
 - Add exact terminal selection for JetBrains 2026.2 / 2026.3 Reworked terminals through the bundled plugin, including terminals moved into editor tabs. Classic terminals, remote development and split subterminals are outside the supported scope. Ghostty 1.4+ selects tabs and splits by TTY; iTerm2 selects sessions by TTY. Automation permission is required for script-based terminal jumps.

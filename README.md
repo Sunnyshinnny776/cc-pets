@@ -348,7 +348,10 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 - **Diagnostics** — the same checks as `cc-pets doctor`, problems first: each with its area,
   the suggested fix command and a copy button. Passing checks fold into one line. The PATH
   order check only points you to `cc-pets doctor` in a terminal, since the pet's own PATH
-  isn't your terminal's.
+  isn't your terminal's. Version checks compare the local package, running binary and installed App;
+  source checkouts are labeled as a local source package, npm installations as a local npm package,
+  and unrecognized locations as a local package. These labels do not indicate publication on npm;
+  the update checker queries published versions separately.
   **Re-check** and **Copy Report** (paths are shown as `~`, so it is safe to paste into an
   issue). Registered accounts' Hooks and Claude status line issues offer **Auto-fix** and
   **Fix All**. Configuration and affected scripts are backed up before changes, then checks

@@ -20,6 +20,8 @@ CC Bridge rejects ambiguous session identities, serializes updates and recovers 
 
 ### Usage and upgrade
 
+Diagnostics distinguishes local source packages from local npm packages and compares local installation versions. Published npm updates are checked separately.
+
 Codex cache-write accounting no longer counts the same tokens twice; existing daily archives are migrated. Local Codex SQLite logs supplement background totals without inventing an input/output/cache breakdown or duplicating persisted sessions. Every model keeps its own chart series. Low-quota reminders track each subscription account independently at 20%, 10% and 5%.
 
 After upgrading, run `cc-pets install` to refresh the installed app and integrations. Restart running Codex sessions and trust updated hooks in `/hooks`. Install or update terminal extensions from Settings, then restart JetBrains or reload VS Code when prompted.
@@ -47,6 +49,8 @@ VS Code 1.80+ 及其分支、JetBrains 2026.2 / 2026.3 Reworked 终端可使用�
 CC Bridge 拒绝有歧义的会话身份，串行处理更新，并可恢复未确认的信箱消息；输出与确认之间崩溃仍可能重复同一消息 ID。投递使用接收方 Codex Home，运行中的 watcher 会重新检查开关，消息信封也更简短。构建原子替换已签名的可执行文件，避免签名相关启动失败。
 
 ### 用量与升级
+
+诊断页区分本地源码包与本地 npm 包，版本检查比较本地安装；npm 已发布版本由更新检查单独查询。
 
 修复 Codex cache write 重复计数，并迁移已有按日归档。本机 Codex SQLite 日志补充后台总量，不推算 input/output/cache 明细，也不重复累计已持久化的会话。所有模型保留独立图表序列；低额度提醒按订阅账号分别跟踪 20%、10%、5% 阈值。
 

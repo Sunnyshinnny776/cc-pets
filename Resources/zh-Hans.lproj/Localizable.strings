@@ -557,7 +557,10 @@
 "Online client records" = "在线客户端记录";
 "CC Bridge state directory" = "CC Bridge 状态目录";
 "Program and integrations" = "程序与集成";
-"npm package" = "npm 包";
+"local source package" = "本地源码包";
+"local npm package" = "本地 npm 包";
+"local package" = "本地包";
+"These checks compare local versions. Published npm updates are checked separately." = "这些检查比较本地版本；npm 已发布版本由更新检查单独查询。";
 "Installed app" = "已安装的 App";
 "Claude Code settings" = "Claude Code 配置";
 "Shell config" = "Shell 配置";
@@ -592,11 +595,11 @@
 "Auto-update isn't configured, so in-app updates won't work" = "自动更新未配置，应用内无法一键更新";
 "Auto-update config is valid" = "自动更新配置有效";
 "The {missing} recorded for auto-update no longer exist (changed Node versions?)" = "自动更新记录的 {missing} 已不存在（换过 Node 版本？）";
-"npm package {packageVersion}: {projectDir}" = "npm 包 {packageVersion}：{projectDir}";
-"Native binary {binaryVersion} doesn't match npm package {packageVersion}" = "原生程序版本 {binaryVersion} 与 npm 包 {packageVersion} 不一致";
+"{packageKind} {packageVersion}: {projectDir}" = "{packageKind} {packageVersion}：{projectDir}";
+"Native binary {binaryVersion} doesn't match {packageKind} {packageVersion}" = "原生程序版本 {binaryVersion} 与 {packageKind} {packageVersion} 不一致";
 "Native binary {binaryVersion}" = "原生程序 {binaryVersion}";
 "Installed app not found: {installedApp}" = "未找到已安装的 App：{installedApp}";
-"Installed app {appVersion} doesn't match npm package {packageVersion}" = "已安装的 App 版本 {appVersion} 与 npm 包 {packageVersion} 不一致";
+"Installed app {appVersion} doesn't match {packageKind} {packageVersion}" = "已安装的 App 版本 {appVersion} 与 {packageKind} {packageVersion} 不一致";
 "Installed app {appVersion}" = "已安装的 App {appVersion}";
 "The pet is running" = "桌宠正在运行";
 "The pet isn't running" = "桌宠未运行";
@@ -605,7 +608,7 @@
 "Shell integration" = "Shell 集成";
 "Off (optional; turn on with cc-pets bridge enable)" = "未开启（可选功能，cc-pets bridge enable 开启）";
 "Codex supports codex queue, so it can be woken automatically" = "Codex 支持 codex queue，可自动唤醒";
-"CC Pets diagnostics (npm package {packageVersion}, {platform} {release})" = "CC Pets 诊断（npm 包 {packageVersion}，{platform} {release}）";
+"CC Pets diagnostics ({packageKind} {packageVersion}, {platform} {release})" = "CC Pets 诊断（{packageKind} {packageVersion}，{platform} {release}）";
 "{count} warnings" = "{count} 项警告";
 "{count} warning" = "{count} 项警告";
 "{count} errors" = "{count} 项错误";
