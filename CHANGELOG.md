@@ -7,6 +7,53 @@ truth for the version.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-03
+
+### Terminal jump and settings
+
+- Add exact terminal selection for JetBrains 2026.2 / 2026.3 Reworked terminals through the bundled plugin, including terminals moved into editor tabs. Classic terminals, remote development and split subterminals are outside the supported scope. Ghostty 1.4+ selects tabs and splits by TTY; iTerm2 selects sessions by TTY. Automation permission is required for script-based terminal jumps.
+- Put Panel Appearance first in Settings, with compact theme tiles and a live Liquid Glass dimming preview. Dimming is displayed as 0–100 while retaining the existing internal range; menu presets are 0/25/50/100. Combine terminal integration states in one card, group versions of the same JetBrains product and collapse lists longer than five rows.
+
+### Pet management
+
+- Delete pets from the user's own folder directly on the Main menu's Pet page, using a hover button or context menu and a confirmation dialog. Built-in pets and the currently selected pet are protected. Refresh the picker when pets are added or removed through the CLI, Finder or the pet menu.
+
+### Token accounting
+
+- Correct Codex cache-write double counting and migrate existing daily archives. Incrementally include background usage from local Codex SQLite logs, excluding sessions already represented by persisted transcripts. Background totals do not invent an input/output/cache breakdown.
+- Keep individual chart series and colors for every model instead of folding models after the eighth into Other. Restore native tooltips for usage metrics.
+
+### VS Code terminal jump
+
+- Add the CC Pets Terminal extension for VS Code 1.80+ and its forks (Cursor, Windsurf, VSCodium, …). Clicking an agent card selects the exact integrated terminal by TTY — in the panel, a split or the editor area — and brings its window forward by reopening that window's workspace, switching Spaces when needed. Forks are recognised by `product.json`, not a bundle ID list. Remote windows are not supported; without the extension the app is only brought forward, as before.
+- Settings → Terminal Jump lists each VS Code family app with install, update, reload-needed and disabled states. Install runs the app's own command line tool on the bundled VSIX after confirmation, with a manual "Install from VSIX…" fallback. The VSIX is built reproducibly with macOS tools only (`scripts/build-vscode-extension.sh`).
+
+### Build reliability
+
+- Replace cached and uncached executables atomically after signing and verification, including the App's executable. This fixes macOS signature-related termination after in-place overwrites that could break Hooks, CLI launch and tests. Builds now check CLI execution before reporting success; early test failures report their phase, location and exit status.
+
+### CC Bridge
+
+- Validate explicit session IDs before PID lookup and reject ambiguous shared-host identities instead of selecting the most recently active session. This protects messaging, renaming, inbox access and file reservations.
+- Retain claimed inbox messages until output is flushed successfully, recover unconfirmed messages after crashes, and prevent delivered receipts from reverting to pending. Recovery can repeat a message ID if a crash occurs between output and confirmation; exactly-once delivery is not guaranteed.
+- Serialize session updates and renaming, use kernel-backed watcher locks, and preserve numeric suffixes when allocating duplicate 40-character session names.
+- Recheck enabled and auto-wake settings in running watchers, reject CLI mutations while disabled, and report integration removal failures with a nonzero exit code while keeping the runtime disabled.
+- Use the recipient's Codex Home for queue delivery, recognize literal bracketed file paths such as `[id]` in reservation checks, and preserve account and sender IDs for Bridge activity display.
+- Shorten the cross-session message envelope to a source line, a one-line permission notice and a reply address that includes the sender's ref. MCP instructions now ask the receiving session to reply to the originating session with `send_message` when it needs clarification or finishes the request.
+
+### Launch protection
+
+- Added an optional Shadowrocket launch check under **Main menu → Settings → Launch Protection** (off by default). Before registering a session or sending a starting event, wrappers verify the VPN connection and request each service's `/cdn-cgi/trace`. Mainland China (CN), Hong Kong (HK), unknown exits and failed requests block launch; successful checks show the exit IP and region.
+- Claude defaults to `api.anthropic.com`; Codex selects `chatgpt.com` or `api.openai.com` from its `auth.json` login mode, checking both when unknown. Common user-level endpoint settings are supported; custom endpoints must return valid trace data, with no unrelated-domain fallback. Removed separate DNS / homepage HEAD probes. Requests send no account credentials, verify TLS, ignore `~/.curlrc` and do not follow redirects. See README for complex configuration, project override and cloud-provider limitations. Launches bypassing wrappers are not checked.
+- Exit checks allow 8 seconds to connect and 15 seconds per request, with a 16-second process watchdog. Temporary transport failures and HTTP 502 / 503 / 504 retry once after 1 second. Failures report the timeout phase, attempt count and cumulative connection timings. Wrapper tests use a fresh preferences domain per run, keeping real VPN settings and network probes out of ordinary tests while preserving compile caching and phase timing.
+
+### Quota and interface
+
+- Track low-quota speech independently for each subscription account at the 20%, 10% and 5% thresholds. Queue reminders during cooldown, identify the triggering account, skip the first sample and expired windows, and exclude API-usage accounts. General quota placeholders use the account with the least remaining quota.
+- Apply the same Codex live-usage merge to default and custom Homes. Expire exhaustion markers from their original sampling time so repeated cache reads cannot extend their five-minute lifetime.
+- Simplify the monthly token trend layout: show today's usage and recorded days on separate lines, with peak usage in a tooltip for the selected account.
+- Normalize provider icon sizing and bundle fallback Claude and Codex icons for CLI-only installations. Include them in native builds and npm packages, and document their sources and separate ownership in the third-party notices.
+
 ## [2.3.0] - 2026-10-21
 
 ### Installation

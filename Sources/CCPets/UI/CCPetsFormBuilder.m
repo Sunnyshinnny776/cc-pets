@@ -206,13 +206,8 @@ static const CGFloat FormSideInset = 28;
     [self.stack setCustomSpacing:8 afterView:header];
 }
 
-- (NSView *)addGroupWithTitle:(NSString *)title rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
-    if (title.length > 0) [self addGroupTitle:title note:nil];
-
-    NSStackView *content = [NSStackView stackViewWithViews:@[]];
-    content.orientation = NSUserInterfaceLayoutOrientationVertical;
-    content.spacing = 0;
-    content.translatesAutoresizingMaskIntoConstraints = NO;
+static void FillCardContent(NSStackView *content, NSArray<NSView *> *rows) {
+    for (NSView *view in content.arrangedSubviews.copy) [view removeFromSuperview];
     for (NSView *row in rows) {
         if (content.arrangedSubviews.count > 0) {
             NSView *separator = [CCPetsFormBuilder separator];
@@ -224,6 +219,22 @@ static const CGFloat FormSideInset = 28;
         [row.leadingAnchor constraintEqualToAnchor:content.leadingAnchor].active = YES;
         [row.trailingAnchor constraintEqualToAnchor:content.trailingAnchor].active = YES;
     }
+}
+
++ (void)replaceRowsInCard:(NSView *)card withRows:(NSArray<NSView *> *)rows {
+    for (NSView *content in card.subviews) {
+        if ([content isKindOfClass:NSStackView.class]) { FillCardContent((NSStackView *)content, rows); return; }
+    }
+}
+
+- (NSView *)addGroupWithTitle:(NSString *)title rows:(NSArray<NSView *> *)rows footer:(NSString *)footer {
+    if (title.length > 0) [self addGroupTitle:title note:nil];
+
+    NSStackView *content = [NSStackView stackViewWithViews:@[]];
+    content.orientation = NSUserInterfaceLayoutOrientationVertical;
+    content.spacing = 0;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    FillCardContent(content, rows);
 
     CCPetsCardView *card = [CCPetsCardView new];
     card.translatesAutoresizingMaskIntoConstraints = NO;

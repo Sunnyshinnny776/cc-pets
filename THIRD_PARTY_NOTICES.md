@@ -8,9 +8,13 @@ is unrelated to any existing anime, game, or commercial mascot and is distribute
 with the project code under the MIT License.
 
 At runtime, the app may read locally installed Codex/ChatGPT and Claude application
-icons for interface identification. Those icons are not copied into this repository
-or the npm package. Their trademarks and copyrights belong to their respective
-owners.
+icons for interface identification. If unavailable, it uses bundled fallback assets
+in `Resources/AgentIcons`: `claude.png` from https://claude.ai/apple-touch-icon.png
+and `codex.icns` from the locally installed ChatGPT.app resource `icon-chatgpt.icns`.
+These assets retain their respective owners' copyrights and trademarks; they are
+not original CC Pets artwork and are not covered by this project's MIT License.
+Attribution does not grant redistribution permission or imply endorsement by
+Anthropic or OpenAI. Distribution must comply with the rights holders' terms.
 
 Assets installed by users from PetDex or other sources are managed by those users
 and are not part of this project distribution. Follow the applicable author,

@@ -245,3 +245,22 @@ tool through `~/.cc-pets/bridge-cli.json`, written on every `cc-pets install`; i
   10 minutes is paused to stop two agents from auto-replying to each other in a loop.
 - Pet status cards and notifications never show message bodies.
 - No background daemon: only hooks, the MCP server, and the watcher inside Claude sessions, all of which exit with the session.
+
+## Identity and delivery guarantees
+
+Bridge validates `CODEX_THREAD_ID` / `CLAUDE_CODE_SESSION_ID` against the live session registry and the
+current host process. Without a session ID, PID lookup is allowed only when it identifies exactly one
+live session. Ambiguous shared hosts and stale explicit IDs fail closed for sending, renaming, reading
+inboxes and managing reservations. CLI diagnostics can select a session explicitly with
+`--from <session-name-or-full-session-id>`.
+
+Claimed inbox messages remain on disk until the complete output has been flushed successfully.
+A later hook, watcher or `check_inbox` recovers unconfirmed messages after a crash. A crash between
+output and confirmation may deliver the same message ID again; the host provides no acknowledgement
+protocol, so exactly-once delivery is not guaranteed. Codex queue delivery uses the recipient's Home.
+Legacy records with an unknown Home fall back to the inbox until registration is refreshed by input
+in that session.
+
+Existing watchers recheck the enabled and auto-wake switches while polling. Disabling Bridge also
+blocks CLI send, rename and inbox operations. Integration removal failures return a nonzero exit code;
+the runtime remains disabled, and `disable` can be retried after resolving the reported errors.

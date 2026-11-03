@@ -15,6 +15,8 @@ extern NSString *const PetInteractionEnabledKey;
 extern NSString *const PetInteractionHeartThresholdKey;
 extern NSString *const PetInteractionAnnoyedThresholdKey;
 extern NSString *const PetInteractionIntervalKey;
+// 启动保护按代理软件分别保存；增加软件时定义独立的布尔键。
+extern NSString *const CCPetsShadowrocketLaunchCheckKey;
 
 // 布尔设置。碎碎念这类"没写过就算开"的键在这里统一兜底，调用方不必各自判 nil。
 BOOL CCPetsPrefBool(NSString *key);

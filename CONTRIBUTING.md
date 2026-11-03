@@ -13,6 +13,28 @@ Thank you for contributing to CC Pets. Before submitting a change:
 For a substantial feature, open a GitHub Issue before sending a Pull Request so the
 scope can be agreed on first.
 
+## Build and test cache
+
+`npm run build` and `npm test` share object files and linked binaries under
+`.build/clang-cache/cc-pets`. Changes to sources, project headers, compiler flags,
+the toolchain, or SDK invalidate the cache; temporary output paths do not.
+Empty-resource builds, normal builds, and installation checks still refresh resources
+and signatures. Every test runs each time; passing results are never cached.
+Logs show compilation progress, compiled/reused counts, test phases, and elapsed time.
+Executables are staged on the destination filesystem, ad-hoc signed and verified, then
+atomically renamed into place. This also applies when the cache is disabled; executable
+files must not be overwritten in place on macOS. Builds check that the resulting CLI can
+run `--version`, and early test failures report their phase, location, and exit status.
+
+The test runner assigns a fresh `CC_PETS_PREFERENCES_DOMAIN` on every run. Changing
+`HOME` alone does not isolate macOS `CFPreferences`. Launch protection defaults to off
+in this domain, so wrapper and shim tests do not depend on your VPN or live exit probes.
+
+Use `CC_PETS_NO_BUILD_CACHE=1 npm run build` or `CC_PETS_NO_BUILD_CACHE=1 npm test`
+to bypass the cache and compile with the original clang command. This does not read
+or write this cache. The existing `cc-pets clean` command removes these artifacts
+along with the application's other caches.
+
 ## Branch and release policy
 
 Develop, test, and prepare preview releases on `publish`. Preview releases must be

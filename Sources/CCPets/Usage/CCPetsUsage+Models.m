@@ -3,15 +3,16 @@
 
 #pragma mark - 按模型的用量
 
-// 面向 UI 的统一口径：四栏互不重叠，加起来就是总 Token。
+// 面向 UI 的统一口径：四个明细栏互不重叠，另加缺少明细的后台用量得到总 Token。
 //   input      非缓存输入
 //   cacheRead  缓存命中读
 //   cacheWrite 缓存写入
 //   output     输出
 //   reasoning  输出里的推理 token（Codex 才有，是 output 的子集，不另外加）
 //   requests   请求数
-// 两家原始口径不同：Claude 的 input_tokens 不含缓存；Codex 的 cached_input_tokens 是
-// input_tokens 的子集（input + output = total），所以 Codex 要先减掉缓存命中的部分。
+//   background 后台请求的总 Token（无输入/输出明细，不参与命中率）
+// 两家原始口径不同：Claude 的 input_tokens 不含缓存；Codex 的缓存读取和写入都是
+// input_tokens 的子集（input + output = total），拆成四栏时必须把两者都从输入中扣除。
 static NSDictionary *ModelCountsMake(unsigned long long input, unsigned long long cacheRead,
     unsigned long long cacheWrite, unsigned long long output, unsigned long long reasoning,
     unsigned long long requests) {
@@ -20,7 +21,7 @@ static NSDictionary *ModelCountsMake(unsigned long long input, unsigned long lon
 }
 
 static NSArray<NSString *> *ModelCountKeys(void) {
-    return @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests"];
+    return @[@"input", @"cacheRead", @"cacheWrite", @"output", @"reasoning", @"requests", @"background"];
 }
 
 static void AddModelCounts(NSMutableDictionary *target, NSDictionary *counts) {
@@ -31,14 +32,16 @@ static void AddModelCounts(NSMutableDictionary *target, NSDictionary *counts) {
 
 unsigned long long CCPetsTotalTokens(NSDictionary *counts) {
     return [counts[@"input"] unsignedLongLongValue] + [counts[@"cacheRead"] unsignedLongLongValue] +
-        [counts[@"cacheWrite"] unsignedLongLongValue] + [counts[@"output"] unsignedLongLongValue];
+        [counts[@"cacheWrite"] unsignedLongLongValue] + [counts[@"output"] unsignedLongLongValue] +
+        [counts[@"background"] unsignedLongLongValue];
 }
 
 static NSDictionary *ModelCountsFromCodexBucket(NSDictionary *bucket) {
     unsigned long long input = [bucket[@"input_tokens"] unsignedLongLongValue];
     unsigned long long cached = [bucket[@"cached_input_tokens"] unsignedLongLongValue];
-    return ModelCountsMake(input >= cached ? input - cached : 0, cached,
-        [bucket[@"cache_write_input_tokens"] unsignedLongLongValue],
+    unsigned long long written = [bucket[@"cache_write_input_tokens"] unsignedLongLongValue];
+    unsigned long long uncached = input >= cached ? input - cached : 0;
+    return ModelCountsMake(uncached >= written ? uncached - written : 0, cached, written,
         [bucket[@"output_tokens"] unsignedLongLongValue],
         [bucket[@"reasoning_output_tokens"] unsignedLongLongValue],
         [bucket[@"request_count"] unsignedLongLongValue]);
@@ -170,13 +173,14 @@ static unsigned long long ModelDayTokens(NSDictionary *models) {
 
 static NSString *const ModelArchiveSchemaKey = @"schema";
 // 2 起归档的键是 DayLabel（日期），1 是日零点的时间戳字符串。
-static const NSInteger ModelArchiveSchemaVersion = 2;
+// 3 起 Codex 的 input 不再包含 cacheWrite，四栏之和不再重复计算缓存写入。
+static const NSInteger ModelArchiveSchemaVersion = 3;
 // 用量页最长看 90 天（CCPetsUsagePage.m 的 UsageMaximumRangeDays），归档只需要覆盖这么多，
 // 再留几天余量。读取只取请求区间里的日子，留得更久也没有路径能读到。两边要一起改。
 static const NSInteger ModelArchiveRetentionDays = 100;
 
 // 版本 1 的归档不能直接丢：源头被清掉的那些天只剩这一份。把时间戳键换成日期就能接着用。
-static NSMutableDictionary *LoadModelArchive(NSString *path, BOOL *outMigrated) {
+static NSMutableDictionary *LoadModelArchive(NSString *path, BOOL isClaude, BOOL *outMigrated) {
     NSMutableDictionary *archive = LoadTokenSummaryCache(path);
     NSDictionary *schema = [archive[ModelArchiveSchemaKey] isKindOfClass:NSDictionary.class]
         ? archive[ModelArchiveSchemaKey] : nil;
@@ -194,8 +198,30 @@ static NSMutableDictionary *LoadModelArchive(NSString *path, BOOL *outMigrated) 
         }
         archive[@"days"] = days;
         if (outMigrated) *outMigrated = YES;
-    } else if (version != ModelArchiveSchemaVersion) {
+    } else if (version != 2 && version != ModelArchiveSchemaVersion) {
         [archive removeAllObjects];
+    }
+    // 不能只让源日志重算：归档合并会保留较大的旧值，而且有些源日志已经被清理。
+    // 旧归档保留了独立的 cacheWrite，因此可以原地纠正，版本号保证只扣除一次。
+    if (version == 1 || version == 2) {
+        if (!isClaude) {
+            NSDictionary *oldDays = archive[@"days"];
+            NSMutableDictionary *days = [NSMutableDictionary dictionary];
+            for (NSString *day in oldDays) {
+                NSDictionary *oldModels = oldDays[day];
+                NSMutableDictionary *models = [NSMutableDictionary dictionary];
+                for (NSString *model in oldModels) {
+                    NSMutableDictionary *counts = [oldModels[model] mutableCopy];
+                    unsigned long long input = [counts[@"input"] unsignedLongLongValue];
+                    unsigned long long written = [counts[@"cacheWrite"] unsignedLongLongValue];
+                    counts[@"input"] = @(input >= written ? input - written : 0);
+                    models[model] = counts;
+                }
+                days[day] = models;
+            }
+            archive[@"days"] = days;
+        }
+        if (outMigrated) *outMigrated = YES;
     }
     archive[ModelArchiveSchemaKey] = @{@"version": @(ModelArchiveSchemaVersion)};
     if (![archive[@"days"] isKindOfClass:NSDictionary.class]) archive[@"days"] = @{};
@@ -223,11 +249,12 @@ NSDictionary *CCPetsModelUsageAtHome(NSString *provider, NSString *home,
     NSMutableDictionary *cache = LoadTokenSummaryCache(cachePath);
     if (isClaude) MakeCachedRecordsMutable(cache);
     BOOL archiveChanged = NO;
-    NSMutableDictionary *archive = LoadModelArchive(archivePath, &archiveChanged);
+    NSMutableDictionary *archive = LoadModelArchive(archivePath, isClaude, &archiveChanged);
 
     NSDictionary<NSString *, NSDictionary *> *fresh = isClaude
         ? ClaudeModelDays(start, end, cache, sourceURL)
         : CodexModelDays(start, end, cache, sourceURL);
+    NSDictionary *backgroundDays = isClaude ? @{} : CodexBackgroundModelDays(canonicalHome, start, end);
 
     NSMutableDictionary *archivedDays = [archive[@"days"] mutableCopy];
     NSTimeInterval todayStart = [NSCalendar.currentCalendar
@@ -255,6 +282,17 @@ NSDictionary *CCPetsModelUsageAtHome(NSString *provider, NSString *home,
             if (![combined isEqualToDictionary:stored] && combined.count > 0) {
                 archivedDays[key] = combined;
                 archiveChanged = YES;
+            }
+            models = combined;
+        }
+        // 后台补录独立持久化，不进入取大保留的日归档。对应 rollout 迟到时可以撤销补录，
+        // 不会把它锁在历史最大值里，也不会影响未来主会话日志清理后的保留逻辑。
+        if ([backgroundDays[key] count] > 0) {
+            NSMutableDictionary *combined = [models mutableCopy];
+            for (NSString *model in backgroundDays[key]) {
+                NSMutableDictionary *counts = [combined[model] mutableCopy] ?: [NSMutableDictionary dictionary];
+                AddModelCounts(counts, backgroundDays[key][model]);
+                combined[model] = counts;
             }
             models = combined;
         }

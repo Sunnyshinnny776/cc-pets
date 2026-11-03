@@ -1,6 +1,6 @@
 {
   "name": "cc-pets",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "A native macOS desktop pet for Codex CLI and Claude Code",
   "author": {
     "name": "Sunnyshiny",
@@ -34,6 +34,10 @@
     "scripts",
     "Resources/Info.plist",
     "Resources/AppIcon.icns",
+    "Resources/AgentIcons",
+    "Resources/IDEPlugins",
+    "plugins/jetbrains",
+    "plugins/vscode",
     "Resources/phrases.default.*.txt",
     "Resources/*.lproj/*",
     "Sources/CCPets",

@@ -12,9 +12,8 @@
 NSArray<NSDictionary *> *CCBridgeLiveSessions(void);
 NSString *CCBridgeDescribeSession(NSDictionary *session);
 
-// 当前进程属于哪个会话。主判据是"离我最近的 CLI 祖先进程 pid → 注册表里该 pid 最近活跃的会话"：
-// Codex 的 MCP 进程拿不到 thread id，只能这样反查；Claude 的 CLAUDE_CODE_SESSION_ID 是启动时的快照，
-// /clear、/resume 之后会过期。反查不到时才退回环境变量。
+// 优先验证显式会话 ID；缺失时仅允许 provider + PID 唯一匹配。
+// 显式 ID 失效、与宿主不符或 PID 匹配多个会话时返回 nil，禁止按活动时间猜测。
 NSDictionary *CCBridgeIdentifySelf(void);
 
 // 名字即地址；重名时追加 " [ref]"。也接受裸 ref 和完整 session id。返回 @{session} 或 @{error}。

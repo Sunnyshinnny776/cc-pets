@@ -79,16 +79,16 @@ CCPetsStatusKind CCPetsStatusKindForAgentState(NSString *state) {
     return CCPetsStatusWork;
 }
 
-const NSInteger CCPetsChartColorCount = 8;
+const NSInteger CCPetsChartColorCount = 16;
 
-// 浅色、深色两套都用色盲模拟校验过：相邻两色在红、绿色盲下色差不低于 8，正常视力下不低于 15。
+// 保留原有八色，扩展常用模型色板；更多模型按色相生成颜色。
 NSColor *CCPetsChartColor(NSInteger slot) {
     static NSArray<NSColor *> *colors;
     static NSColor *other;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        const uint32_t light[] = {0x1597ac, 0xe05c86, 0x6874dc, 0xdd9a1f, 0x9a62d0, 0x3fa577, 0x3a7fc6, 0x8a9a2b};
-        const uint32_t dark[] = {0x22a2b8, 0xd65f86, 0x7d87e8, 0xb8841f, 0xa77ad8, 0x3fa577, 0x4c95dc, 0x879733};
+        const uint32_t light[] = {0x1597ac, 0xe05c86, 0x6874dc, 0xdd9a1f, 0x9a62d0, 0x3fa577, 0x3a7fc6, 0x8a9a2b, 0xc96b32, 0x258477, 0xb24baf, 0x5266a8, 0xb84c4c, 0x657d34, 0x9b6881, 0x397c99};
+        const uint32_t dark[] = {0x22a2b8, 0xd65f86, 0x7d87e8, 0xb8841f, 0xa77ad8, 0x3fa577, 0x4c95dc, 0x879733, 0xec965e, 0x68c5b5, 0xe18bd9, 0xa2b2f0, 0xef8b88, 0xb6c96c, 0xc997b0, 0x80c4df};
         NSMutableArray<NSColor *> *list = [NSMutableArray array];
         for (NSInteger index = 0; index < CCPetsChartColorCount; index++) {
             [list addObject:Dynamic(light[index], 1, dark[index], 1)];
@@ -96,7 +96,14 @@ NSColor *CCPetsChartColor(NSInteger slot) {
         colors = list;
         other = Dynamic(0x9aa3af, 1, 0x66707c, 1);
     });
-    return slot >= 0 && slot < CCPetsChartColorCount ? colors[(NSUInteger)slot] : other;
+    if (slot < 0) return other;
+    if (slot < CCPetsChartColorCount) return colors[(NSUInteger)slot];
+    CGFloat hue = fmod((slot - CCPetsChartColorCount) * 0.61803398875 + 0.05, 1.0);
+    return [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
+        BOOL dark = AppearanceIsDark(appearance);
+        return [NSColor colorWithHue:hue saturation:dark ? 0.48 : 0.65
+            brightness:dark ? 0.85 : 0.65 alpha:1];
+    }];
 }
 
 NSTextField *CCPetsLabel(NSString *text, CGFloat size, NSFontWeight weight, NSColor *color) {
@@ -145,12 +152,13 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
             NSFontWeightRegular, CCPetsTertiaryInkColor());
         NSView *heading = title;
         if (item.count > 3 && item[3].length > 0) {
-            NSImageView *icon = [NSImageView imageViewWithImage:
-                [NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:item[3]]];
+            NSImageView *icon = [NSImageView new];
+            icon.image = [NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:item[3]];
             icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:10
                 weight:NSFontWeightRegular];
             icon.contentTintColor = CCPetsTertiaryInkColor();
             icon.toolTip = item[3];
+            icon.accessibilityHelp = item[3];
             [icon setContentHuggingPriority:NSLayoutPriorityRequired
                 forOrientation:NSLayoutConstraintOrientationHorizontal];
             NSStackView *line = [NSStackView stackViewWithViews:@[title, icon]];
@@ -274,7 +282,36 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 
 @end
 
+@interface CCPetsTileView ()
+@property(nonatomic) NSTrackingArea *hoverTracking;
+@end
+
 @implementation CCPetsTileView
+
+- (void)setHoverAccessoryView:(NSView *)view {
+    _hoverAccessoryView = view;
+    view.hidden = YES;
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (self.hoverTracking) [self removeTrackingArea:self.hoverTracking];
+    self.hoverTracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
+        owner:self userInfo:nil];
+    [self addTrackingArea:self.hoverTracking];
+    // 卡片重排后鼠标可能已经不在上面，按实际位置校正一次。
+    NSPoint mouse = [self convertPoint:self.window.mouseLocationOutsideOfEventStream fromView:nil];
+    self.hoverAccessoryView.hidden = !(self.window && NSPointInRect(mouse, self.bounds));
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    self.hoverAccessoryView.hidden = NO;
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    self.hoverAccessoryView.hidden = YES;
+}
 
 - (void)mouseDown:(NSEvent *)event {
     // 按下不立刻触发，松开时还在卡片上才算一次点击，和按钮一个手感。
@@ -290,7 +327,19 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 }
 
 - (void)resetCursorRects {
-    if (self.onClick) [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+    if (!self.onClick) return;
+    NSView *excluded = self.cursorExclusionView;
+    if (!excluded || excluded.superview != self) {
+        [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+        return;
+    }
+    // 排除区域按整行宽处理：只给它上方和下方的部分加手形指针。
+    NSRect frame = excluded.frame;
+    NSRect below = NSMakeRect(0, 0, NSWidth(self.bounds), NSMinY(frame));
+    NSRect above = NSMakeRect(0, NSMaxY(frame), NSWidth(self.bounds), NSMaxY(self.bounds) - NSMaxY(frame));
+    for (NSValue *value in @[[NSValue valueWithRect:below], [NSValue valueWithRect:above]]) {
+        if (!NSIsEmptyRect(value.rectValue)) [self addCursorRect:value.rectValue cursor:NSCursor.pointingHandCursor];
+    }
 }
 
 - (BOOL)isAccessibilityElement {

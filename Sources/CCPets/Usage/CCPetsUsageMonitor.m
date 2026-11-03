@@ -30,7 +30,6 @@
 @property NSMutableDictionary<NSString *, NSDictionary *> *codexProfileLiveUsages;
 @property NSMutableDictionary<NSString *, NSString *> *profileReaderHomes;
 @property NSDictionary *codexLiveUsage;
-@property NSTimeInterval codexLiveUsageUpdatedAt;
 @property FSEventStreamRef codexStream;
 @property dispatch_source_t claudeSource;
 @property unsigned long long claudeSize;
@@ -46,6 +45,18 @@
 // 窗口翻篇由 resets_at 兜底。只有"额度受限"标记有寿命——它没有窗口归属，实时查询连续
 // 失败时不能让一次旧的受限结论一直挂着。
 static const NSTimeInterval CodexLiveUsageTTL = 5 * 60.0;
+
+// 默认账号、自定义 Home、缓存恢复和实时回调共用同一条合并路径。
+// 用采样时间计龄，轮询旧缓存不会延长受限标记的寿命；窗口百分比仍按新旧快照择优。
+static NSDictionary *ApplyLiveCodexUsage(NSDictionary *sessionUsage, NSDictionary *live) {
+    if (live[@"exhaustedAt"] && NSDate.date.timeIntervalSince1970 -
+        [live[@"sampledAt"] doubleValue] > CodexLiveUsageTTL) {
+        NSMutableDictionary *withoutExhaustion = [live mutableCopy];
+        [withoutExhaustion removeObjectForKey:@"exhaustedAt"];
+        live = withoutExhaustion;
+    }
+    return UsageByRemovingExpiredQuotaWindows(CodexUsageByApplyingLiveUsage(sessionUsage, live));
+}
 
 static BOOL HasRegisteredDefaultProfile(NSString *provider) {
     NSString *target = ([provider isEqualToString:CCPetsProfileProviderClaude]
@@ -140,14 +151,12 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         // 桌宠随最后一个客户端退出，下次启动时 App Server 要几秒才回话。这段时间先用上次
         // 存下的实时值，否则面板会先显示会话日志里可能已经过时十几个小时的快照。
         _codexLiveUsage = LoadCodexLiveUsage();
-        _codexLiveUsageUpdatedAt = [_codexLiveUsage[@"sampledAt"] doubleValue];
         __weak typeof(self) weakSelf = self;
         _codexRateLimitsReader.liveUsageHandler = ^(NSDictionary *liveUsage) {
             dispatch_async(weakSelf.queue, ^{
                 typeof(self) strongSelf = weakSelf;
                 if (!strongSelf || !strongSelf.started) return;
                 strongSelf.codexLiveUsage = liveUsage;
-                strongSelf.codexLiveUsageUpdatedAt = NSDate.date.timeIntervalSince1970;
                 SaveCodexLiveUsage(liveUsage);
                 strongSelf.codexUsage = [strongSelf usageByApplyingLiveCodexUsage:
                     strongSelf.codexReader.usage ?: strongSelf.codexUsage];
@@ -159,16 +168,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 }
 
 - (NSDictionary *)usageByApplyingLiveCodexUsage:(NSDictionary *)sessionUsage {
-    NSDictionary *live = self.codexLiveUsage;
-    if (!live) return sessionUsage;
-    if (live[@"exhaustedAt"] && NSDate.date.timeIntervalSince1970 -
-        self.codexLiveUsageUpdatedAt > CodexLiveUsageTTL) {
-        NSMutableDictionary *withoutExhaustion = [live mutableCopy];
-        [withoutExhaustion removeObjectForKey:@"exhaustedAt"];
-        live = withoutExhaustion;
-    }
-    // 存下来的实时值可能是好几个小时前的，窗口早已翻篇，合并后要再按 resets_at 过一遍。
-    return UsageByRemovingExpiredQuotaWindows(CodexUsageByApplyingLiveUsage(sessionUsage, live));
+    return ApplyLiveCodexUsage(sessionUsage, self.codexLiveUsage);
 }
 // 回调交给主线程：下游全是 UI（面板重排、气泡定位、系统通知）。
 - (void)publishChange {
@@ -249,8 +249,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
                 }
                 usage = [reader refreshWithFullDiscovery];
                 NSDictionary *live = self.codexProfileLiveUsages[profileID];
-                if (live) usage = UsageByRemovingExpiredQuotaWindows(
-                    CodexUsageByApplyingLiveUsage(usage, live));
+                usage = ApplyLiveCodexUsage(usage, live);
                 CCPetsCodexRateLimitsReader *rateReader = self.codexProfileRateReaders[profileID];
                 if (!rateReader) {
                     rateReader = [[CCPetsCodexRateLimitsReader alloc] initWithCodexHome:home];
@@ -263,8 +262,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
                             strongSelf.codexProfileLiveUsages[capturedID] = liveUsage;
                             NSMutableDictionary *updated = [strongSelf.profileUsages mutableCopy] ?: [NSMutableDictionary dictionary];
                             NSDictionary *session = strongSelf.codexProfileReaders[capturedID].usage;
-                            if (session) updated[capturedID] = UsageByRemovingExpiredQuotaWindows(
-                                CodexUsageByApplyingLiveUsage(session, liveUsage));
+                            updated[capturedID] = ApplyLiveCodexUsage(session, liveUsage);
                             strongSelf.profileUsages = updated;
                             [strongSelf publishChange];
                         });

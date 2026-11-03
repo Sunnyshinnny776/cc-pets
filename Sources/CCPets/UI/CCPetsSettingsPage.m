@@ -5,6 +5,9 @@
 #import "CCPetsFormBuilder.h"
 #import "CCPetsGlassView.h"
 #import "CCPetsImageLoader.h"
+#import "CCPetsIDEIntegration.h"
+#import "CCPetsTerminalIntegration.h"
+#import "CCPetsVSCodeIntegration.h"
 #import "CCPetsL10n.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPetSize.h"
@@ -14,6 +17,8 @@
 #import "CCPetsUsageMode.h"
 #import "CCPetsUIStyle.h"
 #import <QuartzCore/QuartzCore.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 // 定义在 CCPetsAppDelegate+Speech.m；那边的头文件是 AppDelegate 私有的，这里单独 extern。
 extern NSString *const PetSpeechFrequencyKey;
@@ -375,6 +380,13 @@ static void RevealFolder(NSString *path) {
 @property(nonatomic) NSMutableDictionary<NSString *, CCPetsTileView *> *petTiles;
 @property(nonatomic) NSMutableDictionary<NSString *, CCPetsSpriteView *> *petSprites;
 @property(nonatomic) NSMutableDictionary<NSString *, NSImage *> *sheetCache;
+// 自己素材文件夹里的宠物才有：卡片右上角的删除按钮和右键菜单项。当前这只不让删，和桌宠右键菜单一致。
+@property(nonatomic) NSMutableDictionary<NSString *, NSButton *> *petDeleteButtons;
+@property(nonatomic) NSMutableDictionary<NSString *, NSMenuItem *> *petDeleteItems;
+// 列表现在画的是哪几只（按 id 次序）。外面增删了宠物，对不上就重排。
+@property(nonatomic) NSArray<NSString *> *renderedPetIDs;
+// 盯着自己的素材文件夹：桌宠右键菜单删除、`cc-pets pet add/remove`、Finder 里拖进拖出都会改它。
+@property(nonatomic) dispatch_source_t petsWatcher;
 @property(nonatomic) NSTextField *sampleLine;
 @end
 
@@ -395,14 +407,68 @@ static const NSUInteger PetPickerColumns = 4;
     self.petTiles = [NSMutableDictionary dictionary];
     self.petSprites = [NSMutableDictionary dictionary];
     self.sheetCache = [NSMutableDictionary dictionary];
+    self.petDeleteButtons = [NSMutableDictionary dictionary];
+    self.petDeleteItems = [NSMutableDictionary dictionary];
     [super loadView];
     // 切宠物不走 defaults 写入口（选中项记在桌宠自己身上），靠名片通知得知换了。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(petDidChange:)
         name:CCPetsPetCardDidChangeNotification object:nil];
+    // 文件夹一开始可能不存在（监视不上），回到窗口时再对一次，兜住这种情况。
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowDidBecomeKey:)
+        name:NSWindowDidBecomeKeyNotification object:nil];
+    [self startWatchingPetsDirectory];
+}
+
+- (void)dealloc {
+    [self stopWatchingPetsDirectory];
 }
 
 - (void)petDidChange:(NSNotification *)notification {
+    // 删掉当前那只时 AppDelegate 会换到下一只并发这条通知，此时列表也少了一只。
+    [self reloadPickerIfChanged];
     [self updatePetSelection];
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification {
+    if (notification.object != self.view.window) return;
+    if (!self.petsWatcher) [self startWatchingPetsDirectory];
+    [self reloadPickerIfChanged];
+}
+
+- (void)startWatchingPetsDirectory {
+    [self stopWatchingPetsDirectory];
+    int descriptor = open(OwnPetsDirectory().fileSystemRepresentation, O_EVTONLY);
+    if (descriptor < 0) return;
+    dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, (uintptr_t)descriptor,
+        DISPATCH_VNODE_WRITE | DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME, dispatch_get_main_queue());
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(source, ^{
+        typeof(self) page = weakSelf;
+        if (!page) return;
+        // 文件夹本身被删或改名，旧描述符就废了，重新打开。
+        if (dispatch_source_get_data(source) & (DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME)) {
+            [page startWatchingPetsDirectory];
+        }
+        // `pet add` 会连着改好几次（临时目录、改名），合并成一次重排。
+        [NSObject cancelPreviousPerformRequestsWithTarget:page selector:@selector(reloadPickerIfChanged) object:nil];
+        [page performSelector:@selector(reloadPickerIfChanged) withObject:nil afterDelay:0.3];
+    });
+    dispatch_source_set_cancel_handler(source, ^{ close(descriptor); });
+    self.petsWatcher = source;
+    dispatch_resume(source);
+}
+
+- (void)stopWatchingPetsDirectory {
+    if (!self.petsWatcher) return;
+    dispatch_source_cancel(self.petsWatcher);
+    self.petsWatcher = nil;
+}
+
+- (void)reloadPickerIfChanged {
+    NSMutableArray<NSString *> *ids = [NSMutableArray array];
+    for (NSDictionary *option in [self.actions petPickerOptions] ?: @[]) [ids addObject:option[@"id"]];
+    if (self.renderedPetIDs && [ids isEqualToArray:self.renderedPetIDs]) return;
+    [self rebuildPicker];
 }
 
 - (void)buildContent {
@@ -499,7 +565,10 @@ static const NSUInteger PetPickerColumns = 4;
     }
     [self.petTiles removeAllObjects];
     [self.petSprites removeAllObjects];
+    [self.petDeleteButtons removeAllObjects];
+    [self.petDeleteItems removeAllObjects];
     NSArray<NSDictionary *> *options = [self.actions petPickerOptions] ?: @[];
+    self.renderedPetIDs = [options valueForKey:@"id"];
     NSMutableArray<NSView *> *tiles = [NSMutableArray array];
     __weak typeof(self) weakSelf = self;
     for (NSDictionary *option in options) {
@@ -511,6 +580,7 @@ static const NSUInteger PetPickerColumns = 4;
         tile.toolTip = option[@"name"];
         self.petTiles[petID] = tile;
         self.petSprites[petID] = sprite;
+        if (![option[@"builtin"] boolValue]) [self attachDeleteControlsToTile:tile option:option];
         [tiles addObject:tile];
         [self loadSheetForOption:option intoSprite:sprite];
     }
@@ -536,6 +606,62 @@ static const NSUInteger PetPickerColumns = 4;
         [row.widthAnchor constraintEqualToAnchor:self.pickerRows.widthAnchor].active = YES;
     }
     [self updatePetSelection];
+}
+
+- (void)attachDeleteControlsToTile:(CCPetsTileView *)tile option:(NSDictionary *)option {
+    NSString *petID = option[@"id"];
+    NSString *name = option[@"name"];
+    __weak typeof(self) weakSelf = self;
+    void (^confirm)(void) = ^{ [weakSelf confirmDeletePetWithID:petID name:name]; };
+
+    NSButton *trash = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"trash"
+        accessibilityDescription:L(@"Delete pet")] target:nil action:nil];
+    trash.bordered = NO;
+    trash.contentTintColor = CCPetsSecondaryInkColor();
+    trash.toolTip = L(@"Delete pet");
+    [self bind:trash to:^(id sender) { confirm(); }];
+    trash.translatesAutoresizingMaskIntoConstraints = NO;
+    [tile addSubview:trash];
+    [NSLayoutConstraint activateConstraints:@[
+        [trash.topAnchor constraintEqualToAnchor:tile.topAnchor constant:6],
+        [trash.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor constant:-6],
+        [trash.widthAnchor constraintEqualToConstant:20],
+        [trash.heightAnchor constraintEqualToConstant:20],
+    ]];
+    tile.hoverAccessoryView = trash;
+
+    // 右键菜单：键盘 / 旁白用户摸不到悬停按钮，也给他们一条路。
+    CCPetsSettingsHandler *handler = [CCPetsSettingsHandler new];
+    handler.block = ^(id sender) { confirm(); };
+    [self.handlers addObject:handler];
+    NSMenu *menu = [NSMenu new];
+    menu.autoenablesItems = NO;
+    NSMenuItem *item = [menu addItemWithTitle:L(@"Delete pet") action:@selector(invoke:) keyEquivalent:@""];
+    item.target = handler;
+    tile.menu = menu;
+
+    self.petDeleteButtons[petID] = trash;
+    self.petDeleteItems[petID] = item;
+}
+
+- (void)confirmDeletePetWithID:(NSString *)petID name:(NSString *)name {
+    if ([petID isEqualToString:[self.actions currentPetID]]) return;
+    NSAlert *alert = [NSAlert new];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = [NSString stringWithFormat:L(@"Delete “%@”?"), name ?: @""];
+    alert.informativeText = L(@"This can't be undone. Continue?");
+    NSButton *deleteButton = [alert addButtonWithTitle:L(@"Delete")];
+    deleteButton.hasDestructiveAction = YES;
+    [alert addButtonWithTitle:L(@"Cancel")];
+    __weak typeof(self) weakSelf = self;
+    void (^finish)(NSModalResponse) = ^(NSModalResponse response) {
+        if (response != NSAlertFirstButtonReturn) return;
+        // 删除失败时 AppDelegate 自己会弹错误，这里只管成功后重排列表。
+        if ([weakSelf.actions deletePetWithID:petID]) [weakSelf rebuildPicker];
+    };
+    NSWindow *window = self.view.window;
+    if (window) [alert beginSheetModalForWindow:window completionHandler:finish];
+    else finish([alert runModal]);
 }
 
 - (CCPetsTileView *)tileWithTop:(NSView *)top title:(NSString *)title subtitle:(NSString *)subtitle {
@@ -596,6 +722,12 @@ static const NSUInteger PetPickerColumns = 4;
         tile.selected = selected;
         // 只让选中的那只动，其余停在第一帧。
         self.petSprites[petID].playing = selected;
+        NSButton *trash = self.petDeleteButtons[petID];
+        if (trash) {
+            trash.hidden = YES;
+            tile.hoverAccessoryView = selected ? nil : trash;
+            self.petDeleteItems[petID].enabled = !selected;
+        }
     }];
 }
 
@@ -640,10 +772,17 @@ static const NSUInteger PetPickerColumns = 4;
 #pragma mark - 通用
 
 @interface CCPetsGeneralPage ()
-@property(nonatomic) NSView *glassPreviewDim;
+@property(nonatomic) CCPetsGlassView *glassPreview;
 @property(nonatomic, copy) NSArray<NSDictionary *> *usageProfiles;
+// 终端跳转只用一张卡片，行随检测结果重建；未运行 / 不支持的折叠到末尾一行。
+@property(nonatomic) NSView *terminalJumpCard;
+@property(nonatomic) BOOL terminalJumpShowAll;
+@property(nonatomic, copy) NSArray *terminalJumpSnapshot;
+@property(nonatomic) NSTimer *ideStatusTimer;
+@property(nonatomic) BOOL ideStatusRefreshing;
 @end
 
+// 汇总预览外的玻璃：被拉宽时圆角跟着内容一起等比放大，和真实面板的比例一致。
 @implementation CCPetsGeneralPage
 
 - (void)loadView {
@@ -655,6 +794,299 @@ static const NSUInteger PetPickerColumns = 4;
 - (void)viewWillAppear {
     [super viewWillAppear];
     [self reloadValues];
+    [self refreshIDEIntegration];
+    [self.ideStatusTimer invalidate];
+    __weak typeof(self) weakSelf = self;
+    self.ideStatusTimer = [NSTimer scheduledTimerWithTimeInterval:5 repeats:YES block:^(NSTimer *timer) {
+        [weakSelf refreshIDEIntegration];
+    }];
+}
+
+- (void)viewDidDisappear {
+    [super viewDidDisappear];
+    [self.ideStatusTimer invalidate];
+    self.ideStatusTimer = nil;
+}
+
+- (void)refreshIDEIntegration {
+    if (self.ideStatusRefreshing) return;
+    self.ideStatusRefreshing = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSArray *snapshot = @[CCPetsTerminalIntegrationSnapshot(), CCPetsIDEIntegrationSnapshot(),
+            CCPetsVSCodeIntegrationSnapshot()];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CCPetsGeneralPage *page = weakSelf;
+            if (!page) return;
+            page.ideStatusRefreshing = NO;
+            // 每 5 秒刷新一次，状态没变就不重建，免得行闪烁、按钮丢焦点。
+            if ([snapshot isEqual:page.terminalJumpSnapshot]) return;
+            page.terminalJumpSnapshot = snapshot;
+            [page applyTerminalJumpSnapshot:snapshot];
+        });
+    });
+}
+
+// 右侧的状态小标：可选的彩色圆点 + 灰字。
+- (NSTextField *)terminalJumpBadge:(NSString *)text dotColor:(NSColor *)color {
+    NSMutableAttributedString *value = [NSMutableAttributedString new];
+    NSFont *font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    if (color) {
+        [value appendAttributedString:[[NSAttributedString alloc] initWithString:@"● "
+            attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}]];
+    }
+    [value appendAttributedString:[[NSAttributedString alloc] initWithString:text
+        attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: CCPetsSecondaryInkColor()}]];
+    NSTextField *label = [NSTextField labelWithAttributedString:value];
+    [label setContentCompressionResistancePriority:NSLayoutPriorityRequired
+        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    return label;
+}
+
+- (NSView *)scriptTerminalRow:(NSDictionary *)terminal {
+    __weak typeof(self) weakSelf = self;
+    NSString *state = terminal[@"state"];
+    NSString *bundleID = terminal[@"bundleID"];
+    BOOL ghostty = [terminal[@"group"] isEqualToString:@"ghostty"];
+    NSString *title = [bundleID isEqualToString:@"com.apple.Terminal"] ? L(@"macOS Terminal") : terminal[@"name"];
+    if (ghostty && [terminal[@"version"] length]) title = [NSString stringWithFormat:@"%@ %@", title, terminal[@"version"]];
+    NSString *granted = ghostty ? L(@"Selects the tab and split by TTY")
+        : ([bundleID isEqualToString:@"com.googlecode.iterm2"] ? L(@"Selects the session by TTY") : L(@"Selects the tab by TTY"));
+    NSString *subtitle;
+    NSArray<NSView *> *controls;
+    if ([state isEqualToString:@"granted"]) {
+        subtitle = granted;
+        controls = @[[self terminalJumpBadge:L(@"Allowed") dotColor:NSColor.systemGreenColor]];
+    } else if ([state isEqualToString:@"denied"]) {
+        subtitle = L(@"Automation denied — the jump only brings the app forward");
+        controls = @[[self smallButtonWithTitle:L(@"Open System Settings…") action:^{ CCPetsOpenAutomationSettings(); }]];
+    } else if ([state isEqualToString:@"notDetermined"]) {
+        subtitle = L(@"macOS asks for permission on the first jump");
+        controls = @[[self smallButtonWithTitle:L(@"Allow…") action:^{
+            CCPetsRequestTerminalAutomation(bundleID, ^{ [weakSelf refreshIDEIntegration]; });
+        }]];
+    } else if ([state isEqualToString:@"unsupported"]) {
+        subtitle = L(@"Requires Ghostty 1.4 or later for exact jumps");
+        controls = @[[self terminalJumpBadge:L(@"Needs 1.4+") dotColor:nil]];
+    } else {
+        subtitle = L(@"Open the app to check automation permission");
+        controls = @[[self terminalJumpBadge:L(@"Not running") dotColor:nil]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
+}
+
+- (NSView *)jetBrainsRow:(NSDictionary *)ide {
+    __weak typeof(self) weakSelf = self;
+    NSString *state = ide[@"state"];
+    NSString *title = ide[@"name"];
+    NSString *version = ide[@"version"];
+    if (version.length && ![title containsString:version]) title = [NSString stringWithFormat:@"%@ %@", title, version];
+    BOOL automatic = [ide[@"autoInstall"] boolValue];
+    void (^install)(void) = ^{
+        CCPetsPromptInstallIDEPlugin(ide, ^{
+            weakSelf.terminalJumpSnapshot = nil;
+            [weakSelf refreshIDEIntegration];
+        });
+    };
+    NSString *subtitle;
+    NSArray<NSView *> *controls;
+    if ([state isEqualToString:@"connected"]) {
+        subtitle = L(@"Selects the terminal tab through the plugin");
+        controls = @[[self terminalJumpBadge:L(@"Connected") dotColor:NSColor.systemGreenColor]];
+    } else if ([state isEqualToString:@"installed"]) {
+        subtitle = L(@"Installed — open a project or restart the IDE to connect");
+        controls = @[[self terminalJumpBadge:L(@"Waiting to connect") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"pendingRestart"]) {
+        subtitle = [NSString stringWithFormat:L(@"Plugin %@ is in place — restart the IDE to load it"), ide[@"pluginVersion"] ?: @""];
+        controls = @[[self terminalJumpBadge:L(@"Restart needed") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"outdated"]) {
+        subtitle = [NSString stringWithFormat:L(@"Plugin %@ installed — %@ available"),
+            ide[@"pluginVersion"] ?: @"?", ide[@"bundledVersion"] ?: @"?"];
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Update") : L(@"Update…") action:install]];
+    } else if ([state isEqualToString:@"disabled"]) {
+        subtitle = L(@"Plugin disabled — enable it in the IDE's Plugins settings");
+        controls = @[[self terminalJumpBadge:L(@"Plugin disabled") dotColor:nil]];
+    } else if ([state isEqualToString:@"unsupported"]) {
+        subtitle = L(@"Requires version 2026.2 or 2026.3");
+        controls = @[[self terminalJumpBadge:L(@"Unsupported") dotColor:nil]];
+    } else {
+        subtitle = automatic ? L(@"Plugin not detected") : L(@"Plugin not detected — custom plugin folder, install manually");
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Install") : L(@"Install Plugin…") action:install]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
+}
+
+- (NSView *)vscodeRow:(NSDictionary *)app {
+    __weak typeof(self) weakSelf = self;
+    NSString *state = app[@"state"];
+    NSString *title = app[@"name"];
+    NSString *version = app[@"version"];
+    if (version.length && ![title containsString:version]) title = [NSString stringWithFormat:@"%@ %@", title, version];
+    BOOL automatic = [app[@"autoInstall"] boolValue];
+    void (^install)(void) = ^{
+        CCPetsPromptInstallVSCodeExtension(app, ^{
+            weakSelf.terminalJumpSnapshot = nil;
+            [weakSelf refreshIDEIntegration];
+        });
+    };
+    NSString *subtitle;
+    NSArray<NSView *> *controls;
+    if ([state isEqualToString:@"connected"]) {
+        subtitle = L(@"Selects the terminal through the extension");
+        controls = @[[self terminalJumpBadge:L(@"Connected") dotColor:NSColor.systemGreenColor]];
+    } else if ([state isEqualToString:@"installed"]) {
+        subtitle = [app[@"running"] boolValue] ? L(@"Installed — reload a window to connect")
+            : L(@"Installed — connects when the app starts");
+        controls = @[[self terminalJumpBadge:L(@"Waiting to connect") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"pendingRestart"]) {
+        subtitle = [NSString stringWithFormat:L(@"Extension %@ is in place — reload open windows to load it"), app[@"pluginVersion"] ?: @""];
+        controls = @[[self terminalJumpBadge:L(@"Reload needed") dotColor:NSColor.systemOrangeColor]];
+    } else if ([state isEqualToString:@"outdated"]) {
+        subtitle = [NSString stringWithFormat:L(@"Extension %@ installed — %@ available"),
+            app[@"pluginVersion"] ?: @"?", app[@"bundledVersion"] ?: @"?"];
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Update") : L(@"Update…") action:install]];
+    } else if ([state isEqualToString:@"disabled"]) {
+        subtitle = L(@"Extension disabled — enable it in the Extensions view");
+        controls = @[[self terminalJumpBadge:L(@"Plugin disabled") dotColor:nil]];
+    } else if ([state isEqualToString:@"unsupported"]) {
+        subtitle = L(@"Requires VS Code 1.80 or later");
+        controls = @[[self terminalJumpBadge:L(@"Unsupported") dotColor:nil]];
+    } else {
+        subtitle = automatic ? L(@"Extension not detected") : L(@"Extension not detected — no command line tool, install manually");
+        controls = @[[self smallButtonWithTitle:automatic ? L(@"Install") : L(@"Install Extension…") action:install]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:title subtitle:subtitle controls:controls];
+}
+
+// 排序档位：0 正在工作，1 需要用户处理，2 可安装，3 未运行 / 不支持（默认折叠）。
+static NSInteger TerminalJumpRank(NSDictionary *item) {
+    NSString *state = item[@"state"];
+    if ([state isEqualToString:@"connected"] || [state isEqualToString:@"granted"]) return 0;
+    if ([@[@"pendingRestart", @"installed", @"outdated", @"denied", @"notDetermined", @"disabled"] containsObject:state]) return 1;
+    // 插件缺失：应用开着时提示安装，没开就折叠。
+    if ([state isEqualToString:@"missing"]) return [item[@"running"] boolValue] ? 2 : 3;
+    return 3;
+}
+
+// 产品名之外的部分作为版本标签，例如 "IntelliJ IDEA 2026.3 EAP" → "2026.3 EAP"。
+static NSString *TerminalJumpVersionLabel(NSDictionary *item, NSString *product) {
+    NSString *name = item[@"name"];
+    if (product.length && [name hasPrefix:product]) {
+        NSString *rest = [[name substringFromIndex:product.length]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (rest.length) return rest;
+    }
+    return [item[@"version"] length] ? item[@"version"] : name;
+}
+
+// 合并行里单个版本的简短状态。
+static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
+    NSString *state = item[@"state"];
+    if ([state isEqualToString:@"connected"]) return L(@"Connected");
+    if ([state isEqualToString:@"installed"]) return L(@"Waiting to connect");
+    if ([state isEqualToString:@"pendingRestart"]) return vscode ? L(@"Reload needed") : L(@"Restart needed");
+    if ([state isEqualToString:@"outdated"]) return L(@"Update available");
+    if ([state isEqualToString:@"disabled"]) return L(@"Plugin disabled");
+    if ([state isEqualToString:@"unsupported"]) return L(@"Unsupported");
+    return L(@"Plugin not detected");
+}
+
+// 同一 JetBrains 产品的多个版本合成一行：副标题逐个列出版本状态，只给需要操作的版本放按钮。
+- (NSView *)mergedIDERow:(NSArray<NSDictionary *> *)items product:(NSString *)product {
+    __weak typeof(self) weakSelf = self;
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    NSMutableArray<NSView *> *buttons = [NSMutableArray array];
+    for (NSDictionary *ide in items) {
+        NSString *label = TerminalJumpVersionLabel(ide, product);
+        [parts addObject:[NSString stringWithFormat:@"%@ %@", label, TerminalJumpShortState(ide, NO)]];
+        NSString *state = ide[@"state"];
+        BOOL outdated = [state isEqualToString:@"outdated"];
+        if (!outdated && !([state isEqualToString:@"missing"] && [ide[@"running"] boolValue])) continue;
+        BOOL automatic = [ide[@"autoInstall"] boolValue];
+        NSString *base = outdated ? L(@"Update") : L(@"Install");
+        NSString *title = [NSString stringWithFormat:@"%@ %@%@", base, label, automatic ? @"" : @"…"];
+        [buttons addObject:[self smallButtonWithTitle:title action:^{
+            CCPetsPromptInstallIDEPlugin(ide, ^{
+                weakSelf.terminalJumpSnapshot = nil;
+                [weakSelf refreshIDEIntegration];
+            });
+        }]];
+    }
+    NSArray<NSView *> *controls = buttons;
+    if (buttons.count == 0) {
+        // 没有可操作项时显示最好的那个状态（items 已按档位排好）。
+        NSInteger rank = TerminalJumpRank(items.firstObject);
+        NSColor *dot = rank == 0 ? NSColor.systemGreenColor : (rank == 1 &&
+            ![items.firstObject[@"state"] isEqualToString:@"disabled"] ? NSColor.systemOrangeColor : nil);
+        controls = @[[self terminalJumpBadge:TerminalJumpShortState(items.firstObject, NO) dotColor:dot]];
+    }
+    return [CCPetsFormBuilder rowWithTitle:product subtitle:[parts componentsJoinedByString:@" · "] controls:controls];
+}
+
+- (void)applyTerminalJumpSnapshot:(NSArray *)snapshot {
+    // 每个条目 = 卡片里的一行：{rank, title, build}。JetBrains 同产品多版本先合并。
+    NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *terminal in snapshot[0]) {
+        NSString *name = [terminal[@"bundleID"] isEqualToString:@"com.apple.Terminal"] ? L(@"macOS Terminal") : terminal[@"name"];
+        [entries addObject:@{@"rank": @(TerminalJumpRank(terminal)), @"title": name ?: @"",
+            @"build": ^NSView *{ return [weakSelf scriptTerminalRow:terminal]; }}];
+    }
+    NSMutableDictionary<NSString *, NSMutableArray *> *products = [NSMutableDictionary dictionary];
+    NSMutableArray<NSString *> *productOrder = [NSMutableArray array];
+    for (NSDictionary *ide in snapshot[1]) {
+        NSString *key = [ide[@"productName"] length] ? ide[@"productName"] : ide[@"name"];
+        if (!products[key]) { products[key] = [NSMutableArray array]; [productOrder addObject:key]; }
+        [products[key] addObject:ide];
+    }
+    NSComparator byRank = ^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [@(TerminalJumpRank(a)) compare:@(TerminalJumpRank(b))];
+    };
+    for (NSString *product in productOrder) {
+        NSArray *items = [products[product] sortedArrayWithOptions:NSSortStable usingComparator:byRank];
+        NSDictionary *only = items.count == 1 ? items.firstObject : nil;
+        [entries addObject:@{@"rank": @(TerminalJumpRank(items.firstObject)), @"title": product,
+            @"build": only ? ^NSView *{ return [weakSelf jetBrainsRow:only]; }
+                           : ^NSView *{ return [weakSelf mergedIDERow:items product:product]; }}];
+    }
+    for (NSDictionary *app in snapshot[2]) {
+        [entries addObject:@{@"rank": @(TerminalJumpRank(app)), @"title": app[@"name"] ?: @"",
+            @"build": ^NSView *{ return [weakSelf vscodeRow:app]; }}];
+    }
+    NSArray *sorted = [entries sortedArrayWithOptions:NSSortStable usingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [a[@"rank"] compare:b[@"rank"]];
+    }];
+
+    // 默认只显示需要关注的行，最多 5 行；其余收进末尾的“显示全部”。
+    static const NSUInteger visibleLimit = 5;
+    NSMutableArray<NSDictionary *> *prominent = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *folded = [NSMutableArray array];
+    for (NSDictionary *entry in sorted) {
+        BOOL keep = [entry[@"rank"] integerValue] < 3 && prominent.count < visibleLimit;
+        [(keep ? prominent : folded) addObject:entry];
+    }
+    NSMutableArray<NSView *> *rows = [NSMutableArray array];
+    for (NSDictionary *entry in self.terminalJumpShowAll ? sorted : prominent) {
+        [rows addObject:((NSView *(^)(void))entry[@"build"])()];
+    }
+    if (folded.count && !self.terminalJumpShowAll) {
+        NSArray *names = [folded valueForKey:@"title"];
+        NSString *title = [NSString stringWithFormat:L(@"%lu hidden"), (unsigned long)folded.count];
+        [rows addObject:[CCPetsFormBuilder rowWithTitle:title subtitle:[names componentsJoinedByString:L(@", ")]
+            controls:@[[self smallButtonWithTitle:L(@"Show All") action:^{
+                weakSelf.terminalJumpShowAll = YES;
+                if (weakSelf.terminalJumpSnapshot) [weakSelf applyTerminalJumpSnapshot:weakSelf.terminalJumpSnapshot];
+            }]]]];
+    } else if (folded.count) {
+        [rows addObject:[CCPetsFormBuilder rowWithTitle:@"" controls:@[[self smallButtonWithTitle:L(@"Show Less") action:^{
+            weakSelf.terminalJumpShowAll = NO;
+            if (weakSelf.terminalJumpSnapshot) [weakSelf applyTerminalJumpSnapshot:weakSelf.terminalJumpSnapshot];
+        }]]]];
+    }
+    if (rows.count == 0) {
+        [rows addObject:[CCPetsFormBuilder rowWithTitle:L(@"No supported terminal detected") controls:@[]]];
+    }
+    [CCPetsFormBuilder replaceRowsInCard:self.terminalJumpCard withRows:rows];
 }
 
 - (NSArray<NSDictionary *> *)currentUsageProfiles {
@@ -682,10 +1114,9 @@ static const NSUInteger PetPickerColumns = 4;
 }
 
 - (NSString *)pageSubtitle {
-    return L(@"Language, panel appearance and data folders.");
+    return @"";
 }
 
-// 主题卡片上方的小预览：三条横线代表面板里的文字行。
 - (NSView *)themePreviewLiquid:(BOOL)liquid {
     NSView *preview = [NSView new];
     preview.wantsLayer = YES;
@@ -703,6 +1134,27 @@ static const NSUInteger PetPickerColumns = 4;
     } else {
         preview.layer.backgroundColor = [NSColor colorWithSRGBRed:0.12 green:0.14 blue:0.16 alpha:1].CGColor;
     }
+    // Liquid Glass：玻璃铺满预览区，线条放在玻璃上；压暗调的是玻璃背后的压暗层，和桌宠浮层一致。
+    NSView *container = preview;
+    if (liquid) {
+        CCPetsGlassView *glass = [[CCPetsGlassView alloc] initWithFrame:NSMakeRect(0, 0, 200, 62)
+            material:NSVisualEffectMaterialUnderWindowBackground appearance:NSAppearanceNameDarkAqua cornerRadius:6];
+        // 预览很矮，上下暗带调小；必须在 usesWidgetGlass 之前设。
+        glass.edgeShadeHeight = 6;
+        glass.edgeShadeAlpha = 0.45;
+        glass.forcesLiquidGlass = YES;
+        glass.usesWidgetGlass = YES;
+        glass.translatesAutoresizingMaskIntoConstraints = NO;
+        [preview addSubview:glass];
+        [NSLayoutConstraint activateConstraints:@[
+            [glass.leadingAnchor constraintEqualToAnchor:preview.leadingAnchor],
+            [glass.trailingAnchor constraintEqualToAnchor:preview.trailingAnchor],
+            [glass.topAnchor constraintEqualToAnchor:preview.topAnchor],
+            [glass.bottomAnchor constraintEqualToAnchor:preview.bottomAnchor],
+        ]];
+        self.glassPreview = glass;
+        container = glass.contentView;
+    }
     NSArray<NSArray *> *bars = @[@[@1.0, liquid ? @0.55 : @0.25], @[@0.7, liquid ? @0.85 : @1.0], @[@0.45, liquid ? @0.55 : @0.25]];
     NSView *previous = nil;
     for (NSUInteger index = 0; index < bars.count; index++) {
@@ -714,49 +1166,36 @@ static const NSUInteger PetPickerColumns = 4;
             ? [NSColor colorWithSRGBRed:0.31 green:0.83 blue:0.90 alpha:1].CGColor
             : [NSColor colorWithWhite:1 alpha:[bars[index][1] doubleValue]].CGColor;
         bar.translatesAutoresizingMaskIntoConstraints = NO;
-        [preview addSubview:bar];
+        [container addSubview:bar];
         [NSLayoutConstraint activateConstraints:@[
-            [bar.leadingAnchor constraintEqualToAnchor:preview.leadingAnchor constant:10],
-            [bar.widthAnchor constraintEqualToAnchor:preview.widthAnchor multiplier:[bars[index][0] doubleValue]
+            [bar.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:10],
+            [bar.widthAnchor constraintEqualToAnchor:container.widthAnchor multiplier:[bars[index][0] doubleValue]
                 constant:-20 * [bars[index][0] doubleValue]],
             [bar.heightAnchor constraintEqualToConstant:4],
             previous ? [bar.topAnchor constraintEqualToAnchor:previous.bottomAnchor constant:5]
-                     : [bar.topAnchor constraintEqualToAnchor:preview.topAnchor constant:18],
+                     : [bar.topAnchor constraintEqualToAnchor:container.topAnchor constant:18],
         ]];
         previous = bar;
-    }
-    if (liquid) {
-        // 压暗层：滑块拖动时跟着变深变浅。
-        NSView *dim = [NSView new];
-        dim.wantsLayer = YES;
-        dim.translatesAutoresizingMaskIntoConstraints = NO;
-        [preview addSubview:dim];
-        [NSLayoutConstraint activateConstraints:@[
-            [dim.leadingAnchor constraintEqualToAnchor:preview.leadingAnchor],
-            [dim.trailingAnchor constraintEqualToAnchor:preview.trailingAnchor],
-            [dim.topAnchor constraintEqualToAnchor:preview.topAnchor],
-            [dim.bottomAnchor constraintEqualToAnchor:preview.bottomAnchor],
-        ]];
-        self.glassPreviewDim = dim;
     }
     return preview;
 }
 
-- (CCPetsTileView *)themeTileLiquid:(BOOL)liquid {
+// accessory：卡片底部的附加行（Liquid Glass 卡片里放压暗滑块），可为 nil。
+- (CCPetsTileView *)themeTileLiquid:(BOOL)liquid accessory:(NSView *)accessory {
     CCPetsTileView *tile = [CCPetsTileView new];
     NSView *preview = [self themePreviewLiquid:liquid];
     NSTextField *title = CCPetsLabel(liquid ? @"Liquid Glass" : L(@"Classic"), 13, NSFontWeightSemibold, CCPetsInkColor());
     NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObjects:preview, title, nil];
-    NSTextField *note = nil;
-    if (liquid) {
-        note = CCPetsLabel(L(@"macOS 26 or later"), 11, NSFontWeightRegular, CCPetsTertiaryInkColor());
-        [views addObject:note];
-    }
+    // 两张卡片结构对齐：预览 → 标题 → 说明 → 底部一行（经典是说明文字，Liquid Glass 是压暗滑块）。
+    NSTextField *note = CCPetsLabel(liquid ? L(@"macOS 26 or later") : L(@"Works on all macOS versions"),
+        11, NSFontWeightRegular, CCPetsTertiaryInkColor());
+    [views addObject:note];
+    if (accessory) [views addObject:accessory];
     for (NSView *view in views) {
         view.translatesAutoresizingMaskIntoConstraints = NO;
         [tile addSubview:view];
     }
-    NSView *last = note ?: title;
+    NSView *last = accessory ?: note ?: title;
     [NSLayoutConstraint activateConstraints:@[
         [preview.topAnchor constraintEqualToAnchor:tile.topAnchor constant:10],
         [preview.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor constant:10],
@@ -772,14 +1211,91 @@ static const NSUInteger PetPickerColumns = 4;
         [NSLayoutConstraint activateConstraints:@[
             [note.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:1],
             [note.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-            [note.bottomAnchor constraintEqualToAnchor:tile.bottomAnchor constant:-10],
         ]];
     }
+    if (accessory) {
+        [NSLayoutConstraint activateConstraints:@[
+            [accessory.topAnchor constraintEqualToAnchor:(note ?: title).bottomAnchor constant:8],
+            [accessory.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor constant:12],
+            [accessory.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor constant:-12],
+        ]];
+        // 附加行里是滑块这类控件，不该显示卡片的手形指针。
+        if (liquid) tile.cursorExclusionView = accessory;
+    }
+    // 内容更多的 Liquid Glass 卡片决定高度，经典卡片通过等高约束跟随，多出的高度留在下面。
+    if (liquid) [last.bottomAnchor constraintEqualToAnchor:tile.bottomAnchor constant:-10].active = YES;
     return tile;
 }
 
 - (void)buildContent {
     __weak typeof(self) weakSelf = self;
+
+    // 浮层外观：两张主题卡片，压暗滑块放在 Liquid Glass 卡片里，拖动时上方预览实时变化。
+    [self.form addGroupTitle:L(@"Panel Appearance") note:nil];
+    // 滑块按 0–100 的强度展示，实际压暗仍是 0–45（换算在 CCPetsGlassDimLevelForPercent）。
+    NSSlider *dim = [NSSlider sliderWithValue:0 minValue:0 maxValue:100 target:nil action:nil];
+    dim.continuous = YES;
+    dim.controlSize = NSControlSizeSmall;
+    CCPetsApplyAccent(dim);
+    [dim setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSTextField *dimLabel = [self sliderValueLabel];
+    NSTextField *dimTitle = CCPetsLabel(L(@"Dimming"), 11, NSFontWeightRegular, CCPetsSecondaryInkColor());
+    NSStackView *dimRow = [NSStackView stackViewWithViews:@[dimTitle, dim, dimLabel]];
+    dimRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    dimRow.alignment = NSLayoutAttributeCenterY;
+    dimRow.spacing = 8;
+    dimRow.toolTip = L(@"Raise it when a bright wallpaper makes text hard to read");
+    dim.toolTip = dimRow.toolTip;
+
+    NSTextField *classicDetail = CCPetsLabel(L(@"Opaque dark background for better readability"),
+        11, NSFontWeightRegular, CCPetsSecondaryInkColor());
+    classicDetail.lineBreakMode = NSLineBreakByTruncatingTail;
+    [classicDetail setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSStackView *classicRow = [NSStackView stackViewWithViews:@[classicDetail]];
+    classicRow.alignment = NSLayoutAttributeCenterY;
+    CCPetsTileView *classic = [self themeTileLiquid:NO accessory:classicRow];
+    CCPetsTileView *liquid = [self themeTileLiquid:YES accessory:dimRow];
+    classic.onClick = ^{ [weakSelf.actions updatePanelTheme:@"classic"]; };
+    BOOL liquidAvailable = CCPetsLiquidGlassAvailable();
+    if (liquidAvailable) liquid.onClick = ^{ [weakSelf.actions updatePanelTheme:@"liquid"]; };
+    else liquid.alphaValue = 0.5;
+    NSStackView *themes = [NSStackView stackViewWithViews:@[classic, liquid]];
+    themes.distribution = NSStackViewDistributionFillEqually;
+    themes.alignment = NSLayoutAttributeTop;
+    themes.spacing = 10;
+    themes.translatesAutoresizingMaskIntoConstraints = NO;
+    // 两张卡片只占整行宽度的 70%，靠左排，避免比其他设置行更抢眼。
+    NSView *themeRow = [NSView new];
+    [themeRow addSubview:themes];
+    [NSLayoutConstraint activateConstraints:@[
+        [themes.leadingAnchor constraintEqualToAnchor:themeRow.leadingAnchor],
+        [themes.topAnchor constraintEqualToAnchor:themeRow.topAnchor],
+        [themes.bottomAnchor constraintEqualToAnchor:themeRow.bottomAnchor],
+        [themes.widthAnchor constraintEqualToAnchor:themeRow.widthAnchor multiplier:0.7],
+    ]];
+    [self.form addView:themeRow];
+    [classic.heightAnchor constraintEqualToAnchor:liquid.heightAnchor].active = YES;
+    // 底部一行和滑块那行等高，文字与“压暗”对齐。两张卡片进了同一个父视图后才能互相约束。
+    [classicRow.heightAnchor constraintEqualToAnchor:dimRow.heightAnchor].active = YES;
+
+    [self bind:dim to:^(NSSlider *sender) {
+        NSInteger value = (NSInteger)lround(sender.doubleValue);
+        dimLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)value];
+        [weakSelf showGlassDim:CCPetsGlassDimLevelForPercent(value)];
+        [weakSelf.actions updateGlassDimLevel:@(value)];
+    }];
+    [self.reloaders addObject:^{
+        BOOL isLiquid = [CCPetsPanelTheme() isEqualToString:@"liquid"] && liquidAvailable;
+        classic.selected = !isLiquid;
+        liquid.selected = isLiquid;
+        NSInteger percent = CCPetsGlassDimPercent();
+        dim.doubleValue = percent;
+        dimLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)percent];
+        // 压暗只作用于原生玻璃，经典主题下没有这层。
+        dim.enabled = isLiquid;
+        [weakSelf showGlassDim:CCPetsGlassDimLevel()];
+    }];
 
     NSMutableArray<NSArray *> *languages = [NSMutableArray arrayWithObject:@[L(@"System Default"), CCPetsLanguageSystem]];
     for (NSString *language in CCPetsSupportedLanguages()) {
@@ -799,46 +1315,17 @@ static const NSUInteger PetPickerColumns = 4;
     [self.form addGroupWithTitle:nil rows:@[
         [CCPetsFormBuilder rowWithTitle:L(@"Language") controls:@[language]],
         [CCPetsFormBuilder rowWithTitle:L(@"Window Appearance")
-            subtitle:L(@"Only this window; the pet's panels follow Panel Appearance below") controls:@[appearance]],
+            subtitle:L(@"Only this window; the pet's panels follow Panel Appearance above") controls:@[appearance]],
     ] footer:nil];
 
-    // 浮层外观：两张主题卡片 + 玻璃压暗滑块。
-    [self.form addGroupTitle:L(@"Panel Appearance") note:nil];
-    CCPetsTileView *classic = [self themeTileLiquid:NO];
-    CCPetsTileView *liquid = [self themeTileLiquid:YES];
-    classic.onClick = ^{ [weakSelf.actions updatePanelTheme:@"classic"]; };
-    BOOL liquidAvailable = CCPetsLiquidGlassAvailable();
-    if (liquidAvailable) liquid.onClick = ^{ [weakSelf.actions updatePanelTheme:@"liquid"]; };
-    else liquid.alphaValue = 0.5;
-    NSStackView *themes = [NSStackView stackViewWithViews:@[classic, liquid]];
-    themes.distribution = NSStackViewDistributionFillEqually;
-    themes.alignment = NSLayoutAttributeTop;
-    themes.spacing = 10;
-    [self.form addView:themes];
-    [classic.heightAnchor constraintEqualToAnchor:liquid.heightAnchor].active = YES;
-
-    NSSlider *dim = [self sliderWithMinimum:0 maximum:CCPetsGlassDimMaximum width:200];
-    NSTextField *dimLabel = [self sliderValueLabel];
-    [self bind:dim to:^(NSSlider *sender) {
-        NSInteger value = (NSInteger)lround(sender.doubleValue);
-        dimLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)value];
-        [weakSelf showGlassDim:value];
-        [weakSelf.actions updateGlassDimLevel:@(value)];
-    }];
-    NSView *dimRow = [CCPetsFormBuilder rowWithTitle:L(@"Glass Dimming")
-        subtitle:L(@"Raise it when a bright wallpaper makes text hard to read") controls:@[dim, dimLabel]];
-    [self.reloaders addObject:^{
-        BOOL isLiquid = [CCPetsPanelTheme() isEqualToString:@"liquid"] && liquidAvailable;
-        classic.selected = !isLiquid;
-        liquid.selected = isLiquid;
-        NSInteger level = CCPetsGlassDimLevel();
-        dim.doubleValue = level;
-        dimLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)level];
-        // 压暗只作用于原生玻璃，经典主题下没有这层。
-        dim.enabled = isLiquid;
-        [weakSelf showGlassDim:level];
-    }];
-    [self.form addGroupWithTitle:nil rows:@[dimRow] footer:nil];
+    [self.form addGroupWithTitle:L(@"Launch Protection") rows:@[
+        [self switchRowWithTitle:@"Shadowrocket"
+            subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region")
+            key:CCPetsShadowrocketLaunchCheckKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
+                CCPetsPrefSetBool(CCPetsShadowrocketLaunchCheckKey, enabled);
+            }],
+    ] footer:L(@"Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key.")];
 
     // 悬停面板：每家一个胶囊，点一下在订阅额度和 Token 用量之间切换，和右键菜单同一个样子。
     [self.form addGroupTitle:L(@"Hover Panel") note:L(@"Click a pill to switch")];
@@ -892,6 +1379,13 @@ static const NSUInteger PetPickerColumns = 4;
     [panelRows addObject:[CCPetsFormBuilder rowWithTitle:L(@"System Status") controls:@[metrics]]];
     [self.form addGroupWithTitle:nil rows:panelRows footer:nil];
 
+    // 终端跳转：一张卡片，行在 refreshIDEIntegration 拿到检测结果后填入。
+    [self.form addGroupTitle:L(@"Terminal Jump") note:L(@"Click an agent card to return to its terminal")
+        info:L(@"Terminal, iTerm2 and Ghostty are located by TTY through AppleScript and need CC Pets allowed under System Settings → Privacy & Security → Automation. JetBrains IDEs need the CC Pets Terminal plugin (2026.2 / 2026.3, local Reworked terminal), installed in each IDE separately. VS Code and its forks such as Cursor and Windsurf need the CC Pets Terminal extension, installed in each app separately; remote windows are not supported. Other terminals such as Warp are only brought forward.")];
+    NSView *checking = [CCPetsFormBuilder rowWithTitle:L(@"Checking…") controls:@[]];
+    self.terminalJumpCard = [self.form addGroupWithTitle:nil rows:@[checking] footer:nil];
+    self.terminalJumpSnapshot = nil;
+
     [self.form addGroupWithTitle:L(@"Data") rows:@[
         [CCPetsFormBuilder rowWithTitle:L(@"Pet sprites folder") subtitle:[self displayPath:OwnPetsDirectory()]
             controls:@[[self smallButtonWithTitle:L(@"Show in Finder") action:^{ RevealFolder(OwnPetsDirectory()); }]]],
@@ -910,8 +1404,9 @@ static const NSUInteger PetPickerColumns = 4;
     return (NSTextField *)titles.arrangedSubviews.lastObject;
 }
 
-- (void)showGlassDim:(NSInteger)level {
-    self.glassPreviewDim.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:level / 100.0].CGColor;
+// level 是实际不透明度百分比（0–45）。
+- (void)showGlassDim:(double)level {
+    [self.glassPreview applyDimLevel:level];
 }
 
 @end

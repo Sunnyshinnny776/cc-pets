@@ -42,8 +42,7 @@ NSColor *CCPetsStatusBackgroundColor(CCPetsStatusKind kind);
 // Agent 状态（thinking / approval / failed …）归到哪一类。
 CCPetsStatusKind CCPetsStatusKindForAgentState(NSString *state);
 
-// 图表的模型色板，8 种按固定顺序分配；slot 超出范围时是「其他」的灰。
-// 顺序就是色盲安全的保证（相邻两色在三类色盲下都分得开），不要重排。
+// 图表模型色板：前 16 色固定，更多槽位生成颜色；负数表示未知模型的灰色。
 NSColor *CCPetsChartColor(NSInteger slot);
 extern const NSInteger CCPetsChartColorCount;
 
@@ -71,6 +70,10 @@ NSTextField *CCPetsWrappingLabel(NSString *text, CGFloat size, NSFontWeight weig
 // 可点的卡片：整张卡片是一个按钮。onClick 为 nil 时不响应。
 @interface CCPetsTileView : CCPetsCardView
 @property(nonatomic, copy) void (^onClick)(void);
+// 这块区域（整行宽）里是控件，不显示手形指针。
+@property(nonatomic, weak) NSView *cursorExclusionView;
+// 只在鼠标停在卡片上时显示的附属控件（比如删除按钮），必须是卡片的子视图。
+@property(nonatomic, weak) NSView *hoverAccessoryView;
 @end
 
 // 填色胶囊按钮：悬停面板「订阅 / 用量」那种一点就切换的开关，和右键菜单里的样子一致。

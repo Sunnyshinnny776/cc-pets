@@ -171,7 +171,7 @@
     if (record.count == 0) return;
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
-    if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
+    self.lastTerminalFocusTarget = terminal.count > 0 ? terminal : nil;
     NSString *identity = [self statusIdentityForRecord:record];
     NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
     if ([self.lastStatusState isEqualToString:@"approval"] &&
@@ -207,7 +207,7 @@
     return [event isEqualToString:@"SubagentStop"] || [event isEqualToString:@"PostToolUse"] ||
         [event isEqualToString:@"TaskCompleted"];
 }
-// 标题优先显示账号名；同名账号（不同目录下都叫 claude）只影响展示，身份比较走 profileId。
+// 标题优先显示账号名；身份比较使用 profileId 和会话身份，不按显示名合并终端。
 - (NSString *)statusPresentationNameForRecord:(NSDictionary *)record {
     NSString *profileName = SanitizedShortString(record[@"profileName"], 64);
     if (profileName.length > 0) return profileName;
@@ -217,7 +217,13 @@
 - (NSString *)statusIdentityForRecord:(NSDictionary *)record {
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
     NSString *profileID = SanitizedShortString(record[@"profileId"], 128);
-    return profileID.length > 0 ? [NSString stringWithFormat:@"%@|%@", provider, profileID] : provider;
+    NSString *session = SanitizedShortString(record[@"session"], 128);
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
+    NSString *terminalID = SanitizedShortString(terminal[@"ideTerminal"], 64);
+    NSString *tty = SanitizedShortString(terminal[@"tty"], 64);
+    // 同一个账号的不同会话也必须分开；未配对的新卡片不能借用上一张卡片的终端。
+    NSString *identity = session.length ? session : (terminalID.length ? terminalID : tty);
+    return [NSString stringWithFormat:@"%@|%@|%@", provider ?: @"", profileID ?: @"", identity ?: @""];
 }
 - (void)noteStatusIdentityForRecord:(NSDictionary *)record {
     self.lastStatusAgentProvider = SanitizedShortString(record[@"provider"], 32);
@@ -289,8 +295,8 @@
     // Codex 的共享后台偶尔会先送到事件、稍后才完成会话与终端配对。无目标事件不能
     // 把上一条已确认的回跳目标清空，否则卡片仍可见却会突然点不动。
     if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
-    else if (self.hasAgentStatus && ![identity isEqualToString:self.lastStatusIdentity]) {
-        // 换成另一个账号且仍无法解析终端时，不能误跳到上一家账号。
+    else if (![identity isEqualToString:self.lastStatusIdentity]) {
+        // 换成另一个会话且仍无法解析终端时，不能误跳到上一张卡片的终端。
         self.lastTerminalFocusTarget = nil;
     }
 
@@ -512,7 +518,7 @@
 - (void)presentStalledRecord:(NSDictionary *)record {
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
-    if (terminal.count > 0) self.lastTerminalFocusTarget = terminal;
+    self.lastTerminalFocusTarget = terminal.count > 0 ? terminal : nil;
     NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
     self.hasAgentStatus = YES;
     [NSObject cancelPreviousPerformRequestsWithTarget:self

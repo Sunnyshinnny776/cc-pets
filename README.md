@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.3.0: Main menu, multiple accounts and token usage by model">
+  <img src="docs/images/cover.png" alt="CC Pets v2.4.0: Exact terminal jumps, launch protection and usage improvements">
 </p>
 
 # CC Pets
@@ -13,19 +13,16 @@ Codex App Server interface and Claude Code's official status line input.
 
 > The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
 
-## What's new in v2.3.0
+## What's new in v2.4.0
 
-- **Main menu** — open Overview, Sessions, Usage, Pet, Multi-Account, Alerts,
-  Settings and Diagnostics from the menu or `cc-pets open`. See live sessions, jump to their
-  terminals and manage settings in one place.
-- **Multiple accounts and model usage** — manage Claude / Codex Homes from the
-  Multi-Account page, with isolated quota, history and live state. Filter 7-, 30- and 90-day token charts
-  by account and model, with per-account quota or API usage display.
-- **Native runtime and diagnostic repairs** — hooks, CC Bridge and CLI tools run
-  without Node.js. Repair registered accounts' hooks and Claude status lines
-  from Diagnostics, with configuration backups before changes.
+- **Exact terminal jumps** — select terminals in VS Code and its forks, JetBrains,
+  Ghostty and iTerm2, with permissions and extension management in Settings.
+- **Launch protection and CC Bridge** — optional Shadowrocket exit checks before
+  wrapper launches, safer session identity matching and recoverable inbox delivery.
+- **Usage and pet management** — corrected Codex token accounting, background usage,
+  per-account quota reminders, refreshed appearance settings and custom pet deletion.
 
-See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.3.0.md) for the full list.
+See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.4.0.md) for the full list.
 
 ## Screenshots
 
@@ -108,10 +105,11 @@ the list after 60 idle seconds.
 
 Every hook status card is clickable. The circular status icon lists up to eight
 recent online Agent terminal sessions. Terminal.app and iTerm2 are selected
-precisely by TTY. Without an editor extension, VS Code, JetBrains IDEs, Warp,
-WezTerm, and Ghostty fall back to activating the owning application; selection of
-an internal tab is left to that application. macOS may request Automation
-permission on the first Terminal.app or iTerm2 jump.
+precisely by TTY; Ghostty 1.4+ also selects the exact tab and split. VS Code and
+JetBrains IDEs use their bundled extensions for exact terminal selection. Without
+an extension, or for Warp, WezTerm and older Ghostty versions, the owning app is
+brought forward. macOS may request Automation permission for Terminal.app, iTerm2
+and Ghostty. Manage permissions and extensions in Settings → Terminal Jump.
 
 ### Install from source
 
@@ -156,6 +154,58 @@ Bridge is already enabled, its Hooks, permissions, and MCP registration are also
 configured immediately; otherwise they are added automatically when CC Bridge is
 enabled later.
 
+## Shadowrocket launch check
+
+Enable **Main menu → Settings → Launch Protection → Shadowrocket** (off by default).
+Each proxy app has its own preference; Shadowrocket is the first supported option.
+CC Pets wrappers require a connected Shadowrocket VPN and a valid exit IP / region from
+the service's HTTPS `/cdn-cgi/trace` endpoint before starting Claude / Codex. Failures
+print a reason and return a nonzero exit code before registering a session or sending
+a starting event. Disabling the option skips all network checks.
+
+Claude defaults to `api.anthropic.com`. Codex uses the current Home's `auth.json` to select
+`chatgpt.com` for ChatGPT login or `api.openai.com` for API-key login. If the mode is unknown
+(for example, credentials stored only in Keychain), both exits must pass.
+The response must contain valid `ip`, `loc` and matching `h` fields. `CN` and `HK` exits,
+unknown regions, invalid responses, non-200 HTTP responses and connection / TLS / timeout
+failures block launch. Successful probes print the domain, exit IP and region.
+Each attempt has an 8-second connect timeout, a 15-second total request timeout and a
+16-second process watchdog. Temporary transport failures and HTTP 502 / 503 / 504 retry
+once after 1 second; VPN status is checked again before retrying. Two timed-out requests
+take about 31 seconds per domain, plus VPN checks and process overhead. Blocked regions,
+invalid trace responses and certificate errors are not retried. Failure messages distinguish
+connection, response and process timeouts and include attempt counts and cumulative DNS /
+TCP / TLS / response timings. There is no separate DNS lookup or homepage HEAD request.
+Probes send no account credentials,
+verify TLS certificates, ignore `~/.curlrc` and do not follow redirects.
+
+Claude reads network environment settings from the current `CLAUDE_CONFIG_DIR/settings.json`
+and terminal proxy variables, including an overridden `ANTHROPIC_BASE_URL`. Codex supports
+common single-line string routing settings in `CODEX_HOME/config.toml` (`model_provider`,
+`profile`, `model_providers.<id>.base_url`, `chatgpt_base_url`), `--profile` / `-p`,
+`OPENAI_BASE_URL` and terminal proxy variables. Custom endpoints use their own origin's
+`/cdn-cgi/trace`, with no fallback to another domain. Gateways must serve valid trace data;
+this only describes the exit to the gateway, not the gateway's upstream exit.
+Complex routing TOML, unsupported cloud providers, command-line configuration overrides
+and project network overrides are rejected with an explanation. Enterprise-managed network
+configuration is outside the supported scope. The check does not validate account access,
+service-supported countries or future routing changes. It recognizes the Shadowrocket VPN
+configuration, not just its running process. Original CLI binaries and desktop clients bypass it.
+
+## CC Bridge
+
+[CC Bridge](./CC_BRIDGE.md) is optional and off by default. It lets local Claude Code
+and Codex sessions exchange messages and reserve files. Session IDs are validated;
+PID fallback is accepted only for a unique live session. Ambiguous shared-host identities
+are rejected rather than guessed. Codex delivery uses the recipient's Home.
+
+Unconfirmed inbox messages are recoverable after a crash. A crash between output and
+confirmation may repeat the same message ID; delivery does not mean the recipient has
+read or accepted it. Turning off auto-wake also stops existing watchers from taking new
+messages. Disabling Bridge blocks CLI send, rename and inbox operations; incomplete
+integration removal returns an error and can be retried. See the guide for configuration
+and delivery details, and the [unreleased changelog](./CHANGELOG.md#unreleased) for fixes.
+
 ## Commands
 
 ```bash
@@ -196,6 +246,32 @@ Commit the bilingual `docs/release-notes-vX.Y.Z.md` before tagging; follow the
 [Release notes rules](./CONTRIBUTING.md#github-release-notes).
 
 ## Agent integration
+
+### JetBrains IDE terminal jump
+
+Local Reworked terminals in IntelliJ-based IDEs 2026.2 / 2026.3 (IntelliJ IDEA,
+PyCharm, WebStorm, GoLand, CLion, PhpStorm, RubyMine, Rider, etc.) support exact tab selection through
+the **CC Pets Terminal** plugin. Open **Settings → General → Terminal Jump** in CC Pets:
+each detected IDE has its own row, and **Install** writes the bundled plugin into that IDE's
+plugin folder after you confirm. Restart the IDE if it was running, then open a project to
+connect automatically; no port configuration is needed. When a newer plugin ships with
+CC Pets, the row offers **Update**. IDEs with a customized plugin folder (`idea.plugins.path`)
+fall back to **Settings → Plugins → ⚙ → Install Plugin from Disk**. Each IDE, stable and EAP
+build keeps its own plugins. Classic and remote terminals are not supported yet.
+See [plugin details](plugins/jetbrains/README.md) for installation and build instructions.
+
+### VS Code terminal jump
+
+VS Code 1.80+ and its forks (Cursor, Windsurf, VSCodium, Insiders, etc.) jump to the exact
+integrated terminal — in the panel, a split or the editor area — through the **CC Pets Terminal**
+extension. In **Settings → General → Terminal Jump**, each detected app has its own row;
+**Install** runs that app's own command line tool with the bundled VSIX after you confirm.
+Open windows usually connect on their own; otherwise run **Developer: Reload Window**. Apps
+without a command line tool fall back to **Extensions → ⋯ → Install from VSIX…**. Without the
+extension, a card only brings the app forward. Remote windows (SSH, WSL, containers) are not
+supported. See [extension details](plugins/vscode/README.md).
+
+### Codex and Claude hooks
 
 Codex Hooks and Claude Code Hooks drive the pet's agent-state animations. After a
 first installation or a Codex Hook update, start Codex and run `/hooks` to review
@@ -255,14 +331,14 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
   an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
 - **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The same
   five numbers as the overview lead the page: total usage (input + cache write + output +
-  cached input), input, output, cached input with its hit rate, and requests. The daily bar
+  cached input + background usage), input, output, cached input with its hit rate, and requests. Background usage from local Codex SQLite logs contributes to the total only, without an inferred token breakdown. The daily bar
   chart stacks models in fixed colors and can switch between those five measures; click a model in the legend or the table to see only that
   model, and hover a bar for that day's numbers. Everything is counted from local session
   logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
   old transcripts.
 - **Multi-Account** — add Claude / Codex Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
 - **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
-  picker, size, chatter, click reactions and Codex import; Alerts: notifications, the status
+  picker, deletion of unselected custom pets with confirmation, size, chatter, click reactions and Codex import; Alerts: notifications, the status
   card and system status; Settings: language, panel appearance and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
@@ -307,8 +383,7 @@ default. Changes apply immediately to the quota panel, status card, and speech
 bubble, and persist across restarts. Liquid Glass uses native system glass and is
 available on macOS 26 and later only. Building native glass support requires the
 macOS 26 SDK or later. The same submenu has a **Glass dimming** setting for the quota
-panel, status card, and speech bubble: Clear (0%), Light (15%), Standard (25%,
-default), or Legible (45%). Lower levels
+panel, status card, and speech bubble: Clear (0%), Light (25%), Standard (50%), or Legible (100%). Lower levels
 look more transparent; higher levels keep text readable over light backgrounds.
 
 ### Language
@@ -371,7 +446,16 @@ Local seven-day quota history is disabled by default. When enabled, it is stored
 only at `~/Library/Application Support/CC Pets/quota-history.json`, retains seven
 days, and records at most once every 15 minutes.
 
+In API usage mode, the monthly token trend shows today's usage and recorded days on
+separate lines; hover over it for the selected account's peak usage. Codex exhaustion
+markers expire five minutes after sampling, including when recovered from cache.
+
 ## Speech
+
+Low-quota reminders track subscription accounts independently at 20%, 10% and 5%
+remaining, name the triggering account, and queue during cooldown. Initial samples,
+expired windows and API-usage accounts do not trigger reminders. General quota
+placeholders use the subscription account with the least remaining quota.
 
 The pet's speech comes from `~/.cc-pets/speech.txt`. Open **Chatter → Edit Lines…**
 on the window's **Pet** page to edit, validate, preview, or restore it. Lines are grouped
@@ -481,7 +565,10 @@ and restores the previous Claude status line. Other user settings and hooks rema
 CC Pets is a community open-source project with no affiliation, authorization, or
 official partnership with OpenAI, Anthropic, PetDex, or any character rights holder.
 Codex, ChatGPT, Claude, their icons, and their trademarks belong to their respective
-owners.
+owners. When installed application icons are unavailable, CC Pets uses bundled Claude
+and Codex fallback icons with normalized sizing. Their sources and separate ownership
+are documented in [Third-party notices](./THIRD_PARTY_NOTICES.md); these icons are not
+covered by the project's MIT License.
 
 ## License
 

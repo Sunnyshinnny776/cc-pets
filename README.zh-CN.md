@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.3.0：主菜单、多账号与按模型统计 Token 用量">
+  <img src="docs/images/cover.png" alt="CC Pets v2.4.0：终端精准跳转、启动保护与用量改进">
 </p>
 
 # CC Pets
@@ -9,16 +9,16 @@
 一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
 并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
 
-## v2.3.0 新功能
+## v2.4.0 新功能
 
-- **主菜单**：从菜单或 `cc-pets open` 打开概览、会话、用量、宠物、多账号、提醒、设置和诊断，
-  集中查看在线会话、跳转终端和管理桌宠设置。
-- **多账号与模型用量**：在「多账号」页管理 Claude / Codex Home，按账号隔离额度、历史和在线状态；
-  查看最近 7、30、90 天的 Token 图表，按账号和模型筛选，独立设置订阅额度或 API 用量展示。
-- **原生运行时与诊断修复**：Hooks、CC Bridge 和 CLI 工具运行时无需 Node.js；
-  诊断页可修复已登记账号的 Hooks 和 Claude status line，修改前自动备份配置。
+- **终端精准跳转**：支持 VS Code 及其分支、JetBrains、Ghostty 和 iTerm2，
+  在设置页集中管理权限和终端扩展。
+- **启动保护与 CC Bridge**：可选 Shadowrocket 出口检查，会话身份匹配更严格，
+  未确认的信箱消息可恢复。
+- **用量与宠物管理**：修复 Codex Token 计数、补充后台用量，按账号提醒低额度，
+  更新外观设置，并支持删除自定义宠物。
 
-完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.3.0.md)。
+完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.4.0.md)。
 
 ## 界面预览
 
@@ -78,11 +78,11 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 - **会话**：此刻在线的 Agent 会话（等审批的置顶，每行可「跳到终端」），以及 CC Bridge 的
   消息往来：卡在信箱里待投递的、最近送达的。仅显示消息交互，无消息正文。
 - **用量**：本机 Claude Code / Codex 最近 7、30、90 天的 Token 用量。顶部和概览同一套五格：总用量
-  （输入 + 缓存写 + 输出 + 缓存输入）、输入、输出、缓存输入（附命中率）、请求数。每日柱状图按模型分色堆叠，
+  （输入 + 缓存写 + 输出 + 缓存输入 + 后台用量）、输入、输出、缓存输入（附命中率）、请求数。本机 Codex SQLite 日志补充的后台用量仅计入总量，不推算 Token 明细。每日柱状图按模型分色堆叠，
   颜色固定跟着模型走，可以在这五项之间切换；点图例或表格里的模型只看它，鼠标移到柱子上看当天各模型的数值。
   数据全部来自本机会话日志，不会发送到任何地方；按日归档让 Claude Code 清理旧转录之后，历史仍然留得住。
 - **多账号**：添加 Claude / Codex Home，查看账号的目录与集成状态，并通过“管理”菜单修复、重命名、重新定位或移除自定义 Home 的集成。
-- **宠物 / 提醒 / 设置**：桌宠的全部设置拆成三页（宠物：选宠物、大小、碎碎念、点击互动、导入 Codex 素材；提醒：系统通知、桌面状态卡和系统状态；
+- **宠物 / 提醒 / 设置**：桌宠的全部设置拆成三页（宠物：选宠物、确认删除未选中的自定义宠物、大小、碎碎念、点击互动、导入 Codex 素材；提醒：系统通知、桌面状态卡和系统状态；
   设置：语言、面板外观和素材目录），另有更细的项（比如连击阈值、可以连续调节的玻璃压暗，菜单里仍是四档）。
   右键菜单只留最常用的几项：管理桌宠、宠物大小、显示消息气泡、用量展示模式、面板主题和 CC Bridge，其余都到这里改。改动会立刻作用到桌面上的宠物，在菜单里改的也会同步显示在这里。
   会改写 Claude Code / Codex 配置的选项（启用 CC Bridge、免审批）仍只在右键菜单里。
@@ -95,6 +95,24 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 窗口最小化后点 Dock 图标可以恢复。
 
 ## 互动方式
+
+### JetBrains IDE 终端跳转
+
+基于 IntelliJ 平台的 JetBrains IDE（IDEA、PyCharm、WebStorm、GoLand、CLion、PhpStorm、RubyMine、Rider 等）
+2026.2 / 2026.3 的本地 Reworked 终端可通过 **CC Pets Terminal** 插件精确跳转。
+在桌宠「设置 → 通用 → 终端跳转」中，每个检测到的 IDE 一行，点「安装」确认后插件会写入该 IDE 的插件目录；
+IDE 正在运行时重启即可加载，打开项目后自动连接，无需配置端口。随 CC Pets 带来新版插件时，该行会显示「更新」。
+自定义了插件目录（`idea.plugins.path`）的 IDE 退回手动安装：Settings → Plugins → ⚙ → Install Plugin from Disk。
+每个 IDE 以及稳定版与 EAP 的插件相互独立；Classic 和远程终端暂不支持。
+详细安装、构建和本机通信说明见 [插件说明](plugins/jetbrains/README.md)。
+
+### VS Code 终端跳转
+
+VS Code 1.80+ 及其分支（Cursor、Windsurf、VSCodium、Insiders 等）可通过 **CC Pets Terminal** 扩展
+精确跳到集成终端，面板、分屏和编辑器区里的终端都支持。在「设置 → 通用 → 终端跳转」中每个检测到的应用一行，
+点「安装」确认后用该应用自带的命令行工具安装随包 VSIX；已打开的窗口通常自动连接，否则执行「Developer: Reload Window」。
+没有命令行工具的应用退回手动安装：扩展视图 → ⋯ → 从 VSIX 安装…。未安装扩展时点击卡片只会激活应用；
+远程窗口（SSH、WSL、容器）暂不支持。详见 [扩展说明](plugins/vscode/README.md)。
 
 ### Agent 工作状态
 
@@ -126,10 +144,10 @@ Claude Code Hook 会合并到 `~/.claude/settings.json`，现有的 `env`、`mod
 这类会话没有 pid 文件，只要 Hook 还在持续发事件就会留在最近会话列表里，闲置 60 秒后移出列表。
 
 所有 Hook 状态卡都可以点击；右侧圆形状态图标会展开最近 8 个在线 Agent 终端会话。
-macOS Terminal 和 iTerm2 会按 TTY 精确选中对应标签页或 Session。VS Code、
-JetBrains IDE、Warp、WezTerm、Ghostty 等在不安装扩展的模式下仅激活对应应用；应用
-内部标签页是否恢复由应用自身决定。首次回跳 Terminal 或 iTerm2 时，macOS 可能要求
-允许 CC Pets 控制该终端应用。
+macOS Terminal 和 iTerm2 会按 TTY 精确选中对应标签页或 Session，Ghostty 1.4+ 还支持精确选择分屏。
+VS Code 和 JetBrains IDE 通过随包扩展精确选择终端；未安装扩展时，以及 Warp、WezTerm 和旧版 Ghostty，
+仅前置对应应用。跳转 Terminal、iTerm2 或 Ghostty 时，macOS 可能要求 Automation 权限，
+可在「设置 → 终端跳转」管理权限与扩展。
 
 ### 鼠标互动
 
@@ -154,8 +172,37 @@ Hook 状态卡和消息气泡在宠物小于 100% 时同比例缩小，文字、
 右键菜单「面板主题」提供「经典」和「Liquid Glass」，默认使用经典样式。
 选择后立即应用于额度面板、状态条和说话气泡，并在重启后保留。Liquid Glass 使用系统原生玻璃，
 仅在 macOS 26 及以上可选；构建原生玻璃支持需要 macOS 26 或更新的 SDK。同一子菜单里的「玻璃压暗」
-可在通透（0%）、轻度（15%）、标准（25%，默认）、清晰（45%）之间切换，作用于额度面板、状态卡和
+可在通透（0%）、轻度（25%）、标准（50%）、清晰（100%）之间切换，作用于额度面板、状态卡和
 说话气泡：档位越低越通透，档位越高在浅色背景上越容易看清。
+
+### 启动前检查小火箭
+
+在 **主菜单 → 设置 → 启动保护** 打开「Shadowrocket」开关（默认关闭）。
+启动保护按软件分别配置，当前提供 Shadowrocket，后续软件可在同一分组增加独立开关。
+通过 CC Pets 包装器启动 `claude` / `codex` 时，会先确认 Shadowrocket 的系统 VPN
+状态为已连接，再向对应服务的 `/cdn-cgi/trace` 发起 HTTPS GET，检查出口 IP 和地区；失败会在终端提示原因并返回非零退出码，
+不会启动 CLI，也不会登记会话或发送启动事件。关闭开关后不进行网络检查。
+
+仅识别 Shadowrocket 的 VPN 配置，不把「应用进程正在运行」当成代理已连接。
+Claude 默认检查 `api.anthropic.com`；Codex 根据当前 Home 的 `auth.json` 选择：ChatGPT 登录检查
+`chatgpt.com`，API Key 登录检查 `api.openai.com`。模式未知（例如凭据仅在 Keychain 中）时，两者都必须通过。
+返回的 `ip`、`loc`、`h` 必须有效且匹配目标域名；`loc=CN` 或 `HK` 会阻止启动。
+请求失败、非 HTTP 200、无效响应、未知地区、TLS 错误或超时也会阻止启动；成功时在终端显示域名、出口 IP 和地区。
+每次尝试连接最多等待 8 秒，请求总计最多 15 秒，外层进程保护时限为 16 秒。
+临时传输故障或 HTTP 502 / 503 / 504 会间隔 1 秒重试一次，重试前再次确认 VPN 连接状态。
+两次请求均超时时，每个域名约等待 31 秒，另加 VPN 检查及进程开销。
+被拦截地区、无效 trace 和证书错误不重试。失败提示区分连接、响应及进程超时，
+显示尝试次数和 DNS / TCP / TLS / 响应的累计耗时。不再额外做系统 DNS 或首页 HEAD 探测。
+请求不带账号凭据，正常校验证书，忽略 `~/.curlrc`，不跟随重定向。
+
+Claude 支持当前 `CLAUDE_CONFIG_DIR` 下 `settings.json` 中的网络环境变量及终端代理变量，
+优先使用其中的 `ANTHROPIC_BASE_URL`。Codex 支持 `CODEX_HOME/config.toml` 中常见的单行字符串
+路由配置（`model_provider`、`profile`、`model_providers.<id>.base_url`、`chatgpt_base_url`）、
+`--profile` / `-p`、`OPENAI_BASE_URL` 和终端代理变量。自定义地址检查同一源站的 `/cdn-cgi/trace`，
+不回退到其他域名；网关必须提供有效 trace，且结果只代表到网关的出口，不代表网关到上游的出口。
+复杂路由 TOML、未支持的云服务商、命令行配置覆盖及项目网络覆盖会拒绝检查并提示原因。
+企业托管网络配置不在支持范围内。此检查不验证账号、密钥或服务支持地区，也不能保证探测后出口不变。
+直接启动原始 CLI 二进制或桌面客户端不会经过此保护。
 
 ### 界面语言
 
@@ -211,7 +258,13 @@ Provider、脱敏状态和通用说明，不提供消息输入，也不会显示
 连续 1 分钟没有收到新的 Agent 状态事件时，卡片和圆钮会一起自动隐藏；下一次收到事件时
 会重新显示并重新计时。
 
+API 用量模式下，月度 Token 趋势将今日用量和记录天数分行显示；悬停可查看当前所选账号的峰值。
+Codex 耗尽标记从采样时起五分钟后失效，从缓存恢复也不会延长有效期。
+
 ## 碎碎念
+
+低额度提醒按订阅账号分别跟踪剩余 20%、10%、5% 阈值，注明触发账号，冷却期间排队播报。
+首次采样、过期额度和 API 用量账号不触发提醒；普通额度台词的槽位使用剩余额度最低的订阅账号。
 
 桌宠会以自己的口吻讲话：Agent 干活时讲的话直接写在状态卡副行上，闲着的时候单独冒气泡。
 主菜单「宠物」页的「碎碎念」里可以整体开关、调频率、选择台词来源、改台词。
@@ -358,6 +411,17 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown             # 交�
 - 已安装并登录 Codex CLI 和/或 Claude Code CLI
 - zsh
 - Xcode Command Line Tools，可通过 `xcode-select --install` 安装
+
+## CC Bridge
+
+[CC Bridge](./CC_BRIDGE.zh-CN.md) 是默认关闭的可选功能，让本机 Claude Code / Codex 会话互发消息并预留文件。
+身份识别优先验证会话 ID；按 PID 回退时只接受唯一在线会话，共享宿主下身份不明确会拒绝操作。
+Codex 消息使用接收方的 Home 投递。
+
+未确认的信箱消息可在异常退出后恢复。输出和确认之间崩溃时可能重复投递同一消息 ID；送达不代表已读或同意。
+关闭自动唤醒后，已运行的 watcher 也会停止主动取信；关闭 Bridge 后 CLI 拒绝发送、改名和收件。
+集成未能完整移除时会报错，可排除原因后重试。详细配置与投递边界见使用指南，修复列表见
+[未发布更新记录](./CHANGELOG.zh-CN.md#unreleased)。
 
 ## 安装
 
@@ -741,6 +805,8 @@ CC Pets 建立的软链，并恢复安装前的 Claude status line；其他用�
 
 CC Pets 是社区开源项目，与 OpenAI、Anthropic、PetDex 及任何角色版权方不存在隶属、授权
 或官方合作关系。Codex、ChatGPT、Claude 及相关图标和商标归各自权利人所有。
+未能读取已安装应用的图标时，会使用随包提供、统一视觉尺寸的 Claude 和 Codex 备用图标。
+来源及版权归属见[第三方声明](./THIRD_PARTY_NOTICES.zh-CN.md)，这些图标不适用本项目的 MIT License。
 
 ## License
 

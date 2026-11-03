@@ -26,8 +26,8 @@
 // 最近一次 agent 事件的工具名，供 {toolName} 槽位使用。
 @property(copy) NSString *lastSpeechTool;
 // 上次播报额度时剩余百分比落在哪一档。只在向下穿档时说，不是"低于阈值就一直说"。
-@property NSInteger lastQuotaTier;
-@property BOOL lastQuotaTierInitialized;
+@property NSMutableDictionary<NSString *, NSDictionary *> *quotaSpeechStates;
+@property NSMutableOrderedSet<NSString *> *pendingQuotaSpeechProfileIDs;
 @property NSPanel *statusPanel;
 @property CCPetsGlassView *statusGlass;
 @property CCPetsGlassView *quotaGlass;

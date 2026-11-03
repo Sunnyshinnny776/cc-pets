@@ -1,12 +1,15 @@
 #import "CCPetsTerminalFocus.h"
 #import "CCPetsEvents.h"
 #import "CCPetsPaths.h"
+#import "CCPetsIDEIntegration.h"
+#import "CCPetsVSCodeIntegration.h"
 #import <fcntl.h>
 #import <sys/file.h>
 #import <sys/sysctl.h>
 #import <sys/stat.h>
 #import <stdlib.h>
 #import <unistd.h>
+#import <sqlite3.h>
 
 static BOOL ProcessInfoForPID(pid_t pid, struct kinfo_proc *info) {
     if (pid <= 0) return NO;
@@ -97,11 +100,13 @@ NSDictionary *TerminalFocusTargetFromEnvironment(void) {
     NSString *program = TerminalTargetValue(environment, @"CC_PETS_TERMINAL_PROGRAM", 64);
     NSString *session = TerminalTargetValue(environment, @"CC_PETS_TERMINAL_SESSION", 128);
     NSString *bundleID = TerminalTargetValue(environment, @"CC_PETS_TERMINAL_BUNDLE_ID", 128);
+    NSString *ideInstance = TerminalTargetValue(environment, @"CC_PETS_IDE_INSTANCE_ID", 64);
+    NSString *ideTerminal = TerminalTargetValue(environment, @"CC_PETS_IDE_TERMINAL_ID", 64);
     if (tty.length == 0) tty = SanitizedShortString(ControllingTerminalName(), 64);
     if (bundleID.length == 0) {
         bundleID = SanitizedShortString(HostApplicationBundleIdentifier(), 128);
     }
-    if (tty.length == 0 && program.length == 0 && session.length == 0 && bundleID.length == 0) {
+    if (tty.length == 0 && program.length == 0 && session.length == 0 && bundleID.length == 0 && ideInstance.length == 0) {
         return @{};
     }
     NSMutableDictionary *target = [NSMutableDictionary dictionary];
@@ -109,6 +114,10 @@ NSDictionary *TerminalFocusTargetFromEnvironment(void) {
     if (program.length > 0) target[@"program"] = program;
     if (session.length > 0) target[@"session"] = session;
     if (bundleID.length > 0) target[@"bundleID"] = bundleID;
+    if (ideInstance.length > 0 && ideTerminal.length > 0) {
+        target[@"ideInstance"] = ideInstance;
+        target[@"ideTerminal"] = ideTerminal;
+    }
     return target;
 }
 
@@ -152,11 +161,37 @@ static BOOL RunTerminalSelectionScript(NSString *bundleID, NSString *ttyName) {
              "end repeat\n"
              "end tell\n"
              "return false", tty];
+    } else if ([bundleID isEqualToString:@"com.mitchellh.ghostty"]) {
+        // Ghostty 1.4 起暴露 tty。先选中所属标签页并激活应用，再聚焦分屏；
+        // 不只依赖 focus 内部异步的窗口前置，状态卡本身是 NonactivatingPanel。
+        source = [NSString stringWithFormat:
+            @"tell application \"Ghostty\"\n"
+             "repeat with terminalWindow in windows\n"
+             "repeat with terminalTab in tabs of terminalWindow\n"
+             "repeat with terminalSurface in terminals of terminalTab\n"
+             "if (tty of terminalSurface) is \"%@\" then\n"
+             "set targetID to id of terminalSurface\n"
+             "select tab terminalTab\n"
+             "activate\n"
+             "focus (terminal id targetID)\n"
+             "return true\n"
+             "end if\n"
+             "end repeat\n"
+             "end repeat\n"
+             "end repeat\n"
+             "end tell\n"
+             "return false", tty];
     }
     if (!source) return NO;
     NSDictionary *error = nil;
     NSAppleScript *script = [[NSAppleScript alloc] initWithSource:source];
     NSAppleEventDescriptor *result = [script executeAndReturnError:&error];
+    if (error) {
+        NSLog(@"Terminal focus failed: bundle=%@ tty=%@ error=%@", bundleID, tty, error);
+    } else {
+        NSLog(@"Terminal focus: bundle=%@ tty=%@ matched=%@", bundleID, tty,
+            result.booleanValue ? @"yes" : @"no");
+    }
     return result.booleanValue && error == nil;
 }
 
@@ -197,7 +232,7 @@ NSArray<NSString *> *TerminalFocusBundleCandidates(NSDictionary *target) {
     return candidates;
 }
 
-// 没有脚本接口的宿主（JetBrains、VS Code 等）只能激活到应用这一级。activateWithOptions:
+// 没有脚本或插件接口的宿主（如 Warp、未装扩展的 VS Code）退回激活应用。activateWithOptions:
 // 在 macOS 14 起走协作式激活：状态卡是 NonactivatingPanel，桌宠自己不在前台，请求可能
 // 被系统拒绝，窗口在别的桌面时更是不会切过去。改走和点 Dock 图标同一条路，让系统负责
 // 切到应用窗口所在的桌面；拿不到 bundleURL 时才退回旧接口。
@@ -219,6 +254,8 @@ static BOOL ActivateApplicationAcrossSpaces(NSRunningApplication *application) {
 }
 
 BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
+    if (CCPetsRequestIDETerminalFocus(target)) return YES;
+    if (CCPetsRequestVSCodeTerminalFocus(target)) return YES;
     NSString *tty = SanitizedShortString(target[@"tty"], 64);
     // 候选按优先级往下试，没在运行的直接跳过：映射值和捕获值总有一个指向真正承载
     // 会话的那个应用，卡在第一个候选上就会白白丢掉一次可用的回跳。
@@ -236,11 +273,11 @@ BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
 
 // Codex 共享服务拉起的 hook 不知道会话在哪个终端（见 TerminalFocusRunsUnderSharedAgentHost）。
 // 能确定的只有两头：codex-with-pet 启动时知道自己的终端、工作目录和时刻；hook 知道会话 ID，
-// 会话记录（rollout）的第一行又记着会话的工作目录和创建时刻。新会话在 CLI 启动后一秒左右
-// 就会创建，所以"同一目录里、紧挨在会话创建之前启动的那个 CLI"就是它的终端。配对结果记下来，
-// 同一会话之后的事件直接查表。
+// 会话记录（rollout）的第一行又记着会话的工作目录和创建时刻。CLI 启动后可能还要等网络
+// 初始化，不能按包装脚本的启动先后猜测归属。多个候选时读取本机 TUI 就绪日志的 PID，
+// 仅在会话创建前的一秒内存在唯一就绪候选时配对；信息不足就留空，之后的 Hook 可再试。
 static const NSUInteger CodexLaunchThreadLimit = 32;
-static const NSTimeInterval CodexThreadCreationSlack = 5.0;
+static const NSTimeInterval CodexClientReadyWindow = 1.0;
 
 static NSTimeInterval ProcessStartTime(pid_t pid) {
     struct kinfo_proc info;
@@ -396,32 +433,77 @@ static NSDictionary *CodexThreadMeta(NSString *thread, NSDictionary *payload, NS
     return result;
 }
 
-// 在同一工作目录的候选里挑：优先还没配过会话的 CLI；会话创建时刻已知时，取创建前最后一个
-// 启动的（resume 的旧会话创建得比所有 CLI 都早，退回"最近启动的"）。一个 TUI 里 /new 出来
-// 的新会话没有空闲候选可配，这时同目录只剩一个 CLI 才认它，多于一个宁可不配。
+// Codex 0.166 的本机日志记录每个 TUI 的就绪时刻和带 PID 的 process_uuid。
+// 只读这一类元数据，不读取提示词、输出或 HTTP 日志。内部日志格式改变、日志尚未落盘、
+// 多个客户端同时就绪时都不能猜测；sqlite 的读锁等待和返回条数也有上限。
+static int CodexLogQueryExpired(void *context) {
+    return CFAbsoluteTimeGetCurrent() > *(CFAbsoluteTime *)context;
+}
+
+static NSString *ReadyCodexLaunch(NSDictionary<NSString *, NSDictionary *> *launches,
+    NSArray<NSString *> *candidates, NSNumber *createdAt, NSString *codexHome) {
+    if (!createdAt || createdAt.doubleValue <= 0) return nil;
+    NSString *path = [(codexHome.length ? codexHome : DefaultCodexHomeDirectory())
+        stringByAppendingPathComponent:@"logs_2.sqlite"];
+    sqlite3 *database = NULL;
+    if (sqlite3_open_v2(path.fileSystemRepresentation, &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, NULL) != SQLITE_OK) {
+        if (database) sqlite3_close(database);
+        return nil;
+    }
+    sqlite3_busy_timeout(database, 50);
+    CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 0.15;
+    sqlite3_progress_handler(database, 1000, CodexLogQueryExpired, &deadline);
+    sqlite3_stmt *statement = NULL;
+    const char *query = "SELECT ts, ts_nanos, process_uuid FROM logs "
+        "WHERE ts BETWEEN ? AND ? AND target = 'codex_tui::app::startup' "
+        "AND feedback_log_body LIKE 'tui startup initial frame scheduled%' LIMIT 128";
+    NSMutableSet<NSString *> *matches = [NSMutableSet set];
+    BOOL complete = NO;
+    if (sqlite3_prepare_v2(database, query, -1, &statement, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(statement, 1, (sqlite3_int64)floor(createdAt.doubleValue - CodexClientReadyWindow));
+        sqlite3_bind_int64(statement, 2, (sqlite3_int64)ceil(createdAt.doubleValue));
+        int result;
+        NSUInteger rows = 0;
+        while ((result = sqlite3_step(statement)) == SQLITE_ROW) {
+            rows++;
+            double readyAt = sqlite3_column_int64(statement, 0) + sqlite3_column_int64(statement, 1) / 1e9;
+            if (readyAt > createdAt.doubleValue || readyAt < createdAt.doubleValue - CodexClientReadyWindow) continue;
+            const unsigned char *value = sqlite3_column_text(statement, 2);
+            NSString *process = value ? @((const char *)value) : @"";
+            for (NSString *key in candidates) {
+                NSDictionary *entry = launches[key];
+                NSString *prefix = [NSString stringWithFormat:@"pid:%d:", [entry[@"pid"] intValue]];
+                if ([process hasPrefix:prefix] && readyAt >= [entry[@"processStartedAt"] doubleValue] &&
+                    readyAt >= [entry[@"launchedAt"] doubleValue]) [matches addObject:key];
+            }
+        }
+        complete = result == SQLITE_DONE && rows < 128;
+    }
+    if (statement) sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return complete && matches.count == 1 ? matches.anyObject : nil;
+}
+
+// 显式 resume 优先按会话 ID；新会话用客户端就绪证据。多个同目录客户端时不能用
+// “最新未绑定的进程”兜底：网络启动延迟和首次发消息的顺序都可能与启动顺序不同。
 static NSString *ChooseCodexLaunch(NSDictionary<NSString *, NSDictionary *> *launches,
-    NSString *cwd, NSNumber *createdAt) {
+    NSString *cwd, NSNumber *createdAt, NSString *thread, NSString *codexHome) {
     NSMutableArray<NSString *> *sameDirectory = [NSMutableArray array];
-    NSMutableArray<NSString *> *unbound = [NSMutableArray array];
+    NSMutableArray<NSString *> *resumed = [NSMutableArray array];
     for (NSString *key in launches) {
         NSDictionary *entry = launches[key];
         if (![entry[@"cwd"] isEqualToString:cwd]) continue;
         [sameDirectory addObject:key];
-        if ([entry[@"threads"] count] == 0) [unbound addObject:key];
-    }
-    if (unbound.count == 0) return sameDirectory.count == 1 ? sameDirectory.firstObject : nil;
-    NSArray<NSString *> *byLaunch = [unbound sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
-        return [launches[a][@"launchedAt"] compare:launches[b][@"launchedAt"]];
-    }];
-    if (createdAt) {
-        NSString *preceding = nil;
-        for (NSString *key in byLaunch) {
-            if ([launches[key][@"launchedAt"] doubleValue] <=
-                createdAt.doubleValue + CodexThreadCreationSlack) preceding = key;
+        NSArray *arguments = ProcessArguments([entry[@"pid"] intValue]);
+        NSUInteger resume = [arguments indexOfObject:@"resume"];
+        if (resume != NSNotFound && resume + 1 < arguments.count && [arguments[resume + 1] isEqual:thread]) {
+            [resumed addObject:key];
         }
-        if (preceding) return preceding;
     }
-    return byLaunch.lastObject;
+    if (resumed.count > 0) return resumed.count == 1 ? resumed.firstObject : nil;
+    NSString *ready = ReadyCodexLaunch(launches, sameDirectory, createdAt, codexHome);
+    if (ready) return ready;
+    return sameDirectory.count == 1 ? sameDirectory.firstObject : nil;
 }
 
 static NSDictionary *CodexLaunchTerminalForThreadAtHome(NSString *thread, NSDictionary *payload,
@@ -439,7 +521,7 @@ static NSDictionary *CodexLaunchTerminalForThreadAtHome(NSString *thread, NSDict
     }
     if (!terminal) {
         NSDictionary *meta = CodexThreadMeta(thread, payload, codexHome);
-        NSString *key = meta[@"cwd"] ? ChooseCodexLaunch(launches, meta[@"cwd"], meta[@"createdAt"]) : nil;
+        NSString *key = meta[@"cwd"] ? ChooseCodexLaunch(launches, meta[@"cwd"], meta[@"createdAt"], thread, codexHome) : nil;
         if (key) {
             NSMutableDictionary *entry = [launches[key] mutableCopy];
             NSMutableArray *threads = [entry[@"threads"] mutableCopy] ?: [NSMutableArray array];
