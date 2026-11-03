@@ -7,6 +7,22 @@ truth for the version.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-03
+
+### Terminal jump and settings
+
+- Add exact terminal selection for JetBrains 2026.2 / 2026.3 Reworked terminals through the bundled plugin, including terminals moved into editor tabs. Classic terminals, remote development and split subterminals are outside the supported scope. Ghostty 1.4+ selects tabs and splits by TTY; iTerm2 selects sessions by TTY. Automation permission is required for script-based terminal jumps.
+- Put Panel Appearance first in Settings, with compact theme tiles and a live Liquid Glass dimming preview. Dimming is displayed as 0–100 while retaining the existing internal range; menu presets are 0/25/50/100. Combine terminal integration states in one card, group versions of the same JetBrains product and collapse lists longer than five rows.
+
+### Pet management
+
+- Delete pets from the user's own folder directly on the Main menu's Pet page, using a hover button or context menu and a confirmation dialog. Built-in pets and the currently selected pet are protected. Refresh the picker when pets are added or removed through the CLI, Finder or the pet menu.
+
+### Token accounting
+
+- Correct Codex cache-write double counting and migrate existing daily archives. Incrementally include background usage from local Codex SQLite logs, excluding sessions already represented by persisted transcripts. Background totals do not invent an input/output/cache breakdown.
+- Keep individual chart series and colors for every model instead of folding models after the eighth into Other. Restore native tooltips for usage metrics.
+
 ### VS Code terminal jump
 
 - Add the CC Pets Terminal extension for VS Code 1.80+ and its forks (Cursor, Windsurf, VSCodium, …). Clicking an agent card selects the exact integrated terminal by TTY — in the panel, a split or the editor area — and brings its window forward by reopening that window's workspace, switching Spaces when needed. Forks are recognised by `product.json`, not a bundle ID list. Remote windows are not supported; without the extension the app is only brought forward, as before.

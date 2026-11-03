@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.3.0: Main menu, multiple accounts and token usage by model">
+  <img src="docs/images/cover.png" alt="CC Pets v2.4.0: Exact terminal jumps, launch protection and usage improvements">
 </p>
 
 # CC Pets
@@ -13,19 +13,16 @@ Codex App Server interface and Claude Code's official status line input.
 
 > The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
 
-## What's new in v2.3.0
+## What's new in v2.4.0
 
-- **Main menu** — open Overview, Sessions, Usage, Pet, Multi-Account, Alerts,
-  Settings and Diagnostics from the menu or `cc-pets open`. See live sessions, jump to their
-  terminals and manage settings in one place.
-- **Multiple accounts and model usage** — manage Claude / Codex Homes from the
-  Multi-Account page, with isolated quota, history and live state. Filter 7-, 30- and 90-day token charts
-  by account and model, with per-account quota or API usage display.
-- **Native runtime and diagnostic repairs** — hooks, CC Bridge and CLI tools run
-  without Node.js. Repair registered accounts' hooks and Claude status lines
-  from Diagnostics, with configuration backups before changes.
+- **Exact terminal jumps** — select terminals in VS Code and its forks, JetBrains,
+  Ghostty and iTerm2, with permissions and extension management in Settings.
+- **Launch protection and CC Bridge** — optional Shadowrocket exit checks before
+  wrapper launches, safer session identity matching and recoverable inbox delivery.
+- **Usage and pet management** — corrected Codex token accounting, background usage,
+  per-account quota reminders, refreshed appearance settings and custom pet deletion.
 
-See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.3.0.md) for the full list.
+See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.4.0.md) for the full list.
 
 ## Screenshots
 
@@ -108,10 +105,11 @@ the list after 60 idle seconds.
 
 Every hook status card is clickable. The circular status icon lists up to eight
 recent online Agent terminal sessions. Terminal.app and iTerm2 are selected
-precisely by TTY. Without an editor extension, VS Code, JetBrains IDEs, Warp,
-WezTerm, and Ghostty fall back to activating the owning application; selection of
-an internal tab is left to that application. macOS may request Automation
-permission on the first Terminal.app or iTerm2 jump.
+precisely by TTY; Ghostty 1.4+ also selects the exact tab and split. VS Code and
+JetBrains IDEs use their bundled extensions for exact terminal selection. Without
+an extension, or for Warp, WezTerm and older Ghostty versions, the owning app is
+brought forward. macOS may request Automation permission for Terminal.app, iTerm2
+and Ghostty. Manage permissions and extensions in Settings → Terminal Jump.
 
 ### Install from source
 
@@ -333,14 +331,14 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
   an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
 - **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The same
   five numbers as the overview lead the page: total usage (input + cache write + output +
-  cached input), input, output, cached input with its hit rate, and requests. The daily bar
+  cached input + background usage), input, output, cached input with its hit rate, and requests. Background usage from local Codex SQLite logs contributes to the total only, without an inferred token breakdown. The daily bar
   chart stacks models in fixed colors and can switch between those five measures; click a model in the legend or the table to see only that
   model, and hover a bar for that day's numbers. Everything is counted from local session
   logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
   old transcripts.
 - **Multi-Account** — add Claude / Codex Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
 - **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
-  picker, size, chatter, click reactions and Codex import; Alerts: notifications, the status
+  picker, deletion of unselected custom pets with confirmation, size, chatter, click reactions and Codex import; Alerts: notifications, the status
   card and system status; Settings: language, panel appearance and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
@@ -385,8 +383,7 @@ default. Changes apply immediately to the quota panel, status card, and speech
 bubble, and persist across restarts. Liquid Glass uses native system glass and is
 available on macOS 26 and later only. Building native glass support requires the
 macOS 26 SDK or later. The same submenu has a **Glass dimming** setting for the quota
-panel, status card, and speech bubble: Clear (0%), Light (15%), Standard (25%,
-default), or Legible (45%). Lower levels
+panel, status card, and speech bubble: Clear (0%), Light (25%), Standard (50%), or Legible (100%). Lower levels
 look more transparent; higher levels keep text readable over light backgrounds.
 
 ### Language

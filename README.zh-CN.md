@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.3.0：主菜单、多账号与按模型统计 Token 用量">
+  <img src="docs/images/cover.png" alt="CC Pets v2.4.0：终端精准跳转、启动保护与用量改进">
 </p>
 
 # CC Pets
@@ -9,16 +9,16 @@
 一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
 并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
 
-## v2.3.0 新功能
+## v2.4.0 新功能
 
-- **主菜单**：从菜单或 `cc-pets open` 打开概览、会话、用量、宠物、多账号、提醒、设置和诊断，
-  集中查看在线会话、跳转终端和管理桌宠设置。
-- **多账号与模型用量**：在「多账号」页管理 Claude / Codex Home，按账号隔离额度、历史和在线状态；
-  查看最近 7、30、90 天的 Token 图表，按账号和模型筛选，独立设置订阅额度或 API 用量展示。
-- **原生运行时与诊断修复**：Hooks、CC Bridge 和 CLI 工具运行时无需 Node.js；
-  诊断页可修复已登记账号的 Hooks 和 Claude status line，修改前自动备份配置。
+- **终端精准跳转**：支持 VS Code 及其分支、JetBrains、Ghostty 和 iTerm2，
+  在设置页集中管理权限和终端扩展。
+- **启动保护与 CC Bridge**：可选 Shadowrocket 出口检查，会话身份匹配更严格，
+  未确认的信箱消息可恢复。
+- **用量与宠物管理**：修复 Codex Token 计数、补充后台用量，按账号提醒低额度，
+  更新外观设置，并支持删除自定义宠物。
 
-完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.3.0.md)。
+完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.4.0.md)。
 
 ## 界面预览
 
@@ -78,11 +78,11 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 - **会话**：此刻在线的 Agent 会话（等审批的置顶，每行可「跳到终端」），以及 CC Bridge 的
   消息往来：卡在信箱里待投递的、最近送达的。仅显示消息交互，无消息正文。
 - **用量**：本机 Claude Code / Codex 最近 7、30、90 天的 Token 用量。顶部和概览同一套五格：总用量
-  （输入 + 缓存写 + 输出 + 缓存输入）、输入、输出、缓存输入（附命中率）、请求数。每日柱状图按模型分色堆叠，
+  （输入 + 缓存写 + 输出 + 缓存输入 + 后台用量）、输入、输出、缓存输入（附命中率）、请求数。本机 Codex SQLite 日志补充的后台用量仅计入总量，不推算 Token 明细。每日柱状图按模型分色堆叠，
   颜色固定跟着模型走，可以在这五项之间切换；点图例或表格里的模型只看它，鼠标移到柱子上看当天各模型的数值。
   数据全部来自本机会话日志，不会发送到任何地方；按日归档让 Claude Code 清理旧转录之后，历史仍然留得住。
 - **多账号**：添加 Claude / Codex Home，查看账号的目录与集成状态，并通过“管理”菜单修复、重命名、重新定位或移除自定义 Home 的集成。
-- **宠物 / 提醒 / 设置**：桌宠的全部设置拆成三页（宠物：选宠物、大小、碎碎念、点击互动、导入 Codex 素材；提醒：系统通知、桌面状态卡和系统状态；
+- **宠物 / 提醒 / 设置**：桌宠的全部设置拆成三页（宠物：选宠物、确认删除未选中的自定义宠物、大小、碎碎念、点击互动、导入 Codex 素材；提醒：系统通知、桌面状态卡和系统状态；
   设置：语言、面板外观和素材目录），另有更细的项（比如连击阈值、可以连续调节的玻璃压暗，菜单里仍是四档）。
   右键菜单只留最常用的几项：管理桌宠、宠物大小、显示消息气泡、用量展示模式、面板主题和 CC Bridge，其余都到这里改。改动会立刻作用到桌面上的宠物，在菜单里改的也会同步显示在这里。
   会改写 Claude Code / Codex 配置的选项（启用 CC Bridge、免审批）仍只在右键菜单里。
@@ -144,10 +144,10 @@ Claude Code Hook 会合并到 `~/.claude/settings.json`，现有的 `env`、`mod
 这类会话没有 pid 文件，只要 Hook 还在持续发事件就会留在最近会话列表里，闲置 60 秒后移出列表。
 
 所有 Hook 状态卡都可以点击；右侧圆形状态图标会展开最近 8 个在线 Agent 终端会话。
-macOS Terminal 和 iTerm2 会按 TTY 精确选中对应标签页或 Session。VS Code、
-JetBrains IDE、Warp、WezTerm、Ghostty 等在不安装扩展的模式下仅激活对应应用；应用
-内部标签页是否恢复由应用自身决定。首次回跳 Terminal 或 iTerm2 时，macOS 可能要求
-允许 CC Pets 控制该终端应用。
+macOS Terminal 和 iTerm2 会按 TTY 精确选中对应标签页或 Session，Ghostty 1.4+ 还支持精确选择分屏。
+VS Code 和 JetBrains IDE 通过随包扩展精确选择终端；未安装扩展时，以及 Warp、WezTerm 和旧版 Ghostty，
+仅前置对应应用。跳转 Terminal、iTerm2 或 Ghostty 时，macOS 可能要求 Automation 权限，
+可在「设置 → 终端跳转」管理权限与扩展。
 
 ### 鼠标互动
 
@@ -172,7 +172,7 @@ Hook 状态卡和消息气泡在宠物小于 100% 时同比例缩小，文字、
 右键菜单「面板主题」提供「经典」和「Liquid Glass」，默认使用经典样式。
 选择后立即应用于额度面板、状态条和说话气泡，并在重启后保留。Liquid Glass 使用系统原生玻璃，
 仅在 macOS 26 及以上可选；构建原生玻璃支持需要 macOS 26 或更新的 SDK。同一子菜单里的「玻璃压暗」
-可在通透（0%）、轻度（15%）、标准（25%，默认）、清晰（45%）之间切换，作用于额度面板、状态卡和
+可在通透（0%）、轻度（25%）、标准（50%）、清晰（100%）之间切换，作用于额度面板、状态卡和
 说话气泡：档位越低越通透，档位越高在浅色背景上越容易看清。
 
 ### 启动前检查小火箭
