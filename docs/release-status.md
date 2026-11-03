@@ -49,3 +49,11 @@ Release Note 每种语言恰好三条顶层要点，每条不超过 50 字符；
 升级后运行 `cc-pets install` 刷新已安装 App 和集成，重启正在运行的 Codex 会话，并在 `/hooks` 中信任更新后的 Hooks。终端扩展在设置页安装或更新，按提示重启 JetBrains 或重新加载 VS Code。
 
 准备材料经审阅及分别授权提交、push、创建 PR 后，由 `main` 负责人按授权完成远端集成和复验。Release Note 必须在创建 tag 前提交；正式 tag 和发布另需授权。发布正文使用 `docs/release-notes-v2.4.0.md`，tag 文件与 GitHub Release 正文须一致。
+
+## 诊断版本来源提示补充（2026-11-03）
+
+在 `publish` 工作区补充本地版本来源识别：解析软链后，以包根目录的 `.git` 文件或目录识别源码 checkout/worktree，以 `node_modules` 下的包目录识别本地 npm 包；无法确认时显示“本地包”。诊断页、复制报告与 `paths` 共用该文案，保留安装一致性告警，并明确线上版本由更新检查单独查询。双语 README、CHANGELOG 与 Release Note 已同步。
+
+本轮 `CC_PETS_STRICT=1 npm test` 全套通过（退出码 0，52 秒），包含 5 类来源 × 2 种语言 × 2 种版本匹配状态的 20 组测试；runner 脱离共享 daemon 的父进程链。多语言检查与 `git diff --check` 通过。使用真实诊断页组件和隔离数据生成了源码/npm 两种来源的中英文离屏预览，已核查改动文案无截断；预览只包含版本检查区域，不代表完整桌面端交互验收。
+
+上述验证完成后，维护者已授权将该补充提交并 push 至 `publish`，纳入现有 [PR #27](https://github.com/Sunnyshinnny776/cc-pets/pull/27)，由维护者手动合并；实际提交与合并状态以 PR 为准。本轮未更新已安装 App，未创建正式 tag 或 GitHub Release，未执行 npm 发布。

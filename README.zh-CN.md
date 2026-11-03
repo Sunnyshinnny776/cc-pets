@@ -89,7 +89,9 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 - **诊断**：和 `cc-pets doctor` 同一套检查，要处理的问题置顶，每条带所属模块、修复命令和「复制命令」；
   正常项折叠成一行。还有「重新检查」和「复制报告」（路径显示为 `~`，可以直接贴进 issue）。
   已登记账号的 Hooks 和 Claude status line 问题可点「自动修复」或「全部修复」，修复前备份配置及相关脚本，完成后自动重新检查。备份路径显示在页面上，其中 `manifest.json` 记录原文件路径、权限及备份文件；修复失败时显示原因，其他问题仍需复制命令执行。普通 `cc-pets doctor` 仍然只读。PATH 顺序那一项在这里只提示去终端运行 `cc-pets doctor`：
-  桌宠进程自己的 PATH 不是你终端的 PATH。
+  桌宠进程自己的 PATH 不是你终端的 PATH。版本检查比较本地包、当前运行的原生程序与已安装 App；
+  源码 checkout/worktree 显示「本地源码包」，npm 安装显示「本地 npm 包」，无法确认来源时显示「本地包」。
+  这些标签不表示 npm 已发布该版本；线上版本由更新检查单独查询。
 
 窗口在打开时才创建，关闭即释放，关着的时候没有任何后台任务。Dock 图标和菜单栏只在窗口打开期间出现，
 窗口最小化后点 Dock 图标可以恢复。
@@ -774,7 +776,10 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 
 ## 隐私
 
-- Codex 额度通过本机 Codex CLI 启动的官方 App Server 读取，沿用 Codex CLI 自身的登录状态；Codex Token 只从本机 `~/.codex/sessions` 读取（可用 `CC_PETS_CODEX_HOME` 覆盖）。
+- 可选 Shadowrocket 启动保护默认关闭；启用后检查本机 VPN 状态，并向配置的服务 `/cdn-cgi/trace` 端点发起 HTTPS 请求。端点可见连接的出口 IP；请求不携带账号凭据、校验 TLS 且不跟随重定向。路由与支持限制见启动保护章节。
+- Token 统计还会读取本机 Codex SQLite 日志和线程元数据，并在本机缓存派生用量与增量读取游标，不上传这些日志。
+- 已安装的终端扩展仅监听 `127.0.0.1`，并验证本地请求身份；实例元数据与本地访问令牌保存在 `~/Library/Application Support/CC Pets/ide-instances/`，权限仅限本人。扩展安装经确认后写入所选 IDE 的插件或扩展目录；通过脚本跳转终端需要 macOS Automation 权限。
+- Codex 额度通过本机 Codex CLI 启动的官方 App Server 读取，沿用 Codex CLI 自身的登录状态；Codex Token 从本机已登记 Home 的会话记录及 SQLite 数据读取（默认 Home 可用 `CC_PETS_CODEX_HOME` 覆盖）。
 - Claude 额度只从 Claude Code 传给本机 status line 的 `rate_limits` 字段读取。
 - 为区分 API 账号和订阅账号，CC Pets 会读取各已登记 Home 中的认证配置（Claude 的 `settings.json`；Codex 的 `auth.json` 和 `config.toml`），并可能在本机运行该 Home 的 `claude auth status` / `codex login status`。只在内存中保留识别出的模式，不保存密钥、邮箱或命令输出。
 - 诊断页修复前，会把受影响的配置文件和脚本备份到 `~/Library/Application Support/CC Pets/diagnostic-backups/`（仅本人可读），备份只保存在本机。

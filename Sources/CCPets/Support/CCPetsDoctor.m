@@ -18,11 +18,11 @@
 
 #define LF(localized, values) CCPetsInterpolate(localized, values)
 
-// 安装脚本在 App 数据目录里记下 npm 包目录：装到 ~/Applications 的 App 是拷贝，
+// 安装脚本在 App 数据目录里记下本地包目录：装到 ~/Applications 的 App 是拷贝，
 // 从自己的位置推不出包在哪。
 static NSString *const PackageDirectoryMarker = @"package-dir";
 
-// npm 包目录。三种来源，按可靠程度：
+// 本地包目录。三种来源，按可靠程度：
 // 1. 可执行文件在 <包目录>/.build/release/ 之下（命令行二进制，或构建出来的 App）；
 // 2. 安装脚本留下的记号文件（~/Applications 里的 App）；
 // 3. 退回按命令行二进制的相对位置推算（<包目录>/.build/release/cc-pets）。
@@ -39,11 +39,24 @@ static NSString *PackageDirectory(void) {
         .stringByDeletingLastPathComponent;
 }
 
+// 先解析 npm link 等软链；Git worktree 的 .git 是文件，普通 checkout 则是目录。
+// 无法确定来源时只称“本地包”，不把源码归档或任意目录猜作 npm 安装。
+static NSString *PackageKind(void) {
+    NSString *directory = PackageDirectory().stringByResolvingSymlinksInPath;
+    if ([NSFileManager.defaultManager fileExistsAtPath:[directory stringByAppendingPathComponent:@".git"]]) {
+        return L(@"local source package");
+    }
+    if ([directory.stringByDeletingLastPathComponent.lastPathComponent isEqualToString:@"node_modules"]) {
+        return L(@"local npm package");
+    }
+    return L(@"local package");
+}
+
 static NSString *PetBinary(void) {
     return [PackageDirectory() stringByAppendingPathComponent:@".build/release/cc-pets"];
 }
 
-// 版本以 package.json 为准（npm 安装的就是它）；读不到时退回编进二进制的版本。
+// 只读本地 package.json，不表示 npm Registry 已发布该版本；读不到时退回编译版本。
 static NSString *PackageVersion(void) {
     NSData *data = [NSData dataWithContentsOfFile:[PackageDirectory() stringByAppendingPathComponent:@"package.json"]];
     NSDictionary *package = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
@@ -114,7 +127,7 @@ static NSDictionary *ReadJSONFile(NSString *file) {
 
 static NSArray<NSDictionary *> *PathGroups(NSDictionary *native) {
     NSMutableArray *integrationItems = [NSMutableArray arrayWithArray:@[
-        @[L(@"npm package"), PackageDirectory()],
+        @[PackageKind(), PackageDirectory()],
         @[L(@"Installed app"), InstalledApp()],
         @[L(@"Agent profile registry"), CCPetsProfilesPath()],
         @[L(@"Claude Code settings"), [[CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude"]
@@ -391,12 +404,13 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
     NSString *packageVersion = PackageVersion();
 
     NSMutableArray<NSDictionary *> *program = [NSMutableArray arrayWithObject:
-        Result(@"info", LF(L(@"npm package {packageVersion}: {projectDir}"),
-            (@{@"packageVersion": packageVersion, @"projectDir": CCPetsTildePath(PackageDirectory())})), nil)];
+        Result(@"info", LF(L(@"{packageKind} {packageVersion}: {projectDir}"),
+            (@{@"packageKind": PackageKind(), @"packageVersion": packageVersion, @"projectDir": CCPetsTildePath(PackageDirectory())})), nil)];
+    [program addObject:Result(@"info", L(@"These checks compare local versions. Published npm updates are checked separately."), nil)];
     NSString *binaryVersion = @CC_PETS_VERSION;
     if (![binaryVersion isEqualToString:packageVersion]) {
-        [program addObject:Result(@"warn", LF(L(@"Native binary {binaryVersion} doesn't match npm package {packageVersion}"),
-            (@{@"binaryVersion": binaryVersion, @"packageVersion": packageVersion})), @"cc-pets install")];
+        [program addObject:Result(@"warn", LF(L(@"Native binary {binaryVersion} doesn't match {packageKind} {packageVersion}"),
+            (@{@"binaryVersion": binaryVersion, @"packageKind": PackageKind(), @"packageVersion": packageVersion})), @"cc-pets install")];
     } else {
         [program addObject:Result(@"ok", LF(L(@"Native binary {binaryVersion}"), @{@"binaryVersion": binaryVersion}), nil)];
     }
@@ -404,8 +418,8 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
     if (!appVersion) {
         [program addObject:Result(@"warn", LF(L(@"Installed app not found: {installedApp}"), @{@"installedApp": CCPetsTildePath(InstalledApp())}), @"cc-pets install")];
     } else if (![appVersion isEqualToString:packageVersion]) {
-        [program addObject:Result(@"warn", LF(L(@"Installed app {appVersion} doesn't match npm package {packageVersion}"),
-            (@{@"appVersion": appVersion, @"packageVersion": packageVersion})), @"cc-pets install")];
+        [program addObject:Result(@"warn", LF(L(@"Installed app {appVersion} doesn't match {packageKind} {packageVersion}"),
+            (@{@"appVersion": appVersion, @"packageKind": PackageKind(), @"packageVersion": packageVersion})), @"cc-pets install")];
     } else {
         [program addObject:Result(@"ok", LF(L(@"Installed app {appVersion}"), @{@"appVersion": appVersion}), nil)];
     }
@@ -508,8 +522,8 @@ NSString *CCPetsDoctorReport(NSArray<NSDictionary *> *sections) {
     struct utsname system;
     uname(&system);
     NSMutableArray<NSString *> *lines = [NSMutableArray arrayWithObject:
-        LF(L(@"CC Pets diagnostics (npm package {packageVersion}, {platform} {release})"),
-        (@{@"packageVersion": PackageVersion(), @"platform": @"darwin", @"release": @(system.release)}))];
+        LF(L(@"CC Pets diagnostics ({packageKind} {packageVersion}, {platform} {release})"),
+        (@{@"packageKind": PackageKind(), @"packageVersion": PackageVersion(), @"platform": @"darwin", @"release": @(system.release)}))];
     NSDictionary<NSString *, NSString *> *icons = @{@"ok": @"✅", @"warn": @"⚠️ ", @"fail": @"❌", @"info": @"ℹ️ "};
     for (NSDictionary *section in sections) {
         [lines addObject:[@"\n" stringByAppendingString:section[@"title"]]];

@@ -1537,6 +1537,44 @@ mkdir -p "${DOCTOR_SHADOW}"
 print -r -- '#!/bin/sh' > "${DOCTOR_SHADOW}/codex"
 chmod +x "${DOCTOR_SHADOW}/codex"
 doctor_env PATH="${DOCTOR_SHADOW}:${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test" shadow "${DOCTOR_SHADOW}"
+# 本地版本来源：普通 checkout、worktree、npm 安装、npm link 和未知目录。
+DOCTOR_PACKAGE_ROOT="${DOCTOR_TMP}/packages"
+mkdir -p "${DOCTOR_PACKAGE_ROOT}/checkout/.git" "${DOCTOR_PACKAGE_ROOT}/worktree" \
+  "${DOCTOR_PACKAGE_ROOT}/node_modules/cc-pets" "${DOCTOR_PACKAGE_ROOT}/archive" \
+  "${DOCTOR_PACKAGE_ROOT}/linked/node_modules" "${DOCTOR_TMP}/Applications/CC Pets.app/Contents"
+print 'gitdir: /unused/test-worktree' > "${DOCTOR_PACKAGE_ROOT}/worktree/.git"
+ln -s "${DOCTOR_PACKAGE_ROOT}/worktree" "${DOCTOR_PACKAGE_ROOT}/linked/node_modules/cc-pets"
+cat > "${DOCTOR_TMP}/Applications/CC Pets.app/Contents/Info.plist" <<'DOCTOR_PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>0.0.0-test</string></dict></plist>
+DOCTOR_PLIST
+for package_case in checkout worktree node_modules/cc-pets linked/node_modules/cc-pets archive; do
+  case "${package_case}" in
+    checkout|worktree|linked/*) package_en='local source package'; package_zh='本地源码包' ;;
+    node_modules/*) package_en='local npm package'; package_zh='本地 npm 包' ;;
+    *) package_en='local package'; package_zh='本地包' ;;
+  esac
+  print -r -- "${DOCTOR_PACKAGE_ROOT}/${package_case}" > "${DOCTOR_TMP}/support/package-dir"
+  for package_match in mismatch match; do
+    package_version='9.9.9'
+    [[ "${package_match}" == match ]] && package_version='0.0.0-test'
+    print -r -- "{\"version\":\"${package_version}\"}" > "${DOCTOR_PACKAGE_ROOT}/${package_case}/package.json"
+    for package_language in en zh-Hans; do
+      package_label="${package_en}"
+      [[ "${package_language}" == zh-Hans ]] && package_label="${package_zh}"
+      doctor_env CC_PETS_LANGUAGE="${package_language}" "${DOCTOR_TMP}/doctor-sections-test" \
+        package "${package_label}" "${package_match}"
+      doctor_env CC_PETS_LANGUAGE="${package_language}" "${DOCTOR_TMP}/doctor-sections-test" paths \
+        > "${DOCTOR_TMP}/package-paths.json"
+      node -e '
+        const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        if (!doc.groups.flatMap(g => g.items).some(i => i.label === process.argv[2])) process.exit(1);
+      ' "${DOCTOR_TMP}/package-paths.json" "${package_label}"
+    done
+  done
+done
+rm "${DOCTOR_TMP}/support/package-dir" "${DOCTOR_TMP}/Applications/CC Pets.app/Contents/Info.plist"
+print "doctor 本地包来源与版本提示双语测试通过"
 print "doctor 与 paths 只读诊断测试通过"
 
 # 添加 / 重新定位账号时的 Home 判定：带 sessions/ 的 Claude Home 不能被当成 Codex 登记。

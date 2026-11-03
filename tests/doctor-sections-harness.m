@@ -45,8 +45,36 @@ static int RunShadowCheck(NSString *shadowDirectory) {
     return 0;
 }
 
+// Fixtures supply the package-dir marker and installed App plist in doctor_env.
+static int RunPackageCheck(NSString *expectedKind, BOOL mismatch) {
+    NSArray *sections = CCPetsDoctorSections();
+    NSArray *program = sections.firstObject[@"results"];
+    NSString *report = CCPetsDoctorReport(sections);
+    BOOL ok = Check([program isEqual:CCPetsDoctorSectionsForApp().firstObject[@"results"]],
+        @"CLI and App use the same local version checks");
+    NSString *version = mismatch ? @"9.9.9" : @"0.0.0-test";
+    NSString *summary = [NSString stringWithFormat:@"%@ %@", expectedKind, version];
+    ok &= Check([program.firstObject[@"title"] containsString:summary], @"package source and local version");
+    ok &= Check([[report componentsSeparatedByString:@"\n"].firstObject containsString:summary],
+        @"copied report identifies the same package source");
+    NSUInteger mismatches = 0;
+    for (NSDictionary *result in program) {
+        if ([result[@"level"] isEqual:@"warn"] && [result[@"title"] containsString:summary]) {
+            mismatches++;
+            ok &= Check([result[@"fix"] isEqual:@"cc-pets install"], @"local mismatch retains install command");
+        }
+    }
+    ok &= Check(mismatches == (mismatch ? 2 : 0), @"warn only when binary/App differ from local package");
+    BOOL explained = [report containsString:@"Published npm updates are checked separately."] ||
+        [report containsString:@"npm 已发布版本由更新检查单独查询。"];
+    ok &= Check(explained, @"local comparison is distinguished from published updates");
+    return ok ? 0 : 1;
+}
+
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        if (argc > 3 && strcmp(argv[1], "package") == 0) return RunPackageCheck(@(argv[2]), strcmp(argv[3], "mismatch") == 0);
+        if (argc > 1 && strcmp(argv[1], "paths") == 0) return CCPetsDoctorMain(@[@"paths", @"--json"]);
         if (argc > 2 && strcmp(argv[1], "shadow") == 0) return RunShadowCheck(@(argv[2]));
         NSArray<NSDictionary *> *sections = CCPetsDoctorSections();
         NSString *report = CCPetsDoctorReport(sections);
