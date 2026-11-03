@@ -774,7 +774,10 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 
 ## 隐私
 
-- Codex 额度通过本机 Codex CLI 启动的官方 App Server 读取，沿用 Codex CLI 自身的登录状态；Codex Token 只从本机 `~/.codex/sessions` 读取（可用 `CC_PETS_CODEX_HOME` 覆盖）。
+- 可选 Shadowrocket 启动保护默认关闭；启用后检查本机 VPN 状态，并向配置的服务 `/cdn-cgi/trace` 端点发起 HTTPS 请求。端点可见连接的出口 IP；请求不携带账号凭据、校验 TLS 且不跟随重定向。路由与支持限制见启动保护章节。
+- Token 统计还会读取本机 Codex SQLite 日志和线程元数据，并在本机缓存派生用量与增量读取游标，不上传这些日志。
+- 已安装的终端扩展仅监听 `127.0.0.1`，并验证本地请求身份；实例元数据与本地访问令牌保存在 `~/Library/Application Support/CC Pets/ide-instances/`，权限仅限本人。扩展安装经确认后写入所选 IDE 的插件或扩展目录；通过脚本跳转终端需要 macOS Automation 权限。
+- Codex 额度通过本机 Codex CLI 启动的官方 App Server 读取，沿用 Codex CLI 自身的登录状态；Codex Token 从本机已登记 Home 的会话记录及 SQLite 数据读取（默认 Home 可用 `CC_PETS_CODEX_HOME` 覆盖）。
 - Claude 额度只从 Claude Code 传给本机 status line 的 `rate_limits` 字段读取。
 - 为区分 API 账号和订阅账号，CC Pets 会读取各已登记 Home 中的认证配置（Claude 的 `settings.json`；Codex 的 `auth.json` 和 `config.toml`），并可能在本机运行该 Home 的 `claude auth status` / `codex login status`。只在内存中保留识别出的模式，不保存密钥、邮箱或命令输出。
 - 诊断页修复前，会把受影响的配置文件和脚本备份到 `~/Library/Application Support/CC Pets/diagnostic-backups/`（仅本人可读），备份只保存在本机。

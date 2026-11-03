@@ -533,6 +533,9 @@ external assets.
 
 ## Privacy
 
+- Optional Shadowrocket launch protection (off by default) checks the local VPN state and sends HTTPS requests to the configured service’s `/cdn-cgi/trace` endpoint. The endpoint sees the connection’s exit IP; probes send no account credentials, verify TLS and do not follow redirects. See [Shadowrocket launch check](#shadowrocket-launch-check) for routing and support limits.
+- Token accounting also reads local Codex SQLite logs and thread metadata, and keeps derived usage totals and incremental-read cursors in local caches; it does not upload those logs.
+- Installed terminal extensions listen only on `127.0.0.1` and authenticate local requests. They store instance metadata and a local access token in `~/Library/Application Support/CC Pets/ide-instances/` with owner-only permissions. Extension installation writes to the selected IDE’s plugin/extension directory after confirmation; scripted terminal jumps require macOS Automation permission.
 - Codex quota is read through the official Codex App Server started from your installed Codex CLI with its existing sign-in; Claude quota comes from the status line input Claude Code passes locally. Token counts are read from local Codex and Claude Code files.
 - To tell API accounts from subscription accounts, CC Pets reads the authentication settings in each registered Home (Claude `settings.json`; Codex `auth.json` and `config.toml`) and may run that Home's `claude auth status` / `codex login status` locally. Only the resulting mode is kept, in memory; keys, emails and command output are not stored.
 - Diagnostics repairs back up the affected configuration files and scripts to `~/Library/Application Support/CC Pets/diagnostic-backups/` (owner-only) before changing them; the backups stay on this Mac.
