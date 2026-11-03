@@ -71,6 +71,20 @@ Agent 会调用这些 MCP 工具：
 | `list_reservations` | 查看当前仓库的所有预留，或某个文件被谁预留。 |
 | `check_inbox` | 手动读取信箱。正常情况下消息会自动送达，一般不需要调用。 |
 
+### 当前会话身份
+
+所有 MCP 工具都支持可选的 `session_id` 参数，用来标识调用者。Bridge 在 `SessionStart` 和
+`UserPromptSubmit` hook 的上下文中提供当前 ID，Agent 应在每次调用中原样传入；旧会话缺少该上下文时，
+可从当前会话 shell 的 `CODEX_THREAD_ID`（Codex）或 `CLAUDE_CODE_SESSION_ID`（Claude）读取。
+不要使用收件人的 ID、从在线列表猜测，或把某个会话的 ID 固定写进共享 MCP 配置。
+
+Codex 的多个会话可以共用一个 app-server PID；MCP 未继承会话 ID 时，必须通过参数区分调用者。
+每次调用独立校验注册记录、在线状态、provider 和宿主 PID，不在 MCP 进程中缓存会话身份。
+显式 ID 无效或不属于当前宿主时直接报错，不回退到其他身份。未传参数时保留环境变量及 PID 唯一匹配，
+兼容原来的单会话模式；无法识别时仍允许匿名查看会话列表。
+
+更新后需要重新连接 CC Bridge MCP（或重启使用它的客户端），才能加载新程序和带 `session_id` 的工具定义。
+
 ### 会话名
 
 默认名字是 `<账号名>.<项目目录名>.<动物>`，例如 `claude.my-app.otter`、`claude-x.my-app.panda`。账号名取多账号页里的名称

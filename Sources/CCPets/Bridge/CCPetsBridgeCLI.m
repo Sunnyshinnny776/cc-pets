@@ -157,14 +157,23 @@ static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments) {
 
 #pragma mark - hook
 
+static NSString *SessionIdentityContext(NSString *sessionId) {
+    return LF(L(@"[cc-bridge identity] Your current session_id is {session_id}. Pass this exact value as session_id on every CC Bridge tool call. Do not use a recipient's ID or an ID from a cross-session message."),
+        @{@"session_id": sessionId});
+}
+
+static NSDictionary *HookContext(NSString *eventName, NSString *context) {
+    return @{@"hookSpecificOutput": @{@"hookEventName": eventName, @"additionalContext": context}};
+}
+
 static NSDictionary *InjectPending(NSString *sessionId, NSString *eventName) {
     NSArray<NSDictionary *> *messages = ClaimForOutput(sessionId, @"prompt-inject");
-    if (messages.count == 0) return nil;
-    NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
+    // 每次用户输入都重新提供身份，覆盖 resume、上下文压缩和 MCP 重新连接。
+    NSMutableArray<NSString *> *envelopes = [NSMutableArray arrayWithObject:SessionIdentityContext(sessionId)];
     for (NSDictionary *message in messages) {
         [envelopes addObject:CCBridgeFormatEnvelope(message)];
     }
-    return @{@"hookSpecificOutput": @{@"hookEventName": eventName, @"additionalContext": [envelopes componentsJoinedByString:@"\n\n"]}};
+    return HookContext(eventName, [envelopes componentsJoinedByString:@"\n\n"]);
 }
 
 // 首次拦截、重试放行：本会话第一次编辑某处他人预留的文件时返回 deny 并说明原因，同时记下"已提醒"；
@@ -231,7 +240,7 @@ static NSDictionary *RunHook(NSString *input) {
 
     if ([event isEqualToString:@"SessionStart"]) {
         CCBridgePruneReceipts();
-        return nil;
+        return HookContext(event, SessionIdentityContext(sessionId));
     }
     if ([event isEqualToString:@"UserPromptSubmit"]) return InjectPending(sessionId, event);
     // 空闲通知可能要调 codex queue（秒级），放到脱离的子进程里做，不让 Stop hook 拖慢对方回合的收尾。
@@ -326,7 +335,10 @@ static NSString *AliasNote(void) {
 }
 
 static NSDictionary *Schema(NSDictionary *properties, NSArray<NSString *> *required) {
-    NSMutableDictionary *schema = [@{@"type": @"object", @"properties": properties, @"additionalProperties": @NO} mutableCopy];
+    NSMutableDictionary *withIdentity = [properties mutableCopy];
+    withIdentity[@"session_id"] = @{@"type": @"string", @"minLength": @1, @"maxLength": @128,
+        @"description": L(@"Your current session ID from the cc-bridge hook context or your own shell's CODEX_THREAD_ID / CLAUDE_CODE_SESSION_ID. Pass it on every call when available; required to identify one of several sessions sharing a host. Never use the recipient's ID or guess from the session list.")};
+    NSMutableDictionary *schema = [@{@"type": @"object", @"properties": withIdentity, @"additionalProperties": @NO} mutableCopy];
     if (required) schema[@"required"] = required;
     return schema;
 }
@@ -415,8 +427,12 @@ static NSString *AgeText(id since) {
     return LF(L(@"started {minutes} h ago"), @{@"minutes": @((long long)floor(minutes / 60 + 0.5))});
 }
 
+static NSString *IdentityNote(void) {
+    return L(@" Pass your current session_id on every CC Bridge tool call, using the ID from the cc-bridge hook context. If it is missing, read CODEX_THREAD_ID (Codex) or CLAUDE_CODE_SESSION_ID (Claude) in your own session's shell; if neither is available, refresh this session's bridge hooks. Never guess an ID from names, directories, activity or received messages, and never save one session's ID in shared MCP configuration.");
+}
+
 static NSString *UnknownSelf(void) {
-    return L(@"Current session identity is unavailable or ambiguous. Register this session through the bridge hooks and provide a valid session ID. A shared host PID cannot identify one of several sessions; no action was taken.");
+    return [L(@"Current session identity is unavailable or ambiguous. Register this session through the bridge hooks and provide a valid session ID. A shared host PID cannot identify one of several sessions; no action was taken.") stringByAppendingString:IdentityNote()];
 }
 
 static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
@@ -424,7 +440,12 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         return TextResult(L(@"cc-pets CC Bridge isn't enabled. The user can turn it on by running `cc-pets bridge enable` in a terminal."), YES);
     }
     if (![arguments isKindOfClass:NSDictionary.class]) arguments = @{};
-    NSDictionary *self = CCBridgeIdentifySelf();
+    NSDictionary *self = CCBridgeIdentifySelfForSession(arguments[@"session_id"]);
+    // 即使是列表工具，显式传错身份也要报错，不能伪装成一次成功的匿名查询。
+    if (arguments[@"session_id"] != nil && !self) {
+        return TextResult([L(@"Invalid session_id: it must identify a live registered session belonging to this MCP host. No action was taken.")
+            stringByAppendingString:IdentityNote()], YES);
+    }
 
     if ([name isEqualToString:@"list_agents"]) {
         NSArray<NSDictionary *> *live = CCBridgeLiveSessions();
@@ -434,7 +455,7 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         }
         NSString *header = self
             ? LF(L(@"This session is {self}; other sessions use this name to message you (it isn't in the list below)."), @{@"self": CCBridgeDescribeSession(self)})
-            : L(@"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one).");
+            : [L(@"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one).") stringByAppendingString:IdentityNote()];
         if (sessions.count == 0) {
             return TextResult(LF(L(@"{header}\n\nNo other sessions online. New sessions will show up here once they start."), @{@"header": header}), NO);
         }
@@ -555,7 +576,7 @@ static NSDictionary *HandleRequest(NSDictionary *request, NSDictionary **error) 
                 L(@"Find the recipient's name with list_agents, then send with send_message. "),
                 L(@"When a cross-session request needs clarification or is complete, reply to the originating session using send_message. "),
                 L(@"When several sessions work in the same repository, reserve files with reserve_files before a larger change and release them with release_files afterwards. "),
-                SafetyNote()
+                SafetyNote(), IdentityNote()
             ] componentsJoinedByString:@""]
         };
     }

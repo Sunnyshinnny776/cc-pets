@@ -15,6 +15,9 @@ NSString *CCBridgeDescribeSession(NSDictionary *session);
 // 优先验证显式会话 ID；缺失时仅允许 provider + PID 唯一匹配。
 // 显式 ID 失效、与宿主不符或 PID 匹配多个会话时返回 nil，禁止按活动时间猜测。
 NSDictionary *CCBridgeIdentifySelf(void);
+// MCP 的逐次调用身份；nil 沿用自动识别，非 nil 必须是有效 ID 且属于当前宿主。
+// 不缓存结果，不接受名字/ref；无效显式参数不能回退到环境变量或 PID。
+NSDictionary *CCBridgeIdentifySelfForSession(id sessionId);
 
 // 名字即地址；重名时追加 " [ref]"。也接受裸 ref 和完整 session id。返回 @{session} 或 @{error}。
 NSDictionary *CCBridgeResolveTarget(id address, NSArray<NSDictionary *> *sessions);

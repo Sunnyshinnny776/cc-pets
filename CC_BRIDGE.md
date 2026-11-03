@@ -73,6 +73,24 @@ The agent uses these MCP tools:
 | `list_reservations` | Lists reservations in the current repository, or who reserved a given file. |
 | `check_inbox` | Reads the inbox manually. Messages are normally delivered automatically. |
 
+### Current session identity
+
+Every MCP tool accepts an optional `session_id` identifying the caller. Bridge supplies the current ID
+in `SessionStart` and `UserPromptSubmit` hook context; agents should pass that exact value on each call.
+For an existing session without this context, read `CODEX_THREAD_ID` (Codex) or
+`CLAUDE_CODE_SESSION_ID` (Claude) from that session's own shell. Do not use a recipient's ID, guess
+from the online list, or hard-code one session's ID in shared MCP configuration.
+
+Multiple Codex sessions can share an app-server PID. When MCP does not inherit a session ID, the
+argument distinguishes the caller. Each call independently validates the registration, live status,
+provider and host PID; the MCP process never caches the selected identity. An invalid explicit ID
+or one belonging to another host is rejected without falling back to another identity. Calls without
+the argument retain environment-based identification and unique PID matching for existing single-session
+clients. Anonymous session listing remains available when identity cannot be resolved.
+
+After updating, reconnect the CC Bridge MCP server (or restart its client) to load the new binary
+and tool definitions with `session_id`.
+
 ### Session names
 
 Default names look like `<account>.<project-directory>.<animal>`, for example `claude.my-app.otter` or

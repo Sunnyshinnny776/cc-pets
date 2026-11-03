@@ -287,8 +287,9 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
   assert.equal(output.hookSpecificOutput.hookEventName, "UserPromptSubmit");
   assert.match(output.hookSpecificOutput.additionalContext, /空窗期消息/);
   assert.equal(store.pendingCount(CLAUDE_SESSION), 0);
-  // 没有消息时不输出任何东西。
-  assert.equal(hook("Claude", claudeAgent, { hook_event_name: "UserPromptSubmit", session_id: CLAUDE_SESSION, cwd }).stdout, "");
+  // 没有新消息时仍提供当前身份，但不能再次投递上一条消息。
+  const identityOnly = JSON.parse(hook("Claude", claudeAgent, { hook_event_name: "UserPromptSubmit", session_id: CLAUDE_SESSION, cwd }).stdout);
+  assert.equal(identityOnly.hookSpecificOutput.additionalContext, output.hookSpecificOutput.additionalContext.split("\n\n")[0]);
 }
 
 // 10. 地址解析：不能发给自己；未知目标报错；name [ref] 形式可用。
@@ -755,6 +756,102 @@ exit 0
   assert.match(enabled.stdout, /不支持 codex queue/);
   assert.equal(store.isBridgeEnabled(), true);
   runCli(["disable"], { extraEnv: { CODEX_REAL_BIN: oldCodex, CLAUDE_REAL_BIN: fakeClaude } });
+}
+
+// 24. 共享宿主下的显式 session_id：多个 Codex 会话共用一个 app-server PID 时，
+// 不传参数一律拒绝冒认；传参数只认属于当前宿主的在线会话，无效时不回退到 PID 匹配。
+{
+  store.setBridgeEnabled(true);
+  const sharedHost = fakeAgent("codex");
+  const otherHost = fakeAgent("codex");
+  const recipientHost = fakeAgent("claude");
+  const shared = `Codex:${sharedHost.pid}`;
+  const SHARED_A = "88888888-aaaa-4bbb-8ccc-000000000008";
+  const SHARED_B = "99999999-aaaa-4bbb-8ccc-000000000009";
+  const OTHER = "aaaaaaaa-aaaa-4bbb-8ccc-00000000000a";
+  const RECIPIENT = "bbbbbbbb-aaaa-4bbb-8ccc-00000000000b";
+
+  // SessionStart 与 UserPromptSubmit 都把当前 session_id 注入上下文。
+  const started = JSON.parse(hook("Codex", shared, { hook_event_name: "SessionStart", session_id: SHARED_A, cwd }).stdout);
+  assert.equal(started.hookSpecificOutput.hookEventName, "SessionStart");
+  assert.match(started.hookSpecificOutput.additionalContext, new RegExp(`session_id 是 ${SHARED_A}`));
+  hook("Codex", shared, { hook_event_name: "SessionStart", session_id: SHARED_B, cwd });
+  hook("Codex", `Codex:${otherHost.pid}`, { hook_event_name: "SessionStart", session_id: OTHER, cwd });
+  hook("Claude", `Claude:${recipientHost.pid}`, { hook_event_name: "SessionStart", session_id: RECIPIENT, cwd });
+  const prompted = JSON.parse(hook("Codex", shared, { hook_event_name: "UserPromptSubmit", session_id: SHARED_B, cwd }).stdout);
+  assert.match(prompted.hookSpecificOutput.additionalContext, new RegExp(`session_id 是 ${SHARED_B}`));
+  const recipientName = store.readSession(RECIPIENT).name;
+
+  const call = (name, args, agent = shared) => JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })}\n`, agent
+  }).stdout).result;
+
+  // 所有工具的 schema 都带可选的 session_id。
+  const listed = JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })}\n`, agent: shared
+  }).stdout).result.tools;
+  assert.ok(listed.length > 0);
+  for (const tool of listed) {
+    assert.equal(tool.inputSchema.properties.session_id?.type, "string", `${tool.name} 缺少 session_id`);
+    assert.ok(!(tool.inputSchema.required ?? []).includes("session_id"), `${tool.name} 不应强制 session_id`);
+  }
+
+  // 不传参数：同一 PID 下两个会话，只能匿名查看，不能以会话身份操作。
+  const anonymous = call("list_agents", {});
+  assert.equal(anonymous.isError, undefined);
+  assert.match(anonymous.content[0].text, /当前会话身份缺失或不明确/);
+  assert.doesNotMatch(anonymous.content[0].text, /当前会话是 /);
+  const before = store.listReceipts().length;
+  const refused = call("send_message", { to: recipientName, message: "不该发出" });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /多个会话共享宿主 PID/);
+  assert.equal(store.listReceipts().length, before, "身份不明确时不应产生消息");
+
+  // 传参数：同一 PID 下的两个会话各自被正确识别，发出的消息 from 对得上。
+  for (const [sessionId, body] of [[SHARED_A, "来自 A"], [SHARED_B, "来自 B"]]) {
+    const self = store.readSession(sessionId);
+    const listedAs = call("list_agents", { session_id: sessionId });
+    assert.equal(listedAs.isError, undefined, listedAs.content[0].text);
+    assert.match(listedAs.content[0].text, new RegExp(String.raw`当前会话是 ${self.name} \[${self.ref}\]`));
+    const sent = call("send_message", { session_id: sessionId, to: recipientName, message: body });
+    assert.equal(sent.isError, undefined, sent.content[0].text);
+    const id = sent.content[0].text.match(/(m[0-9a-z]+)\s*$/)?.[1];
+    assert.ok(id, sent.content[0].text);
+    const receipt = store.readReceipt(id);
+    assert.equal(receipt.from.session, sessionId);
+    assert.equal(receipt.from.name, self.name);
+    assert.equal(receipt.body, body);
+  }
+
+  // 无效的显式身份：一律报错，且不回退到 PID 唯一匹配（OTHER 所在宿主只有它一个会话，
+  // 回退的话会被认出来）。
+  const invalidIds = [
+    ["另一宿主的会话", SHARED_A, `Codex:${otherHost.pid}`],
+    ["不存在的会话", "cccccccc-aaaa-4bbb-8ccc-00000000000c", `Codex:${otherHost.pid}`],
+    ["provider 不符", RECIPIENT, `Codex:${otherHost.pid}`],
+    ["路径穿越", "../../evil", `Codex:${otherHost.pid}`],
+    ["空串", "", `Codex:${otherHost.pid}`],
+    ["null", null, `Codex:${otherHost.pid}`],
+    ["非字符串", 42, `Codex:${otherHost.pid}`]
+  ];
+  for (const [label, sessionId, agent] of invalidIds) {
+    for (const [name, args] of [["list_agents", {}], ["send_message", { to: recipientName, message: "x" }]]) {
+      const count = store.listReceipts().length;
+      const result = call(name, { ...args, session_id: sessionId }, agent);
+      assert.equal(result.isError, true, `${label} / ${name} 应报错：${result.content[0].text}`);
+      assert.match(result.content[0].text, /无效的 session_id/, `${label} / ${name}`);
+      assert.equal(store.listReceipts().length, count, `${label} / ${name} 不应产生消息`);
+    }
+  }
+  // 对照：同一宿主不传参数时 PID 唯一匹配仍然可用，说明上面的报错来自显式参数校验。
+  assert.equal(identifyAs(`Codex:${otherHost.pid}`), store.readSession(OTHER).name);
+
+  // 离线后同一个 ID 不再可用。
+  sharedHost.kill("SIGKILL");
+  await new Promise((resolve) => sharedHost.once("exit", resolve));
+  const offline = call("list_agents", { session_id: SHARED_A });
+  assert.equal(offline.isError, true);
+  assert.match(offline.content[0].text, /无效的 session_id/);
 }
 
 console.log("bridge-harness: all passed");

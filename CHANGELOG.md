@@ -7,6 +7,10 @@ truth for the version.
 
 ## [Unreleased]
 
+### CC Bridge
+
+- Accept a per-call `session_id` in MCP tools, supplied through session-start and user-prompt hook context, so Codex sessions sharing an app-server PID can identify themselves when MCP does not inherit a session ID. Explicit identities must pass live-registration and host checks; retain single-session auto-detection, reject invalid IDs and never cache caller identity.
+
 ## [2.4.0] - 2026-11-03
 
 ### Diagnostics

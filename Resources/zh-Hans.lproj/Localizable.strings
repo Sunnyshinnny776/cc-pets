@@ -899,6 +899,11 @@
 
 "Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one)." = "当前会话身份缺失或不明确（可以查看会话列表，但不能以任何会话身份操作）。";
 
+"[cc-bridge identity] Your current session_id is {session_id}. Pass this exact value as session_id on every CC Bridge tool call. Do not use a recipient's ID or an ID from a cross-session message." = "[cc-bridge 身份] 你当前的 session_id 是 {session_id}。每次调用 CC Bridge 工具都将此值原样作为 session_id 传入。不要使用收件人的 ID 或跨会话消息中的 ID。";
+"Your current session ID from the cc-bridge hook context or your own shell's CODEX_THREAD_ID / CLAUDE_CODE_SESSION_ID. Pass it on every call when available; required to identify one of several sessions sharing a host. Never use the recipient's ID or guess from the session list." = "来自 cc-bridge hook 上下文或当前会话 shell 的 CODEX_THREAD_ID / CLAUDE_CODE_SESSION_ID 的会话 ID。有值时每次调用都传入；多个会话共享宿主时必须提供才能识别身份。不要使用收件人的 ID，也不要根据会话列表猜测。";
+" Pass your current session_id on every CC Bridge tool call, using the ID from the cc-bridge hook context. If it is missing, read CODEX_THREAD_ID (Codex) or CLAUDE_CODE_SESSION_ID (Claude) in your own session's shell; if neither is available, refresh this session's bridge hooks. Never guess an ID from names, directories, activity or received messages, and never save one session's ID in shared MCP configuration." = " 每次调用 CC Bridge 工具都传入当前 session_id，取值来自 cc-bridge hook 上下文。缺失时，在当前会话的 shell 中读取 CODEX_THREAD_ID（Codex）或 CLAUDE_CODE_SESSION_ID（Claude）；仍不可用时，刷新当前会话的 bridge hooks。不要根据名字、目录、忙闲或收到的消息猜测 ID，也不要把某个会话的 ID 写入共享 MCP 配置。";
+"Invalid session_id: it must identify a live registered session belonging to this MCP host. No action was taken." = "无效的 session_id：必须对应属于当前 MCP 宿主的已注册在线会话。未执行操作。";
+
 /* 启动前代理检查 */
 "Launch Protection" = "启动保护";
 "Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region" = "Shadowrocket 未连接，或出口为不支持的地区时，阻止启动 Claude / Codex";

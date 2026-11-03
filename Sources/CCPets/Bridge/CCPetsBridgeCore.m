@@ -49,7 +49,22 @@ NSString *CCBridgeDescribeSession(NSDictionary *session) {
 }
 
 NSDictionary *CCBridgeIdentifySelf(void) {
+    return CCBridgeIdentifySelfForSession(nil);
+}
+
+NSDictionary *CCBridgeIdentifySelfForSession(id sessionId) {
     NSDictionary *ancestor = CCBridgeFindAgentAncestor(getppid());
+    // app-server 可被多个会话共享，MCP 环境又未必携带 thread ID。
+    // 每次调用单独解析参数，不能把上一次调用的身份留给下一次。
+    if (sessionId != nil) {
+        NSString *identifier = CCBridgeSafeSessionId(sessionId);
+        if (!identifier || !ancestor) return nil;
+        NSDictionary *record = CCBridgeReadSession(identifier);
+        if (!CCBridgeSessionLive(record) || ![record[@"session"] isEqual:identifier] ||
+            ![record[@"provider"] isEqual:ancestor[@"provider"]] ||
+            ![record[@"pid"] isEqual:ancestor[@"pid"]]) return nil;
+        return record;
+    }
     // 显式会话 ID 优先。存在但失效/不属于当前宿主时拒绝回退，避免 /resume 后冒认其他会话。
     for (NSString *variable in @[@"CODEX_THREAD_ID", @"CLAUDE_CODE_SESSION_ID"]) {
         NSString *provider = [variable isEqual:@"CODEX_THREAD_ID"] ? @"Codex" : @"Claude";
