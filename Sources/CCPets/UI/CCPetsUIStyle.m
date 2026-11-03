@@ -298,7 +298,19 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 }
 
 - (void)resetCursorRects {
-    if (self.onClick) [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+    if (!self.onClick) return;
+    NSView *excluded = self.cursorExclusionView;
+    if (!excluded || excluded.superview != self) {
+        [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+        return;
+    }
+    // 排除区域按整行宽处理：只给它上方和下方的部分加手形指针。
+    NSRect frame = excluded.frame;
+    NSRect below = NSMakeRect(0, 0, NSWidth(self.bounds), NSMinY(frame));
+    NSRect above = NSMakeRect(0, NSMaxY(frame), NSWidth(self.bounds), NSMaxY(self.bounds) - NSMaxY(frame));
+    for (NSValue *value in @[[NSValue valueWithRect:below], [NSValue valueWithRect:above]]) {
+        if (!NSIsEmptyRect(value.rectValue)) [self addCursorRect:value.rectValue cursor:NSCursor.pointingHandCursor];
+    }
 }
 
 - (BOOL)isAccessibilityElement {

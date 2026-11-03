@@ -135,10 +135,7 @@
 // 状态卡和说话气泡原来是浅色磨砂配深色字；换成原生清透玻璃后背景是任意壁纸加一层
 // 压暗，深色字会看不见，改成白字加贴字形的投影，和额度面板一致。
 - (void)applyBubbleTextStyle {
-    NSShadow *shadow = [NSShadow new];
-    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
-    shadow.shadowBlurRadius = 2;
-    shadow.shadowOffset = NSMakeSize(0, -0.5);
+    NSShadow *shadow = CCPetsGlassTextShadow();
     BOOL statusLiquid = self.statusGlass.usesLiquidGlass;
     self.statusTitleLabel.textColor = statusLiquid ? [NSColor colorWithWhite:1 alpha:0.78]
         : [NSColor colorWithWhite:0.42 alpha:0.90];
@@ -156,9 +153,9 @@
     [self updateGlassDimLevel:sender.representedObject];
 }
 - (void)updateGlassDimLevel:(NSNumber *)level {
-    // 主窗口的滑块是连续值，菜单是四档；两边都走这里，统一取整并夹在 0–45。
+    // 主窗口的滑块是连续值，菜单是四档；两边都传 0–100 的展示强度，取整后换算成实际的 0–45 存下。
     if (![level isKindOfClass:NSNumber.class] || isnan(level.doubleValue)) return;
-    NSInteger value = MAX((NSInteger)0, MIN(CCPetsGlassDimMaximum, (NSInteger)lround(level.doubleValue)));
+    double value = CCPetsGlassDimLevelForPercent(lround(level.doubleValue));
     if ([[NSUserDefaults.standardUserDefaults objectForKey:CCPetsGlassDimKey] isEqual:@(value)]) return;
     CCPetsPrefSetObject(CCPetsGlassDimKey, @(value));
     [self.quotaGlass applyDimLevel];

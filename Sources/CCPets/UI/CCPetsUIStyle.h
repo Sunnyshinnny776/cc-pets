@@ -70,6 +70,8 @@ NSTextField *CCPetsWrappingLabel(NSString *text, CGFloat size, NSFontWeight weig
 // 可点的卡片：整张卡片是一个按钮。onClick 为 nil 时不响应。
 @interface CCPetsTileView : CCPetsCardView
 @property(nonatomic, copy) void (^onClick)(void);
+// 这块区域（整行宽）里是控件，不显示手形指针。
+@property(nonatomic, weak) NSView *cursorExclusionView;
 @end
 
 // 填色胶囊按钮：悬停面板「订阅 / 用量」那种一点就切换的开关，和右键菜单里的样子一致。
