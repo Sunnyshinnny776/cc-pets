@@ -552,9 +552,9 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
         return [CCPetsPanelTheme() isEqualToString:@"liquid"] && CCPetsLiquidGlassAvailable();
     };
     NSDictionary<NSNumber *, NSString *> *dimTitles = @{
-        @0: L(@"Clear (0%)"), @15: L(@"Light (15%)"), @25: L(@"Standard (25%)"), @45: L(@"Legible (45%)")};
+        @0: L(@"Clear (0%)"), @25: L(@"Light (25%)"), @50: L(@"Standard (50%)"), @100: L(@"Legible (100%)")};
     // 主窗口里可以调成任意值，菜单只有四档：勾选最接近的那档。
-    NSInteger selectedDim = CCPetsNearestGlassDimLevel(CCPetsGlassDimLevel());
+    NSInteger selectedDim = CCPetsNearestGlassDimLevel(CCPetsGlassDimPercent());
     for (NSNumber *level in CCPetsGlassDimLevels()) {
         NSMenuItem *item = [MenuChoiceRowView addToMenu:themeMenu title:dimTitles[level] group:@"dim"
             representedObject:level checked:level.integerValue == selectedDim

@@ -68,7 +68,7 @@ static const NSTimeInterval PetSpeechDwell = 4.5;
 // layer.cornerRadius + kCACornerCurveContinuous 改用位图 maskImage 裁形，
 // squircle 和 GPU 端矢量裁切的质感一起丢了，得不偿失。
 // 结论：保持药丸 + 原生圆角，靠贴近宠物来表达归属。
-static const CGFloat PetSpeechBodyHeight = 38.0;
+static const CGFloat PetSpeechBodyHeight = CCPetsSpeechBubbleHeight;
 static const CGFloat PetStatusBodyHeight = 58.0;
 // 副行没东西可显示时的高度，只放得下标题一行。
 static const CGFloat PetStatusSingleLineHeight = 40.0;

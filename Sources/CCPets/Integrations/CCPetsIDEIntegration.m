@@ -317,6 +317,8 @@ NSArray<NSDictionary *> *CCPetsIDEIntegrationSnapshot(void) {
             @"autoInstall": @(autoInstall), @"running": @(launched[path] != nil),
             @"configPath": config, @"pluginsPath": plugins} mutableCopy];
         if (bundleIDs[path]) row[@"bundleID"] = bundleIDs[path];
+        // 同一产品的多个版本（含 EAP）共用 product-info 里的 name，设置页据此合并成一行。
+        if ([info[@"name"] isKindOfClass:NSString.class]) row[@"productName"] = info[@"name"];
         if (installedVersion) row[@"pluginVersion"] = installedVersion;
         if (bundledVersion) row[@"bundledVersion"] = bundledVersion;
         [rows addObject:row];

@@ -282,7 +282,36 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 
 @end
 
+@interface CCPetsTileView ()
+@property(nonatomic) NSTrackingArea *hoverTracking;
+@end
+
 @implementation CCPetsTileView
+
+- (void)setHoverAccessoryView:(NSView *)view {
+    _hoverAccessoryView = view;
+    view.hidden = YES;
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (self.hoverTracking) [self removeTrackingArea:self.hoverTracking];
+    self.hoverTracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
+        owner:self userInfo:nil];
+    [self addTrackingArea:self.hoverTracking];
+    // 卡片重排后鼠标可能已经不在上面，按实际位置校正一次。
+    NSPoint mouse = [self convertPoint:self.window.mouseLocationOutsideOfEventStream fromView:nil];
+    self.hoverAccessoryView.hidden = !(self.window && NSPointInRect(mouse, self.bounds));
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    self.hoverAccessoryView.hidden = NO;
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    self.hoverAccessoryView.hidden = YES;
+}
 
 - (void)mouseDown:(NSEvent *)event {
     // 按下不立刻触发，松开时还在卡片上才算一次点击，和按钮一个手感。
@@ -298,7 +327,19 @@ NSView *CCPetsMetricRow(NSArray<NSArray<NSString *> *> *items) {
 }
 
 - (void)resetCursorRects {
-    if (self.onClick) [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+    if (!self.onClick) return;
+    NSView *excluded = self.cursorExclusionView;
+    if (!excluded || excluded.superview != self) {
+        [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+        return;
+    }
+    // 排除区域按整行宽处理：只给它上方和下方的部分加手形指针。
+    NSRect frame = excluded.frame;
+    NSRect below = NSMakeRect(0, 0, NSWidth(self.bounds), NSMinY(frame));
+    NSRect above = NSMakeRect(0, NSMaxY(frame), NSWidth(self.bounds), NSMaxY(self.bounds) - NSMaxY(frame));
+    for (NSValue *value in @[[NSValue valueWithRect:below], [NSValue valueWithRect:above]]) {
+        if (!NSIsEmptyRect(value.rectValue)) [self addCursorRect:value.rectValue cursor:NSCursor.pointingHandCursor];
+    }
 }
 
 - (BOOL)isAccessibilityElement {

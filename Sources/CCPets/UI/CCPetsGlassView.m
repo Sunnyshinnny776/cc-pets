@@ -14,33 +14,54 @@ NSString *const CCPetsGlassDimKey = @"CCPetsGlassDim";
 
 const NSInteger CCPetsGlassDimMaximum = 45;
 
-NSArray<NSNumber *> *CCPetsGlassDimLevels(void) { return @[@0, @15, @25, @45]; }
+NSArray<NSNumber *> *CCPetsGlassDimLevels(void) { return @[@0, @25, @50, @100]; }
 
 // 档位来自对照实测：0 最通透但亮背景下小字看不清；25 在暗、亮壁纸上都基本可读；
 // 45 最清楚但明显偏暗，再往上文字反而发闷，所以上限就是 45。没设置过时用 25；
-// 超出范围的值（手改 defaults）夹回 0–45。
-NSInteger CCPetsGlassDimLevel(void) {
+// 超出范围的值（手改 defaults）夹回 0–45。界面按 0–100 展示，存的仍是实际值，可带小数
+// （菜单的 25 / 50 档对应实际 11.25 / 22.5）。
+double CCPetsGlassDimLevel(void) {
     id stored = [NSUserDefaults.standardUserDefaults objectForKey:CCPetsGlassDimKey];
     if (![stored isKindOfClass:NSNumber.class]) return 25;
     double value = [stored doubleValue];
     if (isnan(value)) return 25;
-    return MAX((NSInteger)0, MIN(CCPetsGlassDimMaximum, (NSInteger)lround(value)));
+    return MAX(0.0, MIN((double)CCPetsGlassDimMaximum, value));
 }
 
-NSInteger CCPetsNearestGlassDimLevel(NSInteger level) {
+NSInteger CCPetsGlassDimPercent(void) {
+    return lround(CCPetsGlassDimLevel() * 100.0 / CCPetsGlassDimMaximum);
+}
+
+double CCPetsGlassDimLevelForPercent(double percent) {
+    return MAX(0.0, MIN(100.0, percent)) * CCPetsGlassDimMaximum / 100.0;
+}
+
+NSInteger CCPetsNearestGlassDimLevel(NSInteger percent) {
     NSInteger nearest = 0;
     for (NSNumber *candidate in CCPetsGlassDimLevels()) {
-        if (labs(candidate.integerValue - level) < labs(nearest - level)) nearest = candidate.integerValue;
+        if (labs(candidate.integerValue - percent) < labs(nearest - percent)) nearest = candidate.integerValue;
     }
     return nearest;
 }
 
 // 衬底在四个档位上的取值是实测出来的（0.06 / 0.10 / 0.12 / 0.16），档位之间按直线插值，
 // 滑块拖动时卡片深浅连续变化，不会在档位边界上跳一下。
+NSShadow *CCPetsGlassTextShadow(void) {
+    NSShadow *shadow = [NSShadow new];
+    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
+    shadow.shadowBlurRadius = 2;
+    shadow.shadowOffset = NSMakeSize(0, -0.5);
+    return shadow;
+}
+
 CGFloat CCPetsGlassCardScrimAlpha(void) {
+    return CCPetsGlassCardScrimAlphaForLevel(CCPetsGlassDimLevel());
+}
+
+CGFloat CCPetsGlassCardScrimAlphaForLevel(double level) {
     static const double levels[] = {0, 15, 25, 45};
     static const double alphas[] = {0.06, 0.10, 0.12, 0.16};
-    double level = CCPetsGlassDimLevel();
+    level = MAX(0.0, MIN((double)CCPetsGlassDimMaximum, level));
     for (int index = 1; index < 4; index++) {
         if (level > levels[index]) continue;
         double fraction = (level - levels[index - 1]) / (levels[index] - levels[index - 1]);
@@ -144,7 +165,7 @@ BOOL CCPetsLiquidGlassAvailable(void) {
     // 编译期和运行期双重保护，仍能用旧 SDK 构建并在 macOS 13 上运行。
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if (@available(macOS 26.0, *)) {
-        if ([CCPetsPanelTheme() isEqualToString:@"liquid"]) {
+        if (self.forcesLiquidGlass || [CCPetsPanelTheme() isEqualToString:@"liquid"]) {
             NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:self.bounds];
             glass.style = self.usesWidgetGlass
                 ? NSGlassEffectViewStyleClear : NSGlassEffectViewStyleRegular;
@@ -236,9 +257,19 @@ static BOOL CCPetsExperimentalGlassVariantEnabled(void) {
 #endif
 
 - (void)applyDimLevel {
-    CGFloat alpha = CCPetsGlassDimLevel() / 100.0;
+    [self applyDimLevel:CCPetsGlassDimLevel()];
+}
+
+- (void)applyDimLevel:(double)level {
+    CGFloat alpha = level / 100.0;
     self.backdropDimView.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:alpha].CGColor;
     self.backdropDimView.hidden = alpha <= 0;
+}
+
+- (void)setForcesLiquidGlass:(BOOL)forcesLiquidGlass {
+    if (_forcesLiquidGlass == forcesLiquidGlass) return;
+    _forcesLiquidGlass = forcesLiquidGlass;
+    [self applyTheme];
 }
 
 - (void)setUsesWidgetGlass:(BOOL)usesWidgetGlass {

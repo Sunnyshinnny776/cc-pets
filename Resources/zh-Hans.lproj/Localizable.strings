@@ -226,10 +226,11 @@
 "Classic" = "经典";
 "Requires macOS 26 or later" = "需要 macOS 26 及以上";
 "Glass Dimming" = "玻璃压暗";
+"Dimming" = "压暗";
 "Clear (0%)" = "通透（0%）";
-"Light (15%)" = "轻度（15%）";
-"Standard (25%)" = "标准（25%）";
-"Legible (45%)" = "清晰（45%）";
+"Light (25%)" = "轻度（25%）";
+"Standard (50%)" = "标准（50%）";
+"Legible (100%)" = "清晰（100%）";
 "Notifications" = "系统通知";
 "Stalled" = "响应超时";
 "Click Reactions" = "连击互动";
@@ -256,7 +257,7 @@
 "Light" = "浅色";
 "Dark" = "深色";
 "Window Appearance" = "窗口外观";
-"Only this window; the pet's panels follow Panel Appearance below" = "只作用于本窗口；桌宠的浮层看下面的「浮层外观」";
+"Only this window; the pet's panels follow Panel Appearance above" = "只作用于本窗口；桌宠的浮层看上面的「浮层外观」";
 "Help" = "帮助";
 "Check for Updates…" = "检查更新…";
 "About CC Pets" = "关于 CC Pets";
@@ -744,8 +745,9 @@
 "CC Bridge unread badge" = "CC Bridge 未读角标";
 "CC Bridge message notifications" = "CC Bridge 新消息通知";
 "Only who sent it to whom, never the message" = "只含谁发给谁，不含正文";
-"Language, panel appearance and data folders." = "语言、浮层外观和数据位置。";
 "macOS 26 or later" = "macOS 26 及以上";
+"Works on all macOS versions" = "适用于所有系统";
+"Opaque dark background for better readability" = "不透明深色底，可读性更好";
 "Panel Appearance" = "浮层外观";
 "Raise it when a bright wallpaper makes text hard to read" = "壁纸太亮、文字看不清时调高";
 "Hover Panel" = "悬停面板显示";
@@ -978,7 +980,11 @@
 "Installed — open a project or restart the IDE to connect" = "已安装，打开项目或重启 IDE 后连接";
 "Plugin not detected" = "未检测到插件";
 "Requires version 2026.2 or 2026.3" = "需要 2026.2 或 2026.3 版本";
-"No JetBrains IDE detected" = "未检测到 JetBrains IDE";
+"%lu hidden" = "已收起 %lu 个";
+", " = "、";
+"Show All" = "显示全部";
+"Show Less" = "收起";
+"No supported terminal detected" = "未检测到支持的终端";
 
 // Terminal jump (VS Code family)
 "The VS Code extension is missing from this CC Pets installation. Reinstall CC Pets to restore it." = "当前 CC Pets 安装缺少 VS Code 扩展，请重新安装 CC Pets 以恢复。";
@@ -1003,3 +1009,5 @@
 "Extension not detected" = "未检测到扩展";
 "Extension not detected — no command line tool, install manually" = "未检测到扩展；应用缺少命令行工具，请手动安装";
 "Install Extension…" = "安装扩展…";
+"Delete “%@”?" = "删除「%@」？";
+"This can't be undone. Continue?" = "删除后无法撤销，是否继续？";

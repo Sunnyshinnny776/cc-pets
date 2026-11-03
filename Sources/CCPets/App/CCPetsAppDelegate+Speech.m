@@ -219,14 +219,14 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
         initWithFrame:NSMakeRect(6, 6, glassSize.width, glassSize.height)
         material:NSVisualEffectMaterialPopover appearance:NSAppearanceNameAqua
         cornerRadius:glassSize.height / 2.0];
-    self.speechGlass.edgeShadeHeight = 9;
-    self.speechGlass.edgeShadeAlpha = 0.6;
+    self.speechGlass.edgeShadeHeight = CCPetsSpeechBubbleEdgeShadeHeight;
+    self.speechGlass.edgeShadeAlpha = CCPetsSpeechBubbleEdgeShadeAlpha;
     self.speechGlass.usesWidgetGlass = YES;
 
     self.speechLabel = [NSTextField labelWithString:@""];
     self.speechLabel.frame = NSMakeRect(14, 10, glassSize.width - 28, 18);
     // 独立气泡里这句话是唯一元素，不与标题争，比并入状态卡时大半档。
-    self.speechLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
+    self.speechLabel.font = [NSFont systemFontOfSize:CCPetsSpeechBubbleFontSize weight:NSFontWeightMedium];
     self.speechLabel.textColor = [NSColor colorWithWhite:0.10 alpha:0.96];
     self.speechLabel.alignment = NSTextAlignmentCenter;
     self.speechLabel.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -451,7 +451,7 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
 // 独立气泡：左右各 16 内边距，没有图标。
 - (void)resizeSpeechBubbleToFitText {
     if (!self.speechPanel) return;
-    const CGFloat padding = 16;
+    const CGFloat padding = CCPetsSpeechBubblePadding;
     CGFloat width = padding * 2 + PetMeasuredLabelWidth(self.speechLabel);
     width = fmax(96.0, fmin(width, 300.0));
     NSSize panelSize = NSMakeSize(width + 12, PetSpeechBodyHeight + 12);
