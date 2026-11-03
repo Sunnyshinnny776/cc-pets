@@ -43,7 +43,7 @@ Install preview builds explicitly; the automatic updater accepts stable versions
 `main` is reserved for stable releases, including the stable GitHub Release and tag.
 Complete implementation, documentation, screenshots, and validation on `publish`
 before submitting to `main`; repeat integration checks there before a stable release.
-The latest stable GitHub release is **v2.3.0**, covering the Main menu, multiple accounts, token usage by model, and the native runtime.
+The latest stable GitHub release is **v2.4.0**, covering exact terminal jumps, optional launch protection, CC Bridge reliability, token accounting, and clearer local version diagnostics.
 See [release status](docs/release-status.md) for validation and handoff details.
 
 ## Localization
