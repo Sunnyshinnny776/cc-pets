@@ -393,7 +393,7 @@
 "When replying, put the from name from the message header into to." = "回复收到的消息时，把消息头里的 from 名字填到 to。";
 "Recipient session name (from list_agents); write \"name [ref]\" when names collide" = "收件会话名（来自 list_agents），重名时写成 \"名字 [ref]\"";
 "Message body. Say what it's about in the first sentence; don't rely on @file references, since attachments aren't delivered." = "消息正文。第一句写清楚这条消息是关于什么的；不要依赖 @文件 引用，对方收不到附件。";
-"When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle." = "为 true 时，对方下一次完成回合进入空闲后，本会话会收到一条一次性空闲通知。";
+"When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle. That turn may be one already in progress, so the notice doesn't mean this message was handled." = "为 true 时，对方下一次完成回合进入空闲后，本会话会收到一条一次性空闲通知。这一回合可能是正在进行的回合，所以收到通知不代表这条消息已处理。";
 "Send cross-session message" = "发送跨会话消息";
 "Rename the current session in CC Bridge (the address other sessions use to message you), e.g. frontend or api-server. " = "修改当前会话在 CC Bridge 中的名字（即其他会话给你发消息时用的地址），例如 frontend、api-server。";
 "Only lowercase letters, digits and . _ - are allowed, up to 40 characters; fails if another online session uses the name. " = "只允许小写字母、数字和 . _ -，最长 40 个字符；名字已被其他在线会话占用时会失败。";
@@ -901,6 +901,7 @@
 "This MCP server's host process can't be identified, so the session can't be verified as belonging to it." = "无法识别此 MCP 服务的宿主进程，因此无法确认该会话属于它。";
 "It belongs to a different host process." = "该会话属于其他宿主进程。";
 "paths must be an array of strings." = "paths 必须是字符串数组。";
+"codex queue timed out, so the message may already be queued for {name}. It was also put in its inbox, so it may arrive twice with the same message id." = "codex queue 超时，消息可能已进入 {name} 的队列。消息同时放进了它的信箱，所以可能以相同的消息 id 到达两次。";
 "{flag} needs a value." = "{flag} 需要一个值。";
 "Unknown option: {option}" = "未知选项：{option}";
 

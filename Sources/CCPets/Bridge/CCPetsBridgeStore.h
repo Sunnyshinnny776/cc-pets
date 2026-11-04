@@ -77,6 +77,8 @@ NSUInteger CCBridgePendingCount(id sessionId);
 void CCBridgeAbandonInbox(id sessionId);
 // 同上，但用于没有 SessionEnd 的离线会话（崩溃、被杀）：连同它的空闲订阅一起清掉；锁繁忙或会话又上线时不动。
 void CCBridgeAbandonOfflineSession(id sessionId);
+// 关闭 Bridge：之后不会再有 hook 来清理，所有未投递的消息现在就标记 undeliverable 并删除。
+void CCBridgeAbandonAllInboxes(NSString *reason);
 // 扫描状态目录：离线会话按上面处理，在线会话里超过 TTL 的消息标记为 expired。锁繁忙的留给下一次。
 void CCBridgeSweepMessages(void);
 void CCBridgePruneReceipts(void);

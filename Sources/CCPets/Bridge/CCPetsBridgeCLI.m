@@ -310,7 +310,9 @@ static int WatchCommand(void) {
             if (!CCBridgeEnabled() || ![CCBridgeOptions()[@"wake"] boolValue]) return 0;
             // 宿主会话已经没了（被 kill -9 等，没来得及清理子进程）就别再占着锁。
             if (!CCBridgeProcessAlive(parent)) return 0;
-            NSArray<NSDictionary *> *messages = ClaimForOutput(sessionId, @"claude-rewake");
+            // 这里每秒走一次：信箱空着时只列目录，不去写删锁文件。
+            NSArray<NSDictionary *> *messages = CCBridgePendingCount(sessionId) > 0
+                ? ClaimForOutput(sessionId, @"claude-rewake") : @[];
             if (messages.count > 0) {
                 NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
                 for (NSDictionary *message in messages) {
@@ -385,7 +387,7 @@ static NSArray<NSDictionary *> *Tools(void) {
               @"message": @{@"type": @"string",
                   @"description": L(@"Message body. Say what it's about in the first sentence; don't rely on @file references, since attachments aren't delivered.")},
               @"notify_when_idle": @{@"type": @"boolean",
-                  @"description": L(@"When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle.")}
+                  @"description": L(@"When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle. That turn may be one already in progress, so the notice doesn't mean this message was handled.")}
           }, @[@"to", @"message"]),
           @"annotations": @{@"readOnlyHint": @NO, @"destructiveHint": @NO, @"title": L(@"Send cross-session message")}},
         @{@"name": @"set_name",
@@ -749,6 +751,13 @@ static int DisableCommand(void) {
     // 先关闭运行时入口，卸载耗时或失败也不能继续发送/唤醒。
     CCBridgeSetEnabled(NO, nil);
     BOOL succeeded = UninstallBridgeForRegisteredProfiles(CCBridgeShouldTouchMCP());
+    // 关闭后 hook 不再运行，没人会来收尾。已送达的回执留作记录，它们不含正文。
+    @try {
+        CCBridgeAbandonAllInboxes(L(@"CC Bridge is off."));
+    } @catch (NSException *exception) {
+        succeeded = NO;
+        Print(exception.reason ?: exception.name);
+    }
     Print(succeeded ? L(@"CC Bridge is off.") : L(@"CC Bridge is off, but some integrations could not be removed. Retry disable after resolving the errors above."));
     return succeeded ? 0 : 1;
 }

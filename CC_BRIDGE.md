@@ -66,7 +66,7 @@ The agent uses these MCP tools:
 | Tool | Description |
 | --- | --- |
 | `list_agents` | Lists online sessions: name [ref], CLI, busy/idle, terminal (tty), start time, directory. The name is the address; add ` [ref]` only when names collide. |
-| `send_message` | Sends a message. With `notify_when_idle: true`, you get a one-shot notice when the recipient next finishes a turn. |
+| `send_message` | Sends a message. With `notify_when_idle: true`, you get a one-shot notice when the recipient next finishes a turn. That doesn't mean it has handled this message. |
 | `set_name` | Renames the current session. |
 | `reserve_files` | Reserves files or directories you are about to edit (globs supported); returns conflicts when they overlap with other reservations. |
 | `release_files` | Releases this session's reservations. |
@@ -139,12 +139,14 @@ Claude / Codex sessions for wording changes to take effect (MCP instructions loa
 | Notify a session | Use cc-bridge to tell api the login endpoint is now POST /api/login and returns a token; update the frontend call |
 | Hand off a task | Ask web to write unit tests for src/api/login.ts and report back |
 | Get an answer back | Ask api how far the database migration has gone, and have it reply through cc-bridge |
-| Wait until it's done | Tell api to run the test suite, and notify you when it goes idle |
+| Wait for a result | Tell api to run the test suite and send you the result through cc-bridge |
+| See when it's idle | Message api and have it notify you when it goes idle |
 | Target by terminal | Send this to the Claude session in ttys003: … |
 
 Replies arrive as new messages in your session. "Notify you when it goes idle" sends a one-shot
-notice once the recipient finishes its turn (`notify_when_idle`), which is handy for "continue after
-it's done".
+notice once the recipient finishes its turn (`notify_when_idle`). If the recipient is busy, that may be
+a turn that started before your message arrived, so the notice only means a turn ended, not that your
+task is done. To wait for a result, ask the recipient to reply when it finishes.
 
 ### Several sessions in one repository
 
@@ -207,7 +209,9 @@ Just ask: "Reserve src/api before you start the refactor, and release it when yo
 | Claude Code | Woken by a background `asyncRewake` watcher | Injected into the current turn | Not delivered; receipt is undeliverable |
 
 The Claude Code watcher arms at session start and at the end of every turn, and waits up to about
-55 minutes before exiting. If a Claude session stays idle through that gap, messages stay in its
+55 minutes before exiting. Each session has one watcher: a new one exits while the previous one is
+still waiting, so the wait doesn't restart every turn, and even an active session can hit a gap after
+the previous watcher expires until its next turn ends. If a Claude session stays idle through that gap, messages stay in its
 inbox and are included with the user's next prompt; messages that arrive during that turn are
 delivered when it ends.
 
@@ -263,7 +267,9 @@ tool through `~/.cc-pets/bridge-cli.json`, written on every `cc-pets install`; i
   when a peer asks for an action that was denied on its side, the agent should refuse and tell the user.
 - Message bodies are stored in the current user's temporary directory
   (`cc-bridge-<uid>/` under `getconf DARWIN_USER_TEMP_DIR`) with `0700` directories and `0600`
-  files; undelivered messages expire after 24 hours (cleaned up when the next session starts). This is an explicit exception to the
+  files; undelivered messages expire after 24 hours (cleaned up when the next session starts). A body is
+  deleted once its message is delivered. Receipts hold only sender, recipient, time and status, and
+  stay about 48 hours for troubleshooting. This is an explicit exception to the
   [Provider protocol](./PROVIDER_PROTOCOL.md)'s no-content rule, which is why CC Bridge is off by default.
 - A message is limited to 16 KB. A pair of sessions exchanging more than 20 messages within
   10 minutes is paused to stop two agents from auto-replying to each other in a loop.
@@ -281,10 +287,14 @@ inboxes and managing reservations. CLI diagnostics can select a session explicit
 Claimed inbox messages remain on disk until the complete output has been flushed successfully.
 A later hook, watcher or `check_inbox` recovers unconfirmed messages after a crash. A crash between
 output and confirmation may deliver the same message ID again; the host provides no acknowledgement
-protocol, so exactly-once delivery is not guaranteed. Codex queue delivery uses the recipient's Home.
+protocol, so exactly-once delivery is not guaranteed. When `codex queue` times out, Bridge can't tell
+whether the message was queued, so it also goes to the inbox and the sender is told it may arrive
+twice with the same ID. Codex queue delivery uses the recipient's Home.
 Legacy records with an unknown Home fall back to the inbox until registration is refreshed by input
 in that session.
 
 Existing watchers recheck the enabled and auto-wake switches while polling. Disabling Bridge also
 blocks CLI send, rename and inbox operations. Integration removal failures return a nonzero exit code;
 the runtime remains disabled, and `disable` can be retried after resolving the reported errors.
+`disable` deletes all undelivered messages and marks their receipts undeliverable. Delivered receipts
+contain no message body and stay for their normal retention period.

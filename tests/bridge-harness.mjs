@@ -820,7 +820,7 @@ exit 0
     const receipt = store.readReceipt(id);
     assert.equal(receipt.from.session, sessionId);
     assert.equal(receipt.from.name, self.name);
-    assert.equal(receipt.body, body);
+    assert.equal(receipt.body, undefined, "回执不应保存正文");
   }
 
   // 无效的显式身份：一律报错，且不回退到 PID 唯一匹配（OTHER 所在宿主只有它一个会话，
@@ -1129,7 +1129,8 @@ exit 0
   const sent = runCli(["send", peerName, "改一下", "--from", "参数"], { agent });
   assert.equal(sent.status, 0, sent.stderr);
   const receipt = store.listReceipts().filter((entry) => entry.to?.session === PEER).at(-1);
-  assert.equal(receipt.body, "改一下 --from 参数", "正文里的 --from 不是选项");
+  const delivered = readJson(path.join(store.bridgeDirectory(), "inbox", PEER, `${receipt.id}.json`));
+  assert.equal(delivered.body, "改一下 --from 参数", "正文里的 --from 不是选项");
   assert.equal(receipt.from.session, SESSION);
   const explicit = runCli(["send", "--from", store.readSession(SESSION).name, peerName, "显式身份"]);
   assert.equal(explicit.status, 0, explicit.stderr);
@@ -1163,6 +1164,89 @@ exit 0
   }).stdout).result;
   assert.equal(anonymous.isError, true);
   assert.match(anonymous.content[0].text, /当前会话身份缺失或不明确/);
+}
+
+// 34. 回执不含正文：信箱里的消息送达后，磁盘上不再有这段文字。
+{
+  const reader = fakeAgent("claude");
+  const writer = fakeAgent("claude");
+  const READER = "22222222-bbbb-4bbb-8ccc-000000000022";
+  const WRITER = "23232323-bbbb-4bbb-8ccc-000000000023";
+  hook("Claude", `Claude:${reader.pid}`, { hook_event_name: "SessionStart", session_id: READER, cwd });
+  hook("Claude", `Claude:${writer.pid}`, { hook_event_name: "SessionStart", session_id: WRITER, cwd });
+  const secret = "PLAINTEXT-MARKER-34";
+  assert.equal(runCli(["send", store.readSession(READER).name, secret], { agent: `Claude:${writer.pid}` }).status, 0);
+  const injected = hook("Claude", `Claude:${reader.pid}`, { hook_event_name: "UserPromptSubmit", session_id: READER, cwd });
+  assert.match(JSON.parse(injected.stdout).hookSpecificOutput.additionalContext, new RegExp(secret));
+  const scan = (directory) => fs.readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile()).some((entry) => fs.readFileSync(path.join(entry.parentPath, entry.name), "utf8").includes(secret));
+  assert.equal(scan(store.bridgeDirectory()), false, "送达后正文不应留在状态目录");
+}
+
+// 35. codex queue 超时：结果未知，消息进信箱兜底，并告诉发送方可能重复。明确失败时不这么说。
+{
+  const receiver = fakeAgent("codex");
+  const sender = fakeAgent("claude");
+  const RECEIVER = "24242424-bbbb-4bbb-8ccc-000000000024";
+  const SENDER = "25252525-bbbb-4bbb-8ccc-000000000025";
+  hook("Codex", `Codex:${receiver.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  hook("Claude", `Claude:${sender.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  const slowCodex = path.join(root, "bin/codex-slow");
+  fs.writeFileSync(slowCodex, "#!/bin/sh\nexec sleep 5\n", { mode: 0o755 });
+  const failingCodex = path.join(root, "bin/codex-failing");
+  fs.writeFileSync(failingCodex, "#!/bin/sh\necho nope >&2\nexit 1\n", { mode: 0o755 });
+  const name = store.readSession(RECEIVER).name;
+  const agent = `Claude:${sender.pid}`;
+  const timedOut = runCli(["send", name, "超时的消息"], { agent, extraEnv: { CODEX_REAL_BIN: slowCodex, CC_BRIDGE_QUEUE_TIMEOUT_SECONDS: "0.2" } });
+  assert.equal(timedOut.status, 0, timedOut.stderr);
+  assert.match(timedOut.stdout, /可能以相同的消息 id 到达两次/);
+  const uncertain = store.listReceipts().find((entry) => entry.uncertain === true);
+  assert.equal(uncertain.status, "pending");
+  assert.equal(store.pendingCount(RECEIVER), 1, "超时后仍要进信箱，不能丢");
+  const failed = runCli(["send", name, "失败的消息"], { agent, extraEnv: { CODEX_REAL_BIN: failingCodex } });
+  assert.equal(failed.status, 0, failed.stderr);
+  assert.doesNotMatch(failed.stdout, /到达两次/);
+  assert.equal(store.pendingCount(RECEIVER), 2);
+}
+
+// 36. release_files：不传 paths 才是全部释放，空数组什么都不释放。
+{
+  const host = fakeAgent("claude");
+  const repo = path.join(fs.realpathSync(root), "empty-release-repo");
+  fs.mkdirSync(repo, { recursive: true });
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: "26262626-bbbb-4bbb-8ccc-000000000026", cwd: repo });
+  const call = (name, args = {}) => JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })}\n`, agent: `Claude:${host.pid}`
+  }).stdout).result;
+  const held = () => store.reservations().filter((entry) => entry.root === repo).length;
+  call("reserve_files", { paths: ["a.ts", "b.ts"] });
+  const nothing = call("release_files", { paths: [] });
+  assert.notEqual(nothing.isError, true);
+  assert.match(nothing.content[0].text, /没有可释放/);
+  assert.equal(held(), 2, "空数组不应释放任何预留");
+  call("release_files");
+  assert.equal(held(), 0);
+}
+
+// 37. disable：未投递的消息立即收尾，已送达的回执留作记录。
+{
+  const bridgeDirectory = store.bridgeDirectory();
+  const host = fakeAgent("claude");
+  const SESSION = "27272727-bbbb-4bbb-8ccc-000000000027";
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  const queued = { id: store.newMessageId(), from: { session: "x" }, to: { session: SESSION, name: "x" }, body: "正文", createdAt: Date.now(), status: "pending" };
+  store.writeReceipt(queued);
+  store.enqueueInbox(queued);
+  const done = { id: store.newMessageId(), from: { session: "x" }, to: { session: SESSION, name: "x" }, createdAt: Date.now(), status: "delivered" };
+  store.writeReceipt(done);
+  const disabled = runCli(["disable"]);
+  assert.equal(disabled.status, 0, disabled.stderr);
+  const receipt = store.readReceipt(queued.id);
+  assert.equal(receipt.status, "undeliverable");
+  assert.match(receipt.reason, /CC Bridge/);
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "inbox", SESSION)), false, "未投递的正文不应留在磁盘上");
+  assert.equal(store.readReceipt(done.id).status, "delivered", "已送达的回执应保留");
+  store.setBridgeEnabled(true);
 }
 
 console.log("bridge-harness: all passed");

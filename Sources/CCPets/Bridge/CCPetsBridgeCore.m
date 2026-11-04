@@ -179,7 +179,9 @@ static NSDictionary *RunCodexQueue(NSDictionary *target, NSString *text) {
     if (home.length == 0) return @{@"ok": @NO, @"reason": L(@"The target Codex Home is unknown; send input in that session to refresh its registration.")};
     NSMutableDictionary *environment = [NSProcessInfo.processInfo.environment mutableCopy];
     environment[@"CODEX_HOME"] = home;
-    int status = CCPetsRun(codex, @[@"queue", @"--thread", target[@"session"], @"--message", text], nil, environment, 30, &output, &errorOutput);
+    double timeout = CCPetsEnvironmentValue(@"CC_BRIDGE_QUEUE_TIMEOUT_SECONDS").doubleValue;
+    if (!(timeout > 0)) timeout = 30;
+    int status = CCPetsRun(codex, @[@"queue", @"--thread", target[@"session"], @"--message", text], nil, environment, timeout, &output, &errorOutput);
     if (status != 0) {
         NSString *combined = [[errorOutput ?: @"" stringByAppendingString:output ?: @""]
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -190,7 +192,9 @@ static NSDictionary *RunCodexQueue(NSDictionary *target, NSString *text) {
             detail = status == CCPetsRunTimedOut ? @"timed out"
                 : (status == CCPetsRunLaunchFailed ? @"spawn failed" : [NSString stringWithFormat:@"exit code %d", status]);
         }
-        return @{@"ok": @NO, @"reason": LF(L(@"codex queue failed: {message}"), @{@"message": detail})};
+        // 超时被杀时消息可能已经入队，和命令明确失败不是一回事。
+        return @{@"ok": @NO, @"uncertain": status == CCPetsRunTimedOut ? @YES : @NO,
+            @"reason": LF(L(@"codex queue failed: {message}"), @{@"message": detail})};
     }
     NSTextCheckingResult *queued = FirstMatch(@"Queued message (\\S+) for thread", output);
     return @{@"ok": @YES, @"ref": queued ? [output substringWithRange:[queued rangeAtIndex:1]] : NSNull.null};
@@ -217,8 +221,10 @@ static NSDictionary *Deliver(NSDictionary *message, NSDictionary *target) {
                 @"transport": @{@"kind": @"codex-queue", @"ref": result[@"ref"]}});
         }
         // queue 不可用（旧版本 Codex 等）时退回信箱，对方可以用 check_inbox 手动拉取。
+        // 没有宿主确认协议，超时后没法知道是否已入队。宁可重复也不丢，同时告诉发送方；
+        // 两份消息的 id 相同，收件方能认出来。
         CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"},
-            @"reason": result[@"reason"]});
+            @"reason": result[@"reason"], @"uncertain": result[@"uncertain"]});
         CCBridgeEnqueueInbox(message);
         return CCBridgeReadReceipt(message[@"id"]);
     }
@@ -295,6 +301,9 @@ NSString *CCBridgeReceiptSummary(NSDictionary *receipt, NSDictionary *target) {
     if ([status isEqualToString:@"pending"]) {
         if ([receipt[@"noWake"] boolValue]) {
             return LF(L(@"Put in {name}'s inbox (auto-wake is off): it will be read with the next user input, or via check_inbox."), @{@"name": name});
+        }
+        if ([receipt[@"uncertain"] boolValue]) {
+            return LF(L(@"codex queue timed out, so the message may already be queued for {name}. It was also put in its inbox, so it may arrive twice with the same message id."), @{@"name": name});
         }
         if (StringValue(receipt[@"reason"])) {
             return LF(L(@"Automatic delivery unavailable ({reason}); put in {name}'s inbox, readable via check_inbox."),
@@ -704,7 +713,7 @@ BOOL CCBridgeReservationAcknowledged(NSDictionary *reservation, NSString *sessio
 }
 
 NSDictionary *CCBridgeReleaseFiles(NSDictionary *session, id paths) {
-    // 没传 paths 才是"全部释放"。类型不对时不能落到这个分支，否则一次传错就清空所有预留。
+    // 没传 paths 才是"全部释放"。类型不对或空数组都不能落到这个分支，否则一次传错、算出空列表就清空所有预留。
     if (paths && ![paths isKindOfClass:NSArray.class]) return @{@"error": L(@"paths must be an array of strings.")};
     for (id raw in paths) {
         if (![raw isKindOfClass:NSString.class]) return @{@"error": L(@"paths must be an array of strings.")};
@@ -712,7 +721,7 @@ NSDictionary *CCBridgeReleaseFiles(NSDictionary *session, id paths) {
     NSString *cwd = StringValue(session[@"cwd"]);
     NSString *root = CCBridgeRepoRoot(cwd);
     NSMutableSet<NSString *> *wanted = nil;
-    if ([paths count] > 0) {
+    if (paths) {
         wanted = [NSMutableSet set];
         for (id raw in paths) {
             NSString *pattern = CCBridgeNormalizePattern(root, cwd, raw);

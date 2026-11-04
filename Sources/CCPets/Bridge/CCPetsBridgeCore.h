@@ -56,7 +56,8 @@ NSString *CCBridgeDescribeReservation(NSDictionary *reservation);
 NSDictionary *CCBridgeReserveFiles(NSDictionary *session, id paths, id reason, id ttlMinutes);
 void CCBridgeAcknowledgeReservation(NSString *reservationId, NSString *sessionId);
 BOOL CCBridgeReservationAcknowledged(NSDictionary *reservation, NSString *sessionId);
-// 返回 @{error}（paths 不是字符串数组，且未做任何改动）或 @{root, released}。不传 paths 表示全部释放。
+// 返回 @{error}（paths 不是字符串数组，且未做任何改动）或 @{root, released}。
+// 不传 paths 表示全部释放；空数组什么都不释放。
 NSDictionary *CCBridgeReleaseFiles(NSDictionary *session, id paths);
 // 这些具体文件是否被其他在线会话预留：[@{file, reservation}]。
 NSArray<NSDictionary *> *CCBridgeFindForeignReservations(NSString *sessionId, NSString *cwd, NSArray<NSString *> *filePaths);

@@ -511,8 +511,11 @@ NSDictionary *CCBridgeReadReceipt(id messageId) {
     return [receipt isKindOfClass:NSDictionary.class] ? receipt : nil;
 }
 
+// 回执只是元数据：正文只在信箱里，送达后随之删除，不跟着回执再留 48 小时。
 void CCBridgeWriteReceipt(NSDictionary *message) {
-    CCBridgeWriteJSON(ReceiptFile(message[@"id"]), message);
+    NSMutableDictionary *receipt = [message mutableCopy];
+    [receipt removeObjectForKey:@"body"];
+    CCBridgeWriteJSON(ReceiptFile(message[@"id"]), receipt);
 }
 
 NSDictionary *CCBridgeUpdateReceipt(NSString *messageId, NSDictionary *patch) {
@@ -644,14 +647,14 @@ static NSString *SessionDirectory(NSString *kind, NSString *sessionId) {
 }
 
 // 调用方持有该信箱的锁。空目录一并删掉，否则已退出的会话会在状态目录里留下痕迹。
-static void AbandonInboxLocked(NSString *sessionId) {
+static void AbandonInboxLocked(NSString *sessionId, NSString *reason) {
     for (NSString *kind in @[@"inbox", @"claimed"]) {
         NSString *directory = SessionDirectory(kind, sessionId);
         for (NSString *name in ListJSON(directory)) {
             NSString *file = [directory stringByAppendingPathComponent:name];
             id message = CCBridgeReadJSON(file);
             if ([message isKindOfClass:NSDictionary.class]) {
-                CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": L(@"the target session has ended")});
+                CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": reason});
             }
             unlink(file.fileSystemRepresentation);
         }
@@ -663,8 +666,23 @@ void CCBridgeAbandonInbox(id sessionId) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
     if (!safe) return;
     NSString *lock = WaitForLock([@"inbox-" stringByAppendingString:safe]);
-    @try { AbandonInboxLocked(safe); }
+    @try { AbandonInboxLocked(safe, L(@"the target session has ended")); }
     @finally { CCBridgeReleaseLock(lock); }
+}
+
+void CCBridgeAbandonAllInboxes(NSString *reason) {
+    NSMutableSet<NSString *> *sessions = [NSMutableSet set];
+    for (NSString *kind in @[@"inbox", @"claimed"]) {
+        NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:kind];
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
+            if (CCBridgeSafeSessionId(name)) [sessions addObject:name];
+        }
+    }
+    for (NSString *session in sessions) {
+        NSString *lock = WaitForLock([@"inbox-" stringByAppendingString:session]);
+        @try { AbandonInboxLocked(session, reason); }
+        @finally { CCBridgeReleaseLock(lock); }
+    }
 }
 
 // 崩溃的会话不会触发 SessionEnd。这里只试一次锁：抢不到说明有人正在处理，留给下一次清理，
@@ -676,7 +694,7 @@ void CCBridgeAbandonOfflineSession(id sessionId) {
     if (!lock) return;
     @try {
         if (CCBridgeSessionLive(CCBridgeReadSession(safe))) return;
-        AbandonInboxLocked(safe);
+        AbandonInboxLocked(safe, L(@"the target session has ended"));
         CCBridgeClearIdleSubscriptions(safe);
     } @finally { CCBridgeReleaseLock(lock); }
 }

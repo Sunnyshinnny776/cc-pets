@@ -26,6 +26,11 @@ truth for the version.
 - Stop treating patch-like text in written content as edited files, and skip `git` when no reservations exist.
 - Answer MCP requests with invalid UTF-8 with a parse error instead of no response.
 - Return an error from `list_reservations` when the caller is unknown instead of checking the MCP process directory.
+- Stop storing message bodies in receipts, so a body is deleted once its message is delivered.
+- Delete undelivered messages on `disable` and mark their receipts undeliverable.
+- When `codex queue` times out, keep the inbox fallback and warn the sender that the message may arrive twice.
+- `release_files` with an empty `paths` array now releases nothing; omit `paths` to release everything.
+- Skip inbox locking while the watcher's inbox is empty, and correct the docs on `notify_when_idle` and the watcher gap.
 
 ## [2.4.0] - 2026-11-03
 
