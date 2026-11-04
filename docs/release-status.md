@@ -1,8 +1,21 @@
-# v2.4.0 发布准备状态
+# v2.4.0 发布状态
 
-2026-11-03 在 `publish` 分支准备 v2.4.0。代码基线为 `277c7f08b5f23fedd6f57456ecc7a772acf41a78`（PR #25）；包含 v2.3.0 之后的 PR #23、#24、#25。当前文件描述本地发布准备，正式发布仍待 `main` 负责人集成复验并按授权执行。
+2026-11-03 在 `publish` 分支准备 v2.4.0。代码基线为 `277c7f08b5f23fedd6f57456ecc7a772acf41a78`（PR #25）；包含 v2.3.0 之后的 PR #23、#24、#25。以下保留准备阶段的历史快照；正式发布结果见下方记录。
 
 历史记录已逐字节归档至 [v2.3.0 发布状态](release-status-v2.3.0.md)；更早记录见 [v2.2.1](release-status-v2.2.1.md) 和 [v2.2.0](release-status-v2.2.0.md)。
+
+## main 集成与正式发布（2026-11-03）
+
+- PR #26 与 PR #27 已合并；本地 `main` 快进至 `4da042c7171e39874c95df37ace24eb69b431cb8`，与远端一致。
+- 在该提交重新运行 `CC_PETS_STRICT=1 npm test`，全套通过，退出码 0，耗时 47 秒；runner 脱离共享 Codex daemon 的父进程链，真实事件流与 shim 污染检查通过。
+- 同一提交的 [main CI](https://github.com/Sunnyshinnny776/cc-pets/actions/runs/41627543933) 通过。
+- package、裸二进制、App 内二进制及两个 plist 版本字段均为 `2.4.0`；`codesign --verify --deep --strict` 通过。
+- 双语 Release Note 实际解析各得到 3 条对应要点，无截断；多语言检查、51 个本地文档/图片链接、历史 CHANGELOG 与 v2.3.0 Release Note 保留检查及 `git diff --check` 通过。
+- 已推送 annotated tag `v2.4.0`，指向上述 main 提交；已发布 [CC Pets 2.4.0](https://github.com/Sunnyshinnny776/cc-pets/releases/tag/v2.4.0)，发布时间为 `2026-11-03T11:31:13Z`，为正式版本，非 draft、非 prerelease。
+- 发布后已核对远端 tag 指向，GitHub Release 正文与 tag 内 `docs/release-notes-v2.4.0.md` 逐字节一致。
+- 本轮未执行 npm 发布，交由既有负责人协调；未更新本机已安装 App。未重新进行完整终端跳转或 VPN 实网人工验收。
+
+发布后的文档记录在 `publish` 准备，经 PR 集成回 `main`；正式 tag 保持指向已验证的发布提交。
 
 ## 交付范围
 
