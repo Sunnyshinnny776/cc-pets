@@ -16,8 +16,9 @@ NSString *CCBridgeDescribeSession(NSDictionary *session);
 // 显式 ID 失效、与宿主不符或 PID 匹配多个会话时返回 nil，禁止按活动时间猜测。
 NSDictionary *CCBridgeIdentifySelf(void);
 // MCP 的逐次调用身份；nil 沿用自动识别，非 nil 必须是有效 ID 且属于当前宿主。
-// 不缓存结果，不接受名字/ref；无效显式参数不能回退到环境变量或 PID。
-NSDictionary *CCBridgeIdentifySelfForSession(id sessionId);
+// 不缓存结果，不接受名字/ref；无效显式参数不能回退到环境变量或 PID，验证不了宿主归属时同样拒绝。
+// 拒绝显式 ID 时 failure 带上面向调用者的原因。
+NSDictionary *CCBridgeIdentifySelfForSession(id sessionId, NSString **failure);
 
 // 名字即地址；重名时追加 " [ref]"。也接受裸 ref 和完整 session id。返回 @{session} 或 @{error}。
 NSDictionary *CCBridgeResolveTarget(id address, NSArray<NSDictionary *> *sessions);
@@ -42,8 +43,9 @@ NSString *CCBridgeRepoRoot(NSString *directory);
 NSString *CCBridgeNormalizePattern(NSString *root, NSString *baseDirectory, id raw);
 // 支持 **、*、?；不带通配符的模式视为"这个文件，或这个目录下的一切"。
 BOOL CCBridgePatternMatches(NSString *pattern, NSString *path);
-// 两个模式是否可能指向同一个文件；两个都是 glob 时只比较静态目录前缀，宁可多报不能漏报。
-BOOL CCBridgePatternsOverlap(NSString *left, NSString *right);
+// 是否存在同时匹配两个模式的路径。不带通配符的模式可能是目录，所以连同其下的一切一起算，
+// 除非 root 下能确认它是普通文件；root 为 nil 时不访问文件系统。
+BOOL CCBridgePatternsOverlap(NSString *root, NSString *left, NSString *right);
 // 过期的、持有者已不在线的预留顺手清掉，返回仍然有效的（带 holder 字段）。root 为 nil 表示所有仓库；
 // sessions 为 nil 时现查在线会话。
 NSArray<NSDictionary *> *CCBridgeActiveReservations(NSString *root, NSArray<NSDictionary *> *sessions);
@@ -53,7 +55,7 @@ NSString *CCBridgeDescribeReservation(NSDictionary *reservation);
 NSDictionary *CCBridgeReserveFiles(NSDictionary *session, id paths, id reason, id ttlMinutes);
 void CCBridgeAcknowledgeReservation(NSString *reservationId, NSString *sessionId);
 BOOL CCBridgeReservationAcknowledged(NSDictionary *reservation, NSString *sessionId);
-// 返回 @{root, released}。
+// 返回 @{error}（paths 不是字符串数组，且未做任何改动）或 @{root, released}。不传 paths 表示全部释放。
 NSDictionary *CCBridgeReleaseFiles(NSDictionary *session, id paths);
 // 这些具体文件是否被其他在线会话预留：[@{file, reservation}]。
 NSArray<NSDictionary *> *CCBridgeFindForeignReservations(NSString *sessionId, NSString *cwd, NSArray<NSString *> *filePaths);

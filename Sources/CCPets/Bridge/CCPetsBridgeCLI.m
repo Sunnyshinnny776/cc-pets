@@ -215,9 +215,15 @@ static NSDictionary *RunHook(NSString *input) {
     if (event.length == 0 || !sessionId) return nil;
 
     if ([event isEqualToString:@"SessionEnd"]) {
-        CCBridgeRemoveSession(sessionId);
-        CCBridgeAbandonInbox(sessionId);
-        CCBridgeReleaseSessionReservations(sessionId);
+        // 各步互不依赖：一步等锁超时，其余的清理也要做完。
+        for (void (^step)(void) in @[
+            ^{ CCBridgeRemoveSession(sessionId); },
+            ^{ CCBridgeAbandonInbox(sessionId); },
+            ^{ CCBridgeReleaseSessionReservations(sessionId); },
+            ^{ CCBridgeClearIdleSubscriptions(sessionId); }
+        ]) {
+            @try { step(); } @catch (NSException *exception) {}
+        }
         return nil;
     }
     // 编辑前检查文件预留。不更新注册表——这个 hook 每次编辑都会跑，保持最轻。
@@ -239,7 +245,12 @@ static NSDictionary *RunHook(NSString *input) {
         CCPetsEnvironmentValue(@"CC_PETS_PROFILE_NAME"), @[]);
 
     if ([event isEqualToString:@"SessionStart"]) {
-        CCBridgePruneReceipts();
+        // 清理失败不能影响身份注入。
+        @try {
+            CCBridgeSweepMessages();
+            CCBridgePruneReceipts();
+        } @catch (NSException *exception) {
+        }
         return HookContext(event, SessionIdentityContext(sessionId));
     }
     if ([event isEqualToString:@"UserPromptSubmit"]) return InjectPending(sessionId, event);
@@ -440,10 +451,12 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         return TextResult(L(@"cc-pets CC Bridge isn't enabled. The user can turn it on by running `cc-pets bridge enable` in a terminal."), YES);
     }
     if (![arguments isKindOfClass:NSDictionary.class]) arguments = @{};
-    NSDictionary *self = CCBridgeIdentifySelfForSession(arguments[@"session_id"]);
+    NSString *identityFailure = nil;
+    NSDictionary *self = CCBridgeIdentifySelfForSession(arguments[@"session_id"], &identityFailure);
     // 即使是列表工具，显式传错身份也要报错，不能伪装成一次成功的匿名查询。
     if (arguments[@"session_id"] != nil && !self) {
-        return TextResult([L(@"Invalid session_id: it must identify a live registered session belonging to this MCP host. No action was taken.")
+        NSString *invalid = L(@"Invalid session_id: it must identify a live registered session belonging to this MCP host. No action was taken.");
+        return TextResult([[invalid stringByAppendingFormat:@" %@", identityFailure ?: @""]
             stringByAppendingString:IdentityNote()], YES);
     }
 
@@ -522,7 +535,9 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
 
     if ([name isEqualToString:@"release_files"]) {
         if (!self) return TextResult(UnknownSelf(), YES);
-        NSArray<NSString *> *released = CCBridgeReleaseFiles(self, arguments[@"paths"])[@"released"];
+        NSDictionary *result = CCBridgeReleaseFiles(self, arguments[@"paths"]);
+        if (result[@"error"]) return TextResult(result[@"error"], YES);
+        NSArray<NSString *> *released = result[@"released"];
         if (released.count == 0) return TextResult(L(@"Nothing to release."), NO);
         NSDictionary *values = @{@"length": @(released.count), @"released": [released componentsJoinedByString:L(@", ")]};
         return TextResult(released.count != 1 ? LF(L(@"Released {length} reservations: {released}"), values)

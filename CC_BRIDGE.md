@@ -83,8 +83,9 @@ from the online list, or hard-code one session's ID in shared MCP configuration.
 
 Multiple Codex sessions can share an app-server PID. When MCP does not inherit a session ID, the
 argument distinguishes the caller. Each call independently validates the registration, live status,
-provider and host PID; the MCP process never caches the selected identity. An invalid explicit ID
-or one belonging to another host is rejected without falling back to another identity. Calls without
+provider and host PID; the MCP process never caches the selected identity. An invalid explicit ID,
+one belonging to another host, or one that can't be checked because the MCP host process can't be
+identified is rejected with the reason and without falling back to another identity. Calls without
 the argument retain environment-based identification and unique PID matching for existing single-session
 clients. Anonymous session listing remains available when identity cannot be resolved.
 
@@ -217,6 +218,10 @@ prompt brings them in.
 Senders get receipts such as "queued", "in inbox", or "undeliverable". Delivery does not mean
 the recipient has read or agreed to anything.
 
+A session that crashes or is killed never fires `SessionEnd`. Its undelivered messages are cleaned up
+the next time the session list finds it offline, or when the next session starts: receipts become
+undeliverable and its idle subscriptions are removed.
+
 ## In the pet
 
 With CC Bridge enabled, the round icon on the pet's status card gets a message badge in its
@@ -257,7 +262,7 @@ tool through `~/.cc-pets/bridge-cli.json`, written on every `cc-pets install`; i
   when a peer asks for an action that was denied on its side, the agent should refuse and tell the user.
 - Message bodies are stored in the current user's temporary directory
   (`cc-bridge-<uid>/` under `getconf DARWIN_USER_TEMP_DIR`) with `0700` directories and `0600`
-  files; undelivered messages expire after 24 hours. This is an explicit exception to the
+  files; undelivered messages expire after 24 hours (cleaned up when the next session starts). This is an explicit exception to the
   [Provider protocol](./PROVIDER_PROTOCOL.md)'s no-content rule, which is why CC Bridge is off by default.
 - A message is limited to 16 KB. A pair of sessions exchanging more than 20 messages within
   10 minutes is paused to stop two agents from auto-replying to each other in a loop.

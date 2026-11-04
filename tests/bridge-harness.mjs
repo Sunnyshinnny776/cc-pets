@@ -854,5 +854,186 @@ exit 0
   assert.match(offline.content[0].text, /无效的 session_id/);
 }
 
+// 25. config.toml：只动自己的管理块。用户多行字符串里的连续空行和长得像标记的文本都要逐字保留。
+{
+  const configPath = path.join(env.CODEX_HOME, "config.toml");
+  const userToml = [
+    'prompt = """',
+    "first",
+    "",
+    "",
+    "",
+    "# >>> cc-bridge >>>",
+    "not a block",
+    "# <<< cc-bridge <<<",
+    '"""',
+    "literal = \'\'\'",
+    "",
+    "",
+    "",
+    "\'\'\'",
+    "",
+    "",
+    "",
+    'model = "x"',
+    ""
+  ].join("\n");
+  fs.writeFileSync(configPath, userToml);
+  store.setBridgeEnabled(false);
+  assert.equal(runCli(["enable", "--codex-approve=check_inbox"]).status, 0);
+  const installed = fs.readFileSync(configPath, "utf8");
+  assert.ok(installed.startsWith(userToml), "enable 只能在文件末尾追加管理块");
+  assert.match(installed, /tools\.check_inbox/);
+  assert.equal(runCli(["configure", "--codex-approve=list_agents"]).status, 0);
+  const reconfigured = fs.readFileSync(configPath, "utf8");
+  assert.ok(reconfigured.startsWith(userToml), "configure 不应改动用户内容");
+  assert.doesNotMatch(reconfigured.slice(userToml.length), /check_inbox/, "旧管理块应被替换");
+  assert.equal(reconfigured.match(/>>> cc-bridge >>>/g).length, 2, "只应多出一个真实的管理块");
+  assert.equal(runCli(["disable"]).status, 0);
+  assert.equal(fs.readFileSync(configPath, "utf8"), userToml, "disable 后应逐字还原");
+
+  // 没有管理块时什么都不写。
+  const untouched = 'model = "x"   \n\n\n\n';
+  fs.writeFileSync(configPath, untouched);
+  assert.equal(runCli(["enable"]).status, 0);
+  assert.equal(runCli(["disable"]).status, 0);
+  assert.equal(fs.readFileSync(configPath, "utf8"), untouched, "没有管理块时不应改写文件");
+  store.setBridgeEnabled(true);
+}
+
+// 26. 显式 session_id 被拒绝时说明原因。
+{
+  const host = fakeAgent("codex");
+  const otherHost = fakeAgent("codex");
+  const SESSION = "cccccccc-aaaa-4bbb-8ccc-00000000000c";
+  hook("Codex", `Codex:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  const call = (agent, session_id) => JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_agents", arguments: { session_id } } })}\n`, agent
+  }).stdout).result;
+  const foreign = call(`Codex:${otherHost.pid}`, SESSION);
+  assert.equal(foreign.isError, true);
+  assert.match(foreign.content[0].text, /属于其他宿主进程/);
+  const unknown = call(`Codex:${host.pid}`, "dddddddd-aaaa-4bbb-8ccc-00000000000d");
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.content[0].text, /不是已注册的在线会话/);
+}
+
+// 27. 没有 SessionEnd 的离线会话：消息、回执、订阅都要收尾，正文不能留在磁盘上。
+{
+  const bridgeDirectory = store.bridgeDirectory();
+  const victim = fakeAgent("claude");
+  const survivor = fakeAgent("claude");
+  const VICTIM = "eeeeeeee-aaaa-4bbb-8ccc-00000000000e";
+  const SURVIVOR = "ffffffff-aaaa-4bbb-8ccc-00000000000f";
+  hook("Claude", `Claude:${victim.pid}`, { hook_event_name: "SessionStart", session_id: VICTIM, cwd });
+  hook("Claude", `Claude:${survivor.pid}`, { hook_event_name: "SessionStart", session_id: SURVIVOR, cwd });
+  const pending = (to, createdAt = Date.now()) => {
+    const message = { id: store.newMessageId(), from: { session: SURVIVOR, name: "s", ref: "000000" }, to: { session: to, name: "x" }, body: "正文", createdAt, status: "pending" };
+    store.writeReceipt(message);
+    store.enqueueInbox(message);
+    return message;
+  };
+
+  // 被查询到离线时立即收尾。
+  const lost = pending(VICTIM);
+  writeState(path.join(bridgeDirectory, "subscriptions", VICTIM, `${SURVIVOR}.json`), { subscriber: SURVIVOR, createdAt: Date.now() });
+  victim.kill("SIGKILL");
+  await new Promise((resolve) => victim.once("exit", resolve));
+  runCli(["list"]);
+  assert.equal(store.readSession(VICTIM), null);
+  assert.equal(store.readReceipt(lost.id).status, "undeliverable");
+  for (const kind of ["inbox", "claimed", "subscriptions"]) {
+    assert.equal(fs.existsSync(path.join(bridgeDirectory, kind, VICTIM)), false, `${kind} 目录应被清理`);
+  }
+
+  // 注册表已经没有记录的孤儿信箱，由 SessionStart 扫描兜底。
+  const ORPHAN = "12121212-aaaa-4bbb-8ccc-000000000012";
+  const orphaned = pending(ORPHAN);
+  writeState(path.join(bridgeDirectory, "subscriptions", ORPHAN, `${SURVIVOR}.json`), { subscriber: SURVIVOR, createdAt: Date.now() });
+  // 在线会话里过期的消息要收尾，没过期的不动。
+  const dayAndAHalf = 36 * 60 * 60 * 1000;
+  const expired = pending(SURVIVOR, Date.now() - dayAndAHalf);
+  const fresh = pending(SURVIVOR);
+  // 已经没有信箱文件、却还停在 pending 的旧回执。
+  const stranded = { id: store.newMessageId(), from: { session: SURVIVOR }, to: { session: ORPHAN }, body: "正文", createdAt: Date.now() - dayAndAHalf, status: "pending" };
+  store.writeReceipt(stranded);
+  const started = hook("Claude", `Claude:${survivor.pid}`, { hook_event_name: "SessionStart", session_id: SURVIVOR, cwd });
+  assert.match(JSON.parse(started.stdout).hookSpecificOutput.additionalContext, /session_id 是/);
+  assert.equal(store.readReceipt(orphaned.id).status, "undeliverable");
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "inbox", ORPHAN)), false);
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "subscriptions", ORPHAN)), false);
+  assert.equal(store.readReceipt(expired.id).status, "expired");
+  assert.equal(store.readReceipt(fresh.id).status, "pending");
+  assert.equal(store.readReceipt(stranded.id).status, "expired");
+  assert.deepEqual(jsonFiles(path.join(bridgeDirectory, "inbox", SURVIVOR)), [`${fresh.id}.json`]);
+
+  // 正常结束时订阅也要清掉。
+  writeState(path.join(bridgeDirectory, "subscriptions", SURVIVOR, "someone.json"), { subscriber: "someone", createdAt: Date.now() });
+  hook("Claude", `Claude:${survivor.pid}`, { hook_event_name: "SessionEnd", session_id: SURVIVOR });
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "subscriptions", SURVIVOR)), false);
+}
+
+// 28. 预留：参数校验零副作用；目录与 glob 的冲突能被发现；并发时不丢冲突、不丢确认。
+{
+  const hostA = fakeAgent("claude");
+  const hostB = fakeAgent("claude");
+  const agentA = `Claude:${hostA.pid}`;
+  const agentB = `Claude:${hostB.pid}`;
+  const repo = path.join(root, "reservation-repo");
+  fs.mkdirSync(repo, { recursive: true });
+  hook("Claude", agentA, { hook_event_name: "SessionStart", session_id: "13131313-aaaa-4bbb-8ccc-000000000013", cwd: repo });
+  hook("Claude", agentB, { hook_event_name: "SessionStart", session_id: "14141414-aaaa-4bbb-8ccc-000000000014", cwd: repo });
+  const request = (name, args) => `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })}\n`;
+  const call = (agent, name, args = {}) => JSON.parse(runCli(["mcp"], { input: request(name, args), agent }).stdout).result;
+  const callAsync = (agent, name, args) => new Promise((resolve, reject) => {
+    const child = spawn(binary, ["bridge", "mcp"], { env: { ...env, CC_BRIDGE_AGENT: agent }, stdio: ["pipe", "pipe", "ignore"] });
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.on("error", reject);
+    child.on("close", () => resolve(JSON.parse(output).result));
+    child.stdin.end(request(name, args));
+  });
+
+  call(agentA, "reserve_files", { paths: ["src/api", "keep.ts"] });
+  for (const paths of ["src/api", null, 42, [42]]) {
+    const refused = call(agentA, "release_files", { paths });
+    assert.equal(refused.isError, true, `paths=${JSON.stringify(paths)} 应报错`);
+    assert.match(refused.content[0].text, /字符串数组/);
+  }
+  assert.equal(store.reservations().filter((entry) => entry.root === repo).length, 2, "非法参数不能释放任何预留");
+
+  const overlapping = call(agentB, "reserve_files", { paths: ["src/**/*.ts"] });
+  assert.match(overlapping.content[0].text, /src\/api/, "目录与其下文件的 glob 应报冲突");
+  call(agentB, "release_files");
+  assert.match(call(agentA, "release_files").content[0].text, /已释放 2 处/);
+
+  // 两个会话同时预留同一路径：无论谁先，后写的一方都必须看到冲突。
+  for (let round = 0; round < 10; round += 1) {
+    const target = `race-${round}.ts`;
+    const results = await Promise.all([agentA, agentB].map((agent) => callAsync(agent, "reserve_files", { paths: [target] })));
+    assert.ok(results.some((result) => /重叠|⚠️/.test(result.content[0].text)), `第 ${round} 轮两边都没看到冲突`);
+  }
+  call(agentA, "release_files");
+  call(agentB, "release_files");
+
+  // 多个会话同时第一次编辑同一处预留：确认名单不能互相覆盖。
+  call(agentA, "reserve_files", { paths: ["shared/**"] });
+  const editors = Array.from({ length: 6 }, (_, index) => {
+    const host = fakeAgent("claude");
+    const session = `15151515-aaaa-4bbb-8ccc-00000000001${index}`;
+    hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: session, cwd: repo });
+    return { agent: `Claude:${host.pid}`, session };
+  });
+  await Promise.all(editors.map(({ agent, session }) => new Promise((resolve, reject) => {
+    const child = spawn(binary, ["bridge", "hook"], { env: { ...env, CC_BRIDGE_AGENT: agent, CC_BRIDGE_HOOK: "Claude" }, stdio: ["pipe", "ignore", "ignore"] });
+    child.on("error", reject);
+    child.on("close", resolve);
+    child.stdin.end(JSON.stringify({ hook_event_name: "PreToolUse", session_id: session, cwd: repo, tool_name: "Edit", tool_input: { file_path: "shared/a.ts" } }));
+  })));
+  const shared = store.reservations().find((entry) => entry.root === repo && entry.pattern === "shared/**");
+  assert.equal(shared.acknowledgedBy.length, editors.length, "并发确认不应丢失");
+  call(agentA, "release_files");
+}
+
 console.log("bridge-harness: all passed");
 process.exit(0);

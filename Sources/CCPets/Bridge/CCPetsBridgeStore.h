@@ -75,6 +75,10 @@ void CCBridgeFinishInbox(id sessionId, NSArray<NSDictionary *> *messages, NSStri
 NSUInteger CCBridgePendingCount(id sessionId);
 // 会话结束：信箱里还没投出去的消息标记为 undeliverable。
 void CCBridgeAbandonInbox(id sessionId);
+// 同上，但用于没有 SessionEnd 的离线会话（崩溃、被杀）：连同它的空闲订阅一起清掉；锁繁忙或会话又上线时不动。
+void CCBridgeAbandonOfflineSession(id sessionId);
+// 扫描状态目录：离线会话按上面处理，在线会话里超过 TTL 的消息标记为 expired。锁繁忙的留给下一次。
+void CCBridgeSweepMessages(void);
 void CCBridgePruneReceipts(void);
 
 #pragma mark - 空闲订阅（一次性）
@@ -82,20 +86,24 @@ void CCBridgePruneReceipts(void);
 void CCBridgeAddIdleSubscription(NSString *targetSession, NSString *subscriberSession);
 BOOL CCBridgeHasIdleSubscriptions(NSString *targetSession);
 NSArray<NSString *> *CCBridgeTakeIdleSubscriptions(NSString *targetSession);
+void CCBridgeClearIdleSubscriptions(id targetSession);
 
 #pragma mark - 锁
 
 // 稳定 inode 上的 flock；PID 文件只作诊断。进程退出自动释放，成功返回诊断文件路径。
 NSString *CCBridgeAcquireLock(NSString *name);
 void CCBridgeReleaseLock(NSString *lockFile);
+// 等锁（有上限，超时抛异常）后执行 body。锁不可重入，body 里不能再取同名锁。
+id CCBridgeWithLock(NSString *name, id (^body)(void));
 
 #pragma mark - 进程探测
 
 BOOL CCBridgeProcessAlive(pid_t pid);
-NSString *CCBridgeProcessCommand(pid_t pid);
+// 进程的 argv，元素边界与启动时一致；读不到时返回 nil。
+NSArray<NSString *> *CCBridgeProcessArguments(pid_t pid);
 // CLI 进程的控制终端，如 "ttys003"；没有时返回 nil。
 NSString *CCBridgeProcessTty(pid_t pid);
-BOOL CCBridgeCommandMatchesProvider(NSString *provider, NSString *command);
+BOOL CCBridgeArgumentsMatchProvider(NSString *provider, NSArray<NSString *> *arguments);
 // 离 startPid 最近的 Claude / Codex 祖先进程：@{provider, pid}。CC_BRIDGE_AGENT=Codex:1234 可强制指定。
 NSDictionary *CCBridgeFindAgentAncestor(pid_t startPid);
 // 有 pid 时以"进程还在且仍是同一种 CLI"为准（防 pid 复用）；没有 pid 的记录退回 6 小时活动窗口。

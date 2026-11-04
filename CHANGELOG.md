@@ -10,6 +10,12 @@ truth for the version.
 ### CC Bridge
 
 - Accept a per-call `session_id` in MCP tools, supplied through session-start and user-prompt hook context, so Codex sessions sharing an app-server PID can identify themselves when MCP does not inherit a session ID. Explicit identities must pass live-registration and host checks; retain single-session auto-detection, reject invalid IDs and never cache caller identity.
+- Keep `config.toml` byte-for-byte outside CC Bridge's own managed block, including blank lines inside multi-line strings and marker-like text.
+- Recognize CLI hosts from structured argv so paths containing spaces work. Rejected `session_id` values now report why, and an unverifiable host is still rejected.
+- Serialize reservation creation, renewal, acknowledgement, release and expiry so concurrent sessions can't miss conflicts or lose updates.
+- Detect overlaps between directories and globs, such as `src/api` and `src/**/*.ts`, by checking whether a common path exists.
+- Clean up after sessions that exit without `SessionEnd`: mark undelivered messages undeliverable, expire old messages and receipts, and remove idle subscriptions.
+- Reject invalid `paths` in `release_files` without changing any reservation.
 
 ## [2.4.0] - 2026-11-03
 

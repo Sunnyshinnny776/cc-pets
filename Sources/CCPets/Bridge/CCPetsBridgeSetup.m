@@ -202,15 +202,73 @@ static NSString *CodexApprovalBlock(NSArray<NSString *> *tools) {
     return [lines componentsJoinedByString:@"\n"];
 }
 
-static NSString *StripTomlBlocks(NSString *text) {
-    for (NSArray<NSString *> *block in TomlBlocks()) {
-        NSString *pattern = [NSString stringWithFormat:@"\\n?%@[\\s\\S]*?%@\\n?",
-            [NSRegularExpression escapedPatternForString:block[0]], [NSRegularExpression escapedPatternForString:block[1]]];
-        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
-        text = [expression stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) withTemplate:@"\n"];
+typedef NS_ENUM(NSInteger, TomlLexState) {
+    TomlLexNormal,
+    TomlLexMultilineBasic,
+    TomlLexMultilineLiteral
+};
+
+// 扫过一行，返回行尾的词法状态。只关心多行字符串：字符串里的内容长得再像管理块也是用户的数据。
+static TomlLexState AdvanceTomlState(NSString *line, TomlLexState state) {
+    NSUInteger length = line.length;
+    BOOL (^startsWith)(NSUInteger, NSString *) = ^BOOL(NSUInteger index, NSString *text) {
+        return index + text.length <= length &&
+            [[line substringWithRange:NSMakeRange(index, text.length)] isEqualToString:text];
+    };
+    for (NSUInteger index = 0; index < length; index++) {
+        unichar character = [line characterAtIndex:index];
+        if (state == TomlLexMultilineBasic) {
+            if (character == '\\') index++;
+            else if (startsWith(index, @"\"\"\"")) { state = TomlLexNormal; index += 2; }
+        } else if (state == TomlLexMultilineLiteral) {
+            if (startsWith(index, @"'''")) { state = TomlLexNormal; index += 2; }
+        } else if (character == '#') {
+            return state;
+        } else if (startsWith(index, @"\"\"\"")) {
+            state = TomlLexMultilineBasic;
+            index += 2;
+        } else if (startsWith(index, @"'''")) {
+            state = TomlLexMultilineLiteral;
+            index += 2;
+        } else if (character == '"' || character == '\'') {
+            for (index++; index < length && [line characterAtIndex:index] != character; index++) {
+                if (character == '"' && [line characterAtIndex:index] == '\\') index++;
+            }
+        }
     }
-    NSRegularExpression *blank = [NSRegularExpression regularExpressionWithPattern:@"\\n{3,}" options:0 error:nil];
-    return [blank stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) withTemplate:@"\n\n"];
+    return state;
+}
+
+// lines[start] 是管理块的起始标记时返回结束标记所在行，否则 NSNotFound。没有结束标记的不算管理块。
+static NSUInteger TomlBlockEnd(NSArray<NSString *> *lines, NSUInteger start) {
+    NSCharacterSet *whitespace = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSString *first = [lines[start] stringByTrimmingCharactersInSet:whitespace];
+    for (NSArray<NSString *> *block in TomlBlocks()) {
+        if (![first isEqualToString:block[0]]) continue;
+        for (NSUInteger index = start + 1; index < lines.count; index++) {
+            if ([[lines[index] stringByTrimmingCharactersInSet:whitespace] isEqualToString:block[1]]) return index;
+        }
+    }
+    return NSNotFound;
+}
+
+// 只移除自己的管理块和安装时加在它前面的那一个空行，其余内容逐字保留：
+// config.toml 是用户的文件，多行字符串里的空行也是值的一部分。
+static NSString *StripTomlBlocks(NSString *text) {
+    NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    TomlLexState state = TomlLexNormal;
+    for (NSUInteger index = 0; index < lines.count; index++) {
+        NSUInteger end = state == TomlLexNormal ? TomlBlockEnd(lines, index) : NSNotFound;
+        if (end != NSNotFound) {
+            if ([kept.lastObject isEqualToString:@""]) [kept removeLastObject];
+            index = end;
+            continue;
+        }
+        [kept addObject:lines[index]];
+        state = AdvanceTomlState(lines[index], state);
+    }
+    return [kept componentsJoinedByString:@"\n"];
 }
 
 static void SetCodexApprovalAtHome(NSArray<NSString *> *tools, NSString *codexHome) {
@@ -219,13 +277,11 @@ static void SetCodexApprovalAtHome(NSArray<NSString *> *tools, NSString *codexHo
     BOOL exists = stat(file.fileSystemRepresentation, &info) == 0;
     NSString *original = exists ? [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil] : @"";
     if (!original) [NSException raise:@"CCBridgeConfig" format:@"Cannot read %@", file];
-    // 只把末尾的空白收成一个换行：开头的空白属于用户的文件，原样保留。
-    NSString *stripped = StripTomlBlocks(original);
-    NSUInteger end = stripped.length;
-    NSCharacterSet *whitespace = NSCharacterSet.whitespaceAndNewlineCharacterSet;
-    while (end > 0 && [whitespace characterIsMember:[stripped characterAtIndex:end - 1]]) end--;
-    NSString *updated = [[stripped substringToIndex:end] stringByAppendingString:@"\n"];
-    if (tools.count > 0) updated = [updated stringByAppendingFormat:@"\n%@\n", CodexApprovalBlock(tools)];
+    NSString *updated = StripTomlBlocks(original);
+    if (tools.count > 0) {
+        if (updated.length > 0 && ![updated hasSuffix:@"\n"]) updated = [updated stringByAppendingString:@"\n"];
+        updated = [updated stringByAppendingFormat:updated.length > 0 ? @"\n%@\n" : @"%@\n", CodexApprovalBlock(tools)];
+    }
     if ([updated isEqualToString:original]) return;
     NSString *error = nil;
     if (!CCPetsWriteFileAtomically(file, updated, exists ? (info.st_mode & 0777) : 0600, &error)) {
