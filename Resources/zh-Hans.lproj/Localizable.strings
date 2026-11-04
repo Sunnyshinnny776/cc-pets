@@ -505,17 +505,11 @@
 "codex executable not found, so messages to Codex can only go to its inbox; set CODEX_REAL_BIN and run cc-pets bridge enable." = "未找到 codex 可执行文件，发给 Codex 的消息只能进信箱；可设置 CODEX_REAL_BIN 后执行 cc-pets bridge enable。";
 "Couldn't tell whether Codex supports codex queue; failed deliveries fall back to the inbox." = "无法确认 Codex 是否支持 codex queue；投递失败时会自动退回信箱。";
 "Claude Code hooks written to {path}" = "Claude Code hooks 已写入 {path}";
-"Claude Code allows these tools without asking: {claudeAllow}" = "Claude Code 中以下工具免确认：{claudeAllow}";
-"In Claude Code, cc-bridge tools follow your permission settings." = "Claude Code 中 cc-bridge 的工具按你的权限设置询问。";
 "Claude Code MCP registered: {MCP_NAME} (on first use, Claude asks according to your permission settings)" = "Claude Code MCP 已注册：{MCP_NAME}（首次调用时 Claude 会按你的权限设置询问是否允许）";
 "Claude Code MCP registration failed. Run manually: claude {shellQuote}" = "Claude Code MCP 注册失败，请手动执行：claude {shellQuote}";
-"Claude Code CLI not detected, skipped." = "未检测到 Claude Code CLI，跳过。";
 "Codex hooks written to {path}. Next time you start Codex, run /hooks and trust the cc-pets bridge hooks." = "Codex hooks 已写入 {path}——下次启动 Codex 后请执行 /hooks 并信任 cc-pets bridge 的 hooks。";
 "Codex MCP registered: {MCP_NAME}" = "Codex MCP 已注册：{MCP_NAME}";
 "Codex MCP registration failed. Run manually: codex {shellQuote}" = "Codex MCP 注册失败，请手动执行：codex {shellQuote}";
-"Codex auto-approves these tools: {codexApprove} (restart Codex sessions to apply)" = "Codex 中以下工具免审批：{codexApprove}（需重启 Codex 会话生效）";
-"cc-bridge tools keep Codex's default approvals (calls fail under approval_policy=never; allow them with --codex-approve)." = "Codex 中 cc-bridge 的工具保持默认审批（approval_policy=never 时调用会失败，可用 --codex-approve 放开）。";
-"Codex CLI not detected, skipped." = "未检测到 Codex CLI，跳过。";
 "Removed the cc-bridge hooks and tool permissions from Claude Code." = "已移除 Claude Code 中的 cc-bridge hooks 与工具放行规则。";
 "Removed the cc-bridge hooks from Codex." = "已移除 Codex 中的 cc-bridge hooks。";
 "{flag} only accepts groups {TOOL_GROUPS} or tools {ALL_TOOLS}, got: {unknown}" = "{flag} 只接受分组 {TOOL_GROUPS} 或工具 {ALL_TOOLS}，收到：{unknown}";

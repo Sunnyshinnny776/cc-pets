@@ -289,15 +289,7 @@ static void SetCodexApprovalAtHome(NSArray<NSString *> *tools, NSString *codexHo
     }
 }
 
-static void SetCodexApproval(NSArray<NSString *> *tools) {
-    SetCodexApprovalAtHome(tools, CCPetsCodexHome());
-}
-
 #pragma mark - MCP
-
-static BOOL RunQuietly(NSString *executable, NSArray<NSString *> *arguments) {
-    return CCPetsRun(executable, arguments, nil, nil, 60, NULL, NULL) == 0;
-}
 
 static BOOL RunQuietlyForHome(NSString *executable, NSArray<NSString *> *arguments,
     NSString *provider, NSString *home) {
@@ -506,66 +498,6 @@ NSArray<NSString *> *CCBridgeUninstallForProfile(NSDictionary *profile, BOOL unr
     return report;
 }
 
-NSArray<NSString *> *CCBridgeInstall(NSDictionary *rawOptions, BOOL registerMcp) {
-    NSDictionary *options = CCBridgeNormalizeOptions(rawOptions);
-    NSArray<NSString *> *claudeAllow = options[@"claudeAllow"];
-    NSArray<NSString *> *codexApprove = options[@"codexApprove"];
-    NSMutableArray<NSString *> *report = [NSMutableArray array];
-    if (CCPetsClaudeCLIInstalled()) {
-        [NSFileManager.defaultManager createDirectoryAtPath:CCPetsClaudeHome() withIntermediateDirectories:YES attributes:nil error:nil];
-        NSString *settingsPath = [CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"];
-        CCPetsJSONObject *config = ReadJSONConfig(settingsPath);
-        StripBridgeHooks(config);
-        AddClaudeHooks(config, options, nil);
-        ApplyClaudeAllow(config, claudeAllow);
-        WriteJSONConfig(settingsPath, config);
-        [report addObject:LF(L(@"Claude Code hooks written to {path}"), @{@"path": settingsPath})];
-        [report addObject:claudeAllow.count > 0
-            ? LF(L(@"Claude Code allows these tools without asking: {claudeAllow}"), @{@"claudeAllow": [claudeAllow componentsJoinedByString:@", "]})
-            : L(@"In Claude Code, cc-bridge tools follow your permission settings.")];
-        if (registerMcp) {
-            NSString *claude = CCPetsFindRealExecutable(@"claude", @"CLAUDE_REAL_BIN");
-            for (NSString *name in MCPNames()) RunQuietly(claude ?: @"claude", @[@"mcp", @"remove", @"--scope", @"user", name]);
-            BOOL ok = claude && RunQuietly(claude, ClaudeMCPAddArguments());
-            [report addObject:ok
-                ? LF(L(@"Claude Code MCP registered: {MCP_NAME} (on first use, Claude asks according to your permission settings)"), @{@"MCP_NAME": CCBridgeMCPName})
-                : LF(L(@"Claude Code MCP registration failed. Run manually: claude {shellQuote}"), @{@"shellQuote": QuotedArguments(ClaudeMCPAddArguments())})];
-        }
-    } else {
-        [report addObject:L(@"Claude Code CLI not detected, skipped.")];
-    }
-
-    if (CCPetsCodexCLIInstalled()) {
-        [NSFileManager.defaultManager createDirectoryAtPath:CCPetsCodexHome() withIntermediateDirectories:YES attributes:nil error:nil];
-        NSString *hooksPath = [CCPetsCodexHome() stringByAppendingPathComponent:@"hooks.json"];
-        CCPetsJSONObject *config = ReadJSONConfig(hooksPath);
-        StripBridgeHooks(config);
-        AddCodexHooks(config, options, nil);
-        WriteJSONConfig(hooksPath, config);
-        [report addObject:LF(L(@"Codex hooks written to {path}. Next time you start Codex, run /hooks and trust the cc-pets bridge hooks."), @{@"path": hooksPath})];
-        if (registerMcp) {
-            NSString *codex = CCPetsFindRealExecutable(@"codex", @"CODEX_REAL_BIN");
-            for (NSString *name in MCPNames()) RunQuietly(codex ?: @"codex", @[@"mcp", @"remove", name]);
-            BOOL ok = codex && RunQuietly(codex, CodexMCPAddArguments());
-            [report addObject:ok
-                ? LF(L(@"Codex MCP registered: {MCP_NAME}"), @{@"MCP_NAME": CCBridgeMCPName})
-                : LF(L(@"Codex MCP registration failed. Run manually: codex {shellQuote}"), @{@"shellQuote": QuotedArguments(CodexMCPAddArguments())})];
-            // 只在 enable / refresh 时探测：configure 由桌宠菜单开关触发，不值得每次多拉起两次 codex。
-            if ([options[@"wake"] boolValue]) {
-                NSString *notice = CCBridgeDescribeCodexQueue(CCBridgeProbeCodexQueue(codex));
-                if (notice) [report addObject:notice];
-            }
-        }
-        SetCodexApproval(codexApprove);
-        [report addObject:codexApprove.count > 0
-            ? LF(L(@"Codex auto-approves these tools: {codexApprove} (restart Codex sessions to apply)"), @{@"codexApprove": [codexApprove componentsJoinedByString:@", "]})
-            : L(@"cc-bridge tools keep Codex's default approvals (calls fail under approval_policy=never; allow them with --codex-approve).")];
-    } else {
-        [report addObject:L(@"Codex CLI not detected, skipped.")];
-    }
-    return report;
-}
-
 // 文件不存在、或里面本来就没有我们的东西时不改写——用户的文件不该因为一次卸载被重排格式。
 static BOOL RemoveJSONHooks(NSString *file, BOOL claudeAllow) {
     if (![NSFileManager.defaultManager fileExistsAtPath:file]) return NO;
@@ -575,11 +507,4 @@ static BOOL RemoveJSONHooks(NSString *file, BOOL claudeAllow) {
     if (!changed) return NO;
     WriteJSONConfig(file, config);
     return YES;
-}
-
-NSArray<NSString *> *CCBridgeUninstall(BOOL unregisterMcp) {
-    NSMutableArray *report = [NSMutableArray array];
-    [report addObjectsFromArray:CCBridgeUninstallForProfile(@{@"provider": @"claude", @"home": CCPetsClaudeHome()}, unregisterMcp)];
-    [report addObjectsFromArray:CCBridgeUninstallForProfile(@{@"provider": @"codex", @"home": CCPetsCodexHome()}, unregisterMcp)];
-    return report;
 }
