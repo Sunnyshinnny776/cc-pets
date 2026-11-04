@@ -1082,5 +1082,88 @@ exit 0
   assert.equal(JSON.parse(edit.stdout).hookSpecificOutput.permissionDecision, "deny", "尚不存在的新文件也应命中预留");
 }
 
+// 31. 卸载：只认真正的 MCP 声明，路径或其他服务器参数里出现相同文字不算；真正的声明不能漏。
+{
+  const configPath = path.join(env.CODEX_HOME, "config.toml");
+  const disableWithMcp = () => {
+    store.setBridgeEnabled(true);
+    return runCli(["disable"], { extraEnv: { CC_BRIDGE_SKIP_MCP: "0" } });
+  };
+  for (const unrelated of [
+    '[projects."/Users/me/cc-bridge"]\ntrust_level = "trusted"\n',
+    '[mcp_servers.my-cc-bridge-tools]\ncommand = "cc-bridge"\n',
+    '[mcp_servers.other.env]\ncc-bridge = "1"\n',
+    'note = """\n[mcp_servers.cc-bridge]\n"""\n'
+  ]) {
+    fs.writeFileSync(configPath, unrelated);
+    const result = disableWithMcp();
+    assert.equal(result.status, 0, `不应误报：${unrelated}\n${result.stdout}`);
+  }
+  // 假 codex 的 mcp remove 总是失败，所以“没能移除”的报错证明确实认出了声明。
+  for (const declared of [
+    '[mcp_servers.cc-bridge]\ncommand = "x"\n',
+    '[mcp_servers."cc-bridge"]\ncommand = "x"\n',
+    '[mcp_servers]\ncc-bridge = { command = "x" }\n',
+    'mcp_servers.cc-bridge.command = "x"\n',
+    'mcp_servers = { cc-bridge = { command = "x" } }\n'
+  ]) {
+    fs.writeFileSync(configPath, declared);
+    const result = disableWithMcp();
+    assert.equal(result.status, 1, `应识别出声明：${declared}`);
+    assert.match(result.stdout, /cc-bridge/);
+  }
+  fs.writeFileSync(configPath, 'model = "x"\n');
+  store.setBridgeEnabled(true);
+}
+
+// 32. CLI 参数：正文可以写任意文字；拼错的选项和缺值的参数要报错。
+{
+  const host = fakeAgent("claude");
+  const peer = fakeAgent("claude");
+  const SESSION = "20202020-aaaa-4bbb-8ccc-000000000020";
+  const PEER = "21212121-aaaa-4bbb-8ccc-000000000021";
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  hook("Claude", `Claude:${peer.pid}`, { hook_event_name: "SessionStart", session_id: PEER, cwd });
+  const peerName = store.readSession(PEER).name;
+  const agent = `Claude:${host.pid}`;
+  const sent = runCli(["send", peerName, "改一下", "--from", "参数"], { agent });
+  assert.equal(sent.status, 0, sent.stderr);
+  const receipt = store.listReceipts().filter((entry) => entry.to?.session === PEER).at(-1);
+  assert.equal(receipt.body, "改一下 --from 参数", "正文里的 --from 不是选项");
+  assert.equal(receipt.from.session, SESSION);
+  const explicit = runCli(["send", "--from", store.readSession(SESSION).name, peerName, "显式身份"]);
+  assert.equal(explicit.status, 0, explicit.stderr);
+  const trailing = runCli(["send", "--from"], { agent });
+  assert.equal(trailing.status, 1);
+  assert.match(trailing.stderr, /--from 需要一个值/);
+
+  const typo = runCli(["configure", "--wkae=off"]);
+  assert.equal(typo.status, 1);
+  assert.match(typo.stderr, /未知选项：--wkae=off/);
+  assert.equal(store.readBridgeOptions().wake ?? true, true, "选项报错时不能改配置");
+  const missing = runCli(["configure", "--wake"]);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /--wake 需要一个值/);
+}
+
+// 33. MCP：非法 UTF-8 也要回复，后面的请求不受影响；身份不明时不查 MCP 进程自己的目录。
+{
+  const request = `${JSON.stringify({ jsonrpc: "2.0", id: 7, method: "ping" })}\n`;
+  const result = spawnSync(binary, ["bridge", "mcp"], {
+    input: Buffer.concat([Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from(request)]),
+    env, encoding: "utf8"
+  });
+  const [invalid, ping] = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(invalid.error.code, -32700);
+  assert.equal(ping.id, 7);
+
+  const anonymous = JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_reservations", arguments: {} } })}\n`,
+    agent: "Codex:999999"
+  }).stdout).result;
+  assert.equal(anonymous.isError, true);
+  assert.match(anonymous.content[0].text, /当前会话身份缺失或不明确/);
+}
+
 console.log("bridge-harness: all passed");
 process.exit(0);

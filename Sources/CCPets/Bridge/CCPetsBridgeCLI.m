@@ -93,10 +93,11 @@ static NSString *USAGE(void) {
 
 #pragma mark - 参数
 
-static NSString *ParseFlag(NSMutableArray<NSString *> *arguments, NSString *name) {
+// 只在前 limit 个参数里找：send 的正文可以出现任意文字，包括 --from。
+static NSString *ParseFlagWithin(NSMutableArray<NSString *> *arguments, NSString *name, NSUInteger limit) {
     NSString *exact = [@"--" stringByAppendingString:name];
     NSString *prefix = [exact stringByAppendingString:@"="];
-    for (NSUInteger index = 0; index < arguments.count; index++) {
+    for (NSUInteger index = 0; index < MIN(limit, arguments.count); index++) {
         NSString *argument = arguments[index];
         if (![argument isEqualToString:exact] && ![argument hasPrefix:prefix]) continue;
         [arguments removeObjectAtIndex:index];
@@ -106,9 +107,13 @@ static NSString *ParseFlag(NSMutableArray<NSString *> *arguments, NSString *name
             [arguments removeObjectAtIndex:index];
             return value;
         }
-        return nil;
+        Fail(LF(L(@"{flag} needs a value."), @{@"flag": exact}));
     }
     return nil;
+}
+
+static NSString *ParseFlag(NSMutableArray<NSString *> *arguments, NSString *name) {
+    return ParseFlagWithin(arguments, name, NSUIntegerMax);
 }
 
 static NSDictionary<NSString *, NSString *> *ReadOptionFlags(NSMutableArray<NSString *> *arguments) {
@@ -126,6 +131,8 @@ static NSDictionary *MergedOptions(NSDictionary *base, NSMutableArray<NSString *
     NSString *error = nil;
     NSDictionary *options = CCBridgeMergeOptionFlags(base, ReadOptionFlags(arguments), &error);
     if (!options) Fail(error);
+    // 拼错的选项不能当成"没给"：用户以为改了，其实什么都没变。
+    if (arguments.count > 0) Fail(LF(L(@"Unknown option: {option}"), @{@"option": arguments.firstObject}));
     return options;
 }
 
@@ -142,9 +149,9 @@ static void PrintSessions(void) {
     }
 }
 
-static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments) {
+static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments, NSUInteger flagLimit) {
     if (!CCBridgeEnabled()) Fail(L(@"CC Bridge is off. Run cc-pets bridge enable first."));
-    NSString *from = ParseFlag(arguments, @"from");
+    NSString *from = ParseFlagWithin(arguments, @"from", flagLimit);
     if (from.length > 0) {
         NSDictionary *resolved = CCBridgeResolveTarget(from, CCBridgeLiveSessions());
         if (resolved[@"error"]) Fail(resolved[@"error"]);
@@ -545,6 +552,8 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
     }
 
     if ([name isEqualToString:@"list_reservations"]) {
+        // 共享宿主上 MCP 进程的目录不是调用者的仓库，退回它只会查错地方。
+        if (!self) return TextResult(UnknownSelf(), YES);
         NSString *cwd = StringValue(self[@"cwd"]) ?: NSFileManager.defaultManager.currentDirectoryPath;
         NSString *root = CCBridgeRepoRoot(cwd);
         NSArray<NSDictionary *> *reservations = CCBridgeActiveReservations(root, nil);
@@ -613,7 +622,8 @@ static int MCPCommand(void) {
     while ((length = getline(&line, &capacity, stdin)) >= 0) {
         @autoreleasepool {
             NSString *text = [[NSString alloc] initWithBytes:line length:(NSUInteger)length encoding:NSUTF8StringEncoding];
-            if ([text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) continue;
+            // 非法 UTF-8 时 text 为 nil，要走下面的解析错误：不回复的话客户端会一直等。
+            if (text && [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) continue;
             NSDictionary *request = ParseJSON(text);
             if (![request isKindOfClass:NSDictionary.class]) {
                 WriteMessage(@{@"jsonrpc": @"2.0", @"id": NSNull.null, @"error": @{@"code": @(-32700), @"message": @"Parse error"}});
@@ -784,7 +794,8 @@ static int StatusCommand(void) {
 }
 
 static int SendCommand(NSMutableArray<NSString *> *arguments) {
-    NSDictionary *from = SelfOrFrom(arguments);
+    // --from 只能写在收件人前后，再往后就是正文。
+    NSDictionary *from = SelfOrFrom(arguments, 2);
     if (arguments.count < 2) Fail(L(@"Usage: cc-pets bridge send <to> <message…>"));
     NSDictionary *target = CCBridgeResolveTarget(arguments[0], CCBridgeLiveSessions());
     if (target[@"error"]) Fail(target[@"error"]);
@@ -796,7 +807,7 @@ static int SendCommand(NSMutableArray<NSString *> *arguments) {
 }
 
 static int NameCommand(NSMutableArray<NSString *> *arguments) {
-    NSDictionary *session = SelfOrFrom(arguments);
+    NSDictionary *session = SelfOrFrom(arguments, NSUIntegerMax);
     if (arguments.count == 0) Fail(L(@"Usage: cc-pets bridge name <new-name>"));
     NSDictionary *result = CCBridgeRenameSession(session[@"session"], arguments[0], @[]);
     if (result[@"error"]) Fail(result[@"error"]);
@@ -805,7 +816,7 @@ static int NameCommand(NSMutableArray<NSString *> *arguments) {
 }
 
 static int InboxCommand(NSMutableArray<NSString *> *arguments) {
-    NSDictionary *session = SelfOrFrom(arguments);
+    NSDictionary *session = SelfOrFrom(arguments, NSUIntegerMax);
     NSArray<NSDictionary *> *messages = ClaimForOutput(session[@"session"], @"check-inbox");
     NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
     for (NSDictionary *message in messages) {

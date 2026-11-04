@@ -208,7 +208,7 @@
     NSString *body = fresh.count == 1
         ? [NSString stringWithFormat:@"%@ → %@", latest[@"from"], latest[@"to"]]
         : [NSString stringWithFormat:L(@"%1$@ → %2$@ and %3$lu more"), latest[@"from"], latest[@"to"],
-            (unsigned long)fresh.count];
+            (unsigned long)fresh.count - 1];
     [self sendNotificationWithTitle:L(@"New CC Bridge Message") body:body];
 }
 // 蓝色 = 有新的跨会话消息送达；橙色 = 有消息卡在某个会话的信箱里（那个 Claude 会话长时间空闲、

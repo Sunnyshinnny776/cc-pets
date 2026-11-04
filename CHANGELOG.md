@@ -20,6 +20,12 @@ truth for the version.
 - Resolve symlinks in repository roots and reserved paths, including new files and globs, so reservations match however a session reached the directory.
 - Keep the newest deliveries in the pet's badge and notifications when receipts exceed the scan limit.
 - Use the same online check in the pet as in the CLI.
+- Report the right count in the "and N more" delivery notification.
+- Recognize only real `mcp_servers` declarations when uninstalling, so matching text in project paths no longer causes false removal errors.
+- Treat `--from` after the first two `send` arguments as message text, and reject unknown options and flags missing a value.
+- Stop treating patch-like text in written content as edited files, and skip `git` when no reservations exist.
+- Answer MCP requests with invalid UTF-8 with a parse error instead of no response.
+- Return an error from `list_reservations` when the caller is unknown instead of checking the MCP process directory.
 
 ## [2.4.0] - 2026-11-03
 

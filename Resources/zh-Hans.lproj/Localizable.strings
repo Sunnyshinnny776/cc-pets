@@ -39,7 +39,7 @@
 "Disabled. The related hooks and MCP registrations were removed." = "已关闭，相关 hooks 与 MCP 注册已移除。";
 "Can't Enable Notifications" = "无法启用系统通知";
 "Allow notifications in System Settings → Notifications → CC Pets, then try again." = "请在“系统设置 → 通知 → CC Pets”中允许通知后重试。";
-"%1$@ → %2$@ and %3$lu more" = "%@ → %@ 等 %lu 条";
+"%1$@ → %2$@ and %3$lu more" = "%@ → %@ 及另外 %lu 条";
 "New CC Bridge Message" = "CC Bridge 新消息";
 "CC Bridge Messages" = "CC Bridge 消息";
 "📬 %1$@ has %2$lu undelivered message (say anything in that terminal to deliver)" = "📬 %@ 有 %lu 条消息待投递（去那个终端说句话即可送达）";
@@ -907,6 +907,8 @@
 "This MCP server's host process can't be identified, so the session can't be verified as belonging to it." = "无法识别此 MCP 服务的宿主进程，因此无法确认该会话属于它。";
 "It belongs to a different host process." = "该会话属于其他宿主进程。";
 "paths must be an array of strings." = "paths 必须是字符串数组。";
+"{flag} needs a value." = "{flag} 需要一个值。";
+"Unknown option: {option}" = "未知选项：{option}";
 
 /* 启动前代理检查 */
 "Launch Protection" = "启动保护";

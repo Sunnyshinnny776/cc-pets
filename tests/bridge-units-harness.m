@@ -127,6 +127,9 @@ int main(int argc, const char *argv[]) {
         Check([CCBridgeEditedFiles(@{@"command": @"*** Add File: /a/b/c.ts\n+x"}) isEqualToArray:@[@"/a/b/c.ts"]],
             @"路径里的 / 不能被转义成 \\/");
 
+        Check([CCBridgeEditedFiles(@{@"file_path": @"/repo/guide.md", @"content": @"示例：\n*** Update File: src/other.ts\n"})
+            isEqualToArray:@[@"/repo/guide.md"]], @"写入内容里的补丁文本不算编辑对象");
+
         // 选项：分组展开、按定义顺序去重、未知工具报错、开关只认 on / off 系列、合并时未给的保持原值。
         NSString *error = nil;
         Check([CCBridgeParseToolList(@"send_message,view", @"--x", &error)

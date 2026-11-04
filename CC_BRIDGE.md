@@ -87,7 +87,8 @@ provider and host PID; the MCP process never caches the selected identity. An in
 one belonging to another host, or one that can't be checked because the MCP host process can't be
 identified is rejected with the reason and without falling back to another identity. Calls without
 the argument retain environment-based identification and unique PID matching for existing single-session
-clients. Anonymous session listing remains available when identity cannot be resolved.
+clients. Anonymous session listing remains available when identity cannot be resolved, but `list_reservations`
+returns an error because the repository to check is unknown.
 
 After updating, reconnect the CC Bridge MCP server (or restart its client) to load the new binary
 and tool definitions with `session_id`.
@@ -275,7 +276,7 @@ Bridge validates `CODEX_THREAD_ID` / `CLAUDE_CODE_SESSION_ID` against the live s
 current host process. Without a session ID, PID lookup is allowed only when it identifies exactly one
 live session. Ambiguous shared hosts and stale explicit IDs fail closed for sending, renaming, reading
 inboxes and managing reservations. CLI diagnostics can select a session explicitly with
-`--from <session-name-or-full-session-id>`.
+`--from <session-name-or-full-session-id>`; with `send`, put it before the message.
 
 Claimed inbox messages remain on disk until the complete output has been flushed successfully.
 A later hook, watcher or `check_inbox` recovers unconfirmed messages after a crash. A crash between

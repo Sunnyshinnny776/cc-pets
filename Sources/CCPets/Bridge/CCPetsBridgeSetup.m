@@ -421,6 +421,33 @@ NSArray<NSString *> *CCBridgeInstallForProfile(NSDictionary *profile, NSDictiona
     return report;
 }
 
+// 只认 mcp_servers 下这个服务器的声明：表头、点号键、[mcp_servers] 表里的键，以及 inline table。
+// 项目路径、其他服务器的参数里出现同样的文字都不算，否则卸载会把它们误报成"移除失败"。
+static BOOL TomlDeclaresMCPServer(NSString *text, NSString *name) {
+    NSString *key = [NSString stringWithFormat:@"[\"']?%@[\"']?", [NSRegularExpression escapedPatternForString:name]];
+    NSString *table = @"\\A\\s*\\[\\s*mcp_servers\\s*\\]";
+    NSString *anyTable = @"\\A\\s*\\[";
+    NSString *declared = [NSString stringWithFormat:@"\\A\\s*\\[{0,2}\\s*mcp_servers\\s*\\.\\s*%@\\s*[\\].=]", key];
+    NSString *member = [NSString stringWithFormat:@"\\A\\s*%@\\s*[.=]", key];
+    NSString *inlineTable = [NSString stringWithFormat:@"\\A\\s*mcp_servers\\s*=\\s*\\{.*%@\\s*=", key];
+    BOOL (^matches)(NSString *, NSString *) = ^BOOL(NSString *pattern, NSString *line) {
+        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+        return [expression firstMatchInString:line options:0 range:NSMakeRange(0, line.length)] != nil;
+    };
+    TomlLexState state = TomlLexNormal;
+    BOOL insideServers = NO;
+    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+        if (state == TomlLexNormal) {
+            if (matches(declared, line) || matches(inlineTable, line)) return YES;
+            if (matches(table, line)) insideServers = YES;
+            else if (matches(anyTable, line)) insideServers = NO;
+            else if (insideServers && matches(member, line)) return YES;
+        }
+        state = AdvanceTomlState(line, state);
+    }
+    return NO;
+}
+
 // remove 对“本来就不存在”的注册也可能返回非零；只有确认不存在才按成功处理。
 static BOOL HasMCPRegistration(NSString *provider, NSString *home, NSString *name) {
     if ([provider isEqualToString:@"claude"]) {
@@ -436,12 +463,7 @@ static BOOL HasMCPRegistration(NSString *provider, NSString *home, NSString *nam
     if (![NSFileManager.defaultManager fileExistsAtPath:file]) return NO;
     NSString *text = [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil];
     if (!text) [NSException raise:@"CCBridgeConfig" format:@"Cannot read %@", file];
-    // 常规表、带引号的键和 inline table 均保守识别；不能把读取失败当成已卸载。
-    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
-        NSString *trimmed = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-        if (![trimmed hasPrefix:@"#"] && [trimmed containsString:name]) return YES;
-    }
-    return NO;
+    return TomlDeclaresMCPServer(text, name);
 }
 
 static void RemoveMCPRegistration(NSString *executable, NSString *provider, NSString *home,

@@ -733,6 +733,8 @@ NSDictionary *CCBridgeReleaseFiles(NSDictionary *session, id paths) {
 }
 
 NSArray<NSDictionary *> *CCBridgeFindForeignReservations(NSString *sessionId, NSString *cwd, NSArray<NSString *> *filePaths) {
+    // PreToolUse 每次编辑都会走到这里：没有任何预留时连 git 也不用起。
+    if (AllReservations().count == 0) return @[];
     NSString *root = CCBridgeRepoRoot(cwd);
     NSMutableArray<NSDictionary *> *others = [NSMutableArray array];
     for (NSDictionary *entry in CCBridgeActiveReservations(root, nil)) {
@@ -757,6 +759,8 @@ NSArray<NSString *> *CCBridgeEditedFiles(id toolInput) {
             if (StringValue(toolInput[key])) [files addObject:toolInput[key]];
         }
     }
+    // 有明确路径字段时就是这个文件；正文里出现补丁文本（比如写一份讲 apply_patch 的文档）不算编辑对象。
+    if (files.count > 0) return files.array;
     NSString *text = StringValue(toolInput);
     if (!text) {
         NSData *data = [NSJSONSerialization dataWithJSONObject:toolInput ?: @""
