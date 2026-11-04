@@ -2,6 +2,7 @@
 #import "CCPetsBridgeCore.h"
 #import "CCPetsBridgeSetup.h"
 #import "CCPetsBridgeStore.h"
+#import "CCPetsCLISupport.h"
 #import <signal.h>
 #import <spawn.h>
 #import <sys/wait.h>
@@ -96,6 +97,24 @@ int main(int argc, const char *argv[]) {
         Check([CCBridgeNormalizePattern(@"/repo", @"/repo/a", @"..") isEqualToString:@"**"], @"仓库根本身应规范为 **");
         Check([CCBridgeNormalizePattern(@"/repo", @"/repo", @"src/**") isEqualToString:@"src/**"], @"glob 应原样保留");
         Check(CCBridgeNormalizePattern(@"/repo", @"/repo", @"   ") == nil, @"空路径应拒绝");
+
+        // 软链：会话路径经过软链时也要和 git 给的物理路径对上；新文件和 glob 的尾部不存在，原样保留。
+        NSFileManager *files = NSFileManager.defaultManager;
+        NSString *physical = [CCPetsRealPath(temporary) stringByAppendingPathComponent:@"links/real"];
+        NSString *linked = [CCPetsRealPath(temporary) stringByAppendingPathComponent:@"links/alias"];
+        [files removeItemAtPath:[physical stringByDeletingLastPathComponent] error:nil];
+        [files createDirectoryAtPath:[physical stringByAppendingPathComponent:@"src"] withIntermediateDirectories:YES attributes:nil error:nil];
+        [files createSymbolicLinkAtPath:linked withDestinationPath:physical error:nil];
+        [files createSymbolicLinkAtPath:[physical stringByAppendingPathComponent:@"inner"] withDestinationPath:@"src" error:nil];
+        [files createSymbolicLinkAtPath:[physical stringByAppendingPathComponent:@"escape"] withDestinationPath:@"/etc" error:nil];
+        Check([CCBridgeNormalizePattern(physical, linked, @"src/new.ts") isEqualToString:@"src/new.ts"], @"相对路径经过软链时应落回仓库内");
+        Check([CCBridgeNormalizePattern(physical, physical, [linked stringByAppendingPathComponent:@"src/new.ts"]) isEqualToString:@"src/new.ts"],
+            @"绝对路径经过软链时应落回仓库内");
+        Check([CCBridgeNormalizePattern(physical, linked, [linked stringByAppendingPathComponent:@"src/**"]) isEqualToString:@"src/**"],
+            @"经过软链的 glob 应保留通配符");
+        Check([CCBridgeNormalizePattern(linked, linked, @"inner/new.ts") isEqualToString:@"src/new.ts"], @"仓库内的软链目录应解析到实际位置");
+        Check(CCBridgeNormalizePattern(physical, physical, @"escape/passwd") == nil, @"软链指向仓库外应算越界");
+        Check([CCBridgeRepoRoot(linked) isEqualToString:physical], @"非 git 目录的仓库根也应是物理路径");
 
         // 编辑文件提取：Claude 的 file_path；Codex 补丁正文（字段名不固定，整段做文本匹配）。
         Check([CCBridgeEditedFiles(@{@"file_path": @"/repo/a.ts", @"old_string": @"x"}) isEqualToArray:@[@"/repo/a.ts"]],

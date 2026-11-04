@@ -979,7 +979,8 @@ exit 0
   const hostB = fakeAgent("claude");
   const agentA = `Claude:${hostA.pid}`;
   const agentB = `Claude:${hostB.pid}`;
-  const repo = path.join(root, "reservation-repo");
+  // macOS 的 /tmp 本身是软链；预留记录里的仓库根是物理路径。
+  const repo = path.join(fs.realpathSync(root), "reservation-repo");
   fs.mkdirSync(repo, { recursive: true });
   hook("Claude", agentA, { hook_event_name: "SessionStart", session_id: "13131313-aaaa-4bbb-8ccc-000000000013", cwd: repo });
   hook("Claude", agentB, { hook_event_name: "SessionStart", session_id: "14141414-aaaa-4bbb-8ccc-000000000014", cwd: repo });
@@ -1033,6 +1034,52 @@ exit 0
   const shared = store.reservations().find((entry) => entry.root === repo && entry.pattern === "shared/**");
   assert.equal(shared.acknowledgedBy.length, editors.length, "并发确认不应丢失");
   call(agentA, "release_files");
+}
+
+// 29. 限流：并发发送不能一起越过上限，超出的请求不留下回执。
+{
+  const senderHost = fakeAgent("claude");
+  const receiverHost = fakeAgent("claude");
+  const SENDER = "16161616-aaaa-4bbb-8ccc-000000000016";
+  const RECEIVER = "17171717-aaaa-4bbb-8ccc-000000000017";
+  hook("Claude", `Claude:${senderHost.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  hook("Claude", `Claude:${receiverHost.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  const receiverName = store.readSession(RECEIVER).name;
+  for (let index = 0; index < store.PAIR_LIMIT_COUNT - 2; index += 1) {
+    store.writeReceipt({ id: store.newMessageId(), from: { session: SENDER }, to: { session: RECEIVER }, body: "x", createdAt: Date.now(), status: "delivered" });
+  }
+  const results = await Promise.all(Array.from({ length: 8 }, (_, index) => new Promise((resolve, reject) => {
+    const child = spawn(binary, ["bridge", "send", receiverName, `并发 ${index}`], { env: { ...env, CC_BRIDGE_AGENT: `Claude:${senderHost.pid}` }, stdio: "ignore" });
+    child.on("error", reject);
+    child.on("close", resolve);
+  })));
+  assert.equal(results.filter((status) => status === 0).length, 2, "只应放行到上限为止");
+  const paired = store.listReceipts().filter((receipt) => receipt.from?.session === SENDER && receipt.to?.session === RECEIVER);
+  assert.equal(paired.length, store.PAIR_LIMIT_COUNT, "回执数不应超过上限");
+}
+
+// 30. 软链：一个会话从软链路径进入目录，另一个从物理路径进入，预留仍然互相可见。
+{
+  const physicalRepo = path.join(fs.realpathSync(root), "linked-repo-real");
+  const aliasRepo = path.join(fs.realpathSync(root), "linked-repo-alias");
+  fs.mkdirSync(physicalRepo, { recursive: true });
+  fs.symlinkSync(physicalRepo, aliasRepo);
+  const viaAlias = fakeAgent("claude");
+  const viaPhysical = fakeAgent("claude");
+  const ALIAS = "18181818-aaaa-4bbb-8ccc-000000000018";
+  const PHYSICAL = "19191919-aaaa-4bbb-8ccc-000000000019";
+  hook("Claude", `Claude:${viaAlias.pid}`, { hook_event_name: "SessionStart", session_id: ALIAS, cwd: aliasRepo });
+  hook("Claude", `Claude:${viaPhysical.pid}`, { hook_event_name: "SessionStart", session_id: PHYSICAL, cwd: physicalRepo });
+  const reserved = JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "reserve_files", arguments: { paths: ["new.ts"] } } })}\n`,
+    agent: `Claude:${viaAlias.pid}`
+  }).stdout).result;
+  assert.notEqual(reserved.isError, true, reserved.content[0].text);
+  const edit = runCli(["hook"], {
+    input: JSON.stringify({ hook_event_name: "PreToolUse", session_id: PHYSICAL, cwd: physicalRepo, tool_name: "Write", tool_input: { file_path: path.join(physicalRepo, "new.ts") } }),
+    agent: `Claude:${viaPhysical.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude" }
+  });
+  assert.equal(JSON.parse(edit.stdout).hookSpecificOutput.permissionDecision, "deny", "尚不存在的新文件也应命中预留");
 }
 
 console.log("bridge-harness: all passed");

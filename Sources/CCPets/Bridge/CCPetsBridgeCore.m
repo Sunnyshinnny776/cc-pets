@@ -245,11 +245,7 @@ NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body,
         return @{@"error": LF(L(@"The message exceeds the {MESSAGE_BODY_LIMIT}KB limit. Shorten it, or write it to a file and send just the path."),
             @{@"MESSAGE_BODY_LIMIT": @(CCBridgeMessageBodyLimit / 1024)})};
     }
-    if (!system) {
-        if ([from[@"session"] isEqual:to[@"session"]]) return @{@"error": L(@"You can't message yourself.")};
-        NSString *limited = CCBridgeCheckSendLimits(from[@"session"], to[@"session"]);
-        if (limited) return @{@"error": limited};
-    }
+    if (!system && [from[@"session"] isEqual:to[@"session"]]) return @{@"error": L(@"You can't message yourself.")};
     NSDictionary *message = @{
         @"id": CCBridgeNewMessageId(),
         @"from": system ? @{@"system": @YES} : Identity(from),
@@ -258,7 +254,18 @@ NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body,
         @"createdAt": @(CCPetsMilliseconds()),
         @"status": @"queued"
     };
-    CCBridgeWriteReceipt(message);
+    if (system) {
+        CCBridgeWriteReceipt(message);
+    } else {
+        // 回执本身就是配额记录：计数和写入在同一把锁里，并发发送才不会一起越过上限。
+        // 投递在锁外，codex queue 可能要等几十秒，不能让别的会话跟着排队。
+        NSString *limited = CCBridgeWithLock(@"send-limits", ^id {
+            NSString *reason = CCBridgeCheckSendLimits(from[@"session"], to[@"session"]);
+            if (!reason) CCBridgeWriteReceipt(message);
+            return reason;
+        });
+        if (limited) return @{@"error": limited};
+    }
     if (notifyWhenIdle && !system) CCBridgeAddIdleSubscription(to[@"session"], from[@"session"]);
     return @{@"receipt": Deliver(message, to) ?: message};
 }
@@ -312,20 +319,39 @@ static BOOL HasGlob(NSString *text) {
     return [text rangeOfCharacterFromSet:GlobCharacters()].location != NSNotFound;
 }
 
+// 解析路径里已存在部分的软链，不存在的尾部（新文件、glob）原样接回去。
+// git 给的仓库根是物理路径，会话上报的路径可能经过软链，两边必须落到同一种写法才比得上。
+static NSString *CanonicalPath(NSString *path) {
+    NSString *resolved = CCPetsResolvePath(path);
+    NSString *existing = resolved;
+    NSMutableArray<NSString *> *missing = [NSMutableArray array];
+    while (existing.length > 1) {
+        NSString *real = CCPetsRealPath(existing);
+        if (real) {
+            for (NSString *component in missing) real = [real stringByAppendingPathComponent:component];
+            return real;
+        }
+        [missing insertObject:existing.lastPathComponent atIndex:0];
+        existing = existing.stringByDeletingLastPathComponent;
+    }
+    return resolved;
+}
+
 NSString *CCBridgeRepoRoot(NSString *directory) {
     if (directory.length == 0) return nil;
     NSString *output = nil;
-    if (CCPetsRun(@"git", @[@"rev-parse", @"--show-toplevel"], directory, nil, 10, &output, NULL) != 0) return directory;
-    NSString *root = [output stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return root.length > 0 ? root : directory;
+    NSString *root = CCPetsRun(@"git", @[@"rev-parse", @"--show-toplevel"], directory, nil, 10, &output, NULL) == 0
+        ? [output stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"";
+    return CanonicalPath(root.length > 0 ? root : directory);
 }
 
 NSString *CCBridgeNormalizePattern(NSString *root, NSString *baseDirectory, id raw) {
     NSString *text = [raw isKindOfClass:NSString.class] ? raw : (raw && raw != NSNull.null ? [raw description] : @"");
     text = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (text.length == 0 || text.length > MaximumPatternLength) return nil;
-    NSString *absolute = CCPetsResolvePath([text hasPrefix:@"/"] ? text : [baseDirectory stringByAppendingFormat:@"/%@", text]);
-    NSString *resolvedRoot = CCPetsResolvePath(root);
+    NSString *absolute = CanonicalPath([text hasPrefix:@"/"] ? text
+        : [CanonicalPath(baseDirectory) stringByAppendingFormat:@"/%@", text]);
+    NSString *resolvedRoot = CanonicalPath(root);
     if ([absolute isEqualToString:resolvedRoot]) return @"**";
     NSString *prefix = [resolvedRoot isEqualToString:@"/"] ? @"/" : [resolvedRoot stringByAppendingString:@"/"];
     if (![absolute hasPrefix:prefix]) return nil;

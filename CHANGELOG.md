@@ -16,6 +16,10 @@ truth for the version.
 - Detect overlaps between directories and globs, such as `src/api` and `src/**/*.ts`, by checking whether a common path exists.
 - Clean up after sessions that exit without `SessionEnd`: mark undelivered messages undeliverable, expire old messages and receipts, and remove idle subscriptions.
 - Reject invalid `paths` in `release_files` without changing any reservation.
+- Make send limits atomic so concurrent sessions can't exceed them.
+- Resolve symlinks in repository roots and reserved paths, including new files and globs, so reservations match however a session reached the directory.
+- Keep the newest deliveries in the pet's badge and notifications when receipts exceed the scan limit.
+- Use the same online check in the pet as in the CLI.
 
 ## [2.4.0] - 2026-11-03
 

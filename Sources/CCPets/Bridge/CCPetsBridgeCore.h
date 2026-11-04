@@ -40,6 +40,7 @@ extern const NSInteger CCBridgeMaximumTTLMinutes;
 
 NSString *CCBridgeRepoRoot(NSString *directory);
 // 调用方给的路径（绝对、相对、glob 均可）→ "相对仓库根、以 / 分隔"的模式；越出仓库根返回 nil。
+// 比较前解析软链：经软链指向仓库外的路径同样算越界。
 NSString *CCBridgeNormalizePattern(NSString *root, NSString *baseDirectory, id raw);
 // 支持 **、*、?；不带通配符的模式视为"这个文件，或这个目录下的一切"。
 BOOL CCBridgePatternMatches(NSString *pattern, NSString *path);
