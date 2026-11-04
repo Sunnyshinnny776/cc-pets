@@ -202,15 +202,73 @@ static NSString *CodexApprovalBlock(NSArray<NSString *> *tools) {
     return [lines componentsJoinedByString:@"\n"];
 }
 
-static NSString *StripTomlBlocks(NSString *text) {
-    for (NSArray<NSString *> *block in TomlBlocks()) {
-        NSString *pattern = [NSString stringWithFormat:@"\\n?%@[\\s\\S]*?%@\\n?",
-            [NSRegularExpression escapedPatternForString:block[0]], [NSRegularExpression escapedPatternForString:block[1]]];
-        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
-        text = [expression stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) withTemplate:@"\n"];
+typedef NS_ENUM(NSInteger, TomlLexState) {
+    TomlLexNormal,
+    TomlLexMultilineBasic,
+    TomlLexMultilineLiteral
+};
+
+// 扫过一行，返回行尾的词法状态。只关心多行字符串：字符串里的内容长得再像管理块也是用户的数据。
+static TomlLexState AdvanceTomlState(NSString *line, TomlLexState state) {
+    NSUInteger length = line.length;
+    BOOL (^startsWith)(NSUInteger, NSString *) = ^BOOL(NSUInteger index, NSString *text) {
+        return index + text.length <= length &&
+            [[line substringWithRange:NSMakeRange(index, text.length)] isEqualToString:text];
+    };
+    for (NSUInteger index = 0; index < length; index++) {
+        unichar character = [line characterAtIndex:index];
+        if (state == TomlLexMultilineBasic) {
+            if (character == '\\') index++;
+            else if (startsWith(index, @"\"\"\"")) { state = TomlLexNormal; index += 2; }
+        } else if (state == TomlLexMultilineLiteral) {
+            if (startsWith(index, @"'''")) { state = TomlLexNormal; index += 2; }
+        } else if (character == '#') {
+            return state;
+        } else if (startsWith(index, @"\"\"\"")) {
+            state = TomlLexMultilineBasic;
+            index += 2;
+        } else if (startsWith(index, @"'''")) {
+            state = TomlLexMultilineLiteral;
+            index += 2;
+        } else if (character == '"' || character == '\'') {
+            for (index++; index < length && [line characterAtIndex:index] != character; index++) {
+                if (character == '"' && [line characterAtIndex:index] == '\\') index++;
+            }
+        }
     }
-    NSRegularExpression *blank = [NSRegularExpression regularExpressionWithPattern:@"\\n{3,}" options:0 error:nil];
-    return [blank stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) withTemplate:@"\n\n"];
+    return state;
+}
+
+// lines[start] 是管理块的起始标记时返回结束标记所在行，否则 NSNotFound。没有结束标记的不算管理块。
+static NSUInteger TomlBlockEnd(NSArray<NSString *> *lines, NSUInteger start) {
+    NSCharacterSet *whitespace = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSString *first = [lines[start] stringByTrimmingCharactersInSet:whitespace];
+    for (NSArray<NSString *> *block in TomlBlocks()) {
+        if (![first isEqualToString:block[0]]) continue;
+        for (NSUInteger index = start + 1; index < lines.count; index++) {
+            if ([[lines[index] stringByTrimmingCharactersInSet:whitespace] isEqualToString:block[1]]) return index;
+        }
+    }
+    return NSNotFound;
+}
+
+// 只移除自己的管理块和安装时加在它前面的那一个空行，其余内容逐字保留：
+// config.toml 是用户的文件，多行字符串里的空行也是值的一部分。
+static NSString *StripTomlBlocks(NSString *text) {
+    NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    TomlLexState state = TomlLexNormal;
+    for (NSUInteger index = 0; index < lines.count; index++) {
+        NSUInteger end = state == TomlLexNormal ? TomlBlockEnd(lines, index) : NSNotFound;
+        if (end != NSNotFound) {
+            if ([kept.lastObject isEqualToString:@""]) [kept removeLastObject];
+            index = end;
+            continue;
+        }
+        [kept addObject:lines[index]];
+        state = AdvanceTomlState(lines[index], state);
+    }
+    return [kept componentsJoinedByString:@"\n"];
 }
 
 static void SetCodexApprovalAtHome(NSArray<NSString *> *tools, NSString *codexHome) {
@@ -219,13 +277,11 @@ static void SetCodexApprovalAtHome(NSArray<NSString *> *tools, NSString *codexHo
     BOOL exists = stat(file.fileSystemRepresentation, &info) == 0;
     NSString *original = exists ? [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil] : @"";
     if (!original) [NSException raise:@"CCBridgeConfig" format:@"Cannot read %@", file];
-    // 只把末尾的空白收成一个换行：开头的空白属于用户的文件，原样保留。
-    NSString *stripped = StripTomlBlocks(original);
-    NSUInteger end = stripped.length;
-    NSCharacterSet *whitespace = NSCharacterSet.whitespaceAndNewlineCharacterSet;
-    while (end > 0 && [whitespace characterIsMember:[stripped characterAtIndex:end - 1]]) end--;
-    NSString *updated = [[stripped substringToIndex:end] stringByAppendingString:@"\n"];
-    if (tools.count > 0) updated = [updated stringByAppendingFormat:@"\n%@\n", CodexApprovalBlock(tools)];
+    NSString *updated = StripTomlBlocks(original);
+    if (tools.count > 0) {
+        if (updated.length > 0 && ![updated hasSuffix:@"\n"]) updated = [updated stringByAppendingString:@"\n"];
+        updated = [updated stringByAppendingFormat:updated.length > 0 ? @"\n%@\n" : @"%@\n", CodexApprovalBlock(tools)];
+    }
     if ([updated isEqualToString:original]) return;
     NSString *error = nil;
     if (!CCPetsWriteFileAtomically(file, updated, exists ? (info.st_mode & 0777) : 0600, &error)) {
@@ -233,15 +289,7 @@ static void SetCodexApprovalAtHome(NSArray<NSString *> *tools, NSString *codexHo
     }
 }
 
-static void SetCodexApproval(NSArray<NSString *> *tools) {
-    SetCodexApprovalAtHome(tools, CCPetsCodexHome());
-}
-
 #pragma mark - MCP
-
-static BOOL RunQuietly(NSString *executable, NSArray<NSString *> *arguments) {
-    return CCPetsRun(executable, arguments, nil, nil, 60, NULL, NULL) == 0;
-}
 
 static BOOL RunQuietlyForHome(NSString *executable, NSArray<NSString *> *arguments,
     NSString *provider, NSString *home) {
@@ -365,6 +413,145 @@ NSArray<NSString *> *CCBridgeInstallForProfile(NSDictionary *profile, NSDictiona
     return report;
 }
 
+static NSUInteger TomlSkipSpaces(NSString *text, NSUInteger index) {
+    while (index < text.length && ([text characterAtIndex:index] == ' ' || [text characterAtIndex:index] == '\t')) index++;
+    return index;
+}
+
+// index 指向开引号，返回闭引号的位置；没有闭引号时返回 text.length。
+static NSUInteger TomlStringEnd(NSString *text, NSUInteger index) {
+    unichar quote = [text characterAtIndex:index];
+    for (index++; index < text.length && [text characterAtIndex:index] != quote; index++) {
+        if (quote == '"' && [text characterAtIndex:index] == '\\') index++;
+    }
+    return MIN(index, text.length);
+}
+
+// 双引号键的转义要先解码才能比较：`"cc-bridge"` 就是 cc-bridge。不合法的转义按原样保留。
+static NSString *TomlDecodeBasicString(NSString *text) {
+    if (![text containsString:@"\\"]) return text;
+    NSDictionary<NSString *, NSString *> *simple = @{@"b": @"\b", @"t": @"\t", @"n": @"\n", @"f": @"\f", @"r": @"\r",
+        @"e": @"\033", @"\"": @"\"", @"\\": @"\\"};
+    NSDictionary<NSString *, NSNumber *> *numeric = @{@"x": @2, @"u": @4, @"U": @8};
+    NSCharacterSet *notHex = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"].invertedSet;
+    NSMutableString *decoded = [NSMutableString string];
+    for (NSUInteger index = 0; index < text.length; index++) {
+        unichar character = [text characterAtIndex:index];
+        if (character != '\\' || index + 1 >= text.length) {
+            [decoded appendFormat:@"%C", character];
+            continue;
+        }
+        NSString *escape = [text substringWithRange:NSMakeRange(++index, 1)];
+        if (simple[escape]) {
+            [decoded appendString:simple[escape]];
+            continue;
+        }
+        NSUInteger digits = numeric[escape].unsignedIntegerValue;
+        NSString *hex = digits > 0 && index + digits < text.length
+            ? [text substringWithRange:NSMakeRange(index + 1, digits)] : nil;
+        uint32_t scalar = hex ? (uint32_t)strtoul(hex.UTF8String, NULL, 16) : 0;
+        BOOL valid = hex && [hex rangeOfCharacterFromSet:notHex].location == NSNotFound &&
+            scalar <= 0x10FFFF && (scalar < 0xD800 || scalar > 0xDFFF);
+        if (!valid) {
+            [decoded appendFormat:@"\\%@", escape];
+            continue;
+        }
+        [decoded appendString:[[NSString alloc] initWithBytes:&scalar length:sizeof scalar encoding:NSUTF32LittleEndianStringEncoding]];
+        index += digits;
+    }
+    return decoded;
+}
+
+// 从 cursor 读一个键路径（每一级可以是裸键或带引号），停在路径后第一个非空白字符上。不是键时返回 nil。
+static NSArray<NSString *> *TomlParseKey(NSString *text, NSUInteger *cursor) {
+    NSMutableCharacterSet *bare = [NSMutableCharacterSet alphanumericCharacterSet];
+    [bare addCharactersInString:@"_-"];
+    NSMutableArray<NSString *> *path = [NSMutableArray array];
+    NSUInteger index = *cursor;
+    while (YES) {
+        index = TomlSkipSpaces(text, index);
+        if (index >= text.length) return nil;
+        unichar character = [text characterAtIndex:index];
+        if (character == '"' || character == '\'') {
+            NSUInteger end = TomlStringEnd(text, index);
+            if (end >= text.length) return nil;
+            NSString *key = [text substringWithRange:NSMakeRange(index + 1, end - index - 1)];
+            [path addObject:character == '"' ? TomlDecodeBasicString(key) : key];
+            index = end + 1;
+        } else {
+            NSUInteger start = index;
+            while (index < text.length && [bare characterIsMember:[text characterAtIndex:index]]) index++;
+            if (index == start) return nil;
+            [path addObject:[text substringWithRange:NSMakeRange(start, index - start)]];
+        }
+        index = TomlSkipSpaces(text, index);
+        if (index >= text.length || [text characterAtIndex:index] != '.') break;
+        index++;
+    }
+    *cursor = index;
+    return path;
+}
+
+// index 指向 { 之后：这张 inline table 的第一层是否有名为 name 的键。
+static BOOL TomlInlineTableHasKey(NSString *text, NSUInteger index, NSString *name) {
+    while (YES) {
+        NSArray<NSString *> *key = TomlParseKey(text, &index);
+        if (!key || index >= text.length || [text characterAtIndex:index] != '=') return NO;
+        if ([key.firstObject isEqualToString:name]) return YES;
+        NSInteger depth = 0;
+        for (index++; index < text.length; index++) {
+            unichar character = [text characterAtIndex:index];
+            if (character == '"' || character == '\'') {
+                index = TomlStringEnd(text, index);
+            } else if (character == '{' || character == '[') {
+                depth++;
+            } else if (character == '}' || character == ']') {
+                if (depth == 0) return NO;
+                depth--;
+            } else if (character == ',' && depth == 0) {
+                break;
+            }
+        }
+        if (index >= text.length) return NO;
+        index++;
+    }
+}
+
+// 只认 mcp_servers 下这个服务器的声明：表头、点号键、[mcp_servers] 表里的键，以及 inline table，
+// 每一级都可以带引号。项目路径、其他服务器的参数里出现同样的文字都不算，否则卸载会误报"移除失败"；
+// 真正的声明也不能漏，否则会跳过 mcp remove，注册还在却报告成功。
+static BOOL TomlDeclaresMCPServer(NSString *text, NSString *name) {
+    BOOL (^isServer)(NSArray<NSString *> *) = ^BOOL(NSArray<NSString *> *path) {
+        return path.count >= 2 && [path[0] isEqualToString:@"mcp_servers"] && [path[1] isEqualToString:name];
+    };
+    TomlLexState state = TomlLexNormal;
+    NSArray<NSString *> *table = @[];
+    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+        if (state == TomlLexNormal) {
+            NSUInteger index = TomlSkipSpaces(line, 0);
+            if (index < line.length && [line characterAtIndex:index] == '[') {
+                index += index + 1 < line.length && [line characterAtIndex:index + 1] == '[' ? 2 : 1;
+                NSArray<NSString *> *header = TomlParseKey(line, &index);
+                if (header && index < line.length && [line characterAtIndex:index] == ']') {
+                    if (isServer(header)) return YES;
+                    table = header;
+                }
+            } else {
+                NSArray<NSString *> *key = TomlParseKey(line, &index);
+                if (key && index < line.length && [line characterAtIndex:index] == '=') {
+                    NSArray<NSString *> *path = [table arrayByAddingObjectsFromArray:key];
+                    if (isServer(path)) return YES;
+                    NSUInteger value = TomlSkipSpaces(line, index + 1);
+                    if ([path isEqualToArray:@[@"mcp_servers"]] && value < line.length && [line characterAtIndex:value] == '{' &&
+                        TomlInlineTableHasKey(line, value + 1, name)) return YES;
+                }
+            }
+        }
+        state = AdvanceTomlState(line, state);
+    }
+    return NO;
+}
+
 // remove 对“本来就不存在”的注册也可能返回非零；只有确认不存在才按成功处理。
 static BOOL HasMCPRegistration(NSString *provider, NSString *home, NSString *name) {
     if ([provider isEqualToString:@"claude"]) {
@@ -380,12 +567,7 @@ static BOOL HasMCPRegistration(NSString *provider, NSString *home, NSString *nam
     if (![NSFileManager.defaultManager fileExistsAtPath:file]) return NO;
     NSString *text = [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil];
     if (!text) [NSException raise:@"CCBridgeConfig" format:@"Cannot read %@", file];
-    // 常规表、带引号的键和 inline table 均保守识别；不能把读取失败当成已卸载。
-    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
-        NSString *trimmed = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-        if (![trimmed hasPrefix:@"#"] && [trimmed containsString:name]) return YES;
-    }
-    return NO;
+    return TomlDeclaresMCPServer(text, name);
 }
 
 static void RemoveMCPRegistration(NSString *executable, NSString *provider, NSString *home,
@@ -428,66 +610,6 @@ NSArray<NSString *> *CCBridgeUninstallForProfile(NSDictionary *profile, BOOL unr
     return report;
 }
 
-NSArray<NSString *> *CCBridgeInstall(NSDictionary *rawOptions, BOOL registerMcp) {
-    NSDictionary *options = CCBridgeNormalizeOptions(rawOptions);
-    NSArray<NSString *> *claudeAllow = options[@"claudeAllow"];
-    NSArray<NSString *> *codexApprove = options[@"codexApprove"];
-    NSMutableArray<NSString *> *report = [NSMutableArray array];
-    if (CCPetsClaudeCLIInstalled()) {
-        [NSFileManager.defaultManager createDirectoryAtPath:CCPetsClaudeHome() withIntermediateDirectories:YES attributes:nil error:nil];
-        NSString *settingsPath = [CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"];
-        CCPetsJSONObject *config = ReadJSONConfig(settingsPath);
-        StripBridgeHooks(config);
-        AddClaudeHooks(config, options, nil);
-        ApplyClaudeAllow(config, claudeAllow);
-        WriteJSONConfig(settingsPath, config);
-        [report addObject:LF(L(@"Claude Code hooks written to {path}"), @{@"path": settingsPath})];
-        [report addObject:claudeAllow.count > 0
-            ? LF(L(@"Claude Code allows these tools without asking: {claudeAllow}"), @{@"claudeAllow": [claudeAllow componentsJoinedByString:@", "]})
-            : L(@"In Claude Code, cc-bridge tools follow your permission settings.")];
-        if (registerMcp) {
-            NSString *claude = CCPetsFindRealExecutable(@"claude", @"CLAUDE_REAL_BIN");
-            for (NSString *name in MCPNames()) RunQuietly(claude ?: @"claude", @[@"mcp", @"remove", @"--scope", @"user", name]);
-            BOOL ok = claude && RunQuietly(claude, ClaudeMCPAddArguments());
-            [report addObject:ok
-                ? LF(L(@"Claude Code MCP registered: {MCP_NAME} (on first use, Claude asks according to your permission settings)"), @{@"MCP_NAME": CCBridgeMCPName})
-                : LF(L(@"Claude Code MCP registration failed. Run manually: claude {shellQuote}"), @{@"shellQuote": QuotedArguments(ClaudeMCPAddArguments())})];
-        }
-    } else {
-        [report addObject:L(@"Claude Code CLI not detected, skipped.")];
-    }
-
-    if (CCPetsCodexCLIInstalled()) {
-        [NSFileManager.defaultManager createDirectoryAtPath:CCPetsCodexHome() withIntermediateDirectories:YES attributes:nil error:nil];
-        NSString *hooksPath = [CCPetsCodexHome() stringByAppendingPathComponent:@"hooks.json"];
-        CCPetsJSONObject *config = ReadJSONConfig(hooksPath);
-        StripBridgeHooks(config);
-        AddCodexHooks(config, options, nil);
-        WriteJSONConfig(hooksPath, config);
-        [report addObject:LF(L(@"Codex hooks written to {path}. Next time you start Codex, run /hooks and trust the cc-pets bridge hooks."), @{@"path": hooksPath})];
-        if (registerMcp) {
-            NSString *codex = CCPetsFindRealExecutable(@"codex", @"CODEX_REAL_BIN");
-            for (NSString *name in MCPNames()) RunQuietly(codex ?: @"codex", @[@"mcp", @"remove", name]);
-            BOOL ok = codex && RunQuietly(codex, CodexMCPAddArguments());
-            [report addObject:ok
-                ? LF(L(@"Codex MCP registered: {MCP_NAME}"), @{@"MCP_NAME": CCBridgeMCPName})
-                : LF(L(@"Codex MCP registration failed. Run manually: codex {shellQuote}"), @{@"shellQuote": QuotedArguments(CodexMCPAddArguments())})];
-            // 只在 enable / refresh 时探测：configure 由桌宠菜单开关触发，不值得每次多拉起两次 codex。
-            if ([options[@"wake"] boolValue]) {
-                NSString *notice = CCBridgeDescribeCodexQueue(CCBridgeProbeCodexQueue(codex));
-                if (notice) [report addObject:notice];
-            }
-        }
-        SetCodexApproval(codexApprove);
-        [report addObject:codexApprove.count > 0
-            ? LF(L(@"Codex auto-approves these tools: {codexApprove} (restart Codex sessions to apply)"), @{@"codexApprove": [codexApprove componentsJoinedByString:@", "]})
-            : L(@"cc-bridge tools keep Codex's default approvals (calls fail under approval_policy=never; allow them with --codex-approve).")];
-    } else {
-        [report addObject:L(@"Codex CLI not detected, skipped.")];
-    }
-    return report;
-}
-
 // 文件不存在、或里面本来就没有我们的东西时不改写——用户的文件不该因为一次卸载被重排格式。
 static BOOL RemoveJSONHooks(NSString *file, BOOL claudeAllow) {
     if (![NSFileManager.defaultManager fileExistsAtPath:file]) return NO;
@@ -497,11 +619,4 @@ static BOOL RemoveJSONHooks(NSString *file, BOOL claudeAllow) {
     if (!changed) return NO;
     WriteJSONConfig(file, config);
     return YES;
-}
-
-NSArray<NSString *> *CCBridgeUninstall(BOOL unregisterMcp) {
-    NSMutableArray *report = [NSMutableArray array];
-    [report addObjectsFromArray:CCBridgeUninstallForProfile(@{@"provider": @"claude", @"home": CCPetsClaudeHome()}, unregisterMcp)];
-    [report addObjectsFromArray:CCBridgeUninstallForProfile(@{@"provider": @"codex", @"home": CCPetsCodexHome()}, unregisterMcp)];
-    return report;
 }

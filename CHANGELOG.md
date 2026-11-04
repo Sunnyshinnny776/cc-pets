@@ -7,6 +7,34 @@ truth for the version.
 
 ## [Unreleased]
 
+### CC Bridge
+
+- Accept a per-call `session_id` in MCP tools, supplied through session-start and user-prompt hook context, so Codex sessions sharing an app-server PID can identify themselves when MCP does not inherit a session ID. Explicit identities must pass live-registration and host checks; retain single-session auto-detection, reject invalid IDs and never cache caller identity.
+- Keep `config.toml` byte-for-byte outside CC Bridge's own managed block, including blank lines inside multi-line strings and marker-like text.
+- Recognize CLI hosts from structured argv so paths containing spaces work. Rejected `session_id` values now report why, and an unverifiable host is still rejected.
+- Serialize reservation creation, renewal, acknowledgement, release and expiry so concurrent sessions can't miss conflicts or lose updates.
+- Detect overlaps between directories and globs, such as `src/api` and `src/**/*.ts`, by checking whether a common path exists.
+- Clean up after sessions that exit without `SessionEnd`: mark undelivered messages undeliverable, expire old messages and receipts, and remove idle subscriptions.
+- Reject invalid `paths` in `release_files` without changing any reservation.
+- Make send limits atomic so concurrent sessions can't exceed them.
+- Resolve symlinks in repository roots and reserved paths, including new files and globs, so reservations match however a session reached the directory.
+- Keep the newest deliveries in the pet's badge and notifications when receipts exceed the scan limit.
+- Use the same online check in the pet as in the CLI.
+- Report the right count in the "and N more" delivery notification.
+- Recognize only real `mcp_servers` declarations when uninstalling, so matching text in project paths no longer causes false removal errors.
+- Treat `--from` after the first two `send` arguments as message text, and reject unknown options and flags missing a value.
+- Stop treating patch-like text in written content as edited files, and skip `git` when no reservations exist.
+- Answer MCP requests with invalid UTF-8 with a parse error instead of no response.
+- Return an error from `list_reservations` when the caller is unknown instead of checking the MCP process directory.
+- Stop storing message bodies in receipts, so a body is deleted once its message is delivered.
+- Delete undelivered messages on `disable` and mark their receipts undeliverable.
+- When `codex queue` times out, keep the inbox fallback and warn the sender that the message may arrive twice.
+- `release_files` with an empty `paths` array now releases nothing; omit `paths` to release everything.
+- Skip inbox locking while the watcher's inbox is empty, and clarify what `notify_when_idle` guarantees.
+- Let each new watcher replace the previous one and restart the wait, so active sessions stay wakeable for about 55 minutes after every turn.
+- Enqueue under the inbox lock and recheck that Bridge is on and the recipient is online, so a slow send can't leave a body behind after `disable` or a session exit.
+- Follow symlinks before resolving `..` in reserved paths, and recognize quoted `mcp_servers` keys at every level when uninstalling.
+
 ## [2.4.0] - 2026-11-03
 
 ### Diagnostics

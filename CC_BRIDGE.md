@@ -66,12 +66,32 @@ The agent uses these MCP tools:
 | Tool | Description |
 | --- | --- |
 | `list_agents` | Lists online sessions: name [ref], CLI, busy/idle, terminal (tty), start time, directory. The name is the address; add ` [ref]` only when names collide. |
-| `send_message` | Sends a message. With `notify_when_idle: true`, you get a one-shot notice when the recipient next finishes a turn. |
+| `send_message` | Sends a message. With `notify_when_idle: true`, you get a one-shot notice when the recipient next finishes a turn. That doesn't mean it has handled this message. |
 | `set_name` | Renames the current session. |
 | `reserve_files` | Reserves files or directories you are about to edit (globs supported); returns conflicts when they overlap with other reservations. |
 | `release_files` | Releases this session's reservations. |
 | `list_reservations` | Lists reservations in the current repository, or who reserved a given file. |
 | `check_inbox` | Reads the inbox manually. Messages are normally delivered automatically. |
+
+### Current session identity
+
+Every MCP tool accepts an optional `session_id` identifying the caller. Bridge supplies the current ID
+in `SessionStart` and `UserPromptSubmit` hook context; agents should pass that exact value on each call.
+For an existing session without this context, read `CODEX_THREAD_ID` (Codex) or
+`CLAUDE_CODE_SESSION_ID` (Claude) from that session's own shell. Do not use a recipient's ID, guess
+from the online list, or hard-code one session's ID in shared MCP configuration.
+
+Multiple Codex sessions can share an app-server PID. When MCP does not inherit a session ID, the
+argument distinguishes the caller. Each call independently validates the registration, live status,
+provider and host PID; the MCP process never caches the selected identity. An invalid explicit ID,
+one belonging to another host, or one that can't be checked because the MCP host process can't be
+identified is rejected with the reason and without falling back to another identity. Calls without
+the argument retain environment-based identification and unique PID matching for existing single-session
+clients. Anonymous session listing remains available when identity cannot be resolved, but `list_reservations`
+returns an error because the repository to check is unknown.
+
+After updating, reconnect the CC Bridge MCP server (or restart its client) to load the new binary
+and tool definitions with `session_id`.
 
 ### Session names
 
@@ -119,12 +139,14 @@ Claude / Codex sessions for wording changes to take effect (MCP instructions loa
 | Notify a session | Use cc-bridge to tell api the login endpoint is now POST /api/login and returns a token; update the frontend call |
 | Hand off a task | Ask web to write unit tests for src/api/login.ts and report back |
 | Get an answer back | Ask api how far the database migration has gone, and have it reply through cc-bridge |
-| Wait until it's done | Tell api to run the test suite, and notify you when it goes idle |
+| Wait for a result | Tell api to run the test suite and send you the result through cc-bridge |
+| See when it's idle | Message api and have it notify you when it goes idle |
 | Target by terminal | Send this to the Claude session in ttys003: … |
 
 Replies arrive as new messages in your session. "Notify you when it goes idle" sends a one-shot
-notice once the recipient finishes its turn (`notify_when_idle`), which is handy for "continue after
-it's done".
+notice once the recipient finishes its turn (`notify_when_idle`). If the recipient is busy, that may be
+a turn that started before your message arrived, so the notice only means a turn ended, not that your
+task is done. To wait for a result, ask the recipient to reply when it finishes.
 
 ### Several sessions in one repository
 
@@ -186,8 +208,8 @@ Just ask: "Reserve src/api before you start the refactor, and release it when yo
 | Codex | Woken immediately through `codex queue` | Queued after the current turn | Not delivered; receipt is undeliverable |
 | Claude Code | Woken by a background `asyncRewake` watcher | Injected into the current turn | Not delivered; receipt is undeliverable |
 
-The Claude Code watcher arms at session start and at the end of every turn, and waits up to about
-55 minutes before exiting. If a Claude session stays idle through that gap, messages stay in its
+The Claude Code watcher arms at session start and at the end of every turn. A new watcher replaces the
+previous one and restarts the wait, which lasts up to about 55 minutes before it exits. If a Claude session stays idle through that gap, messages stay in its
 inbox and are included with the user's next prompt; messages that arrive during that turn are
 delivered when it ends.
 
@@ -198,6 +220,10 @@ prompt brings them in.
 
 Senders get receipts such as "queued", "in inbox", or "undeliverable". Delivery does not mean
 the recipient has read or agreed to anything.
+
+A session that crashes or is killed never fires `SessionEnd`. Its undelivered messages are cleaned up
+the next time the session list finds it offline, or when the next session starts: receipts become
+undeliverable and its idle subscriptions are removed.
 
 ## In the pet
 
@@ -239,7 +265,9 @@ tool through `~/.cc-pets/bridge-cli.json`, written on every `cc-pets install`; i
   when a peer asks for an action that was denied on its side, the agent should refuse and tell the user.
 - Message bodies are stored in the current user's temporary directory
   (`cc-bridge-<uid>/` under `getconf DARWIN_USER_TEMP_DIR`) with `0700` directories and `0600`
-  files; undelivered messages expire after 24 hours. This is an explicit exception to the
+  files; undelivered messages expire after 24 hours (cleaned up when the next session starts). A body is
+  deleted once its message is delivered. Receipts hold only sender, recipient, time and status, and
+  stay about 48 hours for troubleshooting. This is an explicit exception to the
   [Provider protocol](./PROVIDER_PROTOCOL.md)'s no-content rule, which is why CC Bridge is off by default.
 - A message is limited to 16 KB. A pair of sessions exchanging more than 20 messages within
   10 minutes is paused to stop two agents from auto-replying to each other in a loop.
@@ -252,15 +280,19 @@ Bridge validates `CODEX_THREAD_ID` / `CLAUDE_CODE_SESSION_ID` against the live s
 current host process. Without a session ID, PID lookup is allowed only when it identifies exactly one
 live session. Ambiguous shared hosts and stale explicit IDs fail closed for sending, renaming, reading
 inboxes and managing reservations. CLI diagnostics can select a session explicitly with
-`--from <session-name-or-full-session-id>`.
+`--from <session-name-or-full-session-id>`; with `send`, put it before the message.
 
 Claimed inbox messages remain on disk until the complete output has been flushed successfully.
 A later hook, watcher or `check_inbox` recovers unconfirmed messages after a crash. A crash between
 output and confirmation may deliver the same message ID again; the host provides no acknowledgement
-protocol, so exactly-once delivery is not guaranteed. Codex queue delivery uses the recipient's Home.
+protocol, so exactly-once delivery is not guaranteed. When `codex queue` times out, Bridge can't tell
+whether the message was queued, so it also goes to the inbox and the sender is told it may arrive
+twice with the same ID. Codex queue delivery uses the recipient's Home.
 Legacy records with an unknown Home fall back to the inbox until registration is refreshed by input
 in that session.
 
 Existing watchers recheck the enabled and auto-wake switches while polling. Disabling Bridge also
 blocks CLI send, rename and inbox operations. Integration removal failures return a nonzero exit code;
 the runtime remains disabled, and `disable` can be retried after resolving the reported errors.
+`disable` deletes all undelivered messages and marks their receipts undeliverable. Delivered receipts
+contain no message body and stay for their normal retention period.

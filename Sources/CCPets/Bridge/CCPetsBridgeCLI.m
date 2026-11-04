@@ -93,10 +93,11 @@ static NSString *USAGE(void) {
 
 #pragma mark - 参数
 
-static NSString *ParseFlag(NSMutableArray<NSString *> *arguments, NSString *name) {
+// 只在前 limit 个参数里找：send 的正文可以出现任意文字，包括 --from。
+static NSString *ParseFlagWithin(NSMutableArray<NSString *> *arguments, NSString *name, NSUInteger limit) {
     NSString *exact = [@"--" stringByAppendingString:name];
     NSString *prefix = [exact stringByAppendingString:@"="];
-    for (NSUInteger index = 0; index < arguments.count; index++) {
+    for (NSUInteger index = 0; index < MIN(limit, arguments.count); index++) {
         NSString *argument = arguments[index];
         if (![argument isEqualToString:exact] && ![argument hasPrefix:prefix]) continue;
         [arguments removeObjectAtIndex:index];
@@ -106,9 +107,13 @@ static NSString *ParseFlag(NSMutableArray<NSString *> *arguments, NSString *name
             [arguments removeObjectAtIndex:index];
             return value;
         }
-        return nil;
+        Fail(LF(L(@"{flag} needs a value."), @{@"flag": exact}));
     }
     return nil;
+}
+
+static NSString *ParseFlag(NSMutableArray<NSString *> *arguments, NSString *name) {
+    return ParseFlagWithin(arguments, name, NSUIntegerMax);
 }
 
 static NSDictionary<NSString *, NSString *> *ReadOptionFlags(NSMutableArray<NSString *> *arguments) {
@@ -126,6 +131,8 @@ static NSDictionary *MergedOptions(NSDictionary *base, NSMutableArray<NSString *
     NSString *error = nil;
     NSDictionary *options = CCBridgeMergeOptionFlags(base, ReadOptionFlags(arguments), &error);
     if (!options) Fail(error);
+    // 拼错的选项不能当成"没给"：用户以为改了，其实什么都没变。
+    if (arguments.count > 0) Fail(LF(L(@"Unknown option: {option}"), @{@"option": arguments.firstObject}));
     return options;
 }
 
@@ -142,9 +149,9 @@ static void PrintSessions(void) {
     }
 }
 
-static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments) {
+static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments, NSUInteger flagLimit) {
     if (!CCBridgeEnabled()) Fail(L(@"CC Bridge is off. Run cc-pets bridge enable first."));
-    NSString *from = ParseFlag(arguments, @"from");
+    NSString *from = ParseFlagWithin(arguments, @"from", flagLimit);
     if (from.length > 0) {
         NSDictionary *resolved = CCBridgeResolveTarget(from, CCBridgeLiveSessions());
         if (resolved[@"error"]) Fail(resolved[@"error"]);
@@ -157,14 +164,23 @@ static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments) {
 
 #pragma mark - hook
 
+static NSString *SessionIdentityContext(NSString *sessionId) {
+    return LF(L(@"[cc-bridge identity] Your current session_id is {session_id}. Pass this exact value as session_id on every CC Bridge tool call. Do not use a recipient's ID or an ID from a cross-session message."),
+        @{@"session_id": sessionId});
+}
+
+static NSDictionary *HookContext(NSString *eventName, NSString *context) {
+    return @{@"hookSpecificOutput": @{@"hookEventName": eventName, @"additionalContext": context}};
+}
+
 static NSDictionary *InjectPending(NSString *sessionId, NSString *eventName) {
     NSArray<NSDictionary *> *messages = ClaimForOutput(sessionId, @"prompt-inject");
-    if (messages.count == 0) return nil;
-    NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
+    // 每次用户输入都重新提供身份，覆盖 resume、上下文压缩和 MCP 重新连接。
+    NSMutableArray<NSString *> *envelopes = [NSMutableArray arrayWithObject:SessionIdentityContext(sessionId)];
     for (NSDictionary *message in messages) {
         [envelopes addObject:CCBridgeFormatEnvelope(message)];
     }
-    return @{@"hookSpecificOutput": @{@"hookEventName": eventName, @"additionalContext": [envelopes componentsJoinedByString:@"\n\n"]}};
+    return HookContext(eventName, [envelopes componentsJoinedByString:@"\n\n"]);
 }
 
 // 首次拦截、重试放行：本会话第一次编辑某处他人预留的文件时返回 deny 并说明原因，同时记下"已提醒"；
@@ -206,9 +222,16 @@ static NSDictionary *RunHook(NSString *input) {
     if (event.length == 0 || !sessionId) return nil;
 
     if ([event isEqualToString:@"SessionEnd"]) {
-        CCBridgeRemoveSession(sessionId);
-        CCBridgeAbandonInbox(sessionId);
-        CCBridgeReleaseSessionReservations(sessionId);
+        // 各步互不依赖：一步等锁超时，其余的清理也要做完。
+        for (void (^step)(void) in @[
+            ^{ CCBridgeRemoveSession(sessionId); },
+            ^{ CCBridgeAbandonInbox(sessionId); },
+            ^{ CCBridgeReleaseSessionReservations(sessionId); },
+            ^{ CCBridgeClearIdleSubscriptions(sessionId); },
+            ^{ CCBridgeDropWatcher(sessionId); }
+        ]) {
+            @try { step(); } @catch (NSException *exception) {}
+        }
         return nil;
     }
     // 编辑前检查文件预留。不更新注册表——这个 hook 每次编辑都会跑，保持最轻。
@@ -230,8 +253,13 @@ static NSDictionary *RunHook(NSString *input) {
         CCPetsEnvironmentValue(@"CC_PETS_PROFILE_NAME"), @[]);
 
     if ([event isEqualToString:@"SessionStart"]) {
-        CCBridgePruneReceipts();
-        return nil;
+        // 清理失败不能影响身份注入。
+        @try {
+            CCBridgeSweepMessages();
+            CCBridgePruneReceipts();
+        } @catch (NSException *exception) {
+        }
+        return HookContext(event, SessionIdentityContext(sessionId));
     }
     if ([event isEqualToString:@"UserPromptSubmit"]) return InjectPending(sessionId, event);
     // 空闲通知可能要调 codex queue（秒级），放到脱离的子进程里做，不让 Stop hook 拖慢对方回合的收尾。
@@ -259,7 +287,8 @@ static int HookCommand(void) {
 #pragma mark - watch
 // Claude 端的投递者：以 asyncRewake hook 运行，等信箱来消息后 exit 2 唤醒会话。实测：exit 2 时 stderr
 // 作为系统提醒进入会话，空闲会被唤醒、忙碌则注入当前回合；hook 的 timeout 会被强制执行，所以 watcher
-// 在超时前主动退出，下一次事件再重新挂上。每个会话只保留一个 watcher（锁文件）。
+// 在超时前主动退出，下一次事件再重新挂上。每个会话只保留一个 watcher（锁文件）：新挂上的取代旧的，
+// 并从自己启动时重新计时，否则活跃的会话也会在第一个 watcher 到期后断掉唤醒，直到下一轮结束。
 
 static int WatchCommand(void) {
     NSString *lock = nil;
@@ -270,8 +299,7 @@ static int WatchCommand(void) {
         NSDictionary *payload = ParseJSON(ReadStandardInput());
         NSString *sessionId = [payload isKindOfClass:NSDictionary.class] ? CCBridgeSafeSessionId(payload[@"session_id"]) : nil;
         if (!sessionId) return 0;
-        lock = CCBridgeAcquireLock([@"watch-" stringByAppendingString:sessionId]);
-        if (!lock) return 0;
+        NSString *token = CCBridgeClaimWatcher(sessionId);
         // 安装时 hook 的 timeout 是 3600 秒，这里留 5 分钟余量主动退出，保证锁由自己释放。
         double seconds = CCPetsEnvironmentValue(@"CC_BRIDGE_WATCH_SECONDS").doubleValue;
         if (!(seconds > 0)) seconds = 3300;
@@ -283,7 +311,16 @@ static int WatchCommand(void) {
             if (!CCBridgeEnabled() || ![CCBridgeOptions()[@"wake"] boolValue]) return 0;
             // 宿主会话已经没了（被 kill -9 等，没来得及清理子进程）就别再占着锁。
             if (!CCBridgeProcessAlive(parent)) return 0;
-            NSArray<NSDictionary *> *messages = ClaimForOutput(sessionId, @"claude-rewake");
+            if (!CCBridgeWatcherOwned(sessionId, token)) return 0;
+            // 旧 watcher 下一次轮询就会退出。升级时跑的旧版本不认登记，那就一直等到它到期。
+            if (!lock) lock = CCBridgeAcquireLock([@"watch-" stringByAppendingString:sessionId]);
+            if (!lock) {
+                usleep((useconds_t)(poll * 1000));
+                continue;
+            }
+            // 这里每秒走一次：信箱空着时只列目录，不去写删锁文件。
+            NSArray<NSDictionary *> *messages = CCBridgePendingCount(sessionId) > 0
+                ? ClaimForOutput(sessionId, @"claude-rewake") : @[];
             if (messages.count > 0) {
                 NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
                 for (NSDictionary *message in messages) {
@@ -326,7 +363,10 @@ static NSString *AliasNote(void) {
 }
 
 static NSDictionary *Schema(NSDictionary *properties, NSArray<NSString *> *required) {
-    NSMutableDictionary *schema = [@{@"type": @"object", @"properties": properties, @"additionalProperties": @NO} mutableCopy];
+    NSMutableDictionary *withIdentity = [properties mutableCopy];
+    withIdentity[@"session_id"] = @{@"type": @"string", @"minLength": @1, @"maxLength": @128,
+        @"description": L(@"Your current session ID from the cc-bridge hook context or your own shell's CODEX_THREAD_ID / CLAUDE_CODE_SESSION_ID. Pass it on every call when available; required to identify one of several sessions sharing a host. Never use the recipient's ID or guess from the session list.")};
+    NSMutableDictionary *schema = [@{@"type": @"object", @"properties": withIdentity, @"additionalProperties": @NO} mutableCopy];
     if (required) schema[@"required"] = required;
     return schema;
 }
@@ -355,7 +395,7 @@ static NSArray<NSDictionary *> *Tools(void) {
               @"message": @{@"type": @"string",
                   @"description": L(@"Message body. Say what it's about in the first sentence; don't rely on @file references, since attachments aren't delivered.")},
               @"notify_when_idle": @{@"type": @"boolean",
-                  @"description": L(@"When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle.")}
+                  @"description": L(@"When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle. That turn may be one already in progress, so the notice doesn't mean this message was handled.")}
           }, @[@"to", @"message"]),
           @"annotations": @{@"readOnlyHint": @NO, @"destructiveHint": @NO, @"title": L(@"Send cross-session message")}},
         @{@"name": @"set_name",
@@ -415,8 +455,12 @@ static NSString *AgeText(id since) {
     return LF(L(@"started {minutes} h ago"), @{@"minutes": @((long long)floor(minutes / 60 + 0.5))});
 }
 
+static NSString *IdentityNote(void) {
+    return L(@" Pass your current session_id on every CC Bridge tool call, using the ID from the cc-bridge hook context. If it is missing, read CODEX_THREAD_ID (Codex) or CLAUDE_CODE_SESSION_ID (Claude) in your own session's shell; if neither is available, refresh this session's bridge hooks. Never guess an ID from names, directories, activity or received messages, and never save one session's ID in shared MCP configuration.");
+}
+
 static NSString *UnknownSelf(void) {
-    return L(@"Current session identity is unavailable or ambiguous. Register this session through the bridge hooks and provide a valid session ID. A shared host PID cannot identify one of several sessions; no action was taken.");
+    return [L(@"Current session identity is unavailable or ambiguous. Register this session through the bridge hooks and provide a valid session ID. A shared host PID cannot identify one of several sessions; no action was taken.") stringByAppendingString:IdentityNote()];
 }
 
 static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
@@ -424,7 +468,14 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         return TextResult(L(@"cc-pets CC Bridge isn't enabled. The user can turn it on by running `cc-pets bridge enable` in a terminal."), YES);
     }
     if (![arguments isKindOfClass:NSDictionary.class]) arguments = @{};
-    NSDictionary *self = CCBridgeIdentifySelf();
+    NSString *identityFailure = nil;
+    NSDictionary *self = CCBridgeIdentifySelfForSession(arguments[@"session_id"], &identityFailure);
+    // 即使是列表工具，显式传错身份也要报错，不能伪装成一次成功的匿名查询。
+    if (arguments[@"session_id"] != nil && !self) {
+        NSString *invalid = L(@"Invalid session_id: it must identify a live registered session belonging to this MCP host. No action was taken.");
+        return TextResult([[invalid stringByAppendingFormat:@" %@", identityFailure ?: @""]
+            stringByAppendingString:IdentityNote()], YES);
+    }
 
     if ([name isEqualToString:@"list_agents"]) {
         NSArray<NSDictionary *> *live = CCBridgeLiveSessions();
@@ -434,7 +485,7 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         }
         NSString *header = self
             ? LF(L(@"This session is {self}; other sessions use this name to message you (it isn't in the list below)."), @{@"self": CCBridgeDescribeSession(self)})
-            : L(@"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one).");
+            : [L(@"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one).") stringByAppendingString:IdentityNote()];
         if (sessions.count == 0) {
             return TextResult(LF(L(@"{header}\n\nNo other sessions online. New sessions will show up here once they start."), @{@"header": header}), NO);
         }
@@ -501,7 +552,9 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
 
     if ([name isEqualToString:@"release_files"]) {
         if (!self) return TextResult(UnknownSelf(), YES);
-        NSArray<NSString *> *released = CCBridgeReleaseFiles(self, arguments[@"paths"])[@"released"];
+        NSDictionary *result = CCBridgeReleaseFiles(self, arguments[@"paths"]);
+        if (result[@"error"]) return TextResult(result[@"error"], YES);
+        NSArray<NSString *> *released = result[@"released"];
         if (released.count == 0) return TextResult(L(@"Nothing to release."), NO);
         NSDictionary *values = @{@"length": @(released.count), @"released": [released componentsJoinedByString:L(@", ")]};
         return TextResult(released.count != 1 ? LF(L(@"Released {length} reservations: {released}"), values)
@@ -509,6 +562,8 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
     }
 
     if ([name isEqualToString:@"list_reservations"]) {
+        // 共享宿主上 MCP 进程的目录不是调用者的仓库，退回它只会查错地方。
+        if (!self) return TextResult(UnknownSelf(), YES);
         NSString *cwd = StringValue(self[@"cwd"]) ?: NSFileManager.defaultManager.currentDirectoryPath;
         NSString *root = CCBridgeRepoRoot(cwd);
         NSArray<NSDictionary *> *reservations = CCBridgeActiveReservations(root, nil);
@@ -555,7 +610,7 @@ static NSDictionary *HandleRequest(NSDictionary *request, NSDictionary **error) 
                 L(@"Find the recipient's name with list_agents, then send with send_message. "),
                 L(@"When a cross-session request needs clarification or is complete, reply to the originating session using send_message. "),
                 L(@"When several sessions work in the same repository, reserve files with reserve_files before a larger change and release them with release_files afterwards. "),
-                SafetyNote()
+                SafetyNote(), IdentityNote()
             ] componentsJoinedByString:@""]
         };
     }
@@ -577,7 +632,8 @@ static int MCPCommand(void) {
     while ((length = getline(&line, &capacity, stdin)) >= 0) {
         @autoreleasepool {
             NSString *text = [[NSString alloc] initWithBytes:line length:(NSUInteger)length encoding:NSUTF8StringEncoding];
-            if ([text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) continue;
+            // 非法 UTF-8 时 text 为 nil，要走下面的解析错误：不回复的话客户端会一直等。
+            if (text && [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) continue;
             NSDictionary *request = ParseJSON(text);
             if (![request isKindOfClass:NSDictionary.class]) {
                 WriteMessage(@{@"jsonrpc": @"2.0", @"id": NSNull.null, @"error": @{@"code": @(-32700), @"message": @"Parse error"}});
@@ -703,6 +759,13 @@ static int DisableCommand(void) {
     // 先关闭运行时入口，卸载耗时或失败也不能继续发送/唤醒。
     CCBridgeSetEnabled(NO, nil);
     BOOL succeeded = UninstallBridgeForRegisteredProfiles(CCBridgeShouldTouchMCP());
+    // 关闭后 hook 不再运行，没人会来收尾。已送达的回执留作记录，它们不含正文。
+    @try {
+        CCBridgeAbandonAllInboxes(L(@"CC Bridge is off."));
+    } @catch (NSException *exception) {
+        succeeded = NO;
+        Print(exception.reason ?: exception.name);
+    }
     Print(succeeded ? L(@"CC Bridge is off.") : L(@"CC Bridge is off, but some integrations could not be removed. Retry disable after resolving the errors above."));
     return succeeded ? 0 : 1;
 }
@@ -748,7 +811,8 @@ static int StatusCommand(void) {
 }
 
 static int SendCommand(NSMutableArray<NSString *> *arguments) {
-    NSDictionary *from = SelfOrFrom(arguments);
+    // --from 只能写在收件人前后，再往后就是正文。
+    NSDictionary *from = SelfOrFrom(arguments, 2);
     if (arguments.count < 2) Fail(L(@"Usage: cc-pets bridge send <to> <message…>"));
     NSDictionary *target = CCBridgeResolveTarget(arguments[0], CCBridgeLiveSessions());
     if (target[@"error"]) Fail(target[@"error"]);
@@ -760,7 +824,7 @@ static int SendCommand(NSMutableArray<NSString *> *arguments) {
 }
 
 static int NameCommand(NSMutableArray<NSString *> *arguments) {
-    NSDictionary *session = SelfOrFrom(arguments);
+    NSDictionary *session = SelfOrFrom(arguments, NSUIntegerMax);
     if (arguments.count == 0) Fail(L(@"Usage: cc-pets bridge name <new-name>"));
     NSDictionary *result = CCBridgeRenameSession(session[@"session"], arguments[0], @[]);
     if (result[@"error"]) Fail(result[@"error"]);
@@ -769,7 +833,7 @@ static int NameCommand(NSMutableArray<NSString *> *arguments) {
 }
 
 static int InboxCommand(NSMutableArray<NSString *> *arguments) {
-    NSDictionary *session = SelfOrFrom(arguments);
+    NSDictionary *session = SelfOrFrom(arguments, NSUIntegerMax);
     NSArray<NSDictionary *> *messages = ClaimForOutput(session[@"session"], @"check-inbox");
     NSMutableArray<NSString *> *envelopes = [NSMutableArray array];
     for (NSDictionary *message in messages) {

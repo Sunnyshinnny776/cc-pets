@@ -40,6 +40,10 @@ static NSString *RandomHex(NSUInteger bytes) {
     return hex;
 }
 
+static BOOL IsTerminalStatus(id status) {
+    return [@[@"delivered", @"expired", @"undeliverable"] containsObject:status ?: @""];
+}
+
 NSString *CCBridgeSHA1Hex(NSString *text) {
     NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
     unsigned char digest[CC_SHA1_DIGEST_LENGTH];
@@ -260,6 +264,12 @@ static NSString *WaitForLock(NSString *name) {
     }
     [NSException raise:@"CCBridgeLock" format:@"Timed out waiting for bridge lock: %@", name];
     return nil;
+}
+
+id CCBridgeWithLock(NSString *name, id (^body)(void)) {
+    NSString *lock = WaitForLock(name);
+    @try { return body(); }
+    @finally { CCBridgeReleaseLock(lock); }
 }
 
 #pragma mark - 会话注册表
@@ -501,8 +511,11 @@ NSDictionary *CCBridgeReadReceipt(id messageId) {
     return [receipt isKindOfClass:NSDictionary.class] ? receipt : nil;
 }
 
+// 回执只是元数据：正文只在信箱里，送达后随之删除，不跟着回执再留 48 小时。
 void CCBridgeWriteReceipt(NSDictionary *message) {
-    CCBridgeWriteJSON(ReceiptFile(message[@"id"]), message);
+    NSMutableDictionary *receipt = [message mutableCopy];
+    [receipt removeObjectForKey:@"body"];
+    CCBridgeWriteJSON(ReceiptFile(message[@"id"]), receipt);
 }
 
 NSDictionary *CCBridgeUpdateReceipt(NSString *messageId, NSDictionary *patch) {
@@ -512,7 +525,7 @@ NSDictionary *CCBridgeUpdateReceipt(NSString *messageId, NSDictionary *patch) {
         NSMutableDictionary *next = [CCBridgeReadReceipt(messageId) mutableCopy];
         if (!next) return nil;
         // 终态不能被迟到的 pending、失败回调等覆盖。
-        if ([@[@"delivered", @"expired", @"undeliverable"] containsObject:next[@"status"]]) return next;
+        if (IsTerminalStatus(next[@"status"])) return next;
         [next addEntriesFromDictionary:patch];
         next[@"updatedAt"] = @(CCPetsMilliseconds());
         CCBridgeWriteReceipt(next);
@@ -555,11 +568,18 @@ NSString *CCBridgeCheckSendLimits(NSString *fromSession, NSString *toSession) {
     return nil;
 }
 
-void CCBridgeEnqueueInbox(NSDictionary *message) {
+// 和清理共用信箱锁，并在锁内复查：发送可能卡在 codex queue 上几十秒，这期间 Bridge 可能已关闭、
+// 目标可能已退出。锁外检查的话，清理做完之后这里才写入，正文就再也没人收拾了。
+NSString *CCBridgeEnqueueInbox(NSDictionary *message) {
     NSString *target = CCBridgeSafeSessionId(PartySession(message, @"to"));
     if (!target) [NSException raise:@"CCBridgeInbox" format:@"%@", L(@"invalid target session id")];
-    CCBridgeWriteJSON([CCBridgeSubdirectory(@[@"inbox", target]) stringByAppendingPathComponent:
-        [message[@"id"] stringByAppendingString:@".json"]], message);
+    return CCBridgeWithLock([@"inbox-" stringByAppendingString:target], ^id {
+        if (!CCBridgeEnabled()) return L(@"CC Bridge is off.");
+        if (!CCBridgeSessionLive(CCBridgeReadSession(target))) return L(@"the target session is offline");
+        CCBridgeWriteJSON([CCBridgeSubdirectory(@[@"inbox", target]) stringByAppendingPathComponent:
+            [message[@"id"] stringByAppendingString:@".json"]], message);
+        return nil;
+    });
 }
 
 static NSString *InboxLockFile(NSString *sessionId) {
@@ -588,8 +608,7 @@ NSArray<NSDictionary *> *CCBridgeClaimInbox(id sessionId) {
             NSString *file = [claimed stringByAppendingPathComponent:name];
             id message = CCBridgeReadJSON(file);
             if (![message isKindOfClass:NSDictionary.class] || !IsMessageId(message[@"id"])) continue;
-            NSString *status = CCBridgeReadReceipt(message[@"id"])[@"status"];
-            if ([@[@"delivered", @"expired", @"undeliverable"] containsObject:status ?: @""]) {
+            if (IsTerminalStatus(CCBridgeReadReceipt(message[@"id"])[@"status"])) {
                 unlink(file.fileSystemRepresentation);
                 continue;
             }
@@ -630,26 +649,105 @@ NSUInteger CCBridgePendingCount(id sessionId) {
         ListJSON(CCBridgeSubdirectory(@[@"claimed", safe])).count;
 }
 
+static NSString *SessionDirectory(NSString *kind, NSString *sessionId) {
+    return [[CCBridgeStateDirectory() stringByAppendingPathComponent:kind] stringByAppendingPathComponent:sessionId];
+}
+
+// 调用方持有该信箱的锁。空目录一并删掉，否则已退出的会话会在状态目录里留下痕迹。
+static void AbandonInboxLocked(NSString *sessionId, NSString *reason) {
+    for (NSString *kind in @[@"inbox", @"claimed"]) {
+        NSString *directory = SessionDirectory(kind, sessionId);
+        for (NSString *name in ListJSON(directory)) {
+            NSString *file = [directory stringByAppendingPathComponent:name];
+            id message = CCBridgeReadJSON(file);
+            if ([message isKindOfClass:NSDictionary.class]) {
+                CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": reason});
+            }
+            unlink(file.fileSystemRepresentation);
+        }
+        rmdir(directory.fileSystemRepresentation);
+    }
+}
+
 void CCBridgeAbandonInbox(id sessionId) {
     NSString *safe = CCBridgeSafeSessionId(sessionId);
     if (!safe) return;
     NSString *lock = WaitForLock([@"inbox-" stringByAppendingString:safe]);
+    @try { AbandonInboxLocked(safe, L(@"the target session has ended")); }
+    @finally { CCBridgeReleaseLock(lock); }
+}
+
+void CCBridgeAbandonAllInboxes(NSString *reason) {
+    NSMutableSet<NSString *> *sessions = [NSMutableSet set];
+    for (NSString *kind in @[@"inbox", @"claimed"]) {
+        NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:kind];
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
+            if (CCBridgeSafeSessionId(name)) [sessions addObject:name];
+        }
+    }
+    // 已注册的会话也要过一遍锁：信箱目录可能正在被创建，只看现有目录会漏掉锁内还没写完的发送。
+    for (NSDictionary *session in CCBridgeListSessions()) {
+        if (CCBridgeSafeSessionId(session[@"session"])) [sessions addObject:session[@"session"]];
+    }
+    for (NSString *session in sessions) {
+        NSString *lock = WaitForLock([@"inbox-" stringByAppendingString:session]);
+        @try { AbandonInboxLocked(session, reason); }
+        @finally { CCBridgeReleaseLock(lock); }
+    }
+}
+
+// 崩溃的会话不会触发 SessionEnd。这里只试一次锁：抢不到说明有人正在处理，留给下一次清理，
+// 不能让查询在线列表的调用方等锁。锁内复查在线，防止同一 ID 刚被 resume。
+void CCBridgeAbandonOfflineSession(id sessionId) {
+    NSString *safe = CCBridgeSafeSessionId(sessionId);
+    if (!safe) return;
+    NSString *lock = CCBridgeAcquireLock([@"inbox-" stringByAppendingString:safe]);
+    if (!lock) return;
     @try {
+        if (CCBridgeSessionLive(CCBridgeReadSession(safe))) return;
+        AbandonInboxLocked(safe, L(@"the target session has ended"));
+        CCBridgeClearIdleSubscriptions(safe);
+        CCBridgeDropWatcher(safe);
+    } @finally { CCBridgeReleaseLock(lock); }
+}
+
+static void ExpireInbox(NSString *sessionId) {
+    NSString *lock = CCBridgeAcquireLock([@"inbox-" stringByAppendingString:sessionId]);
+    if (!lock) return;
+    @try {
+        long long now = CCPetsMilliseconds();
         for (NSString *kind in @[@"inbox", @"claimed"]) {
-            NSString *directory = CCBridgeSubdirectory(@[kind, safe]);
+            NSString *directory = SessionDirectory(kind, sessionId);
             for (NSString *name in ListJSON(directory)) {
                 NSString *file = [directory stringByAppendingPathComponent:name];
                 id message = CCBridgeReadJSON(file);
-                if ([message isKindOfClass:NSDictionary.class]) {
-                    CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": L(@"the target session has ended")});
+                if (![message isKindOfClass:NSDictionary.class]) {
+                    unlink(file.fileSystemRepresentation);
+                } else if (now - NumberValue(message[@"createdAt"]) > CCBridgeMessageTTL) {
+                    CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"expired"});
+                    unlink(file.fileSystemRepresentation);
                 }
-                unlink(file.fileSystemRepresentation);
             }
         }
     } @finally { CCBridgeReleaseLock(lock); }
 }
 
-// 回执保留 TTL 两倍时长，够排查问题，又不会无限增长。
+void CCBridgeSweepMessages(void) {
+    NSMutableSet<NSString *> *sessions = [NSMutableSet set];
+    for (NSString *kind in @[@"inbox", @"claimed", @"subscriptions"]) {
+        NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:kind];
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
+            if (CCBridgeSafeSessionId(name)) [sessions addObject:name];
+        }
+    }
+    for (NSString *session in sessions) {
+        if (CCBridgeSessionLive(CCBridgeReadSession(session))) ExpireInbox(session);
+        else CCBridgeAbandonOfflineSession(session);
+    }
+}
+
+// 回执保留 TTL 两倍时长，够排查问题，又不会无限增长。超过 TTL 仍未到终态的（目标崩溃、投递中途退出）
+// 不会再有人更新，在这里收尾，发送方才能看到结果。
 void CCBridgePruneReceipts(void) {
     NSString *directory = CCBridgeSubdirectory(@[@"sent"]);
     long long now = CCPetsMilliseconds();
@@ -658,6 +756,8 @@ void CCBridgePruneReceipts(void) {
         id receipt = CCBridgeReadJSON(file);
         if (![receipt isKindOfClass:NSDictionary.class] || now - NumberValue(receipt[@"createdAt"]) > CCBridgeMessageTTL * 2) {
             unlink(file.fileSystemRepresentation);
+        } else if (now - NumberValue(receipt[@"createdAt"]) > CCBridgeMessageTTL && !IsTerminalStatus(receipt[@"status"])) {
+            CCBridgeUpdateReceipt(receipt[@"id"], @{@"status": @"expired"});
         }
     }
 }
@@ -694,6 +794,16 @@ NSArray<NSString *> *CCBridgeTakeIdleSubscriptions(NSString *targetSession) {
         if (subscriber) [subscribers addObject:subscriber];
     }
     return subscribers;
+}
+
+void CCBridgeClearIdleSubscriptions(id targetSession) {
+    NSString *target = CCBridgeSafeSessionId(targetSession);
+    if (!target) return;
+    NSString *directory = SessionDirectory(@"subscriptions", target);
+    for (NSString *name in ListJSON(directory)) {
+        unlink([directory stringByAppendingPathComponent:name].fileSystemRepresentation);
+    }
+    rmdir(directory.fileSystemRepresentation);
 }
 
 #pragma mark - 锁
@@ -737,6 +847,29 @@ void CCBridgeReleaseLock(NSString *lockFile) {
     }
 }
 
+#pragma mark - watcher 接替
+
+static NSString *WatcherOwnerFile(NSString *sessionId) {
+    return [CCBridgeSubdirectory(@[@"locks"]) stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"watch-%@.owner", sessionId]];
+}
+
+NSString *CCBridgeClaimWatcher(NSString *sessionId) {
+    NSString *token = RandomHex(8);
+    CCBridgeWriteJSON(WatcherOwnerFile(sessionId), @{@"token": token});
+    return token;
+}
+
+BOOL CCBridgeWatcherOwned(NSString *sessionId, NSString *token) {
+    id owner = CCBridgeReadJSON(WatcherOwnerFile(sessionId));
+    return [owner isKindOfClass:NSDictionary.class] && [owner[@"token"] isEqual:token];
+}
+
+void CCBridgeDropWatcher(id sessionId) {
+    NSString *safe = CCBridgeSafeSessionId(sessionId);
+    if (safe) unlink(WatcherOwnerFile(safe).fileSystemRepresentation);
+}
+
 #pragma mark - 进程探测
 
 BOOL CCBridgeProcessAlive(pid_t pid) {
@@ -754,8 +887,9 @@ static BOOL ProcessParent(pid_t pid, pid_t *parent, dev_t *tty) {
     return YES;
 }
 
-// 与 `ps -o command=` 一致：argv 用空格连起来。读不到参数区（别的用户的进程、僵尸）时退回 ps。
-NSString *CCBridgeProcessCommand(pid_t pid) {
+// 保留 argv 的边界：路径可以含空格（如 Application Support），拼成字符串再切分就认不出可执行文件了。
+// 读不到参数区（别的用户的进程、僵尸）时退回 ps，那里没有边界，只能按空白切分。
+NSArray<NSString *> *CCBridgeProcessArguments(pid_t pid) {
     if (pid <= 0) return nil;
     int argumentMaximum = 0;
     size_t size = sizeof argumentMaximum;
@@ -779,7 +913,7 @@ NSString *CCBridgeProcessCommand(pid_t pid) {
                 cursor += length + 1;
             }
             free(buffer);
-            if (arguments.count > 0) return [arguments componentsJoinedByString:@" "];
+            if (arguments.count > 0) return arguments;
         } else {
             free(buffer);
         }
@@ -788,8 +922,11 @@ NSString *CCBridgeProcessCommand(pid_t pid) {
     if (CCPetsRun(@"/bin/ps", @[@"-o", @"command=", @"-p", [NSString stringWithFormat:@"%d", pid]], nil, nil, 10, &output, NULL) != 0) {
         return nil;
     }
-    NSString *command = [output stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return command.length > 0 ? command : nil;
+    NSMutableArray<NSString *> *tokens = [NSMutableArray array];
+    for (NSString *token in [output ?: @"" componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]) {
+        if (token.length > 0) [tokens addObject:token];
+    }
+    return tokens.count > 0 ? tokens : nil;
 }
 
 NSString *CCBridgeProcessTty(pid_t pid) {
@@ -801,26 +938,17 @@ NSString *CCBridgeProcessTty(pid_t pid) {
     return [tty hasPrefix:@"tty"] ? tty : [@"tty" stringByAppendingString:tty];
 }
 
-// 只看可执行文件本身，不看参数：参数里出现 "claude" / "codex" 的进程太多了
-// （比如 tmux new-session "codex …"、编辑器打开的某个路径）。
-static NSArray<NSString *> *CommandTokens(NSString *command) {
-    NSMutableArray<NSString *> *tokens = [NSMutableArray array];
-    for (NSString *token in [command ?: @"" componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]) {
-        if (token.length > 0) [tokens addObject:token];
-    }
-    return tokens;
-}
-
 static BOOL Matches(NSString *pattern, NSString *text) {
     if (text.length == 0) return NO;
     NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
     return [expression firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] != nil;
 }
 
-BOOL CCBridgeCommandMatchesProvider(NSString *provider, NSString *command) {
-    NSArray<NSString *> *tokens = CommandTokens(command);
-    NSString *executable = tokens.firstObject ?: @"";
-    NSString *second = tokens.count > 1 ? tokens[1] : @"";
+// 只看可执行文件本身和脚本路径，不看其余参数：参数里出现 "claude" / "codex" 的进程太多了
+// （比如 tmux new-session "codex …"、编辑器打开的某个路径）。
+BOOL CCBridgeArgumentsMatchProvider(NSString *provider, NSArray<NSString *> *arguments) {
+    NSString *executable = arguments.firstObject ?: @"";
+    NSString *second = arguments.count > 1 ? arguments[1] : @"";
     // Codex 的 npm 包是 node 包装器 + 原生二进制；hook 和 MCP 进程的直接祖先都是原生二进制，
     // 取离自己最近的那个，两边才能落到同一个 pid。
     if ([provider isEqualToString:@"Codex"]) {
@@ -850,9 +978,9 @@ NSDictionary *CCBridgeFindAgentAncestor(pid_t startPid) {
     for (int depth = 0; depth < 12 && pid > 1; depth++) {
         pid_t parent = 0;
         if (!ProcessParent(pid, &parent, NULL)) return nil;
-        NSString *command = CCBridgeProcessCommand(pid);
+        NSArray<NSString *> *arguments = CCBridgeProcessArguments(pid);
         for (NSString *provider in @[@"Claude", @"Codex"]) {
-            if (CCBridgeCommandMatchesProvider(provider, command)) return @{@"provider": provider, @"pid": @(pid)};
+            if (CCBridgeArgumentsMatchProvider(provider, arguments)) return @{@"provider": provider, @"pid": @(pid)};
         }
         pid = parent;
     }
@@ -864,8 +992,8 @@ BOOL CCBridgeSessionLive(NSDictionary *session) {
     id pid = session[@"pid"];
     if ([pid isKindOfClass:NSNumber.class]) {
         if (!CCBridgeProcessAlive([pid intValue])) return NO;
-        NSString *command = CCBridgeProcessCommand([pid intValue]);
-        return command == nil || CCBridgeCommandMatchesProvider(session[@"provider"], command);
+        NSArray<NSString *> *arguments = CCBridgeProcessArguments([pid intValue]);
+        return arguments == nil || CCBridgeArgumentsMatchProvider(session[@"provider"], arguments);
     }
     return CCPetsMilliseconds() - NumberValue(session[@"updatedAt"]) < StaleWithoutPid;
 }

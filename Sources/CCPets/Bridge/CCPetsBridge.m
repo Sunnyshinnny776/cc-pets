@@ -1,13 +1,12 @@
 #import "CCPetsBridge.h"
+#import "CCPetsBridgeStore.h"
 #import "CCPetsPaths.h"
-#import <errno.h>
-#import <signal.h>
 #import <unistd.h>
 
 NSString *const BridgeBadgeEnabledKey = @"CCPetsBridgeBadgeEnabled";
 NSString *const BridgeNotificationKey = @"CCPetsBridgeNotification";
 
-// 目录里文件数的上限。回执保留 48 小时，正常使用远到不了这个量；
+// 一次最多读这么多文件。回执保留 48 小时，正常使用远到不了这个量；
 // 真到了说明有东西在刷消息，宁可少显示几条也不让桌宠主线程卡在读盘上。
 static const NSUInteger BridgeFileScanLimit = 500;
 
@@ -87,6 +86,29 @@ static NSArray<NSString *> *JSONFilesInDirectory(NSString *directory) {
     return files;
 }
 
+// 回执每次状态变化都是"临时文件 + rename"，修改时间就是最后一次更新的时间，比 ID（创建时间）更准：
+// 排了很久的消息也可能刚刚送达。比 since 早的文件里不可能有新送达，不用打开；
+// 其余的按新到旧取，文件数超过上限时丢掉的才是最旧的。
+static NSArray<NSString *> *ReceiptFilesUpdatedSince(NSString *directory, NSTimeInterval since) {
+    NSArray<NSURL *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtURL:[NSURL fileURLWithPath:directory]
+        includingPropertiesForKeys:@[NSURLContentModificationDateKey] options:0 error:nil];
+    NSMutableArray<NSDictionary *> *candidates = [NSMutableArray array];
+    for (NSURL *entry in entries) {
+        if (![entry.lastPathComponent hasSuffix:@".json"]) continue;
+        NSDate *modified = nil;
+        [entry getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
+        if (modified.timeIntervalSince1970 < since) continue;
+        [candidates addObject:@{@"path": entry.path, @"modified": modified}];
+    }
+    [candidates sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        return [right[@"modified"] compare:left[@"modified"]];
+    }];
+    if (candidates.count > BridgeFileScanLimit) {
+        [candidates removeObjectsInRange:NSMakeRange(BridgeFileScanLimit, candidates.count - BridgeFileScanLimit)];
+    }
+    return [candidates valueForKey:@"path"];
+}
+
 static NSDictionary *ReadJSONObject(NSString *path) {
     NSData *data = [NSData dataWithContentsOfFile:path];
     if (data.length == 0) return nil;
@@ -140,13 +162,6 @@ NSUInteger CCBridgeActiveReservationCount(NSSet<NSString *> *sessionIds) {
     return count;
 }
 
-static BOOL ProcessAlive(id pidValue) {
-    if (![pidValue isKindOfClass:NSNumber.class]) return YES;  // 没记 pid 的会话交给 bridge 端判定
-    pid_t pid = [pidValue intValue];
-    if (pid <= 1) return YES;
-    return kill(pid, 0) == 0 || errno == EPERM;
-}
-
 NSDictionary<NSString *, NSDictionary *> *CCBridgeSessions(void) {
     NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:@"sessions"];
     NSMutableDictionary<NSString *, NSDictionary *> *sessions = [NSMutableDictionary dictionary];
@@ -154,7 +169,8 @@ NSDictionary<NSString *, NSDictionary *> *CCBridgeSessions(void) {
         NSDictionary *record = ReadJSONObject(path);
         NSString *session = BridgeSafeString(record[@"session"], 128);
         NSString *name = BridgeSafeString(record[@"name"], 40);
-        if (session.length == 0 || name.length == 0 || !ProcessAlive(record[@"pid"])) continue;
+        // 与 CLI 用同一条规则，否则菜单里的在线会话和 list_agents 对不上。
+        if (session.length == 0 || name.length == 0 || !CCBridgeSessionLive(record)) continue;
         NSMutableDictionary *entry = [@{
             @"name": name,
             @"ref": BridgeSafeString(record[@"ref"], 6),
@@ -172,7 +188,7 @@ NSDictionary<NSString *, NSDictionary *> *CCBridgeSessions(void) {
 NSArray<NSDictionary *> *CCBridgeRecentDeliveries(NSTimeInterval since, NSUInteger limit) {
     NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:@"sent"];
     NSMutableArray<NSDictionary *> *deliveries = [NSMutableArray array];
-    for (NSString *path in JSONFilesInDirectory(directory)) {
+    for (NSString *path in ReceiptFilesUpdatedSince(directory, since)) {
         NSDictionary *receipt = ReadJSONObject(path);
         if (![receipt[@"status"] isEqual:@"delivered"]) continue;
         NSDictionary *from = [receipt[@"from"] isKindOfClass:NSDictionary.class] ? receipt[@"from"] : nil;

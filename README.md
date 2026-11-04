@@ -198,6 +198,8 @@ configuration, not just its running process. Original CLI binaries and desktop c
 and Codex sessions exchange messages and reserve files. Session IDs are validated;
 PID fallback is accepted only for a unique live session. Ambiguous shared-host identities
 are rejected rather than guessed. Codex delivery uses the recipient's Home.
+For Codex sessions sharing an app-server PID, agents pass the current `session_id` from
+Bridge hook context on each MCP call. Reconnect MCP after updating to load the new tool definitions.
 
 Unconfirmed inbox messages are recoverable after a crash. A crash between output and
 confirmation may repeat the same message ID; delivery does not mean the recipient has

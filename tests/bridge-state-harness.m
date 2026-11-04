@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "CCPetsBridge.h"
+#import <unistd.h>
 
 // 桌宠读取 CC Bridge 状态的只读视图：会话名、最近送达、信箱积压、开关。
 // 重点守住两条：只返回元数据（正文不能出现在返回值里）；只认已送达的真实跨会话消息。
@@ -58,20 +59,26 @@ int main(void) {
             return EXIT_FAILURE;
         }
         NSString *sessions = [root stringByAppendingPathComponent:@"sessions"];
+        NSNumber *justNow = @(NSDate.date.timeIntervalSince1970 * 1000.0);
         WriteJSON(sessions, @"s1.json", @{@"session": @"s1", @"name": @"web", @"ref": @"2a52f4",
-            @"provider": @"Claude", @"tty": @"ttys003"});
+            @"provider": @"Claude", @"tty": @"ttys003", @"updatedAt": justNow});
         WriteJSON(sessions, @"s2.json", @{@"session": @"s2", @"name": @"api", @"ref": @"99f55e",
-            @"provider": @"Codex"});
+            @"provider": @"Codex", @"updatedAt": justNow});
         // 被手改的状态文件：名字里的非法字符应被滤掉，而不是原样进菜单。
         WriteJSON(sessions, @"s3.json", @{@"session": @"s3", @"name": @"bad\nname<script>",
-            @"ref": @"ffffff", @"provider": @"Claude"});
+            @"ref": @"ffffff", @"provider": @"Claude", @"updatedAt": justNow});
         WriteJSON(sessions, @"junk.json", @{@"name": @"no-session"});
         // 记录了 pid 但进程已退出的会话不应出现（取一个几乎不可能存在的 pid）。
         WriteJSON(sessions, @"dead.json", @{@"session": @"dead", @"name": @"gone", @"provider": @"Codex",
             @"pid": @(999999)});
+        // 与 CLI 同一条规则：没有 pid 的记录看活动窗口；pid 被别的程序复用时也不算在线。
+        WriteJSON(sessions, @"stale.json", @{@"session": @"stale", @"name": @"stale", @"provider": @"Claude",
+            @"updatedAt": @(justNow.doubleValue - 7 * 3600 * 1000.0)});
+        WriteJSON(sessions, @"reused.json", @{@"session": @"reused", @"name": @"reused", @"provider": @"Claude",
+            @"pid": @(getpid())});
 
         NSDictionary *bridgeSessions = CCBridgeSessions();
-        if (!Check(bridgeSessions.count == 3, @"应读到 3 个有效会话")) return EXIT_FAILURE;
+        if (!Check(bridgeSessions.count == 3, [NSString stringWithFormat:@"应读到 3 个有效会话，实际 %@", bridgeSessions.allKeys])) return EXIT_FAILURE;
         if (!Check([bridgeSessions[@"s1"][@"tty"] isEqualToString:@"ttys003"], @"应带出 tty")) return EXIT_FAILURE;
         if (!Check(bridgeSessions[@"s2"][@"tty"] == nil, @"没有 tty 的会话不应伪造 tty")) return EXIT_FAILURE;
         if (!Check([bridgeSessions[@"s3"][@"name"] isEqualToString:@"badnamescript"], @"非法字符应被滤掉")) {
@@ -112,6 +119,27 @@ int main(void) {
             }
         }
         if (!Check(CCBridgeRecentDeliveries(0, 1).count == 1, @"limit 应生效")) return EXIT_FAILURE;
+
+        // 回执超过扫描上限时，最新送达的不能被挤掉，哪怕它是一条很早创建的消息；窗口外的不用打开。
+        NSDictionary *crowd = @{@"status": @"delivered", @"from": @{@"session": @"s2", @"name": @"api"},
+            @"to": @{@"session": @"s1", @"name": @"web"}};
+        for (NSUInteger index = 0; index < 600; index++) {
+            NSString *name = [NSString stringWithFormat:@"crowd-%lu.json", (unsigned long)index];
+            NSMutableDictionary *receipt = [crowd mutableCopy];
+            receipt[@"id"] = @"crowd";
+            receipt[@"createdAt"] = receipt[@"updatedAt"] = @(now - 60000);
+            WriteJSON(sent, name, receipt);
+            [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-60]}
+                ofItemAtPath:[sent stringByAppendingPathComponent:name] error:nil];
+        }
+        NSMutableDictionary *latest = [crowd mutableCopy];
+        latest[@"id"] = @"latest";
+        latest[@"createdAt"] = @(now - 20 * 3600 * 1000.0);
+        latest[@"updatedAt"] = @(now + 1000);
+        WriteJSON(sent, @"a-latest.json", latest);
+        if (!Check([CCBridgeRecentDeliveries(now / 1000.0 - 600, 1).firstObject[@"id"] isEqualToString:@"latest"],
+                   @"最新送达的回执不应被旧回执挤出扫描范围")) return EXIT_FAILURE;
+        [NSFileManager.defaultManager removeItemAtPath:sent error:nil];
 
         NSString *inbox = [root stringByAppendingPathComponent:@"inbox"];
         WriteJSON([inbox stringByAppendingPathComponent:@"s1"], @"a.json", @{@"id": @"a"});

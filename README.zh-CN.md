@@ -419,6 +419,8 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown             # 交�
 [CC Bridge](./CC_BRIDGE.zh-CN.md) 是默认关闭的可选功能，让本机 Claude Code / Codex 会话互发消息并预留文件。
 身份识别优先验证会话 ID；按 PID 回退时只接受唯一在线会话，共享宿主下身份不明确会拒绝操作。
 Codex 消息使用接收方的 Home 投递。
+多个 Codex 会话共用 app-server PID 时，Agent 在每次 MCP 调用中传入 Bridge hook 提供的当前 `session_id`。
+更新后需重新连接 MCP，以加载新的工具定义。
 
 未确认的信箱消息可在异常退出后恢复。输出和确认之间崩溃时可能重复投递同一消息 ID；送达不代表已读或同意。
 关闭自动唤醒后，已运行的 watcher 也会停止主动取信；关闭 Bridge 后 CLI 拒绝发送、改名和收件。

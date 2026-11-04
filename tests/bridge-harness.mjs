@@ -261,10 +261,10 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
   assert.equal(fs.existsSync(path.join(store.bridgeDirectory(), "locks", `watch-${CLAUDE_SESSION}.pid`)), false);
 }
 
-// 8. watcher 单例：已有存活 watcher 时立即退出，不抢信箱。
+// 8. watcher 接替：新 watcher 取代旧的并重新计时，同一时间只有一个在投递。
 {
   const first = spawn(binary, ["bridge", "watch"], {
-    env: { ...env, CC_BRIDGE_WATCH_SECONDS: "5" }, stdio: ["pipe", "ignore", "pipe"]
+    env: { ...env, CC_BRIDGE_WATCH_SECONDS: "30" }, stdio: ["pipe", "ignore", "pipe"]
   });
   children.push(first);
   first.stdin.end(JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }));
@@ -272,11 +272,17 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
   const start = Date.now();
   while (!fs.existsSync(lock) && Date.now() - start < 5000) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(fs.existsSync(lock), "第一个 watcher 应持有锁");
-  const second = runCli(["watch"], { input: JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }) });
-  assert.equal(second.status, 0);
-  runCli(["send", CLAUDE_NAME, "给第一个 watcher"], { agent: codexAgent });
-  const exitCode = await new Promise((resolve) => first.on("exit", resolve));
-  assert.equal(exitCode, 2, "持锁的 watcher 应投递消息");
+  const firstExit = new Promise((resolve) => first.on("exit", resolve));
+  const second = spawn(binary, ["bridge", "watch"], {
+    env: { ...env, CC_BRIDGE_WATCH_SECONDS: "30" }, stdio: ["pipe", "ignore", "pipe"]
+  });
+  children.push(second);
+  const secondExit = new Promise((resolve) => second.on("exit", resolve));
+  second.stdin.end(JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }));
+  assert.equal(await firstExit, 0, "旧 watcher 应被取代并正常退出");
+  runCli(["send", CLAUDE_NAME, "给接替的 watcher"], { agent: codexAgent });
+  assert.equal(await secondExit, 2, "接替的 watcher 应投递消息");
+  assert.equal(fs.existsSync(lock), false, "投递后应释放锁");
 }
 
 // 9. watcher 不在时，UserPromptSubmit 兜底注入 additionalContext。
@@ -287,8 +293,9 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
   assert.equal(output.hookSpecificOutput.hookEventName, "UserPromptSubmit");
   assert.match(output.hookSpecificOutput.additionalContext, /空窗期消息/);
   assert.equal(store.pendingCount(CLAUDE_SESSION), 0);
-  // 没有消息时不输出任何东西。
-  assert.equal(hook("Claude", claudeAgent, { hook_event_name: "UserPromptSubmit", session_id: CLAUDE_SESSION, cwd }).stdout, "");
+  // 没有新消息时仍提供当前身份，但不能再次投递上一条消息。
+  const identityOnly = JSON.parse(hook("Claude", claudeAgent, { hook_event_name: "UserPromptSubmit", session_id: CLAUDE_SESSION, cwd }).stdout);
+  assert.equal(identityOnly.hookSpecificOutput.additionalContext, output.hookSpecificOutput.additionalContext.split("\n\n")[0]);
 }
 
 // 10. 地址解析：不能发给自己；未知目标报错；name [ref] 形式可用。
@@ -755,6 +762,581 @@ exit 0
   assert.match(enabled.stdout, /不支持 codex queue/);
   assert.equal(store.isBridgeEnabled(), true);
   runCli(["disable"], { extraEnv: { CODEX_REAL_BIN: oldCodex, CLAUDE_REAL_BIN: fakeClaude } });
+}
+
+// 24. 共享宿主下的显式 session_id：多个 Codex 会话共用一个 app-server PID 时，
+// 不传参数一律拒绝冒认；传参数只认属于当前宿主的在线会话，无效时不回退到 PID 匹配。
+{
+  store.setBridgeEnabled(true);
+  const sharedHost = fakeAgent("codex");
+  const otherHost = fakeAgent("codex");
+  const recipientHost = fakeAgent("claude");
+  const shared = `Codex:${sharedHost.pid}`;
+  const SHARED_A = "88888888-aaaa-4bbb-8ccc-000000000008";
+  const SHARED_B = "99999999-aaaa-4bbb-8ccc-000000000009";
+  const OTHER = "aaaaaaaa-aaaa-4bbb-8ccc-00000000000a";
+  const RECIPIENT = "bbbbbbbb-aaaa-4bbb-8ccc-00000000000b";
+
+  // SessionStart 与 UserPromptSubmit 都把当前 session_id 注入上下文。
+  const started = JSON.parse(hook("Codex", shared, { hook_event_name: "SessionStart", session_id: SHARED_A, cwd }).stdout);
+  assert.equal(started.hookSpecificOutput.hookEventName, "SessionStart");
+  assert.match(started.hookSpecificOutput.additionalContext, new RegExp(`session_id 是 ${SHARED_A}`));
+  hook("Codex", shared, { hook_event_name: "SessionStart", session_id: SHARED_B, cwd });
+  hook("Codex", `Codex:${otherHost.pid}`, { hook_event_name: "SessionStart", session_id: OTHER, cwd });
+  hook("Claude", `Claude:${recipientHost.pid}`, { hook_event_name: "SessionStart", session_id: RECIPIENT, cwd });
+  const prompted = JSON.parse(hook("Codex", shared, { hook_event_name: "UserPromptSubmit", session_id: SHARED_B, cwd }).stdout);
+  assert.match(prompted.hookSpecificOutput.additionalContext, new RegExp(`session_id 是 ${SHARED_B}`));
+  const recipientName = store.readSession(RECIPIENT).name;
+
+  const call = (name, args, agent = shared) => JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })}\n`, agent
+  }).stdout).result;
+
+  // 所有工具的 schema 都带可选的 session_id。
+  const listed = JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })}\n`, agent: shared
+  }).stdout).result.tools;
+  assert.ok(listed.length > 0);
+  for (const tool of listed) {
+    assert.equal(tool.inputSchema.properties.session_id?.type, "string", `${tool.name} 缺少 session_id`);
+    assert.ok(!(tool.inputSchema.required ?? []).includes("session_id"), `${tool.name} 不应强制 session_id`);
+  }
+
+  // 不传参数：同一 PID 下两个会话，只能匿名查看，不能以会话身份操作。
+  const anonymous = call("list_agents", {});
+  assert.equal(anonymous.isError, undefined);
+  assert.match(anonymous.content[0].text, /当前会话身份缺失或不明确/);
+  assert.doesNotMatch(anonymous.content[0].text, /当前会话是 /);
+  const before = store.listReceipts().length;
+  const refused = call("send_message", { to: recipientName, message: "不该发出" });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /多个会话共享宿主 PID/);
+  assert.equal(store.listReceipts().length, before, "身份不明确时不应产生消息");
+
+  // 传参数：同一 PID 下的两个会话各自被正确识别，发出的消息 from 对得上。
+  for (const [sessionId, body] of [[SHARED_A, "来自 A"], [SHARED_B, "来自 B"]]) {
+    const self = store.readSession(sessionId);
+    const listedAs = call("list_agents", { session_id: sessionId });
+    assert.equal(listedAs.isError, undefined, listedAs.content[0].text);
+    assert.match(listedAs.content[0].text, new RegExp(String.raw`当前会话是 ${self.name} \[${self.ref}\]`));
+    const sent = call("send_message", { session_id: sessionId, to: recipientName, message: body });
+    assert.equal(sent.isError, undefined, sent.content[0].text);
+    const id = sent.content[0].text.match(/(m[0-9a-z]+)\s*$/)?.[1];
+    assert.ok(id, sent.content[0].text);
+    const receipt = store.readReceipt(id);
+    assert.equal(receipt.from.session, sessionId);
+    assert.equal(receipt.from.name, self.name);
+    assert.equal(receipt.body, undefined, "回执不应保存正文");
+  }
+
+  // 无效的显式身份：一律报错，且不回退到 PID 唯一匹配（OTHER 所在宿主只有它一个会话，
+  // 回退的话会被认出来）。
+  const invalidIds = [
+    ["另一宿主的会话", SHARED_A, `Codex:${otherHost.pid}`],
+    ["不存在的会话", "cccccccc-aaaa-4bbb-8ccc-00000000000c", `Codex:${otherHost.pid}`],
+    ["provider 不符", RECIPIENT, `Codex:${otherHost.pid}`],
+    ["路径穿越", "../../evil", `Codex:${otherHost.pid}`],
+    ["空串", "", `Codex:${otherHost.pid}`],
+    ["null", null, `Codex:${otherHost.pid}`],
+    ["非字符串", 42, `Codex:${otherHost.pid}`]
+  ];
+  for (const [label, sessionId, agent] of invalidIds) {
+    for (const [name, args] of [["list_agents", {}], ["send_message", { to: recipientName, message: "x" }]]) {
+      const count = store.listReceipts().length;
+      const result = call(name, { ...args, session_id: sessionId }, agent);
+      assert.equal(result.isError, true, `${label} / ${name} 应报错：${result.content[0].text}`);
+      assert.match(result.content[0].text, /无效的 session_id/, `${label} / ${name}`);
+      assert.equal(store.listReceipts().length, count, `${label} / ${name} 不应产生消息`);
+    }
+  }
+  // 对照：同一宿主不传参数时 PID 唯一匹配仍然可用，说明上面的报错来自显式参数校验。
+  assert.equal(identifyAs(`Codex:${otherHost.pid}`), store.readSession(OTHER).name);
+
+  // 离线后同一个 ID 不再可用。
+  sharedHost.kill("SIGKILL");
+  await new Promise((resolve) => sharedHost.once("exit", resolve));
+  const offline = call("list_agents", { session_id: SHARED_A });
+  assert.equal(offline.isError, true);
+  assert.match(offline.content[0].text, /无效的 session_id/);
+}
+
+// 25. config.toml：只动自己的管理块。用户多行字符串里的连续空行和长得像标记的文本都要逐字保留。
+{
+  const configPath = path.join(env.CODEX_HOME, "config.toml");
+  const userToml = [
+    'prompt = """',
+    "first",
+    "",
+    "",
+    "",
+    "# >>> cc-bridge >>>",
+    "not a block",
+    "# <<< cc-bridge <<<",
+    '"""',
+    "literal = \'\'\'",
+    "",
+    "",
+    "",
+    "\'\'\'",
+    "",
+    "",
+    "",
+    'model = "x"',
+    ""
+  ].join("\n");
+  fs.writeFileSync(configPath, userToml);
+  store.setBridgeEnabled(false);
+  assert.equal(runCli(["enable", "--codex-approve=check_inbox"]).status, 0);
+  const installed = fs.readFileSync(configPath, "utf8");
+  assert.ok(installed.startsWith(userToml), "enable 只能在文件末尾追加管理块");
+  assert.match(installed, /tools\.check_inbox/);
+  assert.equal(runCli(["configure", "--codex-approve=list_agents"]).status, 0);
+  const reconfigured = fs.readFileSync(configPath, "utf8");
+  assert.ok(reconfigured.startsWith(userToml), "configure 不应改动用户内容");
+  assert.doesNotMatch(reconfigured.slice(userToml.length), /check_inbox/, "旧管理块应被替换");
+  assert.equal(reconfigured.match(/>>> cc-bridge >>>/g).length, 2, "只应多出一个真实的管理块");
+  assert.equal(runCli(["disable"]).status, 0);
+  assert.equal(fs.readFileSync(configPath, "utf8"), userToml, "disable 后应逐字还原");
+
+  // 没有管理块时什么都不写。
+  const untouched = 'model = "x"   \n\n\n\n';
+  fs.writeFileSync(configPath, untouched);
+  assert.equal(runCli(["enable"]).status, 0);
+  assert.equal(runCli(["disable"]).status, 0);
+  assert.equal(fs.readFileSync(configPath, "utf8"), untouched, "没有管理块时不应改写文件");
+  store.setBridgeEnabled(true);
+}
+
+// 26. 显式 session_id 被拒绝时说明原因。
+{
+  const host = fakeAgent("codex");
+  const otherHost = fakeAgent("codex");
+  const SESSION = "cccccccc-aaaa-4bbb-8ccc-00000000000c";
+  hook("Codex", `Codex:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  const call = (agent, session_id) => JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_agents", arguments: { session_id } } })}\n`, agent
+  }).stdout).result;
+  const foreign = call(`Codex:${otherHost.pid}`, SESSION);
+  assert.equal(foreign.isError, true);
+  assert.match(foreign.content[0].text, /属于其他宿主进程/);
+  const unknown = call(`Codex:${host.pid}`, "dddddddd-aaaa-4bbb-8ccc-00000000000d");
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.content[0].text, /不是已注册的在线会话/);
+}
+
+// 27. 没有 SessionEnd 的离线会话：消息、回执、订阅都要收尾，正文不能留在磁盘上。
+{
+  const bridgeDirectory = store.bridgeDirectory();
+  const victim = fakeAgent("claude");
+  const survivor = fakeAgent("claude");
+  const VICTIM = "eeeeeeee-aaaa-4bbb-8ccc-00000000000e";
+  const SURVIVOR = "ffffffff-aaaa-4bbb-8ccc-00000000000f";
+  hook("Claude", `Claude:${victim.pid}`, { hook_event_name: "SessionStart", session_id: VICTIM, cwd });
+  hook("Claude", `Claude:${survivor.pid}`, { hook_event_name: "SessionStart", session_id: SURVIVOR, cwd });
+  const pending = (to, createdAt = Date.now()) => {
+    const message = { id: store.newMessageId(), from: { session: SURVIVOR, name: "s", ref: "000000" }, to: { session: to, name: "x" }, body: "正文", createdAt, status: "pending" };
+    store.writeReceipt(message);
+    store.enqueueInbox(message);
+    return message;
+  };
+
+  // 被查询到离线时立即收尾。
+  const lost = pending(VICTIM);
+  writeState(path.join(bridgeDirectory, "subscriptions", VICTIM, `${SURVIVOR}.json`), { subscriber: SURVIVOR, createdAt: Date.now() });
+  victim.kill("SIGKILL");
+  await new Promise((resolve) => victim.once("exit", resolve));
+  runCli(["list"]);
+  assert.equal(store.readSession(VICTIM), null);
+  assert.equal(store.readReceipt(lost.id).status, "undeliverable");
+  for (const kind of ["inbox", "claimed", "subscriptions"]) {
+    assert.equal(fs.existsSync(path.join(bridgeDirectory, kind, VICTIM)), false, `${kind} 目录应被清理`);
+  }
+
+  // 注册表已经没有记录的孤儿信箱，由 SessionStart 扫描兜底。
+  const ORPHAN = "12121212-aaaa-4bbb-8ccc-000000000012";
+  const orphaned = pending(ORPHAN);
+  writeState(path.join(bridgeDirectory, "subscriptions", ORPHAN, `${SURVIVOR}.json`), { subscriber: SURVIVOR, createdAt: Date.now() });
+  // 在线会话里过期的消息要收尾，没过期的不动。
+  const dayAndAHalf = 36 * 60 * 60 * 1000;
+  const expired = pending(SURVIVOR, Date.now() - dayAndAHalf);
+  const fresh = pending(SURVIVOR);
+  // 已经没有信箱文件、却还停在 pending 的旧回执。
+  const stranded = { id: store.newMessageId(), from: { session: SURVIVOR }, to: { session: ORPHAN }, body: "正文", createdAt: Date.now() - dayAndAHalf, status: "pending" };
+  store.writeReceipt(stranded);
+  const started = hook("Claude", `Claude:${survivor.pid}`, { hook_event_name: "SessionStart", session_id: SURVIVOR, cwd });
+  assert.match(JSON.parse(started.stdout).hookSpecificOutput.additionalContext, /session_id 是/);
+  assert.equal(store.readReceipt(orphaned.id).status, "undeliverable");
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "inbox", ORPHAN)), false);
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "subscriptions", ORPHAN)), false);
+  assert.equal(store.readReceipt(expired.id).status, "expired");
+  assert.equal(store.readReceipt(fresh.id).status, "pending");
+  assert.equal(store.readReceipt(stranded.id).status, "expired");
+  assert.deepEqual(jsonFiles(path.join(bridgeDirectory, "inbox", SURVIVOR)), [`${fresh.id}.json`]);
+
+  // 正常结束时订阅也要清掉。
+  writeState(path.join(bridgeDirectory, "subscriptions", SURVIVOR, "someone.json"), { subscriber: "someone", createdAt: Date.now() });
+  hook("Claude", `Claude:${survivor.pid}`, { hook_event_name: "SessionEnd", session_id: SURVIVOR });
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "subscriptions", SURVIVOR)), false);
+}
+
+// 28. 预留：参数校验零副作用；目录与 glob 的冲突能被发现；并发时不丢冲突、不丢确认。
+{
+  const hostA = fakeAgent("claude");
+  const hostB = fakeAgent("claude");
+  const agentA = `Claude:${hostA.pid}`;
+  const agentB = `Claude:${hostB.pid}`;
+  // macOS 的 /tmp 本身是软链；预留记录里的仓库根是物理路径。
+  const repo = path.join(fs.realpathSync(root), "reservation-repo");
+  fs.mkdirSync(repo, { recursive: true });
+  hook("Claude", agentA, { hook_event_name: "SessionStart", session_id: "13131313-aaaa-4bbb-8ccc-000000000013", cwd: repo });
+  hook("Claude", agentB, { hook_event_name: "SessionStart", session_id: "14141414-aaaa-4bbb-8ccc-000000000014", cwd: repo });
+  const request = (name, args) => `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })}\n`;
+  const call = (agent, name, args = {}) => JSON.parse(runCli(["mcp"], { input: request(name, args), agent }).stdout).result;
+  const callAsync = (agent, name, args) => new Promise((resolve, reject) => {
+    const child = spawn(binary, ["bridge", "mcp"], { env: { ...env, CC_BRIDGE_AGENT: agent }, stdio: ["pipe", "pipe", "ignore"] });
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.on("error", reject);
+    child.on("close", () => resolve(JSON.parse(output).result));
+    child.stdin.end(request(name, args));
+  });
+
+  call(agentA, "reserve_files", { paths: ["src/api", "keep.ts"] });
+  for (const paths of ["src/api", null, 42, [42]]) {
+    const refused = call(agentA, "release_files", { paths });
+    assert.equal(refused.isError, true, `paths=${JSON.stringify(paths)} 应报错`);
+    assert.match(refused.content[0].text, /字符串数组/);
+  }
+  assert.equal(store.reservations().filter((entry) => entry.root === repo).length, 2, "非法参数不能释放任何预留");
+
+  const overlapping = call(agentB, "reserve_files", { paths: ["src/**/*.ts"] });
+  assert.match(overlapping.content[0].text, /src\/api/, "目录与其下文件的 glob 应报冲突");
+  call(agentB, "release_files");
+  assert.match(call(agentA, "release_files").content[0].text, /已释放 2 处/);
+
+  // 两个会话同时预留同一路径：无论谁先，后写的一方都必须看到冲突。
+  for (let round = 0; round < 10; round += 1) {
+    const target = `race-${round}.ts`;
+    const results = await Promise.all([agentA, agentB].map((agent) => callAsync(agent, "reserve_files", { paths: [target] })));
+    assert.ok(results.some((result) => /重叠|⚠️/.test(result.content[0].text)), `第 ${round} 轮两边都没看到冲突`);
+  }
+  call(agentA, "release_files");
+  call(agentB, "release_files");
+
+  // 多个会话同时第一次编辑同一处预留：确认名单不能互相覆盖。
+  call(agentA, "reserve_files", { paths: ["shared/**"] });
+  const editors = Array.from({ length: 6 }, (_, index) => {
+    const host = fakeAgent("claude");
+    const session = `15151515-aaaa-4bbb-8ccc-00000000001${index}`;
+    hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: session, cwd: repo });
+    return { agent: `Claude:${host.pid}`, session };
+  });
+  await Promise.all(editors.map(({ agent, session }) => new Promise((resolve, reject) => {
+    const child = spawn(binary, ["bridge", "hook"], { env: { ...env, CC_BRIDGE_AGENT: agent, CC_BRIDGE_HOOK: "Claude" }, stdio: ["pipe", "ignore", "ignore"] });
+    child.on("error", reject);
+    child.on("close", resolve);
+    child.stdin.end(JSON.stringify({ hook_event_name: "PreToolUse", session_id: session, cwd: repo, tool_name: "Edit", tool_input: { file_path: "shared/a.ts" } }));
+  })));
+  const shared = store.reservations().find((entry) => entry.root === repo && entry.pattern === "shared/**");
+  assert.equal(shared.acknowledgedBy.length, editors.length, "并发确认不应丢失");
+  call(agentA, "release_files");
+}
+
+// 29. 限流：并发发送不能一起越过上限，超出的请求不留下回执。
+{
+  const senderHost = fakeAgent("claude");
+  const receiverHost = fakeAgent("claude");
+  const SENDER = "16161616-aaaa-4bbb-8ccc-000000000016";
+  const RECEIVER = "17171717-aaaa-4bbb-8ccc-000000000017";
+  hook("Claude", `Claude:${senderHost.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  hook("Claude", `Claude:${receiverHost.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  const receiverName = store.readSession(RECEIVER).name;
+  for (let index = 0; index < store.PAIR_LIMIT_COUNT - 2; index += 1) {
+    store.writeReceipt({ id: store.newMessageId(), from: { session: SENDER }, to: { session: RECEIVER }, body: "x", createdAt: Date.now(), status: "delivered" });
+  }
+  const results = await Promise.all(Array.from({ length: 8 }, (_, index) => new Promise((resolve, reject) => {
+    const child = spawn(binary, ["bridge", "send", receiverName, `并发 ${index}`], { env: { ...env, CC_BRIDGE_AGENT: `Claude:${senderHost.pid}` }, stdio: "ignore" });
+    child.on("error", reject);
+    child.on("close", resolve);
+  })));
+  assert.equal(results.filter((status) => status === 0).length, 2, "只应放行到上限为止");
+  const paired = store.listReceipts().filter((receipt) => receipt.from?.session === SENDER && receipt.to?.session === RECEIVER);
+  assert.equal(paired.length, store.PAIR_LIMIT_COUNT, "回执数不应超过上限");
+}
+
+// 30. 软链：一个会话从软链路径进入目录，另一个从物理路径进入，预留仍然互相可见。
+{
+  const physicalRepo = path.join(fs.realpathSync(root), "linked-repo-real");
+  const aliasRepo = path.join(fs.realpathSync(root), "linked-repo-alias");
+  fs.mkdirSync(physicalRepo, { recursive: true });
+  fs.symlinkSync(physicalRepo, aliasRepo);
+  const viaAlias = fakeAgent("claude");
+  const viaPhysical = fakeAgent("claude");
+  const ALIAS = "18181818-aaaa-4bbb-8ccc-000000000018";
+  const PHYSICAL = "19191919-aaaa-4bbb-8ccc-000000000019";
+  hook("Claude", `Claude:${viaAlias.pid}`, { hook_event_name: "SessionStart", session_id: ALIAS, cwd: aliasRepo });
+  hook("Claude", `Claude:${viaPhysical.pid}`, { hook_event_name: "SessionStart", session_id: PHYSICAL, cwd: physicalRepo });
+  const reserved = JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "reserve_files", arguments: { paths: ["new.ts"] } } })}\n`,
+    agent: `Claude:${viaAlias.pid}`
+  }).stdout).result;
+  assert.notEqual(reserved.isError, true, reserved.content[0].text);
+  const edit = runCli(["hook"], {
+    input: JSON.stringify({ hook_event_name: "PreToolUse", session_id: PHYSICAL, cwd: physicalRepo, tool_name: "Write", tool_input: { file_path: path.join(physicalRepo, "new.ts") } }),
+    agent: `Claude:${viaPhysical.pid}`, extraEnv: { CC_BRIDGE_HOOK: "Claude" }
+  });
+  assert.equal(JSON.parse(edit.stdout).hookSpecificOutput.permissionDecision, "deny", "尚不存在的新文件也应命中预留");
+}
+
+// 31. 卸载：只认真正的 MCP 声明，路径或其他服务器参数里出现相同文字不算；真正的声明不能漏。
+{
+  const configPath = path.join(env.CODEX_HOME, "config.toml");
+  const disableWithMcp = () => {
+    store.setBridgeEnabled(true);
+    return runCli(["disable"], { extraEnv: { CC_BRIDGE_SKIP_MCP: "0" } });
+  };
+  for (const unrelated of [
+    '[projects."/Users/me/cc-bridge"]\ntrust_level = "trusted"\n',
+    '[mcp_servers.my-cc-bridge-tools]\ncommand = "cc-bridge"\n',
+    '[mcp_servers.other.env]\ncc-bridge = "1"\n',
+    'note = """\n[mcp_servers.cc-bridge]\n"""\n',
+    'mcp_servers = { other = { cc-bridge = 1, note = "cc-bridge = 1" } }\n',
+    // 单引号键是字面量，这里的 - 不是连字符。
+    "['mcp_servers'.'cc\\u002dbridge']\ncommand = 'x'\n",
+    // 不合法的转义不解码，也就不等于 cc-bridge。
+    '["mcp_servers"."cc\\uZZZZbridge"]\ncommand = "x"\n'
+  ]) {
+    fs.writeFileSync(configPath, unrelated);
+    const result = disableWithMcp();
+    assert.equal(result.status, 0, `不应误报：${unrelated}\n${result.stdout}`);
+  }
+  // 假 codex 的 mcp remove 总是失败，所以“没能移除”的报错证明确实认出了声明。
+  for (const declared of [
+    '["mcp_servers"."cc-bridge"]\ncommand = "x"\n',
+    '["mcp_servers"."cc\\u002dbridge"]\ncommand = "x"\n',
+    '["mcp_servers"."cc\\U0000002dbridge"]\ncommand = "x"\n',
+    '"mcp\\u005fservers".cc-bridge.command = "x"\n',
+    'mcp_servers = { "cc\\u002dbridge" = { command = "x" } }\n',
+    "[ 'mcp_servers' . cc-bridge ]\ncommand = 'x'\n",
+    '[["mcp_servers"."cc-bridge".items]]\ncommand = "x"\n',
+    '"mcp_servers".cc-bridge.command = "x"\n',
+    '"mcp_servers" = { "other" = {}, "cc-bridge" = { command = "x" } }\n',
+    '[mcp_servers.cc-bridge]\ncommand = "x"\n',
+    '[mcp_servers."cc-bridge"]\ncommand = "x"\n',
+    '[mcp_servers]\ncc-bridge = { command = "x" }\n',
+    'mcp_servers.cc-bridge.command = "x"\n',
+    'mcp_servers = { cc-bridge = { command = "x" } }\n'
+  ]) {
+    fs.writeFileSync(configPath, declared);
+    const result = disableWithMcp();
+    assert.equal(result.status, 1, `应识别出声明：${declared}`);
+    assert.match(result.stdout, /cc-bridge/);
+  }
+  fs.writeFileSync(configPath, 'model = "x"\n');
+  store.setBridgeEnabled(true);
+}
+
+// 32. CLI 参数：正文可以写任意文字；拼错的选项和缺值的参数要报错。
+{
+  const host = fakeAgent("claude");
+  const peer = fakeAgent("claude");
+  const SESSION = "20202020-aaaa-4bbb-8ccc-000000000020";
+  const PEER = "21212121-aaaa-4bbb-8ccc-000000000021";
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  hook("Claude", `Claude:${peer.pid}`, { hook_event_name: "SessionStart", session_id: PEER, cwd });
+  const peerName = store.readSession(PEER).name;
+  const agent = `Claude:${host.pid}`;
+  const sent = runCli(["send", peerName, "改一下", "--from", "参数"], { agent });
+  assert.equal(sent.status, 0, sent.stderr);
+  const receipt = store.listReceipts().filter((entry) => entry.to?.session === PEER).at(-1);
+  const delivered = readJson(path.join(store.bridgeDirectory(), "inbox", PEER, `${receipt.id}.json`));
+  assert.equal(delivered.body, "改一下 --from 参数", "正文里的 --from 不是选项");
+  assert.equal(receipt.from.session, SESSION);
+  const explicit = runCli(["send", "--from", store.readSession(SESSION).name, peerName, "显式身份"]);
+  assert.equal(explicit.status, 0, explicit.stderr);
+  const trailing = runCli(["send", "--from"], { agent });
+  assert.equal(trailing.status, 1);
+  assert.match(trailing.stderr, /--from 需要一个值/);
+
+  const typo = runCli(["configure", "--wkae=off"]);
+  assert.equal(typo.status, 1);
+  assert.match(typo.stderr, /未知选项：--wkae=off/);
+  assert.equal(store.readBridgeOptions().wake ?? true, true, "选项报错时不能改配置");
+  const missing = runCli(["configure", "--wake"]);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /--wake 需要一个值/);
+}
+
+// 33. MCP：非法 UTF-8 也要回复，后面的请求不受影响；身份不明时不查 MCP 进程自己的目录。
+{
+  const request = `${JSON.stringify({ jsonrpc: "2.0", id: 7, method: "ping" })}\n`;
+  const result = spawnSync(binary, ["bridge", "mcp"], {
+    input: Buffer.concat([Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from(request)]),
+    env, encoding: "utf8"
+  });
+  const [invalid, ping] = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(invalid.error.code, -32700);
+  assert.equal(ping.id, 7);
+
+  const anonymous = JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_reservations", arguments: {} } })}\n`,
+    agent: "Codex:999999"
+  }).stdout).result;
+  assert.equal(anonymous.isError, true);
+  assert.match(anonymous.content[0].text, /当前会话身份缺失或不明确/);
+}
+
+// 34. 回执不含正文：信箱里的消息送达后，磁盘上不再有这段文字。
+{
+  const reader = fakeAgent("claude");
+  const writer = fakeAgent("claude");
+  const READER = "22222222-bbbb-4bbb-8ccc-000000000022";
+  const WRITER = "23232323-bbbb-4bbb-8ccc-000000000023";
+  hook("Claude", `Claude:${reader.pid}`, { hook_event_name: "SessionStart", session_id: READER, cwd });
+  hook("Claude", `Claude:${writer.pid}`, { hook_event_name: "SessionStart", session_id: WRITER, cwd });
+  const secret = "PLAINTEXT-MARKER-34";
+  assert.equal(runCli(["send", store.readSession(READER).name, secret], { agent: `Claude:${writer.pid}` }).status, 0);
+  const injected = hook("Claude", `Claude:${reader.pid}`, { hook_event_name: "UserPromptSubmit", session_id: READER, cwd });
+  assert.match(JSON.parse(injected.stdout).hookSpecificOutput.additionalContext, new RegExp(secret));
+  const scan = (directory) => fs.readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile()).some((entry) => fs.readFileSync(path.join(entry.parentPath, entry.name), "utf8").includes(secret));
+  assert.equal(scan(store.bridgeDirectory()), false, "送达后正文不应留在状态目录");
+}
+
+// 35. codex queue 超时：结果未知，消息进信箱兜底，并告诉发送方可能重复。明确失败时不这么说。
+{
+  const receiver = fakeAgent("codex");
+  const sender = fakeAgent("claude");
+  const RECEIVER = "24242424-bbbb-4bbb-8ccc-000000000024";
+  const SENDER = "25252525-bbbb-4bbb-8ccc-000000000025";
+  hook("Codex", `Codex:${receiver.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  hook("Claude", `Claude:${sender.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  const slowCodex = path.join(root, "bin/codex-slow");
+  fs.writeFileSync(slowCodex, "#!/bin/sh\nexec sleep 5\n", { mode: 0o755 });
+  const failingCodex = path.join(root, "bin/codex-failing");
+  fs.writeFileSync(failingCodex, "#!/bin/sh\necho nope >&2\nexit 1\n", { mode: 0o755 });
+  const name = store.readSession(RECEIVER).name;
+  const agent = `Claude:${sender.pid}`;
+  const timedOut = runCli(["send", name, "超时的消息"], { agent, extraEnv: { CODEX_REAL_BIN: slowCodex, CC_BRIDGE_QUEUE_TIMEOUT_SECONDS: "0.2" } });
+  assert.equal(timedOut.status, 0, timedOut.stderr);
+  assert.match(timedOut.stdout, /可能以相同的消息 id 到达两次/);
+  const uncertain = store.listReceipts().find((entry) => entry.uncertain === true);
+  assert.equal(uncertain.status, "pending");
+  assert.equal(store.pendingCount(RECEIVER), 1, "超时后仍要进信箱，不能丢");
+  const failed = runCli(["send", name, "失败的消息"], { agent, extraEnv: { CODEX_REAL_BIN: failingCodex } });
+  assert.equal(failed.status, 0, failed.stderr);
+  assert.doesNotMatch(failed.stdout, /到达两次/);
+  assert.equal(store.pendingCount(RECEIVER), 2);
+}
+
+// 36. release_files：不传 paths 才是全部释放，空数组什么都不释放。
+{
+  const host = fakeAgent("claude");
+  const repo = path.join(fs.realpathSync(root), "empty-release-repo");
+  fs.mkdirSync(repo, { recursive: true });
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: "26262626-bbbb-4bbb-8ccc-000000000026", cwd: repo });
+  const call = (name, args = {}) => JSON.parse(runCli(["mcp"], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })}\n`, agent: `Claude:${host.pid}`
+  }).stdout).result;
+  const held = () => store.reservations().filter((entry) => entry.root === repo).length;
+  call("reserve_files", { paths: ["a.ts", "b.ts"] });
+  const nothing = call("release_files", { paths: [] });
+  assert.notEqual(nothing.isError, true);
+  assert.match(nothing.content[0].text, /没有可释放/);
+  assert.equal(held(), 2, "空数组不应释放任何预留");
+  call("release_files");
+  assert.equal(held(), 0);
+}
+
+// 37. disable：未投递的消息立即收尾，已送达的回执留作记录。
+{
+  const bridgeDirectory = store.bridgeDirectory();
+  const host = fakeAgent("claude");
+  const SESSION = "27272727-bbbb-4bbb-8ccc-000000000027";
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  const queued = { id: store.newMessageId(), from: { session: "x" }, to: { session: SESSION, name: "x" }, body: "正文", createdAt: Date.now(), status: "pending" };
+  store.writeReceipt(queued);
+  store.enqueueInbox(queued);
+  const done = { id: store.newMessageId(), from: { session: "x" }, to: { session: SESSION, name: "x" }, createdAt: Date.now(), status: "delivered" };
+  store.writeReceipt(done);
+  const disabled = runCli(["disable"]);
+  assert.equal(disabled.status, 0, disabled.stderr);
+  const receipt = store.readReceipt(queued.id);
+  assert.equal(receipt.status, "undeliverable");
+  assert.match(receipt.reason, /CC Bridge/);
+  assert.equal(fs.existsSync(path.join(bridgeDirectory, "inbox", SESSION)), false, "未投递的正文不应留在磁盘上");
+  assert.equal(store.readReceipt(done.id).status, "delivered", "已送达的回执应保留");
+  store.setBridgeEnabled(true);
+}
+
+// 38. codex queue 无法启动（找不到可执行文件、接收方 Home 未知）：消息照常进信箱，不能抛异常丢掉。
+{
+  const receiver = fakeAgent("codex");
+  const sender = fakeAgent("claude");
+  const RECEIVER = "28282828-bbbb-4bbb-8ccc-000000000028";
+  const SENDER = "29292929-bbbb-4bbb-8ccc-000000000029";
+  hook("Codex", `Codex:${receiver.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  hook("Claude", `Claude:${sender.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  const agent = `Claude:${sender.pid}`;
+  const name = store.readSession(RECEIVER).name;
+  const noBinary = runCli(["send", name, "找不到 codex"], { agent, extraEnv: { CODEX_REAL_BIN: "", PATH: "/nonexistent" } });
+  assert.equal(noBinary.status, 0, noBinary.stderr);
+  assert.equal(store.pendingCount(RECEIVER), 1);
+  const record = store.readSession(RECEIVER);
+  delete record.home;
+  delete record.profileId;
+  writeState(path.join(store.bridgeDirectory(), "sessions", `${RECEIVER}.json`), record);
+  const noHome = runCli(["send", name, "Home 未知"], { agent });
+  assert.equal(noHome.status, 0, noHome.stderr);
+  assert.equal(store.pendingCount(RECEIVER), 2);
+  assert.equal(store.listReceipts().filter((entry) => entry.to?.session === RECEIVER).every((entry) => entry.status === "pending"), true);
+}
+
+// 39. 发送卡在 codex queue 时用户关闭 Bridge：回退信箱要被拒绝，正文不能留在磁盘上。
+{
+  const receiver = fakeAgent("codex");
+  const sender = fakeAgent("claude");
+  const RECEIVER = "30303030-bbbb-4bbb-8ccc-000000000030";
+  const SENDER = "31313131-bbbb-4bbb-8ccc-000000000031";
+  hook("Codex", `Codex:${receiver.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  hook("Claude", `Claude:${sender.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  const started = path.join(root, "queue-started");
+  const slowCodex = path.join(root, "bin/codex-marking");
+  // 握手而不是超时：假 codex 一直等到 disable 做完才失败退出，负载再高时序也不变。
+  const proceed = path.join(root, "queue-proceed");
+  fs.writeFileSync(slowCodex, `#!/bin/sh\ntouch '${started}'\nwhile [ ! -e '${proceed}' ]; do sleep 0.02; done\nexit 1\n`, { mode: 0o755 });
+  const name = store.readSession(RECEIVER).name;
+  const sending = spawn(binary, ["bridge", "send", name, "关闭时还在发"], {
+    env: { ...env, CC_BRIDGE_AGENT: `Claude:${sender.pid}`, CODEX_REAL_BIN: slowCodex }, stdio: "ignore"
+  });
+  children.push(sending);
+  const finished = new Promise((resolve) => sending.on("exit", resolve));
+  const start = Date.now();
+  while (!fs.existsSync(started) && Date.now() - start < 20000) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(fs.existsSync(started), "发送应已进入 codex queue");
+  assert.equal(runCli(["disable"]).status, 0);
+  fs.writeFileSync(proceed, "");
+  assert.equal(await finished, 1, "被拒绝的投递应报告失败");
+  assert.equal(store.pendingCount(RECEIVER), 0, "Bridge 关闭后不应写入信箱");
+  const receipt = store.listReceipts().find((entry) => entry.from?.session === SENDER);
+  assert.equal(receipt.status, "undeliverable");
+  store.setBridgeEnabled(true);
+}
+
+// 40. 会话结束时，还在等待的 watcher 随之退出；已离线的目标不再收信。
+{
+  const host = fakeAgent("claude");
+  const SESSION = "32323232-bbbb-4bbb-8ccc-000000000032";
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  const watcher = spawn(binary, ["bridge", "watch"], { env: { ...env, CC_BRIDGE_WATCH_SECONDS: "30" }, stdio: ["pipe", "ignore", "ignore"] });
+  children.push(watcher);
+  const exited = new Promise((resolve) => watcher.on("exit", resolve));
+  watcher.stdin.end(JSON.stringify({ hook_event_name: "Stop", session_id: SESSION }));
+  const lock = path.join(store.bridgeDirectory(), "locks", `watch-${SESSION}.pid`);
+  const start = Date.now();
+  while (!fs.existsSync(lock) && Date.now() - start < 5000) await new Promise((resolve) => setTimeout(resolve, 20));
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionEnd", session_id: SESSION });
+  assert.equal(await exited, 0, "SessionEnd 后 watcher 应退出");
 }
 
 console.log("bridge-harness: all passed");
