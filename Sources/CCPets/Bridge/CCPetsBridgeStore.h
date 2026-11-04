@@ -67,7 +67,8 @@ NSDictionary *CCBridgeUpdateReceipt(NSString *messageId, NSDictionary *patch);
 NSArray<NSDictionary *> *CCBridgeListReceipts(void);
 // 发送前的配额检查。nil 表示放行，否则返回拒绝原因。
 NSString *CCBridgeCheckSendLimits(NSString *fromSession, NSString *toSession);
-void CCBridgeEnqueueInbox(NSDictionary *message);
+// 写入目标信箱。返回 nil 表示成功；Bridge 已关闭或目标已离线时不写入，返回拒绝原因。
+NSString *CCBridgeEnqueueInbox(NSDictionary *message);
 // 认领并持有信箱锁：恢复上次未确认的 claimed；调用方必须在输出后 FinishInbox。
 NSArray<NSDictionary *> *CCBridgeClaimInbox(id sessionId);
 // transport 非 nil 表示输出成功；nil 保留消息供重试。两种情况都会释放锁。
@@ -89,6 +90,14 @@ void CCBridgeAddIdleSubscription(NSString *targetSession, NSString *subscriberSe
 BOOL CCBridgeHasIdleSubscriptions(NSString *targetSession);
 NSArray<NSString *> *CCBridgeTakeIdleSubscriptions(NSString *targetSession);
 void CCBridgeClearIdleSubscriptions(id targetSession);
+
+#pragma mark - watcher 接替
+
+// 新 watcher 登记后，旧的在下次轮询时退出，新的拿到锁并重新计时：每轮结束都能续满等待时间。
+NSString *CCBridgeClaimWatcher(NSString *sessionId);
+BOOL CCBridgeWatcherOwned(NSString *sessionId, NSString *token);
+// 会话结束：清掉登记，还在等待的 watcher 随之退出。
+void CCBridgeDropWatcher(id sessionId);
 
 #pragma mark - 锁
 

@@ -192,9 +192,7 @@ Bridge 优先验证当前进程提供的 `CODEX_THREAD_ID` / `CLAUDE_CODE_SESSIO
 | Codex | 通过 `codex queue` 立即唤醒 | 排在当前回合之后处理 | 不投递，回执为 undeliverable |
 | Claude Code | 后台 watcher 通过 `asyncRewake` 唤醒 | 注入当前回合 | 不投递，回执为 undeliverable |
 
-Claude Code 的 watcher 在会话启动和每轮结束时挂上，每次最多等待约 55 分钟后自动退出。
-同一会话只有一个 watcher：前一个还在等待时，新挂上的会直接退出，所以等待时间不会每轮重新计时，
-活跃的会话也可能在前一个 watcher 到期后进入空窗，直到下一轮结束。
+Claude Code 的 watcher 在会话启动和每轮结束时挂上，新挂上的会取代旧的并重新计时，最多等待约 55 分钟后自动退出。
 如果 Claude 会话在这段空窗期里一直空闲，消息会留在信箱，等用户下次输入时一并带入；
 那一轮进行中新到的消息，在该轮结束时投递。
 

@@ -413,27 +413,139 @@ NSArray<NSString *> *CCBridgeInstallForProfile(NSDictionary *profile, NSDictiona
     return report;
 }
 
-// 只认 mcp_servers 下这个服务器的声明：表头、点号键、[mcp_servers] 表里的键，以及 inline table。
-// 项目路径、其他服务器的参数里出现同样的文字都不算，否则卸载会把它们误报成"移除失败"。
+static NSUInteger TomlSkipSpaces(NSString *text, NSUInteger index) {
+    while (index < text.length && ([text characterAtIndex:index] == ' ' || [text characterAtIndex:index] == '\t')) index++;
+    return index;
+}
+
+// index 指向开引号，返回闭引号的位置；没有闭引号时返回 text.length。
+static NSUInteger TomlStringEnd(NSString *text, NSUInteger index) {
+    unichar quote = [text characterAtIndex:index];
+    for (index++; index < text.length && [text characterAtIndex:index] != quote; index++) {
+        if (quote == '"' && [text characterAtIndex:index] == '\\') index++;
+    }
+    return MIN(index, text.length);
+}
+
+// 双引号键的转义要先解码才能比较：`"cc-bridge"` 就是 cc-bridge。不合法的转义按原样保留。
+static NSString *TomlDecodeBasicString(NSString *text) {
+    if (![text containsString:@"\\"]) return text;
+    NSDictionary<NSString *, NSString *> *simple = @{@"b": @"\b", @"t": @"\t", @"n": @"\n", @"f": @"\f", @"r": @"\r",
+        @"e": @"\033", @"\"": @"\"", @"\\": @"\\"};
+    NSDictionary<NSString *, NSNumber *> *numeric = @{@"x": @2, @"u": @4, @"U": @8};
+    NSCharacterSet *notHex = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"].invertedSet;
+    NSMutableString *decoded = [NSMutableString string];
+    for (NSUInteger index = 0; index < text.length; index++) {
+        unichar character = [text characterAtIndex:index];
+        if (character != '\\' || index + 1 >= text.length) {
+            [decoded appendFormat:@"%C", character];
+            continue;
+        }
+        NSString *escape = [text substringWithRange:NSMakeRange(++index, 1)];
+        if (simple[escape]) {
+            [decoded appendString:simple[escape]];
+            continue;
+        }
+        NSUInteger digits = numeric[escape].unsignedIntegerValue;
+        NSString *hex = digits > 0 && index + digits < text.length
+            ? [text substringWithRange:NSMakeRange(index + 1, digits)] : nil;
+        uint32_t scalar = hex ? (uint32_t)strtoul(hex.UTF8String, NULL, 16) : 0;
+        BOOL valid = hex && [hex rangeOfCharacterFromSet:notHex].location == NSNotFound &&
+            scalar <= 0x10FFFF && (scalar < 0xD800 || scalar > 0xDFFF);
+        if (!valid) {
+            [decoded appendFormat:@"\\%@", escape];
+            continue;
+        }
+        [decoded appendString:[[NSString alloc] initWithBytes:&scalar length:sizeof scalar encoding:NSUTF32LittleEndianStringEncoding]];
+        index += digits;
+    }
+    return decoded;
+}
+
+// 从 cursor 读一个键路径（每一级可以是裸键或带引号），停在路径后第一个非空白字符上。不是键时返回 nil。
+static NSArray<NSString *> *TomlParseKey(NSString *text, NSUInteger *cursor) {
+    NSMutableCharacterSet *bare = [NSMutableCharacterSet alphanumericCharacterSet];
+    [bare addCharactersInString:@"_-"];
+    NSMutableArray<NSString *> *path = [NSMutableArray array];
+    NSUInteger index = *cursor;
+    while (YES) {
+        index = TomlSkipSpaces(text, index);
+        if (index >= text.length) return nil;
+        unichar character = [text characterAtIndex:index];
+        if (character == '"' || character == '\'') {
+            NSUInteger end = TomlStringEnd(text, index);
+            if (end >= text.length) return nil;
+            NSString *key = [text substringWithRange:NSMakeRange(index + 1, end - index - 1)];
+            [path addObject:character == '"' ? TomlDecodeBasicString(key) : key];
+            index = end + 1;
+        } else {
+            NSUInteger start = index;
+            while (index < text.length && [bare characterIsMember:[text characterAtIndex:index]]) index++;
+            if (index == start) return nil;
+            [path addObject:[text substringWithRange:NSMakeRange(start, index - start)]];
+        }
+        index = TomlSkipSpaces(text, index);
+        if (index >= text.length || [text characterAtIndex:index] != '.') break;
+        index++;
+    }
+    *cursor = index;
+    return path;
+}
+
+// index 指向 { 之后：这张 inline table 的第一层是否有名为 name 的键。
+static BOOL TomlInlineTableHasKey(NSString *text, NSUInteger index, NSString *name) {
+    while (YES) {
+        NSArray<NSString *> *key = TomlParseKey(text, &index);
+        if (!key || index >= text.length || [text characterAtIndex:index] != '=') return NO;
+        if ([key.firstObject isEqualToString:name]) return YES;
+        NSInteger depth = 0;
+        for (index++; index < text.length; index++) {
+            unichar character = [text characterAtIndex:index];
+            if (character == '"' || character == '\'') {
+                index = TomlStringEnd(text, index);
+            } else if (character == '{' || character == '[') {
+                depth++;
+            } else if (character == '}' || character == ']') {
+                if (depth == 0) return NO;
+                depth--;
+            } else if (character == ',' && depth == 0) {
+                break;
+            }
+        }
+        if (index >= text.length) return NO;
+        index++;
+    }
+}
+
+// 只认 mcp_servers 下这个服务器的声明：表头、点号键、[mcp_servers] 表里的键，以及 inline table，
+// 每一级都可以带引号。项目路径、其他服务器的参数里出现同样的文字都不算，否则卸载会误报"移除失败"；
+// 真正的声明也不能漏，否则会跳过 mcp remove，注册还在却报告成功。
 static BOOL TomlDeclaresMCPServer(NSString *text, NSString *name) {
-    NSString *key = [NSString stringWithFormat:@"[\"']?%@[\"']?", [NSRegularExpression escapedPatternForString:name]];
-    NSString *table = @"\\A\\s*\\[\\s*mcp_servers\\s*\\]";
-    NSString *anyTable = @"\\A\\s*\\[";
-    NSString *declared = [NSString stringWithFormat:@"\\A\\s*\\[{0,2}\\s*mcp_servers\\s*\\.\\s*%@\\s*[\\].=]", key];
-    NSString *member = [NSString stringWithFormat:@"\\A\\s*%@\\s*[.=]", key];
-    NSString *inlineTable = [NSString stringWithFormat:@"\\A\\s*mcp_servers\\s*=\\s*\\{.*%@\\s*=", key];
-    BOOL (^matches)(NSString *, NSString *) = ^BOOL(NSString *pattern, NSString *line) {
-        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
-        return [expression firstMatchInString:line options:0 range:NSMakeRange(0, line.length)] != nil;
+    BOOL (^isServer)(NSArray<NSString *> *) = ^BOOL(NSArray<NSString *> *path) {
+        return path.count >= 2 && [path[0] isEqualToString:@"mcp_servers"] && [path[1] isEqualToString:name];
     };
     TomlLexState state = TomlLexNormal;
-    BOOL insideServers = NO;
+    NSArray<NSString *> *table = @[];
     for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
         if (state == TomlLexNormal) {
-            if (matches(declared, line) || matches(inlineTable, line)) return YES;
-            if (matches(table, line)) insideServers = YES;
-            else if (matches(anyTable, line)) insideServers = NO;
-            else if (insideServers && matches(member, line)) return YES;
+            NSUInteger index = TomlSkipSpaces(line, 0);
+            if (index < line.length && [line characterAtIndex:index] == '[') {
+                index += index + 1 < line.length && [line characterAtIndex:index + 1] == '[' ? 2 : 1;
+                NSArray<NSString *> *header = TomlParseKey(line, &index);
+                if (header && index < line.length && [line characterAtIndex:index] == ']') {
+                    if (isServer(header)) return YES;
+                    table = header;
+                }
+            } else {
+                NSArray<NSString *> *key = TomlParseKey(line, &index);
+                if (key && index < line.length && [line characterAtIndex:index] == '=') {
+                    NSArray<NSString *> *path = [table arrayByAddingObjectsFromArray:key];
+                    if (isServer(path)) return YES;
+                    NSUInteger value = TomlSkipSpaces(line, index + 1);
+                    if ([path isEqualToArray:@[@"mcp_servers"]] && value < line.length && [line characterAtIndex:value] == '{' &&
+                        TomlInlineTableHasKey(line, value + 1, name)) return YES;
+                }
+            }
         }
         state = AdvanceTomlState(line, state);
     }

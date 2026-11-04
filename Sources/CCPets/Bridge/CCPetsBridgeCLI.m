@@ -227,7 +227,8 @@ static NSDictionary *RunHook(NSString *input) {
             ^{ CCBridgeRemoveSession(sessionId); },
             ^{ CCBridgeAbandonInbox(sessionId); },
             ^{ CCBridgeReleaseSessionReservations(sessionId); },
-            ^{ CCBridgeClearIdleSubscriptions(sessionId); }
+            ^{ CCBridgeClearIdleSubscriptions(sessionId); },
+            ^{ CCBridgeDropWatcher(sessionId); }
         ]) {
             @try { step(); } @catch (NSException *exception) {}
         }
@@ -286,7 +287,8 @@ static int HookCommand(void) {
 #pragma mark - watch
 // Claude 端的投递者：以 asyncRewake hook 运行，等信箱来消息后 exit 2 唤醒会话。实测：exit 2 时 stderr
 // 作为系统提醒进入会话，空闲会被唤醒、忙碌则注入当前回合；hook 的 timeout 会被强制执行，所以 watcher
-// 在超时前主动退出，下一次事件再重新挂上。每个会话只保留一个 watcher（锁文件）。
+// 在超时前主动退出，下一次事件再重新挂上。每个会话只保留一个 watcher（锁文件）：新挂上的取代旧的，
+// 并从自己启动时重新计时，否则活跃的会话也会在第一个 watcher 到期后断掉唤醒，直到下一轮结束。
 
 static int WatchCommand(void) {
     NSString *lock = nil;
@@ -297,8 +299,7 @@ static int WatchCommand(void) {
         NSDictionary *payload = ParseJSON(ReadStandardInput());
         NSString *sessionId = [payload isKindOfClass:NSDictionary.class] ? CCBridgeSafeSessionId(payload[@"session_id"]) : nil;
         if (!sessionId) return 0;
-        lock = CCBridgeAcquireLock([@"watch-" stringByAppendingString:sessionId]);
-        if (!lock) return 0;
+        NSString *token = CCBridgeClaimWatcher(sessionId);
         // 安装时 hook 的 timeout 是 3600 秒，这里留 5 分钟余量主动退出，保证锁由自己释放。
         double seconds = CCPetsEnvironmentValue(@"CC_BRIDGE_WATCH_SECONDS").doubleValue;
         if (!(seconds > 0)) seconds = 3300;
@@ -310,6 +311,13 @@ static int WatchCommand(void) {
             if (!CCBridgeEnabled() || ![CCBridgeOptions()[@"wake"] boolValue]) return 0;
             // 宿主会话已经没了（被 kill -9 等，没来得及清理子进程）就别再占着锁。
             if (!CCBridgeProcessAlive(parent)) return 0;
+            if (!CCBridgeWatcherOwned(sessionId, token)) return 0;
+            // 旧 watcher 下一次轮询就会退出。升级时跑的旧版本不认登记，那就一直等到它到期。
+            if (!lock) lock = CCBridgeAcquireLock([@"watch-" stringByAppendingString:sessionId]);
+            if (!lock) {
+                usleep((useconds_t)(poll * 1000));
+                continue;
+            }
             // 这里每秒走一次：信箱空着时只列目录，不去写删锁文件。
             NSArray<NSDictionary *> *messages = CCBridgePendingCount(sessionId) > 0
                 ? ClaimForOutput(sessionId, @"claude-rewake") : @[];

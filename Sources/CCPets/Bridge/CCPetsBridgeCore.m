@@ -200,15 +200,26 @@ static NSDictionary *RunCodexQueue(NSDictionary *target, NSString *text) {
     return @{@"ok": @YES, @"ref": queued ? [output substringWithRange:[queued rangeAtIndex:1]] : NSNull.null};
 }
 
+// 入信箱被拒（Bridge 刚关闭、目标刚退出）时回执要到终态，否则发送方永远看到"待投递"。
+static NSDictionary *PutInInbox(NSDictionary *message, NSDictionary *receiptPatch) {
+    CCBridgeUpdateReceipt(message[@"id"], receiptPatch);
+    NSString *refused = nil;
+    @try {
+        refused = CCBridgeEnqueueInbox(message);
+    } @catch (NSException *exception) {
+        refused = exception.reason ?: exception.name;
+    }
+    if (refused) return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": refused});
+    return CCBridgeReadReceipt(message[@"id"]);
+}
+
 static NSDictionary *Deliver(NSDictionary *message, NSDictionary *target) {
     if (!CCBridgeEnabled()) return CCBridgeUpdateReceipt(message[@"id"],
         @{@"status": @"undeliverable", @"reason": L(@"CC Bridge is off.")});
     // 关闭"自动唤醒"时两边都只进信箱：Claude 不装 watcher，Codex 不调 codex queue（queue 会立刻
     // 开启新回合）。消息在对方下次收到用户输入时由 UserPromptSubmit hook 带入，或用 check_inbox 读取。
     if (![CCBridgeOptions()[@"wake"] boolValue]) {
-        CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}, @"noWake": @YES});
-        CCBridgeEnqueueInbox(message);
-        return CCBridgeReadReceipt(message[@"id"]);
+        return PutInInbox(message, @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}, @"noWake": @YES});
     }
     if ([target[@"provider"] isEqual:@"Codex"]) {
         // 投递前再确认一次在线：发给已关闭 Codex 会话的消息会在 resume 时被自动执行。
@@ -223,14 +234,10 @@ static NSDictionary *Deliver(NSDictionary *message, NSDictionary *target) {
         // queue 不可用（旧版本 Codex 等）时退回信箱，对方可以用 check_inbox 手动拉取。
         // 没有宿主确认协议，超时后没法知道是否已入队。宁可重复也不丢，同时告诉发送方；
         // 两份消息的 id 相同，收件方能认出来。
-        CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"},
-            @"reason": result[@"reason"], @"uncertain": result[@"uncertain"]});
-        CCBridgeEnqueueInbox(message);
-        return CCBridgeReadReceipt(message[@"id"]);
+        return PutInInbox(message, @{@"status": @"pending", @"transport": @{@"kind": @"inbox"},
+            @"reason": result[@"reason"], @"uncertain": result[@"uncertain"] ?: @NO});
     }
-    CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}});
-    CCBridgeEnqueueInbox(message);
-    return CCBridgeReadReceipt(message[@"id"]);
+    return PutInInbox(message, @{@"status": @"pending", @"transport": @{@"kind": @"inbox"}});
 }
 
 static NSDictionary *Identity(NSDictionary *session) {
@@ -328,22 +335,23 @@ static BOOL HasGlob(NSString *text) {
     return [text rangeOfCharacterFromSet:GlobCharacters()].location != NSNotFound;
 }
 
-// 解析路径里已存在部分的软链，不存在的尾部（新文件、glob）原样接回去。
-// git 给的仓库根是物理路径，会话上报的路径可能经过软链，两边必须落到同一种写法才比得上。
+// 按文件系统的方式逐段走：先解析软链，再处理 ..，link/../a.ts 才会落到 link 实际所在目录的上一层。
+// 不存在的部分（新文件、glob）原样接上。git 给的仓库根是物理路径，会话上报的路径可能经过软链，
+// 两边必须落到同一种写法才比得上。
 static NSString *CanonicalPath(NSString *path) {
-    NSString *resolved = CCPetsResolvePath(path);
-    NSString *existing = resolved;
-    NSMutableArray<NSString *> *missing = [NSMutableArray array];
-    while (existing.length > 1) {
-        NSString *real = CCPetsRealPath(existing);
-        if (real) {
-            for (NSString *component in missing) real = [real stringByAppendingPathComponent:component];
-            return real;
+    NSString *absolute = [path hasPrefix:@"/"] ? path
+        : [NSFileManager.defaultManager.currentDirectoryPath stringByAppendingFormat:@"/%@", path];
+    NSString *current = @"/";
+    for (NSString *component in [absolute componentsSeparatedByString:@"/"]) {
+        if (component.length == 0 || [component isEqualToString:@"."]) continue;
+        if ([component isEqualToString:@".."]) {
+            current = current.stringByDeletingLastPathComponent;
+            continue;
         }
-        [missing insertObject:existing.lastPathComponent atIndex:0];
-        existing = existing.stringByDeletingLastPathComponent;
+        NSString *next = [current stringByAppendingPathComponent:component];
+        current = CCPetsRealPath(next) ?: next;
     }
-    return resolved;
+    return current;
 }
 
 NSString *CCBridgeRepoRoot(NSString *directory) {

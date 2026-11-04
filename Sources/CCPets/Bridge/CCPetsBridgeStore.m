@@ -568,11 +568,18 @@ NSString *CCBridgeCheckSendLimits(NSString *fromSession, NSString *toSession) {
     return nil;
 }
 
-void CCBridgeEnqueueInbox(NSDictionary *message) {
+// 和清理共用信箱锁，并在锁内复查：发送可能卡在 codex queue 上几十秒，这期间 Bridge 可能已关闭、
+// 目标可能已退出。锁外检查的话，清理做完之后这里才写入，正文就再也没人收拾了。
+NSString *CCBridgeEnqueueInbox(NSDictionary *message) {
     NSString *target = CCBridgeSafeSessionId(PartySession(message, @"to"));
     if (!target) [NSException raise:@"CCBridgeInbox" format:@"%@", L(@"invalid target session id")];
-    CCBridgeWriteJSON([CCBridgeSubdirectory(@[@"inbox", target]) stringByAppendingPathComponent:
-        [message[@"id"] stringByAppendingString:@".json"]], message);
+    return CCBridgeWithLock([@"inbox-" stringByAppendingString:target], ^id {
+        if (!CCBridgeEnabled()) return L(@"CC Bridge is off.");
+        if (!CCBridgeSessionLive(CCBridgeReadSession(target))) return L(@"the target session is offline");
+        CCBridgeWriteJSON([CCBridgeSubdirectory(@[@"inbox", target]) stringByAppendingPathComponent:
+            [message[@"id"] stringByAppendingString:@".json"]], message);
+        return nil;
+    });
 }
 
 static NSString *InboxLockFile(NSString *sessionId) {
@@ -678,6 +685,10 @@ void CCBridgeAbandonAllInboxes(NSString *reason) {
             if (CCBridgeSafeSessionId(name)) [sessions addObject:name];
         }
     }
+    // 已注册的会话也要过一遍锁：信箱目录可能正在被创建，只看现有目录会漏掉锁内还没写完的发送。
+    for (NSDictionary *session in CCBridgeListSessions()) {
+        if (CCBridgeSafeSessionId(session[@"session"])) [sessions addObject:session[@"session"]];
+    }
     for (NSString *session in sessions) {
         NSString *lock = WaitForLock([@"inbox-" stringByAppendingString:session]);
         @try { AbandonInboxLocked(session, reason); }
@@ -696,6 +707,7 @@ void CCBridgeAbandonOfflineSession(id sessionId) {
         if (CCBridgeSessionLive(CCBridgeReadSession(safe))) return;
         AbandonInboxLocked(safe, L(@"the target session has ended"));
         CCBridgeClearIdleSubscriptions(safe);
+        CCBridgeDropWatcher(safe);
     } @finally { CCBridgeReleaseLock(lock); }
 }
 
@@ -833,6 +845,29 @@ void CCBridgeReleaseLock(NSString *lockFile) {
         [HeldLocks() removeObjectForKey:lockFile];
         close(descriptor.intValue); // 包括进程异常退出，内核都会释放 flock。
     }
+}
+
+#pragma mark - watcher 接替
+
+static NSString *WatcherOwnerFile(NSString *sessionId) {
+    return [CCBridgeSubdirectory(@[@"locks"]) stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"watch-%@.owner", sessionId]];
+}
+
+NSString *CCBridgeClaimWatcher(NSString *sessionId) {
+    NSString *token = RandomHex(8);
+    CCBridgeWriteJSON(WatcherOwnerFile(sessionId), @{@"token": token});
+    return token;
+}
+
+BOOL CCBridgeWatcherOwned(NSString *sessionId, NSString *token) {
+    id owner = CCBridgeReadJSON(WatcherOwnerFile(sessionId));
+    return [owner isKindOfClass:NSDictionary.class] && [owner[@"token"] isEqual:token];
+}
+
+void CCBridgeDropWatcher(id sessionId) {
+    NSString *safe = CCBridgeSafeSessionId(sessionId);
+    if (safe) unlink(WatcherOwnerFile(safe).fileSystemRepresentation);
 }
 
 #pragma mark - 进程探测

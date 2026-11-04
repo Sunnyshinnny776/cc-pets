@@ -114,6 +114,10 @@ int main(int argc, const char *argv[]) {
             @"经过软链的 glob 应保留通配符");
         Check([CCBridgeNormalizePattern(linked, linked, @"inner/new.ts") isEqualToString:@"src/new.ts"], @"仓库内的软链目录应解析到实际位置");
         Check(CCBridgeNormalizePattern(physical, physical, @"escape/passwd") == nil, @"软链指向仓库外应算越界");
+        [files createDirectoryAtPath:[physical stringByAppendingPathComponent:@"src/sub"] withIntermediateDirectories:YES attributes:nil error:nil];
+        [files createSymbolicLinkAtPath:[physical stringByAppendingPathComponent:@"deep"] withDestinationPath:@"src/sub" error:nil];
+        Check([CCBridgeNormalizePattern(physical, physical, @"deep/../a.ts") isEqualToString:@"src/a.ts"], @".. 应在解析软链之后处理");
+        Check([CCBridgeNormalizePattern(physical, physical, @"new/../src/a.ts") isEqualToString:@"src/a.ts"], @"不存在的目录按字面处理 ..");
         Check([CCBridgeRepoRoot(linked) isEqualToString:physical], @"非 git 目录的仓库根也应是物理路径");
 
         // 编辑文件提取：Claude 的 file_path；Codex 补丁正文（字段名不固定，整段做文本匹配）。

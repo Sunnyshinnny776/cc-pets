@@ -261,10 +261,10 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
   assert.equal(fs.existsSync(path.join(store.bridgeDirectory(), "locks", `watch-${CLAUDE_SESSION}.pid`)), false);
 }
 
-// 8. watcher 单例：已有存活 watcher 时立即退出，不抢信箱。
+// 8. watcher 接替：新 watcher 取代旧的并重新计时，同一时间只有一个在投递。
 {
   const first = spawn(binary, ["bridge", "watch"], {
-    env: { ...env, CC_BRIDGE_WATCH_SECONDS: "5" }, stdio: ["pipe", "ignore", "pipe"]
+    env: { ...env, CC_BRIDGE_WATCH_SECONDS: "30" }, stdio: ["pipe", "ignore", "pipe"]
   });
   children.push(first);
   first.stdin.end(JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }));
@@ -272,11 +272,17 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
   const start = Date.now();
   while (!fs.existsSync(lock) && Date.now() - start < 5000) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(fs.existsSync(lock), "第一个 watcher 应持有锁");
-  const second = runCli(["watch"], { input: JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }) });
-  assert.equal(second.status, 0);
-  runCli(["send", CLAUDE_NAME, "给第一个 watcher"], { agent: codexAgent });
-  const exitCode = await new Promise((resolve) => first.on("exit", resolve));
-  assert.equal(exitCode, 2, "持锁的 watcher 应投递消息");
+  const firstExit = new Promise((resolve) => first.on("exit", resolve));
+  const second = spawn(binary, ["bridge", "watch"], {
+    env: { ...env, CC_BRIDGE_WATCH_SECONDS: "30" }, stdio: ["pipe", "ignore", "pipe"]
+  });
+  children.push(second);
+  const secondExit = new Promise((resolve) => second.on("exit", resolve));
+  second.stdin.end(JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }));
+  assert.equal(await firstExit, 0, "旧 watcher 应被取代并正常退出");
+  runCli(["send", CLAUDE_NAME, "给接替的 watcher"], { agent: codexAgent });
+  assert.equal(await secondExit, 2, "接替的 watcher 应投递消息");
+  assert.equal(fs.existsSync(lock), false, "投递后应释放锁");
 }
 
 // 9. watcher 不在时，UserPromptSubmit 兜底注入 additionalContext。
@@ -1093,7 +1099,12 @@ exit 0
     '[projects."/Users/me/cc-bridge"]\ntrust_level = "trusted"\n',
     '[mcp_servers.my-cc-bridge-tools]\ncommand = "cc-bridge"\n',
     '[mcp_servers.other.env]\ncc-bridge = "1"\n',
-    'note = """\n[mcp_servers.cc-bridge]\n"""\n'
+    'note = """\n[mcp_servers.cc-bridge]\n"""\n',
+    'mcp_servers = { other = { cc-bridge = 1, note = "cc-bridge = 1" } }\n',
+    // 单引号键是字面量，这里的 - 不是连字符。
+    "['mcp_servers'.'cc\\u002dbridge']\ncommand = 'x'\n",
+    // 不合法的转义不解码，也就不等于 cc-bridge。
+    '["mcp_servers"."cc\\uZZZZbridge"]\ncommand = "x"\n'
   ]) {
     fs.writeFileSync(configPath, unrelated);
     const result = disableWithMcp();
@@ -1101,6 +1112,15 @@ exit 0
   }
   // 假 codex 的 mcp remove 总是失败，所以“没能移除”的报错证明确实认出了声明。
   for (const declared of [
+    '["mcp_servers"."cc-bridge"]\ncommand = "x"\n',
+    '["mcp_servers"."cc\\u002dbridge"]\ncommand = "x"\n',
+    '["mcp_servers"."cc\\U0000002dbridge"]\ncommand = "x"\n',
+    '"mcp\\u005fservers".cc-bridge.command = "x"\n',
+    'mcp_servers = { "cc\\u002dbridge" = { command = "x" } }\n',
+    "[ 'mcp_servers' . cc-bridge ]\ncommand = 'x'\n",
+    '[["mcp_servers"."cc-bridge".items]]\ncommand = "x"\n',
+    '"mcp_servers".cc-bridge.command = "x"\n',
+    '"mcp_servers" = { "other" = {}, "cc-bridge" = { command = "x" } }\n',
     '[mcp_servers.cc-bridge]\ncommand = "x"\n',
     '[mcp_servers."cc-bridge"]\ncommand = "x"\n',
     '[mcp_servers]\ncc-bridge = { command = "x" }\n',
@@ -1247,6 +1267,76 @@ exit 0
   assert.equal(fs.existsSync(path.join(bridgeDirectory, "inbox", SESSION)), false, "未投递的正文不应留在磁盘上");
   assert.equal(store.readReceipt(done.id).status, "delivered", "已送达的回执应保留");
   store.setBridgeEnabled(true);
+}
+
+// 38. codex queue 无法启动（找不到可执行文件、接收方 Home 未知）：消息照常进信箱，不能抛异常丢掉。
+{
+  const receiver = fakeAgent("codex");
+  const sender = fakeAgent("claude");
+  const RECEIVER = "28282828-bbbb-4bbb-8ccc-000000000028";
+  const SENDER = "29292929-bbbb-4bbb-8ccc-000000000029";
+  hook("Codex", `Codex:${receiver.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  hook("Claude", `Claude:${sender.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  const agent = `Claude:${sender.pid}`;
+  const name = store.readSession(RECEIVER).name;
+  const noBinary = runCli(["send", name, "找不到 codex"], { agent, extraEnv: { CODEX_REAL_BIN: "", PATH: "/nonexistent" } });
+  assert.equal(noBinary.status, 0, noBinary.stderr);
+  assert.equal(store.pendingCount(RECEIVER), 1);
+  const record = store.readSession(RECEIVER);
+  delete record.home;
+  delete record.profileId;
+  writeState(path.join(store.bridgeDirectory(), "sessions", `${RECEIVER}.json`), record);
+  const noHome = runCli(["send", name, "Home 未知"], { agent });
+  assert.equal(noHome.status, 0, noHome.stderr);
+  assert.equal(store.pendingCount(RECEIVER), 2);
+  assert.equal(store.listReceipts().filter((entry) => entry.to?.session === RECEIVER).every((entry) => entry.status === "pending"), true);
+}
+
+// 39. 发送卡在 codex queue 时用户关闭 Bridge：回退信箱要被拒绝，正文不能留在磁盘上。
+{
+  const receiver = fakeAgent("codex");
+  const sender = fakeAgent("claude");
+  const RECEIVER = "30303030-bbbb-4bbb-8ccc-000000000030";
+  const SENDER = "31313131-bbbb-4bbb-8ccc-000000000031";
+  hook("Codex", `Codex:${receiver.pid}`, { hook_event_name: "SessionStart", session_id: RECEIVER, cwd });
+  hook("Claude", `Claude:${sender.pid}`, { hook_event_name: "SessionStart", session_id: SENDER, cwd });
+  const started = path.join(root, "queue-started");
+  const slowCodex = path.join(root, "bin/codex-marking");
+  // 握手而不是超时：假 codex 一直等到 disable 做完才失败退出，负载再高时序也不变。
+  const proceed = path.join(root, "queue-proceed");
+  fs.writeFileSync(slowCodex, `#!/bin/sh\ntouch '${started}'\nwhile [ ! -e '${proceed}' ]; do sleep 0.02; done\nexit 1\n`, { mode: 0o755 });
+  const name = store.readSession(RECEIVER).name;
+  const sending = spawn(binary, ["bridge", "send", name, "关闭时还在发"], {
+    env: { ...env, CC_BRIDGE_AGENT: `Claude:${sender.pid}`, CODEX_REAL_BIN: slowCodex }, stdio: "ignore"
+  });
+  children.push(sending);
+  const finished = new Promise((resolve) => sending.on("exit", resolve));
+  const start = Date.now();
+  while (!fs.existsSync(started) && Date.now() - start < 20000) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(fs.existsSync(started), "发送应已进入 codex queue");
+  assert.equal(runCli(["disable"]).status, 0);
+  fs.writeFileSync(proceed, "");
+  assert.equal(await finished, 1, "被拒绝的投递应报告失败");
+  assert.equal(store.pendingCount(RECEIVER), 0, "Bridge 关闭后不应写入信箱");
+  const receipt = store.listReceipts().find((entry) => entry.from?.session === SENDER);
+  assert.equal(receipt.status, "undeliverable");
+  store.setBridgeEnabled(true);
+}
+
+// 40. 会话结束时，还在等待的 watcher 随之退出；已离线的目标不再收信。
+{
+  const host = fakeAgent("claude");
+  const SESSION = "32323232-bbbb-4bbb-8ccc-000000000032";
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionStart", session_id: SESSION, cwd });
+  const watcher = spawn(binary, ["bridge", "watch"], { env: { ...env, CC_BRIDGE_WATCH_SECONDS: "30" }, stdio: ["pipe", "ignore", "ignore"] });
+  children.push(watcher);
+  const exited = new Promise((resolve) => watcher.on("exit", resolve));
+  watcher.stdin.end(JSON.stringify({ hook_event_name: "Stop", session_id: SESSION }));
+  const lock = path.join(store.bridgeDirectory(), "locks", `watch-${SESSION}.pid`);
+  const start = Date.now();
+  while (!fs.existsSync(lock) && Date.now() - start < 5000) await new Promise((resolve) => setTimeout(resolve, 20));
+  hook("Claude", `Claude:${host.pid}`, { hook_event_name: "SessionEnd", session_id: SESSION });
+  assert.equal(await exited, 0, "SessionEnd 后 watcher 应退出");
 }
 
 console.log("bridge-harness: all passed");

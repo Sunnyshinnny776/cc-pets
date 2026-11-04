@@ -29,7 +29,10 @@
 - `disable` 时删除未投递的消息，回执标记为 undeliverable。
 - `codex queue` 超时时仍回退到信箱，并提示发送方消息可能到达两次。
 - `release_files` 传空数组时不再释放任何预留；不传 `paths` 才会全部释放。
-- watcher 在信箱为空时不再加锁，并修正 `notify_when_idle` 和 watcher 空窗的文档说明。
+- watcher 在信箱为空时不再加锁，并明确 `notify_when_idle` 的保证范围。
+- 新 watcher 取代旧的并重新计时，活跃会话在每轮结束后约 55 分钟内都能被唤醒。
+- 入信箱时持有信箱锁，并复查 Bridge 开关和收件方在线状态，发送缓慢时不会在 `disable` 或会话退出后留下正文。
+- 预留路径先解析软链再处理 `..`；卸载时识别每一级都带引号的 `mcp_servers` 键。
 
 ## [2.4.0] - 2026-11-03
 

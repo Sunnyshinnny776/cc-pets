@@ -30,7 +30,10 @@ truth for the version.
 - Delete undelivered messages on `disable` and mark their receipts undeliverable.
 - When `codex queue` times out, keep the inbox fallback and warn the sender that the message may arrive twice.
 - `release_files` with an empty `paths` array now releases nothing; omit `paths` to release everything.
-- Skip inbox locking while the watcher's inbox is empty, and correct the docs on `notify_when_idle` and the watcher gap.
+- Skip inbox locking while the watcher's inbox is empty, and clarify what `notify_when_idle` guarantees.
+- Let each new watcher replace the previous one and restart the wait, so active sessions stay wakeable for about 55 minutes after every turn.
+- Enqueue under the inbox lock and recheck that Bridge is on and the recipient is online, so a slow send can't leave a body behind after `disable` or a session exit.
+- Follow symlinks before resolving `..` in reserved paths, and recognize quoted `mcp_servers` keys at every level when uninstalling.
 
 ## [2.4.0] - 2026-11-03
 

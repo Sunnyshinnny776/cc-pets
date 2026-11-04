@@ -208,10 +208,8 @@ Just ask: "Reserve src/api before you start the refactor, and release it when yo
 | Codex | Woken immediately through `codex queue` | Queued after the current turn | Not delivered; receipt is undeliverable |
 | Claude Code | Woken by a background `asyncRewake` watcher | Injected into the current turn | Not delivered; receipt is undeliverable |
 
-The Claude Code watcher arms at session start and at the end of every turn, and waits up to about
-55 minutes before exiting. Each session has one watcher: a new one exits while the previous one is
-still waiting, so the wait doesn't restart every turn, and even an active session can hit a gap after
-the previous watcher expires until its next turn ends. If a Claude session stays idle through that gap, messages stay in its
+The Claude Code watcher arms at session start and at the end of every turn. A new watcher replaces the
+previous one and restarts the wait, which lasts up to about 55 minutes before it exits. If a Claude session stays idle through that gap, messages stay in its
 inbox and are included with the user's next prompt; messages that arrive during that turn are
 delivered when it ends.
 
