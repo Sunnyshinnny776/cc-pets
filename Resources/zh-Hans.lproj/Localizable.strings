@@ -910,10 +910,10 @@
 "Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region" = "Shadowrocket 未连接，或出口为不支持的地区时，阻止启动 Claude / Codex";
 "Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key." = "默认关闭。通过 CC Pets 包装器分别检查各服务的出口 IP 和地区，不验证账号或 API 密钥。";
 "CC Pets blocked {provider}: {reason}" = "CC Pets 已阻止启动 {provider}：{reason}";
-"Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接小火箭，选择中国大陆和香港以外的出口，并检查分流及 DNS 设置。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
+"Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接 Shadowrocket，选择中国大陆和香港以外的出口，并检查分流及 DNS 设置。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
 "Unable to read the system VPN status." = "无法读取系统 VPN 状态。";
-"Shadowrocket is not connected. Opening the app alone is not enough." = "小火箭尚未连接，仅打开应用不代表代理已开启。";
-"No Shadowrocket VPN configuration was found." = "未找到小火箭的 VPN 配置。";
+"Shadowrocket is not connected. Opening the app alone is not enough." = "Shadowrocket 尚未连接，仅打开应用不代表代理已开启。";
+"No Shadowrocket VPN configuration was found." = "未找到 Shadowrocket 的 VPN 配置。";
 "Launch check expects claude or codex." = "启动检查需要指定 claude 或 codex。";
 "CC Pets: checking Shadowrocket and service exit regions ..." = "CC Pets：正在检查 Shadowrocket 连接状态及服务出口地区 ...";
 "The proxy or service hostname could not be resolved." = "无法解析代理或服务域名。";

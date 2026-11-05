@@ -225,6 +225,11 @@ A session that crashes or is killed never fires `SessionEnd`. Its undelivered me
 the next time the session list finds it offline, or when the next session starts: receipts become
 undeliverable and its idle subscriptions are removed.
 
+Codex threads on a shared app-server run in the background. Closing a terminal tab doesn't end the
+thread right away: `SessionEnd` fires when the app-server unloads it, which took up to a few minutes
+when tested. Until then the thread still shows as online, and a message sent to it may be queued and
+run when the thread is resumed.
+
 ## In the pet
 
 With CC Bridge enabled, the round icon on the pet's status card gets a message badge in its
