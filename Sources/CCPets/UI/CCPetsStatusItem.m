@@ -16,12 +16,11 @@ static NSColor *LevelColor(CCPetsMenuBarLevel level) {
 @property(nonatomic, weak, readwrite) id<CCPetsWorkbenchSource, CCPetsPetCardSource> source;
 @property(nonatomic) NSStatusItem *item;
 @property(nonatomic) CCPetsMenuBarPanel *panel;
-// 图标右下角的 Agent 状态点。做成按钮的子视图而不是画进图标：图标保持 template image，
-// 由系统按菜单栏明暗和壁纸着色，彩色只落在这个点上。
-@property(nonatomic) NSView *stateDot;
+// 待机时的爪印：template image，由系统按菜单栏明暗和壁纸着色。
+@property(nonatomic) NSImage *templateImage;
+// 按状态上色的爪印，按 state 缓存，同一状态的连串事件不重复生成。
+@property(nonatomic) NSMutableDictionary<NSString *, NSImage *> *tintedImages;
 @end
-
-static const CGFloat StateDotSize = 7;
 
 @implementation CCPetsStatusItemController
 
@@ -30,9 +29,10 @@ static const CGFloat StateDotSize = 7;
     _source = source;
     _panel = [[CCPetsMenuBarPanel alloc] initWithOwner:self];
     _item = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
-    NSImage *image = [NSImage imageWithSystemSymbolName:@"pawprint.fill" accessibilityDescription:@"CC Pets"];
-    image.template = YES;
-    _item.button.image = image;
+    _templateImage = [NSImage imageWithSystemSymbolName:@"pawprint.fill" accessibilityDescription:@"CC Pets"];
+    _templateImage.template = YES;
+    _tintedImages = [NSMutableDictionary dictionary];
+    _item.button.image = _templateImage;
     _item.button.toolTip = @"CC Pets";
     _item.button.target = self;
     _item.button.action = @selector(statusItemClicked:);
@@ -40,11 +40,6 @@ static const CGFloat StateDotSize = 7;
     // 实现的回归检查会拦 NSEventMask 常量的写法，所以这里按事件类型组掩码）。
     [_item.button sendActionOn:NSEventMaskFromType(NSEventTypeLeftMouseUp) |
         NSEventMaskFromType(NSEventTypeRightMouseUp)];
-    _stateDot = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, StateDotSize, StateDotSize)];
-    _stateDot.wantsLayer = YES;
-    _stateDot.layer.cornerRadius = StateDotSize / 2.0;
-    _stateDot.hidden = YES;
-    [_item.button addSubview:_stateDot];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     for (NSNotificationName name in @[CCPetsPetCardDidChangeNotification,
                                       CCPetsWorkbenchQuotasDidChangeNotification,
@@ -95,18 +90,14 @@ static const CGFloat StateDotSize = 7;
     }
     button.attributedTitle = title;
     button.imagePosition = title.length > 0 ? NSImageLeft : NSImageOnly;
-    // 状态点跟着状态卡走：和它同一条快照、同一套颜色（完成绿、失败红、审批橙、工作中蓝），
-    // 状态卡回落待机时一起消失。
+    // 爪印颜色跟着状态卡走：和它同一条快照、同一套颜色（工作中蓝、审批橙、完成绿、失败红），
+    // 状态卡回落待机时恢复原色。
     NSString *state = [snapshot[@"state"] isKindOfClass:NSString.class] ? snapshot[@"state"] : nil;
     NSColor *stateColor = [snapshot[@"statusColor"] isKindOfClass:NSColor.class] ? snapshot[@"statusColor"] : nil;
-    BOOL showsDot = CCPetsMenuBarShowsStateDot(state) && stateColor != nil;
-    self.stateDot.hidden = !showsDot;
-    if (showsDot) self.stateDot.layer.backgroundColor = stateColor.CGColor;
-    [self positionStateDot];
-    // 标题变宽后按钮要等下一轮布局才更新尺寸，再摆一次。
-    dispatch_async(dispatch_get_main_queue(), ^{ [self positionStateDot]; });
+    BOOL tinted = CCPetsMenuBarTintsIcon(state) && stateColor != nil;
+    button.image = tinted ? [self imageTintedForState:state color:stateColor] : self.templateImage;
     NSMutableArray<NSString *> *description = [NSMutableArray arrayWithObject:@"CC Pets"];
-    if (showsDot && [snapshot[@"status"] isKindOfClass:NSString.class]) [description addObject:snapshot[@"status"]];
+    if (tinted && [snapshot[@"status"] isKindOfClass:NSString.class]) [description addObject:snapshot[@"status"]];
     if (parts[@"percent"]) [description addObject:parts[@"percent"]];
     if (parts[@"approvals"]) {
         [description addObject:[NSString stringWithFormat:L(@"%@ awaiting approval"), parts[@"approvals"]]];
@@ -115,15 +106,18 @@ static const CGFloat StateDotSize = 7;
     [self.panel reload];
 }
 
-// 压在爪印图标的右下角，稍微探出一点，不盖住脚垫。
-- (void)positionStateDot {
-    NSStatusBarButton *button = self.item.button;
-    if (!button || self.stateDot.hidden) return;
-    NSRect image = [button.cell imageRectForBounds:button.bounds];
-    CGFloat x = NSMaxX(image) - StateDotSize + 2;
-    // 按钮是否翻转决定「下」在哪边。
-    CGFloat y = button.isFlipped ? NSMaxY(image) - StateDotSize + 1 : NSMinY(image) - 1;
-    self.stateDot.frame = NSMakeRect(x, y, StateDotSize, StateDotSize);
+// 用调色板给 SF Symbol 上色，并取消 template：template image 会被系统重新染成黑白。
+// 不用 button.contentTintColor，状态栏按钮在不同系统版本上未必认它。
+- (NSImage *)imageTintedForState:(NSString *)state color:(NSColor *)color {
+    NSImage *cached = self.tintedImages[state];
+    if (cached) return cached;
+    NSImage *image = [[self.templateImage imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPaletteColors:@[color]]] copy];
+    if (!image) return self.templateImage;
+    image.template = NO;
+    image.accessibilityDescription = @"CC Pets";
+    self.tintedImages[state] = image;
+    return image;
 }
 
 // 左右键共用一个 action。左键开关玻璃面板；右键临时挂上菜单交给按钮弹出，弹完摘掉——

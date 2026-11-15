@@ -52,7 +52,7 @@ NSArray<NSDictionary *> *CCPetsMenuBarOrderedQuotas(NSArray<NSDictionary *> *quo
     return [subscription arrayByAddingObjectsFromArray:api];
 }
 
-BOOL CCPetsMenuBarShowsStateDot(NSString *state) {
+BOOL CCPetsMenuBarTintsIcon(NSString *state) {
     return [state isKindOfClass:NSString.class] && state.length > 0 && ![state isEqualToString:@"idle"];
 }
 

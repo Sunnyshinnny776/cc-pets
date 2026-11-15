@@ -25,9 +25,9 @@ CCPetsMenuBarLevel CCPetsMenuBarLevelForRemaining(NSInteger remaining);
 // showPercent 关闭时，只要额度进了警告档仍然显示数字：低额度是这个模式下唯一的主动提醒。
 NSDictionary *CCPetsMenuBarTitleParts(NSArray<NSDictionary *> *quotas, NSUInteger approvals, BOOL showPercent);
 
-// 菜单栏图标右下角要不要挂状态点。state 是宠物名片快照里的 Agent 状态（和状态卡同一条），
-// 待机或没有状态时不挂：点只用来提示「有 Agent 在动」或「刚完成 / 失败」。
-BOOL CCPetsMenuBarShowsStateDot(NSString *state);
+// 菜单栏爪印要不要按状态上色。state 是宠物名片快照里的 Agent 状态（和状态卡同一条），
+// 待机或没有状态时保持原色：颜色只用来提示「有 Agent 在动」或「刚完成 / 失败」。
+BOOL CCPetsMenuBarTintsIcon(NSString *state);
 
 // 面板里账号的排列：订阅账号在前，API 账号在后；同一组内保持 workbenchQuotas 原有次序
 // （平台次序与悬停面板一致）。订阅额度会耗尽、要盯着看，API 用量只是记账。

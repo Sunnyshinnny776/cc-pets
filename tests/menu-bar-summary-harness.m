@@ -60,12 +60,12 @@ int main(void) {
             isEqualToArray:(@[codexPlan, claudePlan, codexAPI, claudeAPI])], @"订阅账号排在 API 账号前");
         ok &= Check(CCPetsMenuBarOrderedQuotas(@[]).count == 0, @"无账号返回空数组");
 
-        // 状态点：待机和没有状态时不挂，其余（含完成、失败、审批）都挂。
-        ok &= Check(!CCPetsMenuBarShowsStateDot(nil) && !CCPetsMenuBarShowsStateDot(@"") &&
-            !CCPetsMenuBarShowsStateDot(@"idle"), @"待机不挂状态点");
-        ok &= Check(CCPetsMenuBarShowsStateDot(@"thinking") && CCPetsMenuBarShowsStateDot(@"completed") &&
-            CCPetsMenuBarShowsStateDot(@"failed") && CCPetsMenuBarShowsStateDot(@"approval"), @"活动与终态挂状态点");
-        ok &= Check(!CCPetsMenuBarShowsStateDot((NSString *)@1), @"非字符串不挂状态点");
+        // 爪印上色：待机和没有状态时保持原色，其余（含完成、失败、审批）都上色。
+        ok &= Check(!CCPetsMenuBarTintsIcon(nil) && !CCPetsMenuBarTintsIcon(@"") &&
+            !CCPetsMenuBarTintsIcon(@"idle"), @"待机保持原色");
+        ok &= Check(CCPetsMenuBarTintsIcon(@"thinking") && CCPetsMenuBarTintsIcon(@"completed") &&
+            CCPetsMenuBarTintsIcon(@"failed") && CCPetsMenuBarTintsIcon(@"approval"), @"活动与终态上色");
+        ok &= Check(!CCPetsMenuBarTintsIcon((NSString *)@1), @"非字符串保持原色");
 
         // 今日 Token 合计。
         NSDictionary *withToday = @{@"usage": @{@"tokenUsage": @{@"today": @{@"total_tokens": @1200}}}};

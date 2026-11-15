@@ -397,10 +397,10 @@ clicking the Dock icon brings a minimized window back.
   the panel or press Esc to close it.
 - **Right-click** (or Control-click) opens the same menu as right-clicking the pet, including
   the CC Bridge switches and **Quit**.
-- A small dot on the icon mirrors the status card: blue while an agent works, orange awaiting
-  approval, green after a task completes and red after a failure. It clears when the status
-  card returns to idle (about a minute without new events), so Hook activity stays visible even
-  with the pet hidden.
+- The paw icon takes the status card's color: blue while an agent works, orange awaiting
+  approval, green after a task completes and red after a failure. It returns to the normal
+  menu bar color when the status card goes back to idle (about a minute without new events),
+  so Hook activity stays visible even with the pet hidden.
 - The icon shows a red count of sessions awaiting approval. **Quota in Menu Bar** adds the
   lowest 5-hour quota left among plan accounts; at 20% or below it is always shown, in orange,
   and turns red at 10%.
