@@ -2170,6 +2170,17 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/tests/preferences-harness.m" \
   -o "${PREFERENCES_TMP}/preferences-test"
 "${PREFERENCES_TMP}/preferences-test"
+# 菜单栏标题：取哪个账号的额度、阈值变色、低额度强制显示，以及显示位置偏好的规整。
+MENU_BAR_TMP="$(mktemp -d /tmp/cc-pets-menu-bar-test.XXXXXX)"
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
+  "${PET_INCLUDE_FLAGS[@]}" \
+  -framework Cocoa \
+  "${PET_SRC[CCPetsMenuBarSummary.m]:?}" \
+  "${PET_SRC[CCPetsPreferences.m]:?}" \
+  "${PET_SRC[CCPetsPetSize.m]:?}" \
+  "${PROJECT_DIR}/tests/menu-bar-summary-harness.m" \
+  -o "${MENU_BAR_TMP}/menu-bar-test"
+"${MENU_BAR_TMP}/menu-bar-test"
 # 设置页按 CCPetsSettingsActions 调 AppDelegate，但 AppDelegate 没在声明上采纳这个协议
 # （方法分散在多个 category，采纳会触发编译告警）。逐条核对协议里的方法确实在私有头里声明过，
 # 否则改了签名只会在用户点开关时以 unrecognized selector 崩掉。

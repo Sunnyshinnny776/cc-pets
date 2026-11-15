@@ -1020,3 +1020,9 @@
 "Install Extension…" = "安装扩展…";
 "Delete “%@”?" = "删除「%@」？";
 "This can't be undone. Continue?" = "删除后无法撤销，是否继续？";
+
+/* 菜单栏图标 */
+"%@ awaiting approval" = "%@ 个等待审批";
+"Show Pet" = "显示桌宠";
+"This month: %@ tokens · %@ calls" = "本月 %@ Token · %@ 次调用";
+"5h %@ · Week %@" = "5 小时 %@ · 本周 %@";

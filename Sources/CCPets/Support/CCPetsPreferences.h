@@ -18,6 +18,16 @@ extern NSString *const PetInteractionIntervalKey;
 // 启动保护按代理软件分别保存；增加软件时定义独立的布尔键。
 extern NSString *const CCPetsShadowrocketLaunchCheckKey;
 
+// 显示位置：仅桌宠（默认）/ 桌宠 + 菜单栏 / 仅菜单栏。字符串而不是整数，以后加模式不错位。
+extern NSString *const CCPetsDisplayModeKey;
+extern NSString *const CCPetsDisplayModePet;
+extern NSString *const CCPetsDisplayModeBoth;
+extern NSString *const CCPetsDisplayModeMenuBar;
+// 菜单栏图标旁常驻显示最低的 5 小时剩余额度。默认关；低于 20% 时不论开关都会显示。
+extern NSString *const CCPetsMenuBarShowsPercentKey;
+// 规整后的显示位置：没写过或写了未知值都按仅桌宠处理。
+NSString *CCPetsDisplayMode(void);
+
 // 布尔设置。碎碎念这类"没写过就算开"的键在这里统一兜底，调用方不必各自判 nil。
 BOOL CCPetsPrefBool(NSString *key);
 void CCPetsPrefSetBool(NSString *key, BOOL value);
