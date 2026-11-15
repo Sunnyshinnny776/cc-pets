@@ -18,6 +18,50 @@ static BOOL ProcessInfoForPID(pid_t pid, struct kinfo_proc *info) {
     return sysctl(name, 4, info, &length, NULL, 0) == 0 && length > 0;
 }
 
+BOOL IsCodexDesktopFocusTarget(NSDictionary *target) {
+    if (![target isKindOfClass:NSDictionary.class]) return NO;
+    return [target[@"bundleID"] isEqual:@"com.openai.codex"] &&
+        (![target[@"tty"] isKindOfClass:NSString.class] || [target[@"tty"] length] == 0);
+}
+
+BOOL CodexDesktopFocusTargetIsLive(NSDictionary *target, NSTimeInterval eventTime) {
+    if (!IsCodexDesktopFocusTarget(target) || !(eventTime > 0)) return NO;
+    for (NSRunningApplication *app in [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.openai.codex"]) {
+        if (!app.terminated && app.launchDate && app.launchDate.timeIntervalSince1970 <= eventTime) return YES;
+    }
+    return NO;
+}
+
+BOOL CodexDesktopApplicationIsRunning(void) {
+    for (NSRunningApplication *app in [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.openai.codex"]) {
+        if (!app.terminated) return YES;
+    }
+    return NO;
+}
+
+NSNumber *CodexPersistentThreadStatus(NSString *thread, NSString *codexHome) {
+    if (thread.length == 0 || !codexHome.isAbsolutePath) return nil;
+    sqlite3 *db = NULL;
+    NSString *path = [codexHome stringByAppendingPathComponent:@"state_5.sqlite"];
+    if (sqlite3_open_v2(path.fileSystemRepresentation, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return nil;
+    }
+    sqlite3_busy_timeout(db, 10);
+    sqlite3_stmt *statement = NULL;
+    NSNumber *result = nil;
+    // 索引不可读或版本改变时返回未知，不能把错误当作“会话已退出”。
+    if (sqlite3_prepare_v2(db, "SELECT archived FROM threads WHERE id = ? LIMIT 1", -1, &statement, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, thread.UTF8String, -1, SQLITE_TRANSIENT);
+        int step = sqlite3_step(statement);
+        if (step == SQLITE_ROW) result = @(sqlite3_column_int(statement, 0) == 0);
+        else if (step == SQLITE_DONE) result = @NO;
+    }
+    sqlite3_finalize(statement);
+    sqlite3_close(db);
+    return result;
+}
+
 // 包装脚本没被走到时（用户直接跑 codex / claude，或终端窗口早于 shim 安装就已打开）
 // 环境里没有 CC_PETS_TERMINAL_*。记录端自己是 Agent 的子进程，控制终端就是 Agent
 // 所在的那个 tty，直接问内核即可——stdin 是 JSON 管道，isatty 这类办法在这里没用。
@@ -275,7 +319,7 @@ BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
 // 能确定的只有两头：codex-with-pet 启动时知道自己的终端、工作目录和时刻；hook 知道会话 ID，
 // 会话记录（rollout）的第一行又记着会话的工作目录和创建时刻。CLI 启动后可能还要等网络
 // 初始化，不能按包装脚本的启动先后猜测归属。多个候选时读取本机 TUI 就绪日志的 PID，
-// 仅在会话创建前的一秒内存在唯一就绪候选时配对；信息不足就留空，之后的 Hook 可再试。
+// 仅在会话创建前后一秒内存在唯一就绪候选时配对；信息不足就留空，之后的 Hook 可再试。
 static const NSUInteger CodexLaunchThreadLimit = 32;
 static const NSTimeInterval CodexClientReadyWindow = 1.0;
 
@@ -433,7 +477,10 @@ static NSDictionary *CodexThreadMeta(NSString *thread, NSDictionary *payload, NS
     return result;
 }
 
-// Codex 0.166 的本机日志记录每个 TUI 的就绪时刻和带 PID 的 process_uuid。
+// Codex 的本机日志记录每个 TUI 的就绪时刻和带 PID 的 process_uuid。
+// 初始会话可能先于首帧就绪（0.167.1 实测晚约 1.56ms 才记录就绪），不能要求就绪
+// 一定早于会话创建。前后使用同一窄窗口，并在整个窗口内检查唯一性，避免两侧各有
+// 一个候选时误配；SQL 的秒级范围与下面的精确时间过滤必须使用相同的上下界。
 // 只读这一类元数据，不读取提示词、输出或 HTTP 日志。内部日志格式改变、日志尚未落盘、
 // 多个客户端同时就绪时都不能猜测；sqlite 的读锁等待和返回条数也有上限。
 static int CodexLogQueryExpired(void *context) {
@@ -459,15 +506,17 @@ static NSString *ReadyCodexLaunch(NSDictionary<NSString *, NSDictionary *> *laun
         "AND feedback_log_body LIKE 'tui startup initial frame scheduled%' LIMIT 128";
     NSMutableSet<NSString *> *matches = [NSMutableSet set];
     BOOL complete = NO;
+    NSTimeInterval earliestReadyAt = createdAt.doubleValue - CodexClientReadyWindow;
+    NSTimeInterval latestReadyAt = createdAt.doubleValue + CodexClientReadyWindow;
     if (sqlite3_prepare_v2(database, query, -1, &statement, NULL) == SQLITE_OK) {
-        sqlite3_bind_int64(statement, 1, (sqlite3_int64)floor(createdAt.doubleValue - CodexClientReadyWindow));
-        sqlite3_bind_int64(statement, 2, (sqlite3_int64)ceil(createdAt.doubleValue));
+        sqlite3_bind_int64(statement, 1, (sqlite3_int64)floor(earliestReadyAt));
+        sqlite3_bind_int64(statement, 2, (sqlite3_int64)ceil(latestReadyAt));
         int result;
         NSUInteger rows = 0;
         while ((result = sqlite3_step(statement)) == SQLITE_ROW) {
             rows++;
             double readyAt = sqlite3_column_int64(statement, 0) + sqlite3_column_int64(statement, 1) / 1e9;
-            if (readyAt > createdAt.doubleValue || readyAt < createdAt.doubleValue - CodexClientReadyWindow) continue;
+            if (readyAt < earliestReadyAt || readyAt > latestReadyAt) continue;
             const unsigned char *value = sqlite3_column_text(statement, 2);
             NSString *process = value ? @((const char *)value) : @"";
             for (NSString *key in candidates) {

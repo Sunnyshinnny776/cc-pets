@@ -374,7 +374,18 @@ static const NSTimeInterval PetBreathPeriod = 3.6;
     NSUInteger hold = self.frameHolds[index].unsignedIntegerValue;
     return hold > 0 ? hold : 1;
 }
+- (void)resetAgentToIdle {
+    [self noteActivity];
+    self.agentActive = NO;
+    if (self.microActive) [self endMicroBehavior];
+    [self playRow:0 throughFrame:5 oneShot:NO];
+}
 - (void)handleAgentEvent:(NSString *)event tool:(NSString *)tool failed:(BOOL)failed {
+    // 会话退出不代表任务成功；直接恢复待机，不播放完成动作。
+    if ([event isEqualToString:@"SessionEnd"]) {
+        [self resetAgentToIdle];
+        return;
+    }
     [self noteActivity];
     [self bumpExertion];
     if ([event isEqualToString:@"SessionStart"]) {
@@ -418,7 +429,7 @@ static const NSTimeInterval PetBreathPeriod = 3.6;
         self.agentActive = YES;
         [self playRow:4 throughFrame:4 oneShot:YES];
     } else if ([event isEqualToString:@"Stop"] || [event isEqualToString:@"SubagentStop"] ||
-               [event isEqualToString:@"TaskCompleted"] || [event isEqualToString:@"SessionEnd"]) {
+               [event isEqualToString:@"TaskCompleted"]) {
         self.agentActive = YES;
         [self playRow:3 throughFrame:3 oneShot:YES];
     }

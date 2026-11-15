@@ -4,7 +4,7 @@ English | [简体中文](./PROVIDER_PROTOCOL.zh-CN.md)
 
 Third-party CLI agents can write normalized status events to CC Pets through
 standard input and reuse its status card, animations, and optional system
-notifications. The protocol accepts status and tool categories only. It does not
+notifications. The protocol accepts status, tool categories, and working-directory metadata. It does not
 accept prompts, command text, file contents, or model output.
 
 ## Sending an event
@@ -21,6 +21,10 @@ printf '%s' '{
 `provider` is required, has a maximum length of 32 characters, and may contain only
 letters, digits, spaces, `.`, `_`, and `-`. `tool` is optional, has a maximum length
 of 64 characters, and is used only to select redacted status text and animation.
+
+`cwd` is optional and supplies the working directory for the session label and tooltip.
+It must be an absolute path of at most 1,024 UTF-16 code units without control characters.
+If omitted or invalid, CC Pets uses the event command's current working directory.
 
 `state` must be one of these values:
 

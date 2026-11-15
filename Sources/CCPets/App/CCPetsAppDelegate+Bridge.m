@@ -1,5 +1,6 @@
 // CC Bridge 开关、消息角标与菜单。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsBridgeStore.h"
 
 @implementation AppDelegate (Bridge)
 // 菜单开关 → cc-pets bridge enable / disable / configure。逻辑全在 CLI 里，桌宠只负责调用，
@@ -206,8 +207,8 @@
     if (![NSUserDefaults.standardUserDefaults boolForKey:BridgeNotificationKey]) return;
     NSDictionary *latest = fresh.firstObject;
     NSString *body = fresh.count == 1
-        ? [NSString stringWithFormat:@"%@ → %@", latest[@"from"], latest[@"to"]]
-        : [NSString stringWithFormat:L(@"%1$@ → %2$@ and %3$lu more"), latest[@"from"], latest[@"to"],
+        ? [NSString stringWithFormat:@"%@ → %@", CCBridgeSessionDisplayName(latest[@"fromIdentity"]), CCBridgeSessionDisplayName(latest[@"toIdentity"])]
+        : [NSString stringWithFormat:L(@"%1$@ → %2$@ and %3$lu more"), CCBridgeSessionDisplayName(latest[@"fromIdentity"]), CCBridgeSessionDisplayName(latest[@"toIdentity"]),
             (unsigned long)fresh.count - 1];
     [self sendNotificationWithTitle:L(@"New CC Bridge Message") body:body];
 }
@@ -283,7 +284,8 @@
     NSMenuItem *heading = [menu addItemWithTitle:L(@"CC Bridge Messages") action:nil keyEquivalent:@""];
     heading.enabled = NO;
     [pending enumerateKeysAndObjectsUsingBlock:^(NSString *session, NSNumber *count, BOOL *stop) {
-        NSString *name = self.bridgeSessions[session][@"name"] ?: session;
+        NSString *name = CCBridgeSessionDisplayName(self.bridgeSessions[session]);
+        if (name.length == 0) name = session;
         NSString *title = [NSString stringWithFormat:count.unsignedLongValue != 1
             ? L(@"📬 %1$@ has %2$lu undelivered messages (say anything in that terminal to deliver)")
             : L(@"📬 %1$@ has %2$lu undelivered message (say anything in that terminal to deliver)"),
@@ -300,11 +302,11 @@
             dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle];
         BOOL unseen = [delivery[@"at"] doubleValue] > self.bridgeSeenAt;
         NSString *title = [NSString stringWithFormat:@"%@%@ → %@ · %@",
-            unseen ? @"✉️ " : @"", delivery[@"from"], delivery[@"to"], time];
+            unseen ? @"✉️ " : @"", CCBridgeSessionDisplayName(delivery[@"fromIdentity"]), CCBridgeSessionDisplayName(delivery[@"toIdentity"]), time];
         NSMenuItem *item = [menu addItemWithTitle:title action:@selector(focusBridgeSession:) keyEquivalent:@""];
         item.target = self;
         item.representedObject = delivery[@"toSession"];
-        item.toolTip = [NSString stringWithFormat:L(@"Jump to %@'s terminal"), delivery[@"to"]];
+        item.toolTip = [NSString stringWithFormat:L(@"Jump to %@'s terminal"), CCBridgeSessionDisplayName(delivery[@"toIdentity"])];
     }
 }
 @end

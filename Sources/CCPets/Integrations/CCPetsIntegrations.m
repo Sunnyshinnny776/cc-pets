@@ -391,7 +391,7 @@ int InstallCodexHooksAtHome(NSString *binary, NSString *codexHome) {
         CCPetsShellQuote(codexHome), CCPetsShellQuote(binary)];
     ReplaceManagedHooks(config, @[@[CCPetsCodexHookMarker, @"cc-pets"], @[CCPetsLegacyCodexHookMarker, @"codex-pet"]], command, @[
         @"SessionStart", @"UserPromptSubmit", @"PreToolUse", @"PermissionRequest", @"PostToolUse",
-        @"SubagentStart", @"SubagentStop", @"Stop"
+        @"SubagentStart", @"SubagentStop", @"Stop", @"SessionEnd"
     ]);
 
     NSString *text = [CCPetsJSONStringify(config) stringByAppendingString:@"\n"];

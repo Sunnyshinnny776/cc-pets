@@ -356,6 +356,51 @@ static NSArray<NSString *> *NameAnimals(void) {
     return animals;
 }
 
+NSString *CCBridgeSessionAnimalAlias(NSDictionary *session) {
+    if (![CCPetsCurrentLanguage() hasPrefix:@"zh"] ||
+        ![StringValue(session[@"nameSource"]) isEqualToString:@"generated"]) return @"";
+    static NSDictionary<NSString *, NSString *> *aliases;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        aliases = @{
+            @"otter": @"水獭", @"panda": @"熊猫", @"quokka": @"短尾矮袋鼠", @"corgi": @"柯基", @"koala": @"考拉",
+            @"capy": @"水豚", @"puffin": @"海鹦", @"lemur": @"狐猴", @"alpaca": @"羊驼", @"wombat": @"袋熊",
+            @"bunny": @"小兔", @"kitten": @"小猫", @"puppy": @"小狗", @"hamster": @"仓鼠", @"fox": @"狐狸",
+            @"owl": @"猫头鹰", @"seal": @"海豹", @"penguin": @"企鹅", @"duck": @"鸭子", @"llama": @"美洲驼",
+            @"sloth": @"树懒", @"fennec": @"耳廓狐", @"bear": @"熊", @"cub": @"幼崽", @"lamb": @"小羊",
+            @"fawn": @"小鹿", @"deer": @"鹿", @"dolphin": @"海豚", @"beluga": @"白鲸", @"orca": @"虎鲸",
+            @"narwhal": @"独角鲸", @"walrus": @"海象", @"manatee": @"海牛", @"turtle": @"乌龟", @"frog": @"青蛙",
+            @"gecko": @"壁虎", @"chick": @"小鸡", @"robin": @"知更鸟", @"finch": @"雀鸟", @"wren": @"鹪鹩",
+            @"sparrow": @"麻雀", @"toucan": @"巨嘴鸟", @"parrot": @"鹦鹉", @"macaw": @"金刚鹦鹉", @"dove": @"鸽子",
+            @"swan": @"天鹅", @"owlet": @"小猫头鹰", @"goose": @"鹅", @"koi": @"锦鲤", @"bee": @"蜜蜂",
+            @"ladybug": @"瓢虫", @"raccoon": @"浣熊", @"ferret": @"雪貂", @"badger": @"獾", @"beaver": @"河狸",
+            @"marmot": @"旱獭", @"meerkat": @"狐獴", @"mouse": @"小鼠", @"gerbil": @"沙鼠", @"pony": @"矮马",
+            @"foal": @"小马驹", @"piglet": @"小猪", @"calf": @"小牛", @"giraffe": @"长颈鹿", @"zebra": @"斑马",
+            @"hippo": @"河马", @"rhino": @"犀牛", @"tapir": @"貘", @"okapi": @"霍加狓", @"lynx": @"猞猁",
+            @"tiger": @"老虎", @"cheetah": @"猎豹", @"lion": @"狮子", @"husky": @"哈士奇", @"shiba": @"柴犬",
+            @"beagle": @"比格犬", @"pug": @"巴哥犬", @"poodle": @"贵宾犬", @"collie": @"柯利犬", @"dingo": @"澳洲野犬",
+            @"newt": @"蝾螈", @"tadpole": @"蝌蚪", @"octopus": @"章鱼", @"squid": @"鱿鱼", @"crab": @"螃蟹",
+            @"snail": @"蜗牛", @"peacock": @"孔雀", @"emu": @"鸸鹋", @"quail": @"鹌鹑", @"magpie": @"喜鹊",
+            @"kea": @"啄羊鹦鹉", @"heron": @"鹭鸟", @"stork": @"鹳", @"ibis": @"朱鹭", @"numbat": @"袋食蚁兽",
+            @"bilby": @"兔耳袋狸", @"possum": @"负鼠", @"dugong": @"儒艮", @"yak": @"牦牛", @"bison": @"野牛",
+        };
+    });
+    NSArray<NSString *> *parts = [StringValue(session[@"name"]) componentsSeparatedByString:@"."];
+    if (parts.count != 3) return @"";
+    NSString *animal = parts.lastObject;
+    NSCharacterSet *digits = [NSCharacterSet characterSetWithCharactersInString:@"0123456789"];
+    NSUInteger end = animal.length;
+    while (end > 0 && [digits characterIsMember:[animal characterAtIndex:end - 1]]) end--;
+    NSString *alias = aliases[[animal substringToIndex:end]];
+    return alias ? [alias stringByAppendingString:[animal substringFromIndex:end]] : @"";
+}
+
+NSString *CCBridgeSessionDisplayName(NSDictionary *session) {
+    NSString *name = StringValue(session[@"name"]) ?: @"";
+    NSString *alias = CCBridgeSessionAnimalAlias(session);
+    return alias.length > 0 ? [name stringByAppendingFormat:@" · %@", alias] : name;
+}
+
 static NSDictionary *NameTakenBy(NSString *name, NSString *sessionId, NSArray<NSDictionary *> *liveSessions) {
     for (NSDictionary *entry in liveSessions) {
         if (![entry[@"session"] isEqual:sessionId] && [entry[@"name"] isEqual:name]) return entry;
@@ -389,6 +434,18 @@ static NSString *AllocateName(NSString *provider, NSString *profileName, NSStrin
         NSString *candidate = [NSString stringWithFormat:@"%@.%@%lu", prefix, animal, (unsigned long)index];
         if (!NameTakenBy(candidate, sessionId, liveSessions)) return candidate;
     }
+}
+
+// 状态卡这类窄地方用的短名：去掉默认名字开头的账号段（claude.my-app.otter → my-app.otter），
+// 只处理明确标记为自动生成的名字；自定义名字和来源不明的旧记录原样返回。
+NSString *CCBridgeSessionShortName(NSDictionary *session) {
+    NSString *name = StringValue(session[@"name"]);
+    if (name.length == 0) return @"";
+    if (![StringValue(session[@"nameSource"]) isEqualToString:@"generated"]) return name;
+    // 自动名字的首段就是分配时的账号名，不依赖之后可能变化的 profileName。
+    NSRange separator = [name rangeOfString:@"."];
+    return separator.location != NSNotFound && separator.location > 0 && NSMaxRange(separator) < name.length
+        ? [name substringFromIndex:NSMaxRange(separator)] : name;
 }
 
 // 启动时指定的名字被占用就追加序号（frontend → frontend-2），不让会话因此注册失败。
@@ -436,6 +493,7 @@ static NSDictionary *UpsertSession(NSString *sessionId, NSString *provider, NSNu
         record[@"name"] = custom ? AllocateCustomName(custom, safe, liveSessions ?: @[])
             : AllocateName(StringValue(record[@"provider"]) ?: @"", StringValue(record[@"profileName"]),
                 StringValue(record[@"cwd"]), safe, liveSessions ?: @[]);
+        record[@"nameSource"] = custom ? @"custom" : @"generated";
     }
     if (status) record[@"status"] = status;
     record[@"updatedAt"] = @(now);
@@ -457,6 +515,7 @@ static NSDictionary *RenameSession(NSString *sessionId, NSString *requestedName,
     }
     NSString *previous = StringValue(record[@"name"]) ?: @"";
     record[@"name"] = name;
+    record[@"nameSource"] = @"custom";
     record[@"updatedAt"] = @(CCPetsMilliseconds());
     CCBridgeWriteJSON(SessionFile(record[@"session"]), record);
     return @{@"session": record, @"previous": previous};

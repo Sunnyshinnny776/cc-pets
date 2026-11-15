@@ -77,6 +77,30 @@ int main(void) {
             NSLog(@"会话页启动态降级为待机的判定不对");
             ok = NO;
         }
+        // 状态卡的会话标签：Bridge 短名优先，其次目录名；都没有就留空，由标题退回 provider。
+        if (![StatusSessionLabel(@"cc-pets.crab", @"/Users/me/other") isEqualToString:@"cc-pets.crab"] ||
+            ![StatusSessionLabel(@"", @"/Users/me/cc-pets") isEqualToString:@"cc-pets"] ||
+            ![StatusSessionLabel(nil, @"/Users/me/我的 项目/") isEqualToString:@"我的 项目"] ||
+            StatusSessionLabel(nil, nil).length != 0 || StatusSessionLabel(@"", @"/").length != 0) {
+            NSLog(@"会话标签的取值优先级不对");
+            ok = NO;
+        }
+        // 过长时截掉中间、保留动物后缀：同目录的多个会话只有后缀不同。
+        NSString *longLabel = StatusSessionLabel(@"my-very-long-project-name.raccoon", nil);
+        NSString *plainLabel = StatusSessionLabel(nil, @"/tmp/a-directory-name-without-any-dots");
+        NSString *wideLabel = StatusSessionLabel(nil, @"/tmp/项目项目项目项目项目项目项目项目项目项目项目项目");
+        if (![longLabel isEqualToString:@"my-very-lon….raccoon"] || longLabel.length != 20 ||
+            ![plainLabel isEqualToString:@"a-directory-name-wi…"] || wideLabel.length != 20) {
+            NSLog(@"会话标签截断不对: %@ / %@ / %@", longLabel, plainLabel, wideLabel);
+            ok = NO;
+        }
+        // 工作目录可以带中文和空格，但必须是绝对路径且不含控制字符。
+        if (![SanitizedWorkingDirectory(@" /Users/me/我的 项目 ") isEqualToString:@"/Users/me/我的 项目"] ||
+            SanitizedWorkingDirectory(@"relative/path").length != 0 ||
+            SanitizedWorkingDirectory(@"/tmp/a\nb").length != 0 || SanitizedWorkingDirectory(@42).length != 0) {
+            NSLog(@"工作目录清洗不对");
+            ok = NO;
+        }
         if (!ok) return EXIT_FAILURE;
         puts("Agent 状态归一与终态尾巴事件判定测试通过");
     }

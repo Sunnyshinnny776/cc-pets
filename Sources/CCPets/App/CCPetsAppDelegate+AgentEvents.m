@@ -75,10 +75,39 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
         if (lineData.length == 0) continue;
         NSDictionary *record = [NSJSONSerialization JSONObjectWithData:lineData options:0 error:nil];
         if (![record isKindOfClass:NSDictionary.class]) continue;
-        if (recentOnly && [record[@"timestamp"] doubleValue] < cutoff) continue;
+        NSMutableDictionary *normalized = [record mutableCopy];
+        NSString *profileID = NormalizedAgentProfileID(record[@"profileId"]);
+        if (profileID.length > 0) normalized[@"profileId"] = profileID;
+        else [normalized removeObjectForKey:@"profileId"];
+        record = normalized;
+        BOOL ended = [record[@"event"] isEqual:@"SessionEnd"];
+        BOOL desktop = [record[@"provider"] isEqual:@"Codex"] && IsCodexDesktopFocusTarget(record[@"terminal"]);
+        NSNumber *persistent = desktop && !ended ? [self desktopSessionPersistenceForRecord:record] : nil;
+        if (desktop && !ended && persistent && !persistent.boolValue) continue;
+        if (persistent) normalized[@"desktopPersistent"] = persistent;
+        BOOL replay = recentOnly && (desktop || [record[@"timestamp"] doubleValue] < cutoff);
+        // 只有确认的持久化聊天可以恢复在线列表。应用存活不证明某轮任务仍在运行。
+        if (replay && !ended && !(desktop && persistent.boolValue && CodexDesktopFocusTargetIsLive(record[@"terminal"],
+            [record[@"timestamp"] doubleValue]))) continue;
+        NSString *sessionKey = [self agentSessionKeyForRecord:record];
+        NSDictionary *previous = sessionKey ? self.agentSessionRecords[sessionKey] : nil;
+        // 在记录、审批、动画等所有消费者之前挡住完成后的尾随事件。
+        if (!ended && previous && [[self statusIdentityForRecord:previous] isEqual:[self statusIdentityForRecord:record]] &&
+            [self isTrailingRecord:record afterState:previous[@"state"]]) continue;
+        if (replay && desktop && !ended &&
+            ![@[@"completed", @"failed"] containsObject:record[@"state"] ?: @""]) {
+            normalized[@"state"] = @"idle";
+            normalized[@"event"] = @"Snapshot";
+            normalized[@"tool"] = @"";
+        }
         [self trackAgentSessionRecord:record];
         NSString *event = record[@"event"];
         NSString *state = [record[@"state"] isKindOfClass:NSString.class] ? record[@"state"] : @"";
+        if (ended) {
+            [self.pendingApprovalRecords removeObjectForKey:[self approvalKeyForRecord:record]];
+            if (!recentOnly) [self finishAgentSessionPresentation:record];
+            continue;
+        }
         if ([event isKindOfClass:NSString.class]) {
             if (!self.pendingApprovalRecords) {
                 self.pendingApprovalRecords = [NSMutableDictionary dictionary];
@@ -92,11 +121,13 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
                 [self.pendingApprovalRecords removeObjectForKey:approvalKey];
             }
             [self prunePendingApprovalRecords];
+            if (replay || (desktop && [event isEqual:@"SessionStart"])) continue;
             // 多会话下不能让一个未处理的审批全局挡住其他 Agent 的所有 Hook。每条事件
             // 都正常驱动气泡和动画；仍在等待的审批保留在多会话记录中供用户回跳。
             [self displayAgentRecord:record notify:YES];
         }
     }
+    [self updateQuotaLiveState];
     [self refreshApprovalBadge];
 }
 - (void)readNewAgentEvents {
@@ -180,8 +211,7 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         NSString *tty = lines.count > 1 ? [lines[1]
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"";
-        NSString *profileID = lines.count > 2 ? [lines[2]
-            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"";
+        NSString *profileID = lines.count > 2 ? NormalizedAgentProfileID(lines[2]) : @"";
         if (!ClientProcessAlive(pid, tty)) {
             [NSFileManager.defaultManager removeItemAtPath:path error:nil];
             continue;
@@ -205,6 +235,18 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
     self.liveClientProviders = providers;
     self.liveClientProfileIDs = profileIDs;
     self.liveUnscopedClientProviders = unscopedProviders;
+    if (!self.managedAgentSessionKeys) self.managedAgentSessionKeys = [NSMutableSet set];
+    // 先用本轮与上一轮的 pid 快照标记对应会话，再替换快照，保留精确退出信号。
+    NSMutableSet<NSString *> *observedKeys = [sessionKeys mutableCopy];
+    [observedKeys unionSet:self.liveAgentSessionKeys ?: [NSSet set]];
+    for (NSDictionary *record in self.agentSessionRecords.allValues) {
+        NSString *key = [self onlineAgentSessionKeyForRecord:record];
+        NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
+        NSString *legacyKey = OnlineAgentSessionKey(record[@"provider"], nil, terminal[@"tty"]);
+        if ((key && [observedKeys containsObject:key]) || (legacyKey && [observedKeys containsObject:legacyKey])) {
+            [self.managedAgentSessionKeys addObject:[self statusIdentityForRecord:record]];
+        }
+    }
     self.liveAgentSessionKeys = sessionKeys;
     self.hasUnlabeledClient = unlabeled;
     [self pruneOfflineAgentSessionRecords];
@@ -220,6 +262,7 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
     [self refreshApprovalBadge];
     // 启动模式在应用生命周期内保持不变。手动启动的桌宠即使后来检测到
     // Codex/Claude 客户端，也不应被转成 CLI 托管模式并随客户端退出。
-    if (liveClients == 0 && self.managedByCLI) [NSApp terminate:nil];
+    // 桌面端不创建 CLI pid 文件；只要桌面应用仍运行，就不能随最后一个终端退出。
+    if (liveClients == 0 && self.managedByCLI && !CodexDesktopApplicationIsRunning()) [NSApp terminate:nil];
 }
 @end

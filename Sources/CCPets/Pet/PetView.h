@@ -42,5 +42,6 @@
 - (instancetype)initWithFrame:(NSRect)frame sheet:(NSImage *)sheet rowCount:(NSInteger)rowCount;
 - (void)applySheet:(NSImage *)sheet petID:(NSString *)petID rowCount:(NSInteger)rowCount;
 - (void)handleAgentEvent:(NSString *)event tool:(NSString *)tool failed:(BOOL)failed;
+- (void)resetAgentToIdle;
 - (void)playRow:(NSInteger)row throughFrame:(NSInteger)last oneShot:(BOOL)oneShot;
 @end

@@ -1009,7 +1009,8 @@ node -e '
   if (text.replace("12345678901234567890", "12345678901234567000") !== `${JSON.stringify(config, null, 2)}\n`) process.exit(3);
   if (config.zeta["中文"] !== "a/b \u0001") process.exit(4);
   if (config.hooks.Stop[0].hooks[0].command !== "existing") process.exit(5);
-  if (Object.values(config.hooks).flat().length !== 9) process.exit(6);
+  // 9 个受管事件（含 SessionEnd），加上原有的 Stop hook 分组。
+  if (Object.values(config.hooks).flat().length !== 10) process.exit(6);
   if ((fs.statSync(process.argv[1]).mode & 0o777) !== 0o600) process.exit(7);
 ' "${CODEX_ORDER_TMP}/hooks.json"
 print "原生 Hooks 安装器保序回写测试通过"
@@ -1136,7 +1137,7 @@ node -e '
   const statusScript = fs.readFileSync(process.argv[4], "utf8");
   const codexCommands = Object.values(codex.hooks || {}).flat().flatMap(group => group.hooks || []).map(hook => hook.command);
   const claudeCommands = Object.values(claude.hooks || {}).flat().flatMap(group => group.hooks || []).map(hook => hook.command);
-  if (codexCommands.filter(command => command?.includes("CC_PETS_CODEX_AGENT_HOOK=1")).length !== 8) process.exit(1);
+  if (codexCommands.filter(command => command?.includes("CC_PETS_CODEX_AGENT_HOOK=1")).length !== 9) process.exit(1);
   if (codexCommands.some(command => command?.includes("/.build/release/codex-pet"))) process.exit(1);
   if (!codexCommands.includes("CODEX_PET_AGENT_HOOK=1 /other/tool --hook")) process.exit(1);
   if (claudeCommands.filter(command => command?.includes("CC_PETS_CLAUDE_AGENT_HOOK=1")).length !== 14) process.exit(1);
@@ -1456,7 +1457,7 @@ DOCTOR_SNAPSHOT="$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex
 doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
   "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ claude Hooks 已安装（14 个事件）" "${DOCTOR_TMP}/installed.txt"
-grep -q "✅ codex Hooks 已安装（8 个事件）" "${DOCTOR_TMP}/installed.txt"
+grep -q "✅ codex Hooks 已安装（9 个事件）" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ Claude status line 已接入额度采集" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ shim 完整" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ PATH 中 shim 目录排在最前" "${DOCTOR_TMP}/installed.txt"

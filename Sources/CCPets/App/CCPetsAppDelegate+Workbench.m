@@ -2,6 +2,7 @@
 // 不新增任何采集。
 #import "CCPetsAppDelegate+Private.h"
 #import "CCPetsBridge.h"
+#import "CCPetsBridgeStore.h"
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsUsageMode.h"
 
@@ -34,6 +35,7 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
         session[@"updatedAt"] = record[@"timestamp"] ?: @0;
         NSDictionary *bridge = [self bridgeSessionEntryForRecord:record];
         if ([bridge[@"name"] isKindOfClass:NSString.class]) session[@"name"] = bridge[@"name"];
+        session[@"displayName"] = CCBridgeSessionDisplayName(bridge);
         NSString *bridgeID = [self bridgeSessionIdForRecord:record];
         session[@"pendingMessages"] = bridgeID ? (pending[bridgeID] ?: @0) : @0;
         [sessions addObject:session];
@@ -54,7 +56,9 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
     NSMutableArray<NSDictionary *> *pending = [NSMutableArray array];
     [self.bridgePendingCounts enumerateKeysAndObjectsUsingBlock:^(NSString *session, NSNumber *count, BOOL *stop) {
         NSString *name = self.bridgeSessions[session][@"name"];
+        NSString *displayName = CCBridgeSessionDisplayName(self.bridgeSessions[session]);
         [pending addObject:@{@"session": session, @"name": [name isKindOfClass:NSString.class] ? name : session,
+                             @"displayName": displayName.length > 0 ? displayName : session,
                              @"count": count}];
     }];
     [pending sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {

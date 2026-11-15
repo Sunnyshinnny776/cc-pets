@@ -20,6 +20,47 @@ NSString *SanitizedShortString(id value, NSUInteger maximumLength) {
     return [safe stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
 }
 
+NSString *NormalizedAgentProfileID(id value) {
+    if (![value isKindOfClass:NSString.class]) return @"";
+    NSString *identifier = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
+        @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:"];
+    // 拒绝非法标识，不能删除字符后误认成另一个账号。
+    if (identifier.length == 0 || identifier.length > 128 ||
+        [identifier rangeOfCharacterFromSet:allowed.invertedSet].location != NSNotFound) return @"";
+    NSRegularExpression *legacy = [NSRegularExpression regularExpressionWithPattern:
+        @"\\A(codex|claude)([0-9a-f]{16})\\z" options:0 error:nil];
+    return [legacy stringByReplacingMatchesInString:identifier options:0
+        range:NSMakeRange(0, identifier.length) withTemplate:@"$1:$2"];
+}
+
+// 工作目录只用于状态卡上的会话标签和悬停提示。路径里可以有中文和空格，所以不走
+// SanitizedShortString 的白名单；只收绝对路径，挡掉控制字符和离谱的长度。
+NSString *SanitizedWorkingDirectory(id value) {
+    if (![value isKindOfClass:NSString.class]) return @"";
+    NSString *path = [(NSString *)value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (path.length == 0 || path.length > 1024 || ![path hasPrefix:@"/"]) return @"";
+    if ([path rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return @"";
+    return path;
+}
+
+// 状态卡标题里的会话标签：有 CC Bridge 短名（目录名.动物）就用它，否则退回目录名。
+// 卡片很窄，超过 20 个字符时截掉中间，保留末尾的动物后缀——同目录的多个会话全靠它区分。
+NSString *StatusSessionLabel(NSString *bridgeName, NSString *cwd) {
+    static const NSUInteger limit = 20;
+    NSString *label = bridgeName.length > 0 ? bridgeName : cwd.lastPathComponent;
+    if (label.length == 0 || [label isEqualToString:@"/"]) return @"";
+    if (label.length <= limit) return label;
+    NSRange dot = [label rangeOfString:@"." options:NSBackwardsSearch];
+    NSString *suffix = dot.location != NSNotFound && dot.location > 0 && label.length - dot.location <= 9
+        ? [label substringFromIndex:dot.location] : @"";
+    NSUInteger keep = limit - 1 - suffix.length;
+    // 按完整字符截断，免得把中文目录名或 emoji 切成半个。
+    NSRange head = [label rangeOfComposedCharacterSequencesForRange:NSMakeRange(0, keep)];
+    if (head.length > keep) head = [label rangeOfComposedCharacterSequencesForRange:NSMakeRange(0, keep - 1)];
+    return [NSString stringWithFormat:@"%@…%@", [label substringWithRange:head], suffix];
+}
+
 NSString *ProviderFromEnvironment(void) {
     NSDictionary<NSString *, NSString *> *environment = NSProcessInfo.processInfo.environment;
     if ([environment[@"CC_PETS_CODEX_AGENT_HOOK"] boolValue]) return @"Codex";
@@ -91,7 +132,7 @@ NSString *NormalizedStateForEvent(NSString *event, BOOL failed) {
 
 NSString *OnlineAgentSessionKey(id provider, id profileID, id tty) {
     NSString *providerName = SanitizedShortString(provider, 32);
-    NSString *profile = SanitizedShortString(profileID, 128);
+    NSString *profile = NormalizedAgentProfileID(profileID);
     // 先取末段再清洗：清洗会去掉 "/"，"/dev/ttys003" 就成了 "devttys003"。
     NSString *ttyName = [tty isKindOfClass:NSString.class]
         ? SanitizedShortString([(NSString *)tty lastPathComponent], 64) : @"";
@@ -189,19 +230,18 @@ int RecordHookEvent(void) {
     if (![payload isKindOfClass:NSDictionary.class]) return EXIT_SUCCESS;
     NSString *event = payload[@"hook_event_name"];
     if (![event isKindOfClass:NSString.class] || event.length == 0) return EXIT_SUCCESS;
-    // Claude Agent SDK / ACP 也会执行用户级 Hooks。IDE 或终端仅仅创建、销毁这类
-    // 后台会话时就会发 SessionStart / SessionEnd，但它们不代表用户启动了 Agent
-    // 任务或完成了一轮工作。真实 CLI 的启动状态由包装脚本显式写入，任务完成则由
-    // Stop 表示，因此这里忽略纯会话生命周期事件，避免普通终端开关触发误报。
-    if ([event isEqualToString:@"SessionStart"] || [event isEqualToString:@"SessionEnd"]) {
-        return EXIT_SUCCESS;
-    }
+    NSString *provider = ProviderFromEnvironment();
+    NSDictionary *terminal = TerminalFocusTargetForHook(payload, provider);
+    BOOL lifecycle = [event isEqualToString:@"SessionStart"] || [event isEqualToString:@"SessionEnd"];
+    // 桌面会话不经过 CLI 包装器，必须记录生命周期，但消费端不播报任务完成。
+    // Codex 的结束事件即使缺少回跳目标也要保留，以 session_id 清理记录。
+    if (lifecycle && !([provider isEqualToString:@"Codex"] &&
+        (IsCodexDesktopFocusTarget(terminal) || [event isEqualToString:@"SessionEnd"]))) return EXIT_SUCCESS;
     NSString *tool = [payload[@"tool_name"] isKindOfClass:NSString.class] ? payload[@"tool_name"] : @"";
     NSString *session = SanitizedShortString(payload[@"session_id"], 128);
     id toolResult = payload[@"tool_response"] ?: payload[@"tool_result"];
     BOOL failed = [event isEqualToString:@"PostToolUseFailure"] ||
         [event isEqualToString:@"StopFailure"] || HookValueIndicatesFailure(toolResult);
-    NSString *provider = ProviderFromEnvironment();
     BOOL autoReview = [provider isEqualToString:@"Codex"] &&
         [event isEqualToString:@"PermissionRequest"] && CodexAutoReviewEnabled();
     NSMutableDictionary *record = [@{
@@ -213,12 +253,24 @@ int RecordHookEvent(void) {
         @"timestamp": @([NSDate.date timeIntervalSince1970])
     } mutableCopy];
     if (session.length > 0) record[@"session"] = session;
-    NSString *profileID = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_ID"], 128);
+    NSString *cwd = SanitizedWorkingDirectory(payload[@"cwd"]);
+    if (cwd.length > 0) record[@"cwd"] = cwd;
+    NSString *profileID = NormalizedAgentProfileID(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_ID"]);
     NSString *profileName = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_NAME"], 64);
     if (profileID.length > 0) record[@"profileId"] = profileID;
     if (profileName.length > 0) record[@"profileName"] = profileName;
-    NSDictionary *terminal = TerminalFocusTargetForHook(payload, provider);
     if (terminal.count > 0) record[@"terminal"] = terminal;
+    if ([provider isEqualToString:@"Codex"]) {
+        // 不记录 prompt；只保存会话是否有转录，区分桌面后台临时任务与真实聊天。
+        id transcript = payload[@"transcript_path"];
+        if (transcript == NSNull.null) record[@"transient"] = @YES;
+        else if ([transcript isKindOfClass:NSString.class] && [transcript length] > 0) {
+            record[@"transcriptPath"] = transcript;
+        }
+        NSString *home = NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_HOME"]
+            ?: NSProcessInfo.processInfo.environment[@"CODEX_HOME"] ?: DefaultCodexHomeDirectory();
+        if (home.isAbsolutePath) record[@"codexHome"] = home;
+    }
     AppendAgentEventRecord(record);
     return EXIT_SUCCESS;
 }
@@ -264,7 +316,11 @@ int RecordProviderEvent(void) {
         @"state": state,
         @"timestamp": @([NSDate.date timeIntervalSince1970])
     } mutableCopy];
-    NSString *profileID = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_ID"], 128);
+    // 包装脚本的启动事件没有 Hook payload，从调用进程继承的目录补齐会话标签。
+    NSString *cwd = SanitizedWorkingDirectory(payload[@"cwd"]);
+    if (cwd.length == 0) cwd = SanitizedWorkingDirectory(NSFileManager.defaultManager.currentDirectoryPath);
+    if (cwd.length > 0) record[@"cwd"] = cwd;
+    NSString *profileID = NormalizedAgentProfileID(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_ID"]);
     NSString *profileName = SanitizedShortString(NSProcessInfo.processInfo.environment[@"CC_PETS_PROFILE_NAME"], 64);
     if (profileID.length > 0) record[@"profileId"] = profileID;
     if (profileName.length > 0) record[@"profileName"] = profileName;

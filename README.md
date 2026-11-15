@@ -34,7 +34,7 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
 
 - Supports English and Simplified Chinese in the app and CLI, with live UI language switching.
 - Offers Classic and native Liquid Glass panel themes on macOS 26 and later.
-- Starts with Codex CLI or Claude Code CLI and closes after the last managed CLI exits.
+- Starts with Codex CLI or Claude Code CLI and closes after the last managed CLI exits, unless Codex desktop is still running.
 - Shares one pet across multiple simultaneous Codex and Claude sessions.
 - Shows five-hour and weekly remaining quota, reset times, local token totals, and seven-day trends.
 - Converts reset times to the Mac's current system time zone.
@@ -201,6 +201,10 @@ are rejected rather than guessed. Codex delivery uses the recipient's Home.
 For Codex sessions sharing an app-server PID, agents pass the current `session_id` from
 Bridge hook context on each MCP call. Reconnect MCP after updating to load the new tool definitions.
 
+In Chinese, generated session names include an animal alias for readability; use the
+original name or ref when addressing messages. Transient Codex tasks without persisted
+transcripts are not registered as recipients, but still receive file reservation checks.
+
 Unconfirmed inbox messages are recoverable after a crash. A crash between output and
 confirmation may repeat the same message ID; delivery does not mean the recipient has
 read or accepted it. Turning off auto-wake also stops existing watchers from taking new
@@ -275,9 +279,22 @@ supported. See [extension details](plugins/vscode/README.md).
 
 ### Codex and Claude hooks
 
+Status card titles show the session and its state. Generated CC Bridge names use the
+short `directory.animal` form; custom names are preserved. Without a Bridge name, the
+card uses the working directory name, falling back to the agent name. Hover to see
+the full session name and working directory. Long titles retain the animal suffix.
+
 Codex Hooks and Claude Code Hooks drive the pet's agent-state animations. After a
 first installation or a Codex Hook update, start Codex and run `/hooks` to review
 and trust the CC Pets Hook. Codex skips untrusted user hooks.
+
+Persistent Codex desktop chats also appear in the session list and online counts while
+their app instance is running. Transient background tasks are excluded. Restarting CC Pets
+can restore recent desktop records without replaying animations or notifications; unfinished
+states return as idle. A session-end event removes the chat and switches to another live
+session or returns the pet to idle, without a completion animation. Without an end event,
+a desktop chat may remain listed until its app exits. Desktop start events do not play
+the CLI startup animation.
 
 The Claude Code integration merges into `~/.claude/settings.json` while preserving
 existing `env`, `model`, `statusLine`, and hook settings. Its quota collector is
@@ -544,9 +561,9 @@ external assets.
 - Codex quota is read through the official Codex App Server started from your installed Codex CLI with its existing sign-in; Claude quota comes from the status line input Claude Code passes locally. Token counts are read from local Codex and Claude Code files.
 - To tell API accounts from subscription accounts, CC Pets reads the authentication settings in each registered Home (Claude `settings.json`; Codex `auth.json` and `config.toml`) and may run that Home's `claude auth status` / `codex login status` locally. Only the resulting mode is kept, in memory; keys, emails and command output are not stored.
 - Diagnostics repairs back up the affected configuration files and scripts to `~/Library/Application Support/CC Pets/diagnostic-backups/` (owner-only) before changing them; the backups stay on this Mac.
-- Hooks write only redacted state events and quota cache files to the current user's temporary directory.
+- Hooks write redacted state events and quota cache files to the current user's temporary directory. Events may include working-directory, Home and transcript paths for session labels and lifecycle tracking, but not transcript contents.
 - Local quota history is disabled by default and retains seven days when enabled.
-- Status cards and notifications show only provider, state, and redacted tool category.
+- Status cards show session labels, state and redacted tool categories; tooltips may show the full session name and working directory. Agent notifications show provider and redacted status, without conversation content.
 - CC Pets contains no telemetry and uploads no conversations, quotas, credentials, or usage statistics.
 - On launch, and when a CLI reopens the running pet, CC Pets asks the npm registry for the latest version (at most once every 10 minutes per run); only when a newer version exists does it read that version's committed release notes from the tag through raw.githubusercontent.com, then jsDelivr, with the GitHub Release API as a fallback. These requests carry no account or usage data.
 - Exiting the pet or running `cc-pets uninstall` leaves no background daemon running.

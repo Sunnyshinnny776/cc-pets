@@ -143,7 +143,7 @@ static void PrintSessions(void) {
         return;
     }
     for (NSDictionary *session in sessions) {
-        Print([NSString stringWithFormat:@"%@  %@  %@  pid=%@  %@  %@  %@=%lu", CCBridgeDescribeSession(session), session[@"provider"],
+        Print([NSString stringWithFormat:@"%@  %@  %@  pid=%@  %@  %@  %@=%lu", CCBridgeDescribeSessionForDisplay(session), session[@"provider"],
             StringValue(session[@"status"]) ?: @"-", session[@"pid"] ?: @"-", StringValue(session[@"tty"]) ?: @"-",
             StringValue(session[@"cwd"]) ?: @"-", L(@"pending"), (unsigned long)CCBridgePendingCount(session[@"session"])]);
     }
@@ -238,6 +238,9 @@ static NSDictionary *RunHook(NSString *input) {
     if ([event isEqualToString:@"PreToolUse"]) {
         return [CCBridgeOptions()[@"editGuard"] boolValue] ? CheckReservations(payload, sessionId) : nil;
     }
+    // 没有持久化转录的 Codex 临时任务不能作为 queue 的收件会话，但仍需检查文件预留。
+    // 缺字段的旧版 hook 保持兼容；SessionEnd 仍先走上面的清理。
+    if ([provider isEqualToString:@"Codex"] && payload[@"transcript_path"] == NSNull.null) return nil;
 
     NSString *status = @{@"SessionStart": @"idle", @"UserPromptSubmit": @"busy", @"Stop": @"idle"}[event];
     NSDictionary *known = CCBridgeReadSession(sessionId);
@@ -484,7 +487,7 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
             if (![session[@"session"] isEqual:self[@"session"]]) [sessions addObject:session];
         }
         NSString *header = self
-            ? LF(L(@"This session is {self}; other sessions use this name to message you (it isn't in the list below)."), @{@"self": CCBridgeDescribeSession(self)})
+            ? LF(L(@"This session is {self}; other sessions use this name to message you (it isn't in the list below)."), @{@"self": CCBridgeDescribeSessionForDisplay(self)})
             : [L(@"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one).") stringByAppendingString:IdentityNote()];
         if (sessions.count == 0) {
             return TextResult(LF(L(@"{header}\n\nNo other sessions online. New sessions will show up here once they start."), @{@"header": header}), NO);
@@ -495,7 +498,7 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
         for (NSDictionary *session in sessions) {
             NSUInteger count = [counts countForObject:session[@"session"]];
-            NSString *line = [NSString stringWithFormat:@"  %@  ·  %@  ·  %@  ·  %@  ·  %@  ·  %@", CCBridgeDescribeSession(session),
+            NSString *line = [NSString stringWithFormat:@"  %@  ·  %@  ·  %@  ·  %@  ·  %@  ·  %@", CCBridgeDescribeSessionForDisplay(session),
                 session[@"provider"], [session[@"status"] isEqual:@"busy"] ? @"busy" : @"idle", StringValue(session[@"tty"]) ?: @"-",
                 AgeText(session[@"startedAt"]), StringValue(session[@"cwd"]) ?: @"-"];
             if (count > 0) line = [line stringByAppendingString:LF(L(@"  ·  {count} reserved"), @{@"count": @(count)})];
@@ -801,9 +804,9 @@ static int StatusCommand(void) {
     if (receipts.count > 0) {
         Print(L(@"\nRecent messages:"));
         for (NSDictionary *receipt in receipts) {
-            NSString *from = [receipt[@"from"][@"system"] boolValue] ? @"cc-pets" : receipt[@"from"][@"name"];
+            NSString *from = [receipt[@"from"][@"system"] boolValue] ? @"cc-pets" : CCBridgeSessionDisplayName(receipt[@"from"]);
             NSString *reason = StringValue(receipt[@"reason"]);
-            Print([NSString stringWithFormat:@"  %@  %@ → %@  %@%@", receipt[@"id"], from, receipt[@"to"][@"name"], receipt[@"status"],
+            Print([NSString stringWithFormat:@"  %@  %@ → %@  %@%@", receipt[@"id"], from, CCBridgeSessionDisplayName(receipt[@"to"]), receipt[@"status"],
                 reason ? LF(L(@" ({reason})"), @{@"reason": reason}) : @""]);
         }
     }

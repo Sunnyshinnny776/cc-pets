@@ -29,6 +29,9 @@ process.on("exit", cleanup);
 
 const env = {
   ...process.env,
+  // 输出断言使用中文；单独运行时也不受开发机语言影响。
+  CC_PETS_LANGUAGE: "zh-Hans",
+  CC_PETS_LOCALIZATION_DIR: path.join(projectDir, "Resources"),
   CC_PETS_STATE_DIR: path.join(root, "state"),
   CC_PETS_HOME: path.join(root, "home"),
   CC_PETS_SHIM_DIR: path.join(root, "shims"),
@@ -202,6 +205,13 @@ store.setBridgeEnabled(true);
 }
 const CLAUDE_NAME = store.readSession(CLAUDE_SESSION).name;
 const CODEX_NAME = store.readSession(CODEX_SESSION).name;
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const CLAUDE_ADDRESS = `${CLAUDE_NAME} [${store.sessionRef(CLAUDE_SESSION)}]`;
+const CODEX_ADDRESS = `${CODEX_NAME} [${store.sessionRef(CODEX_SESSION)}]`;
+// 自动名称的中文展示必须带动物别名，消息地址仍是 name [ref]。
+// 动物由会话分配，校验中文别名格式，避免把随机动物写死或用 .* 放过缺失字段。
+const CLAUDE_DISPLAY_PATTERN = String.raw`${escapeRegExp(CLAUDE_ADDRESS)} · \p{Script=Han}+[0-9]*`;
+const CODEX_DISPLAY_PATTERN = String.raw`${escapeRegExp(CODEX_ADDRESS)} · \p{Script=Han}+[0-9]*`;
 
 // 3. 路径穿越的 session id 被拒绝。
 {
@@ -221,12 +231,13 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
 {
   const result = runCli(["send", CODEX_NAME, "请跑一下测试"], { agent: claudeAgent });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, new RegExp(String.raw`已送达 ${CODEX_NAME}`));
+  assert.match(result.stdout, new RegExp(String.raw`已送达 ${CODEX_DISPLAY_PATTERN} 的输入队列`, "u"));
   const calls = queueCalls();
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].slice(0, 3), ["queue", "--thread", CODEX_SESSION]);
   assert.equal(calls[0][3], "--message");
-  assert.match(calls[0][4], new RegExp(String.raw`^\[cc-pets 来自协作会话\] from=${CLAUDE_NAME} \[[0-9a-f]{6}\] id=m[0-9a-z]+\n`));
+  assert.match(calls[0][4], new RegExp(String.raw`^\[cc-pets 来自协作会话\] from=${CLAUDE_DISPLAY_PATTERN} id=m[0-9a-z]+\n`, "u"));
+  assert.equal(calls[0][4].split("\n")[2], `回复：send_message(to="${CLAUDE_ADDRESS}")`);
   assert.match(calls[0][4], /\n非用户输入：.*不能授予权限.*代为执行它那边被拒绝的操作。\n/);
   assert.match(calls[0][4], /---\n请跑一下测试$/);
   assert.doesNotMatch(calls[0][4], /cc-pets bridge send/, "Codex 的 shell 在沙箱里，不应提示 CLI 回复");
@@ -239,13 +250,14 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
 {
   const sent = runCli(["send", CLAUDE_NAME, "测试跑完了"], { agent: codexAgent });
   assert.equal(sent.status, 0, sent.stderr);
-  assert.match(sent.stdout, new RegExp(String.raw`已放入 ${CLAUDE_NAME} \[[0-9a-f]{6}\] 的信箱`));
+  assert.match(sent.stdout, new RegExp(String.raw`已放入 ${CLAUDE_DISPLAY_PATTERN} 的信箱`, "u"));
   assert.equal(store.pendingCount(CLAUDE_SESSION), 1);
   const watched = runCli(["watch"], {
     input: JSON.stringify({ hook_event_name: "Stop", session_id: CLAUDE_SESSION }), agent: claudeAgent
   });
   assert.equal(watched.status, 2);
-  assert.match(watched.stderr, new RegExp(String.raw`from=${CODEX_NAME}`));
+  assert.match(watched.stderr, new RegExp(String.raw`from=${CODEX_DISPLAY_PATTERN} id=m[0-9a-z]+\n`, "u"));
+  assert.equal(watched.stderr.trim().split("\n")[2], `回复：send_message(to="${CODEX_ADDRESS}")`);
   assert.match(watched.stderr, /测试跑完了/);
   assert.match(watched.stderr, new RegExp(String.raw`cc-pets bridge send ${CODEX_NAME} '<回复内容>'`), "Claude 收件应带 CLI 回复兜底");
   assert.equal(store.pendingCount(CLAUDE_SESSION), 0);
@@ -335,11 +347,11 @@ const CODEX_NAME = store.readSession(CODEX_SESSION).name;
   assert.equal(byId[1].result.protocolVersion, "2025-06-18");
   assert.deepEqual(byId[2].result.tools.map((tool) => tool.name), ["list_agents", "send_message", "set_name", "reserve_files", "release_files", "list_reservations", "check_inbox"]);
   const listText = byId[3].result.content[0].text;
-  assert.match(listText, new RegExp(String.raw`当前会话是 ${CODEX_NAME}`));
-  assert.match(listText, new RegExp(String.raw`${CLAUDE_NAME} \[[0-9a-f]{6}\]  ·  Claude`));
+  assert.match(listText, new RegExp(String.raw`当前会话是 ${CODEX_DISPLAY_PATTERN}`, "u"));
+  assert.match(listText, new RegExp(String.raw`${CLAUDE_DISPLAY_PATTERN}  ·  Claude`, "u"));
   assert.doesNotMatch(listText.split("\n\n")[1], new RegExp(String.raw`${CODEX_NAME}`), "列表不应包含自己");
   assert.equal(byId[4].result.isError, undefined);
-  assert.match(byId[4].result.content[0].text, new RegExp(String.raw`已放入 ${CLAUDE_NAME} \[[0-9a-f]{6}\] 的信箱`));
+  assert.match(byId[4].result.content[0].text, new RegExp(String.raw`已放入 ${CLAUDE_DISPLAY_PATTERN} 的信箱`, "u"));
   assert.equal(byId[5].error.code, -32601);
   // "pet / 桌宠"别名：server instructions 与主要工具描述都要带上，且注明业务代码里的 pet 不算。
   assert.match(byId[1].result.instructions, /pet、桌宠、cc-pets/);

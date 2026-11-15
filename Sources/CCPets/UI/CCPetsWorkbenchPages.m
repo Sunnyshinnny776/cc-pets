@@ -1,4 +1,5 @@
 #import "CCPetsWorkbenchPages.h"
+#import "CCPetsBridgeStore.h"
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsFormBuilder.h"
 #import "CCPetsL10n.h"
@@ -632,7 +633,7 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
             kind:CCPetsStatusKindForAgentState(state)];
         [chip.widthAnchor constraintLessThanOrEqualToConstant:SessionStateWidth].active = YES;
 
-        NSString *title = [session[@"name"] length] > 0 ? session[@"name"] : session[@"provider"];
+        NSString *title = [session[@"displayName"] length] > 0 ? session[@"displayName"] : session[@"provider"];
         NSTextField *name = CCPetsLabel(title, 13, NSFontWeightSemibold, CCPetsInkColor());
         NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObject:session[@"provider"]];
         if ([session[@"terminal"] length] > 0) [parts addObject:session[@"terminal"]];
@@ -746,7 +747,7 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
         NSString *session = entry[@"session"];
         NSUInteger count = [entry[@"count"] unsignedIntegerValue];
         NSTextField *icon = CCPetsLabel(@"", 12, NSFontWeightRegular, CCPetsTertiaryInkColor());
-        NSTextField *name = CCPetsLabel(entry[@"name"], 12, NSFontWeightSemibold, CCPetsInkColor());
+        NSTextField *name = CCPetsLabel(entry[@"displayName"] ?: entry[@"name"], 12, NSFontWeightSemibold, CCPetsInkColor());
         NSTextField *detail = CCPetsLabel(count == 1 ? L(@"1 message waiting. Say anything in that terminal to deliver it.")
             : [NSString stringWithFormat:L(@"%lu messages waiting. Say anything in that terminal to deliver them."),
                 (unsigned long)count], 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
@@ -762,7 +763,8 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
         NSTextField *time = CCPetsNumberLabel([NSDateFormatter localizedStringFromDate:date
             dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle], 12, NSFontWeightRegular,
             CCPetsTertiaryInkColor());
-        NSTextField *route = [self routeFrom:delivery[@"from"] to:delivery[@"to"]];
+        NSTextField *route = [self routeFrom:CCBridgeSessionDisplayName(delivery[@"fromIdentity"])
+            to:CCBridgeSessionDisplayName(delivery[@"toIdentity"])];
         NSTextField *detail = CCPetsLabel(@"", 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
         BOOL unseen = [delivery[@"unseen"] boolValue];
         CCPetsChipView *chip = [[CCPetsChipView alloc] initWithText:unseen ? L(@"Unread") : L(@"Delivered")

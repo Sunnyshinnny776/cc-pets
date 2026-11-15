@@ -134,6 +134,7 @@
     NSMutableSet<NSString *> *unscopedProviders = [self.liveUnscopedClientProviders mutableCopy]
         ?: [NSMutableSet set];
     NSMutableSet<NSString *> *approvalProfiles = [NSMutableSet set];
+    NSInteger desktopSessions = 0;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     for (NSString *provider in self.providerActivityAt) {
         NSTimeInterval last = [self.providerActivityAt[provider] doubleValue];
@@ -143,6 +144,9 @@
         NSString *profileID = [record[@"profileId"] isKindOfClass:NSString.class]
             ? record[@"profileId"] : nil;
         if (![self isAgentSessionRecordLive:record]) continue;
+        NSString *provider = [record[@"provider"] isKindOfClass:NSString.class] ? record[@"provider"] : nil;
+        if (provider.length > 0) [online addObject:provider];
+        if ([provider isEqual:@"Codex"] && IsCodexDesktopFocusTarget(record[@"terminal"])) desktopSessions += 1;
         if (profileID.length > 0) {
             [onlineProfiles addObject:profileID];
             if ([record[@"state"] isEqualToString:@"approval"]) [approvalProfiles addObject:profileID];
@@ -152,7 +156,7 @@
             if (provider.length > 0) [unscopedProviders addObject:provider];
         }
     }
-    NSInteger count = MAX(self.liveClientCount, (NSInteger)online.count);
+    NSInteger count = MAX(self.liveClientCount + desktopSessions, (NSInteger)online.count);
     if (self.quotaView.activeAgentCount == count &&
         [self.quotaView.liveProviders isEqualToSet:online] &&
         [self.quotaView.liveProfileIDs isEqualToSet:onlineProfiles] &&

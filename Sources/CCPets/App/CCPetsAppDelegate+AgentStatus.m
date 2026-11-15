@@ -1,5 +1,6 @@
 // Agent 状态卡、会话列表、审批与卡住提醒、终端回跳、系统通知。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsBridgeStore.h"
 
 @implementation AppDelegate (AgentStatus)
 - (void)sendNotificationWithTitle:(NSString *)title body:(NSString *)body {
@@ -216,7 +217,7 @@
 }
 - (NSString *)statusIdentityForRecord:(NSDictionary *)record {
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
-    NSString *profileID = SanitizedShortString(record[@"profileId"], 128);
+    NSString *profileID = NormalizedAgentProfileID(record[@"profileId"]);
     NSString *session = SanitizedShortString(record[@"session"], 128);
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
     NSString *terminalID = SanitizedShortString(terminal[@"ideTerminal"], 64);
@@ -226,15 +227,33 @@
     return [NSString stringWithFormat:@"%@|%@|%@", provider ?: @"", profileID ?: @"", identity ?: @""];
 }
 - (void)noteStatusIdentityForRecord:(NSDictionary *)record {
+    self.lastStatusRecord = record;
     self.lastStatusAgentProvider = SanitizedShortString(record[@"provider"], 32);
     self.lastStatusIdentity = [self statusIdentityForRecord:record];
+    // Bridge 注册表是定时刷新的：新会话的头一两条事件可能还对不上名字，先显示目录名，
+    // 下一条事件自然补成"目录名.动物"。
+    NSDictionary *bridge = [self bridgeSessionEntryForRecord:record];
+    NSString *cwd = SanitizedWorkingDirectory(record[@"cwd"]);
+    if (cwd.length == 0) cwd = SanitizedWorkingDirectory(bridge[@"cwd"]);
+    self.lastStatusSessionLabel = StatusSessionLabel(CCBridgeSessionShortName(bridge), cwd);
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    NSString *name = [bridge[@"name"] isKindOfClass:NSString.class] ? bridge[@"name"] : @"";
+    [lines addObject:name.length > 0 ? name : [self statusPresentationNameForRecord:record]];
+    if (cwd.length > 0) [lines addObject:cwd.stringByAbbreviatingWithTildeInPath];
+    [lines addObject:L(@"Go back to the Agent's terminal")];
+    self.lastStatusSessionTooltip = [lines componentsJoinedByString:@"\n"];
 }
 - (void)applyStatusPresentationForState:(NSString *)state provider:(NSString *)provider
     tool:(NSString *)tool {
     self.lastStatusState = state;
     self.lastStatusProvider = provider;
+    // 标题优先显示会话标签：多个会话同时在跑时，"Claude"分不出是哪一个，目录名.动物可以。
+    // 是哪家 Agent、完整路径放进悬停提示。
     self.statusTitleLabel.stringValue = [NSString stringWithFormat:@"%@ · %@",
-        provider, [self statusTextForState:state tool:tool]];
+        self.lastStatusSessionLabel.length > 0 ? self.lastStatusSessionLabel : provider,
+        [self statusTextForState:state tool:tool]];
+    self.statusClickButton.toolTip = self.lastStatusSessionTooltip.length > 0
+        ? self.lastStatusSessionTooltip : L(@"Go back to the Agent's terminal");
     self.statusDetailLabel.stringValue = [self statusDetailForState:state tool:tool];
     // 上一句碎碎念借走的副行已经被新状态覆盖，取消那次归还，否则它会把旧文案写回来。
     [NSObject cancelPreviousPerformRequestsWithTarget:self
@@ -331,7 +350,8 @@
     NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - PendingApprovalTTL;
     for (NSString *key in self.pendingApprovalRecords.allKeys) {
         NSDictionary *record = self.pendingApprovalRecords[key];
-        if ([record[@"timestamp"] doubleValue] < cutoff) {
+        BOOL desktop = [record[@"provider"] isEqual:@"Codex"] && IsCodexDesktopFocusTarget(record[@"terminal"]);
+        if ([record[@"timestamp"] doubleValue] < cutoff || (desktop && ![self isAgentSessionRecordLive:record])) {
             [self.pendingApprovalRecords removeObjectForKey:key];
         }
     }
@@ -365,7 +385,7 @@
 }
 - (NSString *)agentSessionKeyForRecord:(NSDictionary *)record {
     NSString *provider = SanitizedShortString(record[@"provider"], 32);
-    NSString *profileID = SanitizedShortString(record[@"profileId"], 128);
+    NSString *profileID = NormalizedAgentProfileID(record[@"profileId"]);
     NSString *identity = profileID.length > 0 ? [NSString stringWithFormat:@"%@|%@", provider, profileID] : provider;
     NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
         ? record[@"terminal"] : nil;
@@ -383,21 +403,72 @@
         ? record[@"terminal"] : nil;
     return OnlineAgentSessionKey(record[@"provider"], record[@"profileId"], terminal[@"tty"]);
 }
+- (NSNumber *)desktopSessionPersistenceForRecord:(NSDictionary *)record {
+    if (![record[@"provider"] isEqual:@"Codex"] || !IsCodexDesktopFocusTarget(record[@"terminal"])) return nil;
+    if ([record[@"transient"] boolValue]) return @NO;
+    // 新会话的路径可能先于索引落盘；明确提供转录路径时不因索引延迟而丢掉首条事件。
+    if ([record[@"transcriptPath"] isKindOfClass:NSString.class] && [record[@"transcriptPath"] length] > 0) return @YES;
+    NSString *home = [record[@"codexHome"] isKindOfClass:NSString.class] ? record[@"codexHome"] : nil;
+    NSString *profile = NormalizedAgentProfileID(record[@"profileId"]);
+    if (home.length == 0 && profile.length > 0) home = CCPetsProfileWithID(profile)[@"home"];
+    if (home.length == 0 && profile.length == 0) home = DefaultCodexHomeDirectory();
+    return CodexPersistentThreadStatus(SanitizedShortString(record[@"session"], 128), home);
+}
+
+- (void)finishAgentSessionPresentation:(NSDictionary *)record {
+    NSString *session = SanitizedShortString(record[@"session"], 128);
+    if (!self.hasAgentStatus || session.length == 0 ||
+        ![self.lastStatusRecord[@"session"] isEqual:session] ||
+        ![self.lastStatusRecord[@"provider"] isEqual:record[@"provider"]]) return;
+    // 内部记录已删除后，屏幕也必须同步切换，不能把已结束会话的“思考”留到超时。
+    NSDictionary *replacement = nil;
+    for (NSDictionary *candidate in self.agentSessionRecords.allValues) {
+        if (![self isAgentSessionRecordLive:candidate]) continue;
+        if (!replacement || [candidate[@"timestamp"] doubleValue] > [replacement[@"timestamp"] doubleValue]) {
+            replacement = candidate;
+        }
+    }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideAgentStatus) object:nil];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(enterIdleStatus) object:nil];
+    if (replacement) {
+        if ([replacement[@"state"] isEqual:@"idle"]) {
+            [self.petView resetAgentToIdle];
+        } else {
+            [self.petView handleAgentEvent:replacement[@"event"] tool:replacement[@"tool"]
+                failed:[replacement[@"failed"] boolValue]];
+        }
+        [self showAgentStatusForRecord:replacement notify:NO];
+    } else {
+        [self.petView resetAgentToIdle];
+        [self hideAgentStatus];
+        self.lastStatusRecord = nil;
+        self.lastTerminalFocusTarget = nil;
+    }
+}
 // 在线判定优先用包装脚本写出的 pid 文件：它给出精确的退出信号，会话一关列表就更新。
 // 但直接跑 claude / codex（或终端窗口早于 shim 安装就已打开）的会话根本没有 pid 文件，
 // 只按 pid 文件判定会把它们当场判死，列表里永远看不到——哪怕它们的 Hook 正在正常发事件。
-// 这类会话退回活跃度宽限：最近一次事件在静默窗口内就算在线。某个 provider 一旦出现过
-// pid 文件，说明包装脚本对它生效，继续按精确信号判定，不被宽限盖住。
+// 桌面会话按应用实例判断；未经过包装器的终端退回活跃度宽限。
+// 只能用精确的账号 + tty 判断某个包装器是否已退出，不能用整个 provider 排除其他会话。
 - (BOOL)isAgentSessionRecordLive:(NSDictionary *)record {
+    if ([record[@"event"] isEqual:@"SessionEnd"]) return NO;
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
+        ? record[@"terminal"] : nil;
+    if ([record[@"provider"] isEqual:@"Codex"] && IsCodexDesktopFocusTarget(terminal)) {
+        if ([record[@"transient"] boolValue]) return NO;
+        if (![record[@"desktopPersistent"] boolValue]) {
+            // 无法证明是真实聊天的旧事件只给短暂宽限，不能靠宿主进程永久保活。
+            return NSDate.date.timeIntervalSince1970 - [record[@"timestamp"] doubleValue]
+                < AgentStatusInactivityInterval;
+        }
+        return CodexDesktopFocusTargetIsLive(terminal, [record[@"timestamp"] doubleValue]);
+    }
     NSString *onlineKey = [self onlineAgentSessionKeyForRecord:record];
     if (onlineKey.length > 0 && [self.liveAgentSessionKeys containsObject:onlineKey]) return YES;
     // 老版本包装脚本的 pid 文件不带账号，只能按 provider + tty 认领。
-    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class]
-        ? record[@"terminal"] : nil;
     NSString *unscopedKey = OnlineAgentSessionKey(record[@"provider"], nil, terminal[@"tty"]);
     if (unscopedKey.length > 0 && [self.liveAgentSessionKeys containsObject:unscopedKey]) return YES;
-    NSString *provider = SanitizedShortString(record[@"provider"], 32);
-    if (provider.length > 0 && [self.liveClientProviders containsObject:provider]) return NO;
+    if ([self.managedAgentSessionKeys containsObject:[self statusIdentityForRecord:record]]) return NO;
     return NSDate.date.timeIntervalSince1970 - [record[@"timestamp"] doubleValue]
         < AgentStatusInactivityInterval;
 }
@@ -418,8 +489,32 @@
         SanitizedShortString(terminal[@"bundleID"], 128), tty];
 }
 - (void)trackAgentSessionRecord:(NSDictionary *)record {
+    if ([record[@"event"] isEqual:@"SessionEnd"]) {
+        // 结束事件可能拿不到终端，用稳定的会话身份清理；不能清掉同账号的其他聊天。
+        NSString *session = SanitizedShortString(record[@"session"], 128);
+        if (session.length == 0) return;
+        for (NSString *existingKey in self.agentSessionRecords.allKeys) {
+            NSDictionary *existing = self.agentSessionRecords[existingKey];
+            if ([existing[@"session"] isEqual:session] && [existing[@"provider"] isEqual:record[@"provider"]]) {
+                [self.agentSessionRecords removeObjectForKey:existingKey];
+                [self notePetCardChanged];
+            }
+        }
+        return;
+    }
     NSString *key = [self agentSessionKeyForRecord:record];
     if (key.length == 0) return;
+    NSDictionary *previous = self.agentSessionRecords[key];
+    if ([[self statusIdentityForRecord:previous] isEqual:[self statusIdentityForRecord:record]] &&
+        [self isTrailingRecord:record afterState:previous[@"state"]]) return;
+    NSString *onlineKey = [self onlineAgentSessionKeyForRecord:record];
+    NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
+    NSString *legacyKey = OnlineAgentSessionKey(record[@"provider"], nil, terminal[@"tty"]);
+    if ((onlineKey && [self.liveAgentSessionKeys containsObject:onlineKey]) ||
+        (legacyKey && [self.liveAgentSessionKeys containsObject:legacyKey])) {
+        if (!self.managedAgentSessionKeys) self.managedAgentSessionKeys = [NSMutableSet set];
+        [self.managedAgentSessionKeys addObject:[self statusIdentityForRecord:record]];
+    }
     if (!self.agentSessionRecords) self.agentSessionRecords = [NSMutableDictionary dictionary];
     // 一个终端前台同时只跑一个客户端。同一终端里新起的会话（可能换了账号）说明之前那个
     // 已经退出；它退出时不会补发结束事件，不在这里清掉就会在列表里留一行"正在启动"。

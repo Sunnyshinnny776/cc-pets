@@ -176,6 +176,10 @@ NSDictionary<NSString *, NSDictionary *> *CCBridgeSessions(void) {
             @"ref": BridgeSafeString(record[@"ref"], 6),
             @"provider": BridgeSafeString(record[@"provider"], 16)
         } mutableCopy];
+        NSString *nameSource = [record[@"nameSource"] isKindOfClass:NSString.class] ? record[@"nameSource"] : nil;
+        if ([nameSource isEqualToString:@"generated"] || [nameSource isEqualToString:@"custom"]) {
+            entry[@"nameSource"] = nameSource;
+        }
         NSString *profileID = BridgeSafeString(record[@"profileId"], 128);
         if (profileID.length > 0) entry[@"profileId"] = profileID;
         NSString *tty = BridgeSafeString(record[@"tty"], 32);
@@ -207,6 +211,8 @@ NSArray<NSDictionary *> *CCBridgeRecentDeliveries(NSTimeInterval since, NSUInteg
             @"id": BridgeSafeString(receipt[@"id"], 64),
             @"from": fromName,
             @"to": toName,
+            @"fromIdentity": @{@"name": fromName, @"nameSource": BridgeSafeString(from[@"nameSource"], 16)},
+            @"toIdentity": @{@"name": toName, @"nameSource": BridgeSafeString(to[@"nameSource"], 16)},
             @"toSession": toSession,
             @"fromSession": BridgeSafeString(from[@"session"], 128),
             @"at": @(at)

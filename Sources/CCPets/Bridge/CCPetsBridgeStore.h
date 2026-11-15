@@ -51,6 +51,12 @@ NSArray<NSDictionary *> *CCBridgeListSessions(void);
 void CCBridgeRemoveSession(id sessionId);
 void CCBridgeRemoveSessionIfOffline(id sessionId);
 NSString *CCBridgeNormalizeSessionName(id value);
+// 仅对标记为自动生成的名字去掉账号段；自定义名字及旧记录保持原名。
+NSString *CCBridgeSessionShortName(NSDictionary *session);
+// 中文界面下自动名称的动物别名；其他语言、自定义名称和旧记录返回空串。
+NSString *CCBridgeSessionAnimalAlias(NSDictionary *session);
+// 仅供展示，不可作为消息地址；原 name / ref 始终保持不变。
+NSString *CCBridgeSessionDisplayName(NSDictionary *session);
 // liveSessions 参数保留兼容；名字分配/改名在注册表锁内重新读取在线会话，避免使用过期快照。
 NSDictionary *CCBridgeUpsertSession(NSString *sessionId, NSString *provider, NSNumber *pid, NSString *cwd,
     NSString *tty, NSString *status, NSString *preferredName, NSString *profileID,

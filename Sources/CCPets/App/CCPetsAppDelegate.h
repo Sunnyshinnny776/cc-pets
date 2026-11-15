@@ -65,10 +65,14 @@
 @property NSInteger liveClientCount;
 @property NSString *lastStatusState;
 @property NSString *lastStatusProvider;
+// 当前卡片所属会话的短标签（目录名.动物）和悬停提示；语言切换、回落待机时重排标题要用。
+@property NSString *lastStatusSessionLabel;
+@property NSString *lastStatusSessionTooltip;
 // lastStatusProvider 是卡片标题（有账号名时显示账号名），不能拿去对 pid 文件里的
 // "Claude"/"Codex"；在线判定用原始 provider，判断“是不是同一账号”用 provider|profileId。
 @property NSString *lastStatusAgentProvider;
 @property NSString *lastStatusIdentity;
+@property NSDictionary *lastStatusRecord;
 @property NSDictionary *lastTerminalFocusTarget;
 @property NSTimeInterval lastStatusTimestamp;
 @property NSSet<NSString *> *liveClientProviders;
@@ -77,6 +81,8 @@
 @property NSSet<NSString *> *liveUnscopedClientProviders;
 // 包装脚本仍存活的精确 Agent 会话，键为 provider + TTY。
 @property NSSet<NSString *> *liveAgentSessionKeys;
+// 曾由包装器管理的会话身份（包含 session ID），不把复用同一 tty 的新会话认成旧会话。
+@property NSMutableSet<NSString *> *managedAgentSessionKeys;
 // 每个 provider 最近一次事件的时间。不经包装脚本启动的客户端没有 pid 文件，
 // 只能靠"最近还在发事件"证明自己活着。
 @property NSMutableDictionary<NSString *, NSNumber *> *providerActivityAt;

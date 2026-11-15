@@ -11,6 +11,8 @@
 // 在线会话（不在线的顺手清出注册表），按启动时间排序。
 NSArray<NSDictionary *> *CCBridgeLiveSessions(void);
 NSString *CCBridgeDescribeSession(NSDictionary *session);
+// 带 ref 和可选动物别名的展示文本；地址仍使用 CCBridgeDescribeSession。
+NSString *CCBridgeDescribeSessionForDisplay(NSDictionary *session);
 
 // 优先验证显式会话 ID；缺失时仅允许 provider + PID 唯一匹配。
 // 显式 ID 失效、与宿主不符或 PID 匹配多个会话时返回 nil，禁止按活动时间猜测。

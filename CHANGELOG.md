@@ -7,8 +7,16 @@ truth for the version.
 
 ## [Unreleased]
 
+### Status card
+
+- Show the session instead of the agent in the title ("session · status"), so concurrent sessions can be told apart at a glance. With CC Bridge enabled the label is `directory.animal` (for example `cc-pets.crab`); otherwise it is the working directory name, falling back to the agent name when neither is known. Long labels are truncated in the middle and keep the trailing animal suffix.
+- Hovering the status card shows the full session name and working directory.
+- Accept optional working-directory metadata in provider events for session labels and tooltips, falling back to the event command's current directory.
+
 ### CC Bridge
 
+- Show Chinese animal aliases alongside automatically generated session names in Chinese UI, CLI output, messages and notifications. Keep original names and refs as message addresses; custom names remain unchanged.
+- Exclude transient Codex tasks without persisted transcripts from message-recipient registration while retaining their pre-edit file reservation checks.
 - Accept a per-call `session_id` in MCP tools, supplied through session-start and user-prompt hook context, so Codex sessions sharing an app-server PID can identify themselves when MCP does not inherit a session ID. Explicit identities must pass live-registration and host checks; retain single-session auto-detection, reject invalid IDs and never cache caller identity.
 - Keep `config.toml` byte-for-byte outside CC Bridge's own managed block, including blank lines inside multi-line strings and marker-like text.
 - Recognize CLI hosts from structured argv so paths containing spaces work. Rejected `session_id` values now report why, and an unverifiable host is still rejected.
@@ -34,6 +42,13 @@ truth for the version.
 - Let each new watcher replace the previous one and restart the wait, so active sessions stay wakeable for about 55 minutes after every turn.
 - Enqueue under the inbox lock and recheck that Bridge is on and the recipient is online, so a slow send can't leave a body behind after `disable` or a session exit.
 - Follow symlinks before resolving `..` in reserved paths, and recognize quoted `mcp_servers` keys at every level when uninstalling.
+
+### Session lifecycle
+
+- Match shared-host Codex terminal launches against unique TUI readiness records within one second before or after session creation, covering initial frames logged just after creation without guessing between concurrent clients.
+- Track persistent Codex desktop chats against the current app instance, include them in online counts, and keep the pet running while Codex desktop is open after the last managed CLI exits. Ignore transient background tasks and restore recent desktop records without replaying animations or notifications.
+- Record Codex session-end hooks, remove ended sessions and pending approvals, and switch the displayed session or return to idle without a completion animation. Ignore trailing events after a turn completes.
+- Preserve profile-ID separators and normalize legacy IDs so account matching stays consistent. Track managed CLI exits per session instead of excluding other sessions from the same provider.
 
 ## [2.4.0] - 2026-11-03
 

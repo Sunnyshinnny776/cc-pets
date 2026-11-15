@@ -5,6 +5,12 @@
 // 由 Codex 共享服务（app-server --managed-daemon）拉起的 hook 返回空目标，见实现处注释。
 NSDictionary *TerminalFocusTargetFromEnvironment(void);
 BOOL TerminalFocusRunsUnderSharedAgentHost(void);
+// 桌面宿主不使用终端 TTY；事件时间必须属于当前应用实例，避免重启后复活旧会话。
+BOOL IsCodexDesktopFocusTarget(NSDictionary *target);
+BOOL CodexDesktopFocusTargetIsLive(NSDictionary *target, NSTimeInterval eventTime);
+BOOL CodexDesktopApplicationIsRunning(void);
+// 只读本地聊天索引；YES 为已持久化聊天，NO 为未收录/已归档，nil 为无法确认。
+NSNumber *CodexPersistentThreadStatus(NSString *thread, NSString *codexHome);
 
 // hook 用：普通情况同 TerminalFocusTargetFromEnvironment；Codex 共享服务下按会话 ID 找
 // codex-with-pet 登记的终端，找不到返回空目标。

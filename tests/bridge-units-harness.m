@@ -173,6 +173,15 @@ int main(int argc, const char *argv[]) {
         Check([CCBridgeNormalizeSessionName(@" Frontend ") isEqualToString:@"frontend"], @"名字应去空白并转小写");
         Check(CCBridgeNormalizeSessionName(@"bad name [x]") == nil, @"带空格和方括号的名字应拒绝");
         Check(CCBridgeNormalizeSessionName([@"" stringByPaddingToLength:41 withString:@"a" startingAtIndex:0]) == nil, @"超过 40 个字符应拒绝");
+        // 状态卡短名：只去掉默认名字开头的账号段，自定义名字原样保留。
+        Check([CCBridgeSessionShortName(@{@"name": @"claude.cc-pets.crab", @"provider": @"Claude", @"nameSource": @"generated"}) isEqualToString:@"cc-pets.crab"],
+            @"默认名字应去掉 provider 账号段");
+        Check([CCBridgeSessionShortName(@{@"name": @"work-acct.cc-pets.crab", @"provider": @"Claude", @"profileName": @"Work Acct", @"nameSource": @"generated"})
+            isEqualToString:@"cc-pets.crab"], @"多账号时应去掉账号名段");
+        Check([CCBridgeSessionShortName(@{@"name": @"frontend", @"provider": @"Codex"}) isEqualToString:@"frontend"],
+            @"自定义名字应原样保留");
+        Check([CCBridgeSessionShortName(@{@"name": @"claude.", @"provider": @"Claude"}) isEqualToString:@"claude."] &&
+            [CCBridgeSessionShortName(@{@"provider": @"Claude"}) isEqualToString:@""], @"去掉账号段后不能变空；没有名字返回空串");
         Check(CCBridgeSafeSessionId(@"../../evil") == nil && CCBridgeSafeSessionId(@"..") == nil, @"路径穿越的 session id 应拒绝");
         Check([CCBridgeSafeSessionId(@"11111111-aaaa-4bbb-8ccc-000000000001") length] > 0, @"UUID 应放行");
     }
