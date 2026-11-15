@@ -388,12 +388,15 @@ clicking the Dock icon brings a minimized window back.
 **Main menu → Settings → Show In** chooses where CC Pets appears: **Desktop Pet** (default),
 **Pet + Menu Bar**, or **Menu Bar Only**. With a menu bar icon:
 
-- **Left-click** opens a quick menu: online sessions (awaiting approval first; click one to
-  jump to its terminal), one row per account with 5-hour and weekly quota left and the next
-  reset (API accounts show this month's tokens and calls), today's total tokens, **Show Pet**,
-  **Main menu** and **Quit**. When an update is available, **Update to x.y.z…** appears here too.
+- **Left-click** opens a compact glass panel in the same style as the hover panel: the pet and
+  what it is doing, up to five online sessions (awaiting approval first; click one to jump to
+  its terminal), one row per account with a 5-hour quota ring, weekly quota left and the next
+  reset (API accounts show this month's tokens and calls), today's total tokens, **Show Pet**
+  and **Main menu**. When an update is available, **Update to x.y.z…** appears here too. Trends,
+  token breakdowns and system status stay in the hover panel and the main window. Click outside
+  the panel or press Esc to close it.
 - **Right-click** (or Control-click) opens the same menu as right-clicking the pet, including
-  the CC Bridge switches.
+  the CC Bridge switches and **Quit**.
 - The icon shows a red count of sessions awaiting approval. **Quota in Menu Bar** adds the
   lowest 5-hour quota left among plan accounts; at 20% or below it is always shown, in orange,
   and turns red at 10%.

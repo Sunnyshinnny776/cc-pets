@@ -40,6 +40,7 @@
     CCPetsStatusItemController *controller = [[CCPetsStatusItemController alloc] initWithSource:(id)self];
     __weak typeof(self) weakSelf = self;
     controller.petVisibleProvider = ^BOOL { return [weakSelf petVisible]; };
+    controller.stateColorProvider = ^NSColor *(NSString *state) { return [weakSelf statusColorForState:state]; };
     // 菜单栏图标只在「桌宠 + 菜单栏」和「仅菜单栏」下存在，勾选项就在这两者之间切换。
     controller.togglePetVisible = ^{
         [weakSelf updateDisplayMode:[weakSelf petVisible] ? CCPetsDisplayModeMenuBar : CCPetsDisplayModeBoth];

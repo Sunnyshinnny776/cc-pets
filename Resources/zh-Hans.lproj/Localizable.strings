@@ -1024,8 +1024,10 @@
 /* 菜单栏图标 */
 "%@ awaiting approval" = "%@ 个等待审批";
 "Show Pet" = "显示桌宠";
-"This month: %@ tokens · %@ calls" = "本月 %@ Token · %@ 次调用";
-"5h %@ · Week %@" = "5 小时 %@ · 本周 %@";
+"This month · %@ calls" = "本月 · %@ 次调用";
+"Week %@" = "本周 %@";
+"Quota" = "额度";
+"%@ more sessions…" = "还有 %@ 个会话…";
 "Show In" = "显示位置";
 "Display" = "显示方式";
 "Desktop Pet" = "仅桌宠";
