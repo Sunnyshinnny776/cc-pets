@@ -51,6 +51,22 @@ int main(void) {
         parts = CCPetsMenuBarTitleParts(@[], 3, YES);
         ok &= Check(parts[@"percent"] == nil && [parts[@"approvals"] isEqual:@"3"], @"无额度仍显示审批数");
 
+        // 账号排列：订阅在前、API 在后，组内保持原次序。
+        NSDictionary *codexAPI = @{@"provider": @"Codex", @"apiMode": @YES};
+        NSDictionary *codexPlan = @{@"provider": @"Codex", @"apiMode": @NO, @"profileName": @"work"};
+        NSDictionary *claudePlan = @{@"provider": @"Claude", @"apiMode": @NO};
+        NSDictionary *claudeAPI = @{@"provider": @"Claude", @"apiMode": @YES};
+        ok &= Check([CCPetsMenuBarOrderedQuotas(@[codexAPI, codexPlan, claudeAPI, claudePlan])
+            isEqualToArray:(@[codexPlan, claudePlan, codexAPI, claudeAPI])], @"订阅账号排在 API 账号前");
+        ok &= Check(CCPetsMenuBarOrderedQuotas(@[]).count == 0, @"无账号返回空数组");
+
+        // 状态点：待机和没有状态时不挂，其余（含完成、失败、审批）都挂。
+        ok &= Check(!CCPetsMenuBarShowsStateDot(nil) && !CCPetsMenuBarShowsStateDot(@"") &&
+            !CCPetsMenuBarShowsStateDot(@"idle"), @"待机不挂状态点");
+        ok &= Check(CCPetsMenuBarShowsStateDot(@"thinking") && CCPetsMenuBarShowsStateDot(@"completed") &&
+            CCPetsMenuBarShowsStateDot(@"failed") && CCPetsMenuBarShowsStateDot(@"approval"), @"活动与终态挂状态点");
+        ok &= Check(!CCPetsMenuBarShowsStateDot((NSString *)@1), @"非字符串不挂状态点");
+
         // 今日 Token 合计。
         NSDictionary *withToday = @{@"usage": @{@"tokenUsage": @{@"today": @{@"total_tokens": @1200}}}};
         ok &= Check(CCPetsMenuBarTodayTokens(@[]) == nil, @"无数据返回 nil");

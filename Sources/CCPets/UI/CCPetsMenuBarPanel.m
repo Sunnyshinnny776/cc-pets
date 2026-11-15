@@ -307,7 +307,7 @@ static NSString *ResetText(id value) {
     NSNumber *today = CCPetsMenuBarTodayTokens(quotas);
     [rows addObject:[self sectionTitle:L(@"Quota") trailing:[NSString stringWithFormat:L(@"Today %@"),
         today ? CCPetsFormatTokens(today.unsignedLongLongValue) : @"--"]]];
-    for (NSDictionary *quota in quotas) [rows addObject:[self quotaRow:quota]];
+    for (NSDictionary *quota in CCPetsMenuBarOrderedQuotas(quotas)) [rows addObject:[self quotaRow:quota]];
     [rows addObject:[self separator]];
     [rows addObjectsFromArray:[self footerRows]];
     return rows;

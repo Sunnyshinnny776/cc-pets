@@ -391,12 +391,16 @@ clicking the Dock icon brings a minimized window back.
 - **Left-click** opens a compact glass panel in the same style as the hover panel: the pet and
   what it is doing, up to five online sessions (awaiting approval first; click one to jump to
   its terminal), one row per account with a 5-hour quota ring, weekly quota left and the next
-  reset (API accounts show this month's tokens and calls), today's total tokens, **Show Pet**
+  reset (API accounts show this month's tokens and calls; plan accounts are listed first), today's total tokens, **Show Pet**
   and **Main menu**. When an update is available, **Update to x.y.z…** appears here too. Trends,
   token breakdowns and system status stay in the hover panel and the main window. Click outside
   the panel or press Esc to close it.
 - **Right-click** (or Control-click) opens the same menu as right-clicking the pet, including
   the CC Bridge switches and **Quit**.
+- A small dot on the icon mirrors the status card: blue while an agent works, orange awaiting
+  approval, green after a task completes and red after a failure. It clears when the status
+  card returns to idle (about a minute without new events), so Hook activity stays visible even
+  with the pet hidden.
 - The icon shows a red count of sessions awaiting approval. **Quota in Menu Bar** adds the
   lowest 5-hour quota left among plan accounts; at 20% or below it is always shown, in orange,
   and turns red at 10%.

@@ -42,6 +42,20 @@ NSDictionary *CCPetsMenuBarTitleParts(NSArray<NSDictionary *> *quotas, NSUIntege
     return parts;
 }
 
+NSArray<NSDictionary *> *CCPetsMenuBarOrderedQuotas(NSArray<NSDictionary *> *quotas) {
+    NSMutableArray<NSDictionary *> *subscription = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *api = [NSMutableArray array];
+    for (NSDictionary *quota in quotas) {
+        if (![quota isKindOfClass:NSDictionary.class]) continue;
+        [([quota[@"apiMode"] boolValue] ? api : subscription) addObject:quota];
+    }
+    return [subscription arrayByAddingObjectsFromArray:api];
+}
+
+BOOL CCPetsMenuBarShowsStateDot(NSString *state) {
+    return [state isKindOfClass:NSString.class] && state.length > 0 && ![state isEqualToString:@"idle"];
+}
+
 NSNumber *CCPetsMenuBarTodayTokens(NSArray<NSDictionary *> *quotas) {
     BOOL found = NO;
     unsigned long long total = 0;
