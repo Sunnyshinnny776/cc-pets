@@ -60,12 +60,20 @@ int main(void) {
             isEqualToArray:(@[codexPlan, claudePlan, codexAPI, claudeAPI])], @"订阅账号排在 API 账号前");
         ok &= Check(CCPetsMenuBarOrderedQuotas(@[]).count == 0, @"无账号返回空数组");
 
-        // 爪印上色：待机和没有状态时保持原色，其余（含完成、失败、审批）都上色。
-        ok &= Check(!CCPetsMenuBarTintsIcon(nil) && !CCPetsMenuBarTintsIcon(@"") &&
-            !CCPetsMenuBarTintsIcon(@"idle"), @"待机保持原色");
-        ok &= Check(CCPetsMenuBarTintsIcon(@"thinking") && CCPetsMenuBarTintsIcon(@"completed") &&
-            CCPetsMenuBarTintsIcon(@"failed") && CCPetsMenuBarTintsIcon(@"approval"), @"活动与终态上色");
-        ok &= Check(!CCPetsMenuBarTintsIcon((NSString *)@1), @"非字符串保持原色");
+        // 爪印色调：归类与状态卡一致，待机和没有状态时保持原色。
+        ok &= Check(CCPetsMenuBarIconToneForState(nil) == CCPetsMenuBarIconToneNone &&
+            CCPetsMenuBarIconToneForState(@"") == CCPetsMenuBarIconToneNone &&
+            CCPetsMenuBarIconToneForState(@"idle") == CCPetsMenuBarIconToneNone &&
+            CCPetsMenuBarIconToneForState((NSString *)@1) == CCPetsMenuBarIconToneNone, @"待机保持原色");
+        ok &= Check(CCPetsMenuBarIconToneForState(@"thinking") == CCPetsMenuBarIconToneWorking &&
+            CCPetsMenuBarIconToneForState(@"tool") == CCPetsMenuBarIconToneWorking &&
+            CCPetsMenuBarIconToneForState(@"starting") == CCPetsMenuBarIconToneWorking, @"工作中为蓝");
+        ok &= Check(CCPetsMenuBarIconToneForState(@"approval") == CCPetsMenuBarIconToneAttention &&
+            CCPetsMenuBarIconToneForState(@"notification") == CCPetsMenuBarIconToneAttention, @"审批为橙");
+        ok &= Check(CCPetsMenuBarIconToneForState(@"completed") == CCPetsMenuBarIconToneCompleted &&
+            CCPetsMenuBarIconToneForState(@"tool_completed") == CCPetsMenuBarIconToneCompleted, @"完成为绿");
+        ok &= Check(CCPetsMenuBarIconToneForState(@"failed") == CCPetsMenuBarIconToneFailed &&
+            CCPetsMenuBarIconToneForState(@"tool_failed") == CCPetsMenuBarIconToneFailed, @"失败为红");
 
         // 今日 Token 合计。
         NSDictionary *withToday = @{@"usage": @{@"tokenUsage": @{@"today": @{@"total_tokens": @1200}}}};

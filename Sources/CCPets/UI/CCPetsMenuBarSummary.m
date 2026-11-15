@@ -52,8 +52,20 @@ NSArray<NSDictionary *> *CCPetsMenuBarOrderedQuotas(NSArray<NSDictionary *> *quo
     return [subscription arrayByAddingObjectsFromArray:api];
 }
 
-BOOL CCPetsMenuBarTintsIcon(NSString *state) {
-    return [state isKindOfClass:NSString.class] && state.length > 0 && ![state isEqualToString:@"idle"];
+CCPetsMenuBarIconTone CCPetsMenuBarIconToneForState(NSString *state) {
+    if (![state isKindOfClass:NSString.class] || state.length == 0 || [state isEqualToString:@"idle"]) {
+        return CCPetsMenuBarIconToneNone;
+    }
+    if ([state isEqualToString:@"completed"] || [state isEqualToString:@"tool_completed"]) {
+        return CCPetsMenuBarIconToneCompleted;
+    }
+    if ([state isEqualToString:@"failed"] || [state isEqualToString:@"tool_failed"]) {
+        return CCPetsMenuBarIconToneFailed;
+    }
+    if ([state isEqualToString:@"approval"] || [state isEqualToString:@"notification"]) {
+        return CCPetsMenuBarIconToneAttention;
+    }
+    return CCPetsMenuBarIconToneWorking;
 }
 
 NSNumber *CCPetsMenuBarTodayTokens(NSArray<NSDictionary *> *quotas) {
