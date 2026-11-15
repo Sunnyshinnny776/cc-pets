@@ -4,6 +4,16 @@
 
 上一版状态已逐字节归档至 [v2.4.0 发布状态](release-status-v2.4.0.md)；更早记录见 [v2.3.0](release-status-v2.3.0.md)、[v2.2.1](release-status-v2.2.1.md) 和 [v2.2.0](release-status-v2.2.0.md)。历史状态是当时的证据，不代表本轮重新验证。
 
+## main 集成复验与发版补检（2026-11-15）
+
+- PR #32 已合并；本地 `main` 快进至 `c13a2ba651fc2a8b1beb547a1aaa6e57fa78df5a`，与远端一致。
+- 在该提交重新运行 `CC_PETS_STRICT=1 npm test`，全套通过，退出码 0；独立 runner 的 PPID=1，耗时 106.5 秒，真实事件流与 shim 污染检查通过。同一提交的 [main CI](https://github.com/Sunnyshinnny776/cc-pets/actions/runs/43727008797) 通过。
+- package、裸二进制、App 内二进制及两个 plist 版本字段均为 `2.5.0`；`codesign --verify --deep --strict` 通过。实际 Release Note 解析与预期的中英各三条要点完全一致，无截断或跨语言内容。
+- 检查了 72 个本地文档/图片链接；发布准备前的历史记录保持不变。与 v2.4.0 tag 相比，旧版中文 CHANGELOG 仅包含此前已提交的 Shadowrocket 名称修正。
+- 已目视确认海报右上角为 `v2.5.0`，`main`、`publish` 和已提交图片的 SHA-256 一致。
+- 补检发现双语 README 对应用菜单与菜单栏状态图标的描述混淆，并残留「主窗口 / main window」称呼；修正已在 `publish` 准备，待提交和集成。`git diff --check` 通过；本次补检未修改产品源码。
+- 正式 tag 和 GitHub Release 尚未创建；发布后还需更新双语 CONTRIBUTING 的当前正式版本与本文件。未执行 npm 发布或本机安装；未重新人工验收菜单栏交互、终端跳转、会话生命周期和 Bridge 恢复。
+
 ## 交付范围
 
 - 菜单栏模式：仅桌宠（默认）、桌宠 + 菜单栏或仅菜单栏；面板查看在线会话、各账号额度和今日用量。图标跟随状态，待审批时可直接跳到对应终端，⌥ 点击仍打开面板；额度数字可独立关闭。

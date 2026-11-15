@@ -379,9 +379,10 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
   `manifest.json` records original paths, permissions and backup files. Other issues retain
   their manual commands. Plain `cc-pets doctor` remains read-only.
 
-The window is created when you open it and released when you close it, and nothing runs in
-the background while it is closed. The Dock icon and menu bar appear only while it is open;
-clicking the Dock icon brings a minimized window back.
+The Main menu window is created when you open it and released when you close it; its pages
+do not run background tasks while closed. The Dock icon and application menus appear only
+while the window is open; clicking the Dock icon brings a minimized window back. The optional
+menu bar status icon follows Settings → Show In independently of this window.
 
 ### Menu bar
 
@@ -393,7 +394,7 @@ clicking the Dock icon brings a minimized window back.
   its terminal), one row per account with a 5-hour quota ring, weekly quota left and the next
   reset (API accounts show this month's tokens and calls; plan accounts are listed first), today's total tokens, **Show Pet**
   and **Main menu**. When an update is available, **Update to x.y.z…** appears here too. Trends,
-  token breakdowns and system status stay in the hover panel and the main window. Click outside
+  token breakdowns and system status stay in the hover panel and the Main menu. Click outside
   the panel or press Esc to close it.
 - **While a session awaits approval**, left-click jumps straight to its terminal instead (the
   first one in the session list, so the next click goes to the next one). ⌥-click still opens
