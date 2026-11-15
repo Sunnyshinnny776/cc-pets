@@ -23,6 +23,8 @@
 - (void)updateNotification:(NSString *)key enabled:(BOOL)enabled
     completion:(void (^)(BOOL enabled))completion;
 - (void)updateBridgeBadgeEnabled:(BOOL)enabled;
+- (void)updateDisplayMode:(NSString *)mode;
+- (void)updateMenuBarShowsPercent:(BOOL)enabled;
 - (void)editPhrasesFile:(id)sender;
 // 按当前台词来源抽一句闲话，不说出来、不占碎碎念的预算和冷却。
 - (NSString *)sampleSpeechLine;
@@ -59,6 +61,7 @@
 @interface CCPetsAlertsPage : CCPetsSettingsPageBase
 @end
 
-// 通用：语言、主窗口外观（跟随系统 / 浅色 / 深色）、浮层外观（主题、玻璃压暗）、悬停面板显示什么、数据文件夹。
+// 通用：语言、主窗口外观（跟随系统 / 浅色 / 深色）、显示位置（桌宠 / 菜单栏）、浮层外观（主题、玻璃压暗）、
+// 悬停面板显示什么、数据文件夹。
 @interface CCPetsGeneralPage : CCPetsSettingsPageBase
 @end

@@ -7,6 +7,14 @@ truth for the version.
 
 ## [Unreleased]
 
+### Menu bar
+
+- Add a menu bar icon, chosen under Settings → Show In: Desktop Pet (default), Pet + Menu Bar, or Menu Bar Only.
+- Left-click lists online sessions (click to jump to the terminal), quota per account, today's tokens, and Show Pet / Main menu / Quit; right-click opens the pet's context menu.
+- The icon shows the number of sessions awaiting approval and, optionally, the lowest 5-hour quota left; at 20% or below the quota is always shown in orange, red at 10%.
+- Menu Bar Only hides the pet and its status card, bubbles and hover panel. Chatter is skipped without using its budget; tracking and notifications continue.
+- The phrases editor's Try a Line explains that the pet is hidden in Menu Bar Only.
+
 ### Status card
 
 - Show the session instead of the agent in the title ("session · status"), so concurrent sessions can be told apart at a glance. With CC Bridge enabled the label is `directory.animal` (for example `cc-pets.crab`); otherwise it is the working directory name, falling back to the agent name when neither is known. Long labels are truncated in the middle and keep the trailing animal suffix.

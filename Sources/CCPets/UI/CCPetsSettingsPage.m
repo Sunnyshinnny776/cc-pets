@@ -1318,6 +1318,22 @@ static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
             subtitle:L(@"Only this window; the pet's panels follow Panel Appearance above") controls:@[appearance]],
     ] footer:nil];
 
+    // 显示位置：桌宠、菜单栏图标或两者都要。仅菜单栏时状态卡、气泡和悬停面板都不出现。
+    NSSegmentedControl *displayMode = [self segmentedWithOptions:@[
+        @[L(@"Desktop Pet"), CCPetsDisplayModePet], @[L(@"Pet + Menu Bar"), CCPetsDisplayModeBoth],
+        @[L(@"Menu Bar Only"), CCPetsDisplayModeMenuBar]]
+        selected:^id { return CCPetsDisplayMode(); }
+        action:^(NSString *value) { [weakSelf.actions updateDisplayMode:value]; }];
+    [self.form addGroupWithTitle:L(@"Show In") rows:@[
+        [CCPetsFormBuilder rowWithTitle:L(@"Display")
+            subtitle:L(@"Menu bar only hides the pet, its status card, speech and hover panel; notifications still work")
+            controls:@[displayMode]],
+        [self switchRowWithTitle:L(@"Quota in Menu Bar")
+            subtitle:L(@"Lowest 5-hour quota left; always shown at 20% or below")
+            key:CCPetsMenuBarShowsPercentKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateMenuBarShowsPercent:enabled]; }],
+    ] footer:nil];
+
     [self.form addGroupWithTitle:L(@"Launch Protection") rows:@[
         [self switchRowWithTitle:@"Shadowrocket"
             subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region")

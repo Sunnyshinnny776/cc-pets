@@ -1026,3 +1026,12 @@
 "Show Pet" = "显示桌宠";
 "This month: %@ tokens · %@ calls" = "本月 %@ Token · %@ 次调用";
 "5h %@ · Week %@" = "5 小时 %@ · 本周 %@";
+"Show In" = "显示位置";
+"Display" = "显示方式";
+"Desktop Pet" = "仅桌宠";
+"Pet + Menu Bar" = "桌宠 + 菜单栏";
+"Menu Bar Only" = "仅菜单栏";
+"Menu bar only hides the pet, its status card, speech and hover panel; notifications still work" = "仅菜单栏时隐藏桌宠、状态卡、气泡和悬停面板，系统通知照常";
+"Quota in Menu Bar" = "菜单栏显示额度";
+"Lowest 5-hour quota left; always shown at 20% or below" = "显示最低的 5 小时剩余额度；不高于 20% 时始终显示";
+"The pet is hidden (menu bar only). Line: %@" = "桌宠已隐藏（仅菜单栏），这句是：%@";

@@ -1,6 +1,7 @@
 #import "CCPetsPhrasesEditor.h"
 #import "CCPetsL10n.h"
 #import "CCPetsPhrases.h"
+#import "CCPetsPreferences.h"
 #import "CCPetsUIStyle.h"
 
 static void (^PetPhrasesSpeakHandler)(NSString *);
@@ -489,6 +490,12 @@ static void (^PetPhrasesSpeakHandler)(NSString *);
     NSString *text = PetPhraseForTagInText(tag, draft, [self sampleSlots]);
     if (text.length == 0) {
         [self showStatus:[NSString stringWithFormat:L(@"[%@] has no usable lines."), tag] warning:YES];
+        return;
+    }
+    // 「仅菜单栏」时桌宠藏着，说了也看不见；照实告诉用户，句子本身仍然显示出来。
+    if ([CCPetsDisplayMode() isEqualToString:CCPetsDisplayModeMenuBar]) {
+        [self showStatus:[NSString stringWithFormat:L(@"The pet is hidden (menu bar only). Line: %@"), text]
+            warning:YES];
         return;
     }
     if (PetPhrasesSpeakHandler) PetPhrasesSpeakHandler(text);
