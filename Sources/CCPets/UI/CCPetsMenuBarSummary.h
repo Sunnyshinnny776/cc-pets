@@ -42,5 +42,10 @@ CCPetsMenuBarIconTone CCPetsMenuBarIconToneForState(NSString *state);
 // （平台次序与悬停面板一致）。订阅额度会耗尽、要盯着看，API 用量只是记账。
 NSArray<NSDictionary *> *CCPetsMenuBarOrderedQuotas(NSArray<NSDictionary *> *quotas);
 
+// 有会话在等审批时，左键菜单栏图标要直接跳去的会话 id（workbenchSessions 的 id）。
+// 取列表里第一个等审批、且解析到了终端的会话：和面板会话列表同一个次序，处理完一个再点就是下一个。
+// 没有等审批的会话、或都没有可跳的终端时返回 nil，此时照常打开面板。
+NSString *CCPetsMenuBarApprovalSessionID(NSArray<NSDictionary *> *sessions);
+
 // 所有账号今日 Token 合计（usage.tokenUsage.today.total_tokens）。都没有数据时返回 nil。
 NSNumber *CCPetsMenuBarTodayTokens(NSArray<NSDictionary *> *quotas);

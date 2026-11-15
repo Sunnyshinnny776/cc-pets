@@ -100,6 +100,8 @@ static NSColor *LevelColor(CCPetsMenuBarLevel level) {
         [description addObject:[NSString stringWithFormat:L(@"%@ awaiting approval"), parts[@"approvals"]]];
     }
     [button setAccessibilityLabel:[description componentsJoinedByString:@", "]];
+    // 等审批时左键会直接跳转，提示里说清楚，免得用户以为面板打不开。
+    button.toolTip = approvals > 0 ? L(@"Click to jump to the session awaiting approval (⌥-click for the panel)") : @"CC Pets";
     [self.panel reload];
 }
 
@@ -111,15 +113,26 @@ static NSColor *LevelColor(CCPetsMenuBarLevel level) {
     return image;
 }
 
-// 左右键共用一个 action。左键开关玻璃面板；右键临时挂上菜单交给按钮弹出，弹完摘掉——
+// 左右键共用一个 action。左键开关玻璃面板（有会话等审批时直接跳到那个终端）；
+// 右键临时挂上菜单交给按钮弹出，弹完摘掉——
 // 一直挂着 item.menu 的话左键也会直接弹它。
 - (void)statusItemClicked:(NSStatusBarButton *)sender {
     NSEvent *event = NSApp.currentEvent;
     BOOL secondary = event.type == NSEventTypeRightMouseUp ||
         (event.modifierFlags & NSEventModifierFlagControl) != 0;
     if (!secondary) {
-        if (self.panel.isShown) [self.panel dismiss];
-        else [self.panel showBelowButton:sender];
+        if (self.panel.isShown) {
+            [self.panel dismiss];
+            return;
+        }
+        // 有会话在等审批：直接跳到那个终端，这是此刻唯一需要用户动手的事。按住 ⌥ 仍然打开面板。
+        BOOL option = (event.modifierFlags & NSEventModifierFlagOption) != 0;
+        NSString *approval = option ? nil : CCPetsMenuBarApprovalSessionID([self.source workbenchSessions]);
+        if (approval) {
+            [self.source focusWorkbenchSessionWithID:approval];
+            return;
+        }
+        [self.panel showBelowButton:sender];
         return;
     }
     [self.panel dismiss];

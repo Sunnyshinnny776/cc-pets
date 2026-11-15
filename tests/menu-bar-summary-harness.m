@@ -62,6 +62,17 @@ int main(void) {
             isEqualToArray:(@[codexPlan, claudePlan, codexAPI, claudeAPI])], @"订阅账号排在 API 账号前");
         ok &= Check(CCPetsMenuBarOrderedQuotas(@[]).count == 0, @"无账号返回空数组");
 
+        // 等审批时左键直接跳转：取第一个等审批且有终端的会话，否则 nil（照常开面板）。
+        NSDictionary *busy = @{@"id": @"a", @"state": @"tool", @"terminal": @"iTerm2"};
+        NSDictionary *noTerminal = @{@"id": @"b", @"state": @"approval", @"terminal": @""};
+        NSDictionary *waiting = @{@"id": @"c", @"state": @"approval", @"terminal": @"Ghostty"};
+        NSDictionary *waitingLater = @{@"id": @"d", @"state": @"approval", @"terminal": @"VS Code"};
+        ok &= Check(CCPetsMenuBarApprovalSessionID(@[]) == nil, @"没有会话时不跳转");
+        ok &= Check(CCPetsMenuBarApprovalSessionID(@[busy]) == nil, @"没有等审批的会话时不跳转");
+        ok &= Check(CCPetsMenuBarApprovalSessionID(@[noTerminal]) == nil, @"等审批但没有终端时不跳转");
+        ok &= Check([CCPetsMenuBarApprovalSessionID(@[busy, noTerminal, waiting, waitingLater]) isEqual:@"c"],
+            @"跳到第一个有终端的等审批会话");
+
         // 爪印色调：归类与状态卡一致，待机和没有状态时保持原色。
         ok &= Check(CCPetsMenuBarIconToneForState(nil) == CCPetsMenuBarIconToneNone &&
             CCPetsMenuBarIconToneForState(@"") == CCPetsMenuBarIconToneNone &&

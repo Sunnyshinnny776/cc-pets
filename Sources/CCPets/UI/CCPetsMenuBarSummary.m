@@ -68,6 +68,16 @@ CCPetsMenuBarIconTone CCPetsMenuBarIconToneForState(NSString *state) {
     return CCPetsMenuBarIconToneWorking;
 }
 
+NSString *CCPetsMenuBarApprovalSessionID(NSArray<NSDictionary *> *sessions) {
+    for (NSDictionary *session in sessions) {
+        if (![session isKindOfClass:NSDictionary.class] || ![session[@"state"] isEqual:@"approval"]) continue;
+        NSString *sessionID = [session[@"id"] isKindOfClass:NSString.class] ? session[@"id"] : nil;
+        NSString *terminal = [session[@"terminal"] isKindOfClass:NSString.class] ? session[@"terminal"] : nil;
+        if (sessionID.length > 0 && terminal.length > 0) return sessionID;
+    }
+    return nil;
+}
+
 NSNumber *CCPetsMenuBarTodayTokens(NSArray<NSDictionary *> *quotas) {
     BOOL found = NO;
     unsigned long long total = 0;

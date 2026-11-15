@@ -395,6 +395,9 @@ clicking the Dock icon brings a minimized window back.
   and **Main menu**. When an update is available, **Update to x.y.z…** appears here too. Trends,
   token breakdowns and system status stay in the hover panel and the main window. Click outside
   the panel or press Esc to close it.
+- **While a session awaits approval**, left-click jumps straight to its terminal instead (the
+  first one in the session list, so the next click goes to the next one). ⌥-click still opens
+  the panel, and the panel opens as usual when that session's terminal can't be resolved.
 - **Right-click** (or Control-click) opens the same menu as right-clicking the pet, including
   the CC Bridge switches and **Quit**.
 - The icon is an outlined terminal window with a `>_` prompt that takes the status card's color:

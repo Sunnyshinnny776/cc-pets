@@ -1037,3 +1037,4 @@
 "Quota in Menu Bar" = "菜单栏显示额度";
 "Lowest 5-hour quota left; orange at 20% or below, red at 10%" = "显示最低的 5 小时剩余额度；20% 及以下为橙色，10% 及以下为红色";
 "The pet is hidden (menu bar only). Line: %@" = "桌宠已隐藏（仅菜单栏），这句是：%@";
+"Click to jump to the session awaiting approval (⌥-click for the panel)" = "点击跳到等待审批的会话（按住 ⌥ 点击打开面板）";
