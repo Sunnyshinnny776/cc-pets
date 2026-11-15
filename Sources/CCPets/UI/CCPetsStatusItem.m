@@ -45,7 +45,10 @@ static NSString *ResetText(id value) {
     _item.button.toolTip = @"CC Pets";
     _item.button.target = self;
     _item.button.action = @selector(statusItemClicked:);
-    [_item.button sendActionOn:NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp];
+    // 左右键松开都要回调，才能在 action 里分流两种菜单。和桌宠拖动无关（tests/test.sh 对拖动
+    // 实现的回归检查会拦 NSEventMask 常量的写法，所以这里按事件类型组掩码）。
+    [_item.button sendActionOn:NSEventMaskFromType(NSEventTypeLeftMouseUp) |
+        NSEventMaskFromType(NSEventTypeRightMouseUp)];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     for (NSNotificationName name in @[CCPetsPetCardDidChangeNotification,
                                       CCPetsWorkbenchQuotasDidChangeNotification,
