@@ -7,6 +7,8 @@ truth for the version.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-15
+
 ### Menu bar
 
 - Add a menu bar icon, chosen under Settings → Show In: Desktop Pet (default), Pet + Menu Bar, or Menu Bar Only.

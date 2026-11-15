@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.4.0: Exact terminal jumps, launch protection and usage improvements">
+  <img src="docs/images/cover.png" alt="CC Pets v2.5.0: Menu bar mode, clearer sessions and CC Bridge reliability">
 </p>
 
 # CC Pets
@@ -13,16 +13,16 @@ Codex App Server interface and Claude Code's official status line input.
 
 > The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
 
-## What's new in v2.4.0
+## What's new in v2.5.0
 
-- **Exact terminal jumps** — select terminals in VS Code and its forks, JetBrains,
-  Ghostty and iTerm2, with permissions and extension management in Settings.
-- **Launch protection and CC Bridge** — optional Shadowrocket exit checks before
-  wrapper launches, safer session identity matching and recoverable inbox delivery.
-- **Usage and pet management** — corrected Codex token accounting, background usage,
-  per-account quota reminders, refreshed appearance settings and custom pet deletion.
+- **Menu bar mode** — keep the pet, add a menu bar panel, or use the menu bar alone;
+  check sessions and quota, and jump straight to a terminal awaiting approval.
+- **Clearer sessions** — identify status cards by session, track persistent Codex
+  desktop chats, and clear ended sessions without replaying completion animations.
+- **CC Bridge reliability** — identify shared-host callers per tool call, improve
+  concurrent file reservations and message cleanup, and preserve unrelated config.
 
-See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.4.0.md) for the full list.
+See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.5.0.md) for the full list.
 
 ## Screenshots
 
@@ -412,7 +412,8 @@ clicking the Dock icon brings a minimized window back.
 **Menu Bar Only** hides the pet, its status card, speech bubbles, update bubble and hover
 panel. Chatter is skipped without using up its hourly budget, so low-quota warnings are only
 visible as the menu bar color. Agent tracking, quota collection and system notifications keep
-running. The icon goes away with the pet when the last managed CLI exits.
+running. The icon goes away with the pet when the last managed CLI exits, unless
+Codex desktop is still running. Standalone launches stay open until you quit.
 
 ## Pet interaction
 

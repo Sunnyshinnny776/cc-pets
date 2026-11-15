@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/cover.png" alt="CC Pets v2.4.0：终端精准跳转、启动保护与用量改进">
+  <img src="docs/images/cover.png" alt="CC Pets v2.5.0：菜单栏模式、会话展示与 CC Bridge 可靠性改进">
 </p>
 
 # CC Pets
@@ -9,16 +9,16 @@
 一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
 并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
 
-## v2.4.0 新功能
+## v2.5.0 新功能
 
-- **终端精准跳转**：支持 VS Code 及其分支、JetBrains、Ghostty 和 iTerm2，
-  在设置页集中管理权限和终端扩展。
-- **启动保护与 CC Bridge**：可选 Shadowrocket 出口检查，会话身份匹配更严格，
-  未确认的信箱消息可恢复。
-- **用量与宠物管理**：修复 Codex Token 计数、补充后台用量，按账号提醒低额度，
-  更新外观设置，并支持删除自定义宠物。
+- **菜单栏模式**：保留桌宠、同时显示菜单栏或仅用菜单栏；查看会话与额度，
+  有待审批会话时可直接跳到对应终端。
+- **会话更清楚**：状态卡按会话区分，跟踪 Codex 桌面端的持久化聊天，
+  会话结束时清理状态，不误播完成动画。
+- **CC Bridge 可靠性**：逐次识别共享宿主上的调用者，改进并发文件预留和消息清理，
+  保留配置中不属于 Bridge 的内容。
 
-完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.4.0.md)。
+完整改动见 [更新记录](./CHANGELOG.zh-CN.md) 和 [Release Note](./docs/release-notes-v2.5.0.md)。
 
 ## 界面预览
 
@@ -117,7 +117,7 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
 
 **仅菜单栏** 会隐藏桌宠、状态卡、说话气泡、更新气泡和悬停面板。碎碎念直接跳过、不占每小时预算，
 因此低额度提醒只剩菜单栏数字变色。Agent 状态跟踪、额度采集和系统通知照常运行。
-最后一个托管 CLI 退出时，菜单栏图标随桌宠一起消失。
+最后一个托管 CLI 退出且 Codex 桌面端未运行时，菜单栏图标随桌宠一起消失；独立启动时会保持运行，直到手动退出。
 
 ## 互动方式
 
