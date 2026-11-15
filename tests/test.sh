@@ -2181,6 +2181,15 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PROJECT_DIR}/tests/menu-bar-summary-harness.m" \
   -o "${MENU_BAR_TMP}/menu-bar-test"
 "${MENU_BAR_TMP}/menu-bar-test"
+# 菜单栏图标：五个色调同尺寸，待机是 template，有状态的保留对应彩色。
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
+  "${PET_INCLUDE_FLAGS[@]}" \
+  -framework Cocoa \
+  "${PET_SRC[CCPetsMenuBarIcon.m]:?}" \
+  "${PET_SRC[CCPetsMenuBarSummary.m]:?}" \
+  "${PROJECT_DIR}/tests/menu-bar-icon-harness.m" \
+  -o "${MENU_BAR_TMP}/menu-bar-icon-test"
+"${MENU_BAR_TMP}/menu-bar-icon-test"
 # 设置页按 CCPetsSettingsActions 调 AppDelegate，但 AppDelegate 没在声明上采纳这个协议
 # （方法分散在多个 category，采纳会触发编译告警）。逐条核对协议里的方法确实在私有头里声明过，
 # 否则改了签名只会在用户点开关时以 unrecognized selector 崩掉。

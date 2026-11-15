@@ -3,6 +3,7 @@
 #import "CCPetsPreferences.h"
 #import "CCPetsL10n.h"
 #import "CCPetsMenuBarPanel.h"
+#import "CCPetsMenuBarIcon.h"
 
 static NSColor *LevelColor(CCPetsMenuBarLevel level) {
     switch (level) {
@@ -16,10 +17,8 @@ static NSColor *LevelColor(CCPetsMenuBarLevel level) {
 @property(nonatomic, weak, readwrite) id<CCPetsWorkbenchSource, CCPetsPetCardSource> source;
 @property(nonatomic) NSStatusItem *item;
 @property(nonatomic) CCPetsMenuBarPanel *panel;
-// 待机时的爪印：template image，由系统按菜单栏明暗和壁纸着色。
-@property(nonatomic) NSImage *templateImage;
-// 按色调上色的爪印，四种各生成一次。
-@property(nonatomic) NSMutableDictionary<NSNumber *, NSImage *> *tintedImages;
+// 各色调的菜单栏图标（见 CCPetsMenuBarIcon），每种只生成一次。
+@property(nonatomic) NSMutableDictionary<NSNumber *, NSImage *> *iconImages;
 @end
 
 @implementation CCPetsStatusItemController
@@ -29,10 +28,8 @@ static NSColor *LevelColor(CCPetsMenuBarLevel level) {
     _source = source;
     _panel = [[CCPetsMenuBarPanel alloc] initWithOwner:self];
     _item = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
-    _templateImage = [NSImage imageWithSystemSymbolName:@"pawprint.fill" accessibilityDescription:@"CC Pets"];
-    _templateImage.template = YES;
-    _tintedImages = [NSMutableDictionary dictionary];
-    _item.button.image = _templateImage;
+    _iconImages = [NSMutableDictionary dictionary];
+    _item.button.image = [self imageForTone:CCPetsMenuBarIconToneNone];
     _item.button.toolTip = @"CC Pets";
     _item.button.target = self;
     _item.button.action = @selector(statusItemClicked:);
@@ -90,12 +87,12 @@ static NSColor *LevelColor(CCPetsMenuBarLevel level) {
     }
     button.attributedTitle = title;
     button.imagePosition = title.length > 0 ? NSImageLeft : NSImageOnly;
-    // 爪印颜色跟着状态卡走：同一条快照、同一套归类（工作中蓝、审批橙、完成绿、失败红），
-    // 状态卡回落待机时恢复原色。
+    // 图标跟着状态卡走：同一条快照、同一套归类（工作中蓝、审批橙、完成绿、失败红），
+    // 状态卡回落待机时换回待机图。
     NSString *state = [snapshot[@"state"] isKindOfClass:NSString.class] ? snapshot[@"state"] : nil;
     CCPetsMenuBarIconTone tone = CCPetsMenuBarIconToneForState(state);
     BOOL tinted = tone != CCPetsMenuBarIconToneNone;
-    button.image = tinted ? [self imageForTone:tone] : self.templateImage;
+    button.image = [self imageForTone:tone];
     NSMutableArray<NSString *> *description = [NSMutableArray arrayWithObject:@"CC Pets"];
     if (tinted && [snapshot[@"status"] isKindOfClass:NSString.class]) [description addObject:snapshot[@"status"]];
     if (parts[@"percent"]) [description addObject:parts[@"percent"]];
@@ -106,30 +103,11 @@ static NSColor *LevelColor(CCPetsMenuBarLevel level) {
     [self.panel reload];
 }
 
-// 用系统色而不是状态卡的颜色：系统色按菜单栏明暗各有一版，深色菜单栏上取更亮的那版；
-// 状态卡的工作蓝 (0.33, 0.53, 0.78) 是为浅色玻璃调的，放在深色菜单栏上发灰看不清。
-static NSColor *ToneColor(CCPetsMenuBarIconTone tone) {
-    switch (tone) {
-        case CCPetsMenuBarIconToneCompleted: return NSColor.systemGreenColor;
-        case CCPetsMenuBarIconToneFailed: return NSColor.systemRedColor;
-        case CCPetsMenuBarIconToneAttention: return NSColor.systemOrangeColor;
-        default: return NSColor.systemBlueColor;
-    }
-}
-
-// 用调色板给 SF Symbol 上色，并取消 template：template image 会被系统重新染成黑白。
-// 不用 button.contentTintColor，状态栏按钮在不同系统版本上未必认它。系统色是动态色，
-// 绘制时按菜单栏当前外观解析，所以缓存的图在深浅切换后仍然正确。
 - (NSImage *)imageForTone:(CCPetsMenuBarIconTone)tone {
-    NSImage *cached = self.tintedImages[@(tone)];
+    NSImage *cached = self.iconImages[@(tone)];
     if (cached) return cached;
-    NSColor *color = ToneColor(tone);
-    NSImage *image = [[self.templateImage imageWithSymbolConfiguration:
-        [NSImageSymbolConfiguration configurationWithPaletteColors:@[color]]] copy];
-    if (!image) return self.templateImage;
-    image.template = NO;
-    image.accessibilityDescription = @"CC Pets";
-    self.tintedImages[@(tone)] = image;
+    NSImage *image = CCPetsMenuBarIconImage(tone);
+    self.iconImages[@(tone)] = image;
     return image;
 }
 

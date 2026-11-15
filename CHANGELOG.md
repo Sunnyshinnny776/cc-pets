@@ -11,7 +11,7 @@ truth for the version.
 
 - Add a menu bar icon, chosen under Settings → Show In: Desktop Pet (default), Pet + Menu Bar, or Menu Bar Only.
 - Left-click opens a compact glass panel: the pet's current status, up to five online sessions (click to jump to the terminal), a 5-hour quota ring per account, today's tokens, and Show Pet / Main menu. Right-click opens the pet's context menu.
-- The paw icon takes the status card's color (working blue, approval orange, completed green, failed red) and returns to the normal menu bar color when the card goes back to idle. Plan accounts are listed before API accounts in the panel.
+- The menu bar icon is an outlined terminal window whose symbol and color follow the status card (`>_` idle / blue `>_` working, orange `•••` approval, green ✓ completed, red × failed) and returns to the normal menu bar color when the card goes back to idle. Plan accounts are listed before API accounts in the panel.
 - The icon shows the number of sessions awaiting approval and, optionally, the lowest 5-hour quota left; at 20% or below the quota is always shown in orange, red at 10%.
 - Menu Bar Only hides the pet and its status card, bubbles and hover panel. Chatter is skipped without using its budget; tracking and notifications continue.
 - The phrases editor's Try a Line explains that the pet is hidden in Menu Bar Only.

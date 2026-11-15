@@ -25,7 +25,7 @@ CCPetsMenuBarLevel CCPetsMenuBarLevelForRemaining(NSInteger remaining);
 // showPercent 关闭时，只要额度进了警告档仍然显示数字：低额度是这个模式下唯一的主动提醒。
 NSDictionary *CCPetsMenuBarTitleParts(NSArray<NSDictionary *> *quotas, NSUInteger approvals, BOOL showPercent);
 
-// 菜单栏爪印的色调。state 是宠物名片快照里的 Agent 状态（和状态卡同一条），归类与状态卡的
+// 菜单栏图标的色调。state 是宠物名片快照里的 Agent 状态（和状态卡同一条），归类与状态卡的
 // statusColorForState: 一致；待机或没有状态时保持原色，颜色只用来提示「有 Agent 在动」或「刚完成 / 失败」。
 // 具体颜色由菜单栏那边取系统色：状态卡的工作蓝是为浅色玻璃调的，放在深色菜单栏上太暗。
 typedef NS_ENUM(NSInteger, CCPetsMenuBarIconTone) {
