@@ -11,6 +11,21 @@ NSString *const PetInteractionHeartThresholdKey = @"CCPetsInteractionHeartThresh
 NSString *const PetInteractionAnnoyedThresholdKey = @"CCPetsInteractionAnnoyedThreshold";
 NSString *const PetInteractionIntervalKey = @"CCPetsInteractionInterval";
 NSString *const CCPetsShadowrocketLaunchCheckKey = @"CCPetsLaunchProtection.Shadowrocket";
+NSString *const CCPetsDisplayModeKey = @"CCPetsDisplayMode";
+NSString *const CCPetsDisplayModePet = @"pet";
+NSString *const CCPetsDisplayModeBoth = @"both";
+NSString *const CCPetsDisplayModeMenuBar = @"menubar";
+NSString *const CCPetsMenuBarShowsPercentKey = @"CCPetsMenuBarShowsPercent";
+
+static NSArray<NSString *> *DisplayModes(void) {
+    return @[CCPetsDisplayModePet, CCPetsDisplayModeBoth, CCPetsDisplayModeMenuBar];
+}
+
+NSString *CCPetsDisplayMode(void) {
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:CCPetsDisplayModeKey];
+    return [value isKindOfClass:NSString.class] && [DisplayModes() containsObject:value]
+        ? value : CCPetsDisplayModePet;
+}
 
 // 包装器运行的是裸二进制，默认 preferences domain 与 App bundle 不同。
 // 启动保护的读取和写入统一走 CFPreferences 的同一个域、用户和主机。
@@ -96,6 +111,9 @@ id CCPetsPrefNormalizedValue(NSString *key, id value) {
         return count ? @(count.integerValue) : nil;
     }
     if ([key isEqualToString:PetInteractionIntervalKey]) return ClampedNumber(value, 0.4, 3.0);
+    if ([key isEqualToString:CCPetsDisplayModeKey]) {
+        return [value isKindOfClass:NSString.class] && [DisplayModes() containsObject:value] ? value : nil;
+    }
     if ([value isKindOfClass:NSString.class] || [value isKindOfClass:NSNumber.class]) return value;
     return nil;
 }

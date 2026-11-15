@@ -482,7 +482,8 @@
     [self applyPetSizePreference];
     size = self.panel.frame.size;
     [self.panel setFrameOrigin:NSMakePoint(NSMaxX(visible) - size.width - 24, NSMinY(visible) + 18)];
-    [self.panel orderFrontRegardless];
+    // 按显示位置决定桌宠窗口和菜单栏图标谁出现。
+    [self applyDisplayMode];
     self.usageMonitor = [CCPetsUsageMonitor new];
     self.systemMonitor = [CCPetsSystemMonitor new];
     self.agentEventPartialLine = [NSMutableData data];
@@ -549,7 +550,8 @@
     [self.petView setAnimationSuspended:YES];
 }
 - (void)screensDidWake:(NSNotification *)notification {
-    [self.petView setAnimationSuspended:NO];
+    // 「仅菜单栏」时宠物藏着，醒来也别恢复逐帧动画。
+    if ([self petVisible]) [self.petView setAnimationSuspended:NO];
 }
 - (void)petWindowDidMove:(NSNotification *)notification {
     if (self.quotaPanel.isVisible) [self positionQuotaDashboard];

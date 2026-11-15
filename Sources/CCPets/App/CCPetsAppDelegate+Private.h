@@ -20,6 +20,7 @@
 #import "CCPetsBridge.h"
 #import "CCPetsProfiles.h"
 #import "MenuToggleSwitch.h"
+#import "CCPetsStatusItem.h"
 #import <UserNotifications/UserNotifications.h>
 #import <signal.h>
 #import <sys/stat.h>
@@ -265,6 +266,15 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)focusBridgeSession:(NSMenuItem *)sender;
 - (void)addBridgeItemsToMenu:(NSMenu *)menu deliveries:(NSArray<NSDictionary *> *)deliveries
     pending:(NSDictionary<NSString *, NSNumber *> *)pending;
+@end
+
+// 显示位置：桌宠窗口与菜单栏图标的显隐。「仅菜单栏」时桌宠和它的浮层（状态卡、气泡、
+// 悬停面板）都不出现，状态机照常运行，供菜单栏和系统通知使用。
+@interface AppDelegate (MenuBar)
+- (BOOL)petVisible;
+- (void)applyDisplayMode;
+- (void)updateDisplayMode:(NSString *)mode;
+- (void)updateMenuBarShowsPercent:(BOOL)enabled;
 @end
 
 // 用户显式添加、修复或移除 Claude/Codex Home。

@@ -1020,3 +1020,21 @@
 "Install Extension…" = "安装扩展…";
 "Delete “%@”?" = "删除「%@」？";
 "This can't be undone. Continue?" = "删除后无法撤销，是否继续？";
+
+/* 菜单栏图标 */
+"%@ awaiting approval" = "%@ 个等待审批";
+"Show Pet" = "显示桌宠";
+"This month · %@ calls" = "本月 · %@ 次调用";
+"Week %@" = "本周 %@";
+"Quota" = "额度";
+"%@ more sessions…" = "还有 %@ 个会话…";
+"Show In" = "显示位置";
+"Display" = "显示方式";
+"Desktop Pet" = "仅桌宠";
+"Pet + Menu Bar" = "桌宠 + 菜单栏";
+"Menu Bar Only" = "仅菜单栏";
+"Menu bar only hides the pet, its status card, speech and hover panel; notifications still work" = "仅菜单栏时隐藏桌宠、状态卡、气泡和悬停面板，系统通知照常";
+"Quota in Menu Bar" = "菜单栏显示额度";
+"Lowest 5-hour quota left; orange at 20% or below, red at 10%" = "显示最低的 5 小时剩余额度；20% 及以下为橙色，10% 及以下为红色";
+"The pet is hidden (menu bar only). Line: %@" = "桌宠已隐藏（仅菜单栏），这句是：%@";
+"Click to jump to the session awaiting approval (⌥-click for the panel)" = "点击跳到等待审批的会话（按住 ⌥ 点击打开面板）";

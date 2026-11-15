@@ -45,3 +45,9 @@
 - (void)resetAgentToIdle;
 - (void)playRow:(NSInteger)row throughFrame:(NSInteger)last oneShot:(BOOL)oneShot;
 @end
+
+// 右键菜单（现建）与菜单收起后的收尾，实现在 PetView+Menu.m。桌宠右键和菜单栏图标右键共用。
+@interface PetView (Menu)
+- (NSMenu *)buildContextMenu;
+- (void)finishContextMenu;
+@end

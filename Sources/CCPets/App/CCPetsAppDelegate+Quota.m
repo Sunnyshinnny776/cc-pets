@@ -19,6 +19,7 @@
     return NSDate.date.timeIntervalSince1970 - self.lastUsageRefreshAt >= UsageRefreshCoalesceWindow;
 }
 - (void)showQuotaDashboard {
+    if (![self petVisible]) return;
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideQuotaDashboardIfNeeded) object:nil];
     if ([self shouldRefreshUsageForDashboard]) [self refreshUsage:nil];
     [self positionQuotaDashboard];

@@ -6,6 +6,8 @@
 #import "CCPetsSystemMonitor.h"
 #import "CCPetsGlassView.h"
 
+@class CCPetsStatusItemController;
+
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @property NSPanel *panel;
 @property NSPanel *quotaPanel;
@@ -132,4 +134,6 @@
 @property NSTimer *quotaClockTimer;
 @property NSTimer *systemMetricsTimer;
 @property CCPetsSystemMonitor *systemMonitor;
+// 菜单栏图标。显示位置为「仅桌宠」时为 nil。
+@property CCPetsStatusItemController *statusItemController;
 @end

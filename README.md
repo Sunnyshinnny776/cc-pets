@@ -53,6 +53,7 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
   selection persists across pet changes and restarts, with pet-specific lines selected initially.
 - Includes one original pet and can download compatible assets from PetDex.
 - Opens the Main menu, a regular app window with an overview, your sessions and CC Bridge messages, token usage by model, every setting and built-in diagnostics (see [Main menu](#main-menu)).
+- Can also live in the menu bar: sessions, per-account quota and today's tokens one click away, or hide the desktop pet entirely (see [Menu bar](#menu-bar)).
 - Uses native AppKit with no Electron runtime.
 
 ## Requirements
@@ -358,7 +359,7 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 - **Multi-Account** — add Claude / Codex Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
 - **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
   picker, deletion of unselected custom pets with confirmation, size, chatter, click reactions and Codex import; Alerts: notifications, the status
-  card and system status; Settings: language, panel appearance and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
+  card and system status; Settings: language, display location, panel appearance and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
   Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
@@ -381,6 +382,37 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 The window is created when you open it and released when you close it, and nothing runs in
 the background while it is closed. The Dock icon and menu bar appear only while it is open;
 clicking the Dock icon brings a minimized window back.
+
+### Menu bar
+
+**Main menu → Settings → Show In** chooses where CC Pets appears: **Desktop Pet** (default),
+**Pet + Menu Bar**, or **Menu Bar Only**. With a menu bar icon:
+
+- **Left-click** opens a compact glass panel in the same style as the hover panel: the pet and
+  what it is doing, up to five online sessions (awaiting approval first; click one to jump to
+  its terminal), one row per account with a 5-hour quota ring, weekly quota left and the next
+  reset (API accounts show this month's tokens and calls; plan accounts are listed first), today's total tokens, **Show Pet**
+  and **Main menu**. When an update is available, **Update to x.y.z…** appears here too. Trends,
+  token breakdowns and system status stay in the hover panel and the main window. Click outside
+  the panel or press Esc to close it.
+- **While a session awaits approval**, left-click jumps straight to its terminal instead (the
+  first one in the session list, so the next click goes to the next one). ⌥-click still opens
+  the panel, and the panel opens as usual when that session's terminal can't be resolved.
+- **Right-click** (or Control-click) opens the same menu as right-clicking the pet, including
+  the CC Bridge switches and **Quit**.
+- The icon is an outlined terminal window with a `>_` prompt that takes the status card's color:
+  normal menu bar color while idle, blue while an agent works, green after a task completes and
+  red after a failure. Awaiting approval, the only state that needs you, shows orange `•••`. It returns to the normal
+  menu bar color when the status card goes back to idle (about a minute without new events),
+  so Hook activity stays visible even with the pet hidden.
+- The icon shows a red count of sessions awaiting approval. **Quota in Menu Bar** adds the
+  lowest 5-hour quota left among plan accounts, in orange at 20% or below and red at 10%. With
+  the switch off no number is shown, even when quota is low.
+
+**Menu Bar Only** hides the pet, its status card, speech bubbles, update bubble and hover
+panel. Chatter is skipped without using up its hourly budget, so low-quota warnings are only
+visible as the menu bar color. Agent tracking, quota collection and system notifications keep
+running. The icon goes away with the pet when the last managed CLI exits.
 
 ## Pet interaction
 

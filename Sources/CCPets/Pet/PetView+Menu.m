@@ -490,6 +490,11 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
+    [NSMenu popUpContextMenu:[self buildContextMenu] withEvent:event forView:self];
+    [self finishContextMenu];
+}
+// 菜单栏图标的右键菜单也是这一份，所以建菜单和收尾分开，不和 NSEvent 绑在一起。
+- (NSMenu *)buildContextMenu {
     NSArray<NSDictionary *> *availablePets = self.petOptionsRequested ? self.petOptionsRequested() : @[];
     NSMenu *menu = [NSMenu new];
     menu.minimumWidth = 194.0;
@@ -590,7 +595,10 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
     openItem.target = NSApp.delegate;
     NSMenuItem *quitItem = [menu addItemWithTitle:L(@"Quit CC Pets") action:@selector(terminate:) keyEquivalent:@"q"];
     quitItem.target = NSApp;
-    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+    return menu;
+}
+// 菜单收起后：收掉悬停说明和宠物预览浮窗。
+- (void)finishContextMenu {
     [MenuHint cancel];
     self.activePetSwitchMenu = nil;
     [self.petMenuPreviewPanel orderOut:nil];
