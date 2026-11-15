@@ -25,8 +25,8 @@ static NSBezierPath *StrokePath(void) {
     return path;
 }
 
-// 窗口里的状态符号，以窗口中心 (9, 8) 为基准：待机和工作中是 >_，审批 •••，完成 ✓，失败 ×。
-// 状态同时靠颜色和形状区分，色弱也分得清。
+// 窗口里的符号，以窗口中心 (9, 8) 为基准：只有等待审批换成 •••（唯一需要用户动手的状态），
+// 其余都是 >_，靠颜色区分。
 static void DrawGlyph(CCPetsMenuBarIconTone tone) {
     NSBezierPath *path = StrokePath();
     switch (tone) {
@@ -35,17 +35,6 @@ static void DrawGlyph(CCPetsMenuBarIconTone tone) {
                 [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(9 + i * 3.2 - 1.05, 8 - 1.05, 2.1, 2.1)] fill];
             }
             return;
-        case CCPetsMenuBarIconToneCompleted:
-            [path moveToPoint:NSMakePoint(5.8, 8.1)];
-            [path lineToPoint:NSMakePoint(8.0, 5.9)];
-            [path lineToPoint:NSMakePoint(12.3, 10.2)];
-            break;
-        case CCPetsMenuBarIconToneFailed:
-            [path moveToPoint:NSMakePoint(6.8, 5.8)];
-            [path lineToPoint:NSMakePoint(11.2, 10.2)];
-            [path moveToPoint:NSMakePoint(6.8, 10.2)];
-            [path lineToPoint:NSMakePoint(11.2, 5.8)];
-            break;
         default:
             [path moveToPoint:NSMakePoint(5.0, 10.5)];
             [path lineToPoint:NSMakePoint(8.0, 8.0)];
