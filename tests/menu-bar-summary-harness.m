@@ -40,14 +40,16 @@ int main(void) {
         ok &= Check(CCPetsMenuBarLevelForRemaining(10) == CCPetsMenuBarLevelCritical, @"10% 严重");
         ok &= Check(CCPetsMenuBarLevelForRemaining(0) == CCPetsMenuBarLevelCritical, @"0% 严重");
 
-        // 开关关着时额度正常不显示数字；进了警告档照样显示。
+        // 数字只看开关：关着时即使额度进了警告档也不显示，打开后按档位着色。
         NSDictionary *parts = CCPetsMenuBarTitleParts(@[Plan(@62)], 0, NO);
         ok &= Check(parts[@"percent"] == nil && parts[@"approvals"] == nil, @"默认只显示图标");
         parts = CCPetsMenuBarTitleParts(@[Plan(@62)], 0, YES);
         ok &= Check([parts[@"percent"] isEqual:@"62%"], @"打开开关显示数字");
         parts = CCPetsMenuBarTitleParts(@[Plan(@19.6)], 0, NO);
+        ok &= Check(parts[@"percent"] == nil, @"关掉开关后低额度也不显示数字");
+        parts = CCPetsMenuBarTitleParts(@[Plan(@19.6)], 0, YES);
         ok &= Check([parts[@"percent"] isEqual:@"19%"] &&
-            [parts[@"level"] integerValue] == CCPetsMenuBarLevelWarning, @"低额度强制显示并标警告");
+            [parts[@"level"] integerValue] == CCPetsMenuBarLevelWarning, @"打开开关时低额度标警告");
         parts = CCPetsMenuBarTitleParts(@[], 3, YES);
         ok &= Check(parts[@"percent"] == nil && [parts[@"approvals"] isEqual:@"3"], @"无额度仍显示审批数");
 

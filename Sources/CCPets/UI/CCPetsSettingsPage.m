@@ -1329,7 +1329,7 @@ static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
             subtitle:L(@"Menu bar only hides the pet, its status card, speech and hover panel; notifications still work")
             controls:@[displayMode]],
         [self switchRowWithTitle:L(@"Quota in Menu Bar")
-            subtitle:L(@"Lowest 5-hour quota left; always shown at 20% or below")
+            subtitle:L(@"Lowest 5-hour quota left; orange at 20% or below, red at 10%")
             key:CCPetsMenuBarShowsPercentKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) { [actions updateMenuBarShowsPercent:enabled]; }],
     ] footer:nil];

@@ -35,7 +35,7 @@ NSDictionary *CCPetsMenuBarTitleParts(NSArray<NSDictionary *> *quotas, NSUIntege
     NSInteger remaining = CCPetsMenuBarLowestFiveHourRemaining(quotas);
     CCPetsMenuBarLevel level = CCPetsMenuBarLevelForRemaining(remaining);
     NSMutableDictionary *parts = [NSMutableDictionary dictionaryWithObject:@(level) forKey:@"level"];
-    if (remaining >= 0 && (showPercent || level != CCPetsMenuBarLevelNormal)) {
+    if (remaining >= 0 && showPercent) {
         parts[@"percent"] = [NSString stringWithFormat:@"%ld%%", (long)remaining];
     }
     if (approvals > 0) parts[@"approvals"] = [NSString stringWithFormat:@"%lu", (unsigned long)approvals];

@@ -403,8 +403,8 @@ clicking the Dock icon brings a minimized window back.
   menu bar color when the status card goes back to idle (about a minute without new events),
   so Hook activity stays visible even with the pet hidden.
 - The icon shows a red count of sessions awaiting approval. **Quota in Menu Bar** adds the
-  lowest 5-hour quota left among plan accounts; at 20% or below it is always shown, in orange,
-  and turns red at 10%.
+  lowest 5-hour quota left among plan accounts, in orange at 20% or below and red at 10%. With
+  the switch off no number is shown, even when quota is low.
 
 **Menu Bar Only** hides the pet, its status card, speech bubbles, update bubble and hover
 panel. Chatter is skipped without using up its hourly budget, so low-quota warnings are only

@@ -22,7 +22,8 @@ CCPetsMenuBarLevel CCPetsMenuBarLevelForRemaining(NSInteger remaining);
 // 菜单栏图标旁的文字。键：
 //   percent（NSString，如 "62%"；不该显示时没有这个键）、level（NSNumber，CCPetsMenuBarLevel）、
 //   approvals（NSString，待审批数；为 0 时没有这个键）。
-// showPercent 关闭时，只要额度进了警告档仍然显示数字：低额度是这个模式下唯一的主动提醒。
+// 数字只由 showPercent 决定：用户关掉就不显示，哪怕额度已进警告档（低额度在面板里照样着色）。
+// 曾经在 ≤20% 时无视开关强制显示，结果关掉开关后数字不消失，看起来像开关坏了。
 NSDictionary *CCPetsMenuBarTitleParts(NSArray<NSDictionary *> *quotas, NSUInteger approvals, BOOL showPercent);
 
 // 菜单栏图标的色调。state 是宠物名片快照里的 Agent 状态（和状态卡同一条），归类与状态卡的
