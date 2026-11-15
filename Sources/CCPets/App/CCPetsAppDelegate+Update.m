@@ -445,7 +445,9 @@ static void TrimUpdateLog(NSString *path) {
 // agent 在忙就先记下来，等它闲下来（considerIdleSpeech 每 3 秒一跳）再冒；
 // 状态卡只是在待命时，临时把它收起让位，气泡消失后再放回来。
 - (void)showUpdateBubble {
-    if (self.pendingUpdateVersion.length == 0 || self.updating || self.updateReminderSnoozed) {
+    // 「仅菜单栏」时更新入口是菜单栏菜单里的「更新到 x.y.z…」，不排队等气泡。
+    if (self.pendingUpdateVersion.length == 0 || self.updating || self.updateReminderSnoozed ||
+        ![self petVisible]) {
         self.updateBubbleDeferred = NO;
         return;
     }
@@ -468,6 +470,7 @@ static void TrimUpdateLog(NSString *path) {
         stringByReplacingOccurrencesOfString:@"{version}" withString:self.pendingUpdateVersion];
 }
 - (void)showUpdateBubbleWithText:(NSString *)text dwell:(NSTimeInterval)dwell {
+    if (![self petVisible]) return;
     if (self.statusPanel.isVisible) {
         [self.statusPanel orderOut:nil];
         self.updateBubbleSuppressedStatus = YES;

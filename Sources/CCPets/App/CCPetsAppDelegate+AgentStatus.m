@@ -190,7 +190,7 @@
 - (void)updateStatusBubbleExpanded:(BOOL)expanded {
     self.statusBubbleExpanded = expanded;
     CCPetsPrefSetBool(StatusBubbleExpandedKey, expanded);
-    if (self.statusBubbleExpanded && self.hasAgentStatus) {
+    if (self.statusBubbleExpanded && self.hasAgentStatus && [self petVisible]) {
         [self positionAgentStatus];
         [self.statusPanel orderFrontRegardless];
     } else {
@@ -270,7 +270,7 @@
     [self layoutApprovalBadge];
     [self positionAgentStatus];
     [self notePetCardChanged];
-    if (self.statusBubbleExpanded) {
+    if (self.statusBubbleExpanded && [self petVisible]) {
         [self.statusPanel orderFrontRegardless];
         // 卡片一出现就收掉独立气泡：两者都是宠物在说话，同时挂着就是重影。
         // 更新气泡也一样让开：agent 有新动静时状态卡优先，更新入口还有角标和菜单。
@@ -326,7 +326,7 @@
     self.hasAgentStatus = YES;
     [self noteStatusIdentityForRecord:record];
     [self applyStatusPresentationForState:state provider:presentationName tool:tool];
-    [self.panel orderFrontRegardless];
+    if ([self petVisible]) [self.panel orderFrontRegardless];
     [self performSelector:@selector(hideAgentStatus)
         withObject:nil afterDelay:AgentStatusInactivityInterval];
     if ([state isEqualToString:@"starting"]) {
@@ -622,7 +622,7 @@
     [self applyStatusPresentationForState:state
         provider:[self statusPresentationNameForRecord:record]
         tool:[record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @""];
-    [self.panel orderFrontRegardless];
+    if ([self petVisible]) [self.panel orderFrontRegardless];
     [self performSelector:@selector(hideAgentStatus) withObject:nil
         afterDelay:AgentStatusInactivityInterval];
 }

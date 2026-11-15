@@ -70,7 +70,8 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
     return ![self.lastStatusState isEqualToString:@"idle"];
 }
 - (BOOL)canSpeakNow {
-    if (![self speechEnabled]) return NO;
+    // 「仅菜单栏」时没有地方放这句话，也不占预算和冷却。
+    if (![self speechEnabled] || ![self petVisible]) return NO;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     if (now < self.speechCooldownUntil) return NO;
     if (!self.speechTimestamps) self.speechTimestamps = [NSMutableArray array];
@@ -281,7 +282,7 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
 // 话往哪儿显示只在这一处决定：有状态卡就并进它的副行，没有才起独立气泡。
 // 调试触发也必须走这里——否则看到的是现实中不会出现的画面（两个泡叠着）。
 - (void)presentSpeechText:(NSString *)text {
-    if (text.length == 0) return;
+    if (text.length == 0 || ![self petVisible]) return;
     if (self.statusPanel.isVisible) {
         self.statusDetailLabel.stringValue = text;
         [self resizeStatusCardToFitText];
@@ -350,7 +351,8 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
     // 被更新气泡临时收起的状态卡还回去（会话已结束或用户关了状态卡就不还）。
     if (self.updateBubbleSuppressedStatus) {
         self.updateBubbleSuppressedStatus = NO;
-        if (self.hasAgentStatus && self.statusBubbleExpanded && !self.statusPanel.isVisible) {
+        if (self.hasAgentStatus && self.statusBubbleExpanded && [self petVisible] &&
+            !self.statusPanel.isVisible) {
             [self positionAgentStatus];
             [self.statusPanel orderFrontRegardless];
         }
