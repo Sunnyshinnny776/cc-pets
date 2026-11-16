@@ -107,7 +107,46 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 }
 
 
+// 兼容 setter 使用新快照，避免修改调用方提供的字典；nil 仍表示清除该 provider 的值。
+static NSDictionary *ProviderValuesBySettingValue(NSDictionary *values, NSString *name, id value) {
+    NSMutableDictionary *updated = [values mutableCopy] ?: [NSMutableDictionary dictionary];
+    updated[name] = value;
+    return [updated copy];
+}
+
 @implementation QuotaDashboardView
+- (NSDictionary *)codexUsage { return self.usageByProvider[@"Codex"]; }
+- (NSDictionary *)claudeUsage { return self.usageByProvider[@"Claude"]; }
+- (void)setCodexUsage:(NSDictionary *)value {
+    self.usageByProvider = ProviderValuesBySettingValue(self.usageByProvider, @"Codex", value);
+}
+- (void)setClaudeUsage:(NSDictionary *)value {
+    self.usageByProvider = ProviderValuesBySettingValue(self.usageByProvider, @"Claude", value);
+}
+- (NSArray<NSDictionary *> *)codexHistory { return self.historyByProvider[@"Codex"]; }
+- (NSArray<NSDictionary *> *)claudeHistory { return self.historyByProvider[@"Claude"]; }
+- (void)setCodexHistory:(NSArray<NSDictionary *> *)value {
+    self.historyByProvider = ProviderValuesBySettingValue(self.historyByProvider, @"Codex", value);
+}
+- (void)setClaudeHistory:(NSArray<NSDictionary *> *)value {
+    self.historyByProvider = ProviderValuesBySettingValue(self.historyByProvider, @"Claude", value);
+}
+- (NSImage *)codexLogo { return self.logoByProvider[@"Codex"]; }
+- (NSImage *)claudeLogo { return self.logoByProvider[@"Claude"]; }
+- (void)setCodexLogo:(NSImage *)value {
+    self.logoByProvider = ProviderValuesBySettingValue(self.logoByProvider, @"Codex", value);
+}
+- (void)setClaudeLogo:(NSImage *)value {
+    self.logoByProvider = ProviderValuesBySettingValue(self.logoByProvider, @"Claude", value);
+}
+- (BOOL)codexShowsAPIUsage { return [self.showsAPIUsageByProvider[@"Codex"] boolValue]; }
+- (BOOL)claudeShowsAPIUsage { return [self.showsAPIUsageByProvider[@"Claude"] boolValue]; }
+- (void)setCodexShowsAPIUsage:(BOOL)value {
+    self.showsAPIUsageByProvider = ProviderValuesBySettingValue(self.showsAPIUsageByProvider, @"Codex", @(value));
+}
+- (void)setClaudeShowsAPIUsage:(BOOL)value {
+    self.showsAPIUsageByProvider = ProviderValuesBySettingValue(self.showsAPIUsageByProvider, @"Claude", @(value));
+}
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         _selectedProfileIDs = [NSMutableDictionary dictionary];
@@ -134,11 +173,11 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 // detectedProviders 未赋值时按"两家都有"渲染。这是刻意的兜底：探测是 App 侧的额外信号，
 // 拿不到时宁可多画一张卡，也不要让有额度的用户看不到自己的卡片。
 - (NSArray<NSString *> *)visibleProviders {
-    NSArray<NSString *> *order = @[@"Codex", @"Claude"];
-    if (!self.detectedProviders) return order;
     NSMutableArray<NSString *> *visible = [NSMutableArray array];
-    for (NSString *name in order) {
-        if ([self.detectedProviders containsObject:name]) [visible addObject:name];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        if (!self.detectedProviders || [self.detectedProviders containsObject:provider.name]) {
+            [visible addObject:provider.name];
+        }
     }
     return visible;
 }
@@ -147,7 +186,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 }
 
 - (NSString *)profileProviderForName:(NSString *)name {
-    return name.lowercaseString;
+    return CCPetsProviderForName(name).profileProvider;
 }
 
 - (NSArray<NSDictionary *> *)profilesForProvider:(NSString *)name {
@@ -185,7 +224,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (NSDictionary *)usageForProvider:(NSString *)name {
     NSDictionary *profile = [self selectedProfileForProvider:name];
     if (profile) return self.profileUsages[profile[@"id"]] ?: @{};
-    return [name isEqualToString:@"Codex"] ? (self.codexUsage ?: @{}) : (self.claudeUsage ?: @{});
+    return self.usageByProvider[name] ?: @{};
 }
 
 - (NSDictionary *)summedTokenBucket:(NSArray<NSDictionary *> *)buckets {
@@ -557,7 +596,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 // 再按同一规则（含今天在内的 7 个自然日）现场计算，避免界面暂时退回到没有起期。
 - (NSString *)recentWeekUsageLabel {
     NSNumber *start = nil;
-    for (NSDictionary *usage in @[self.codexUsage ?: @{}, self.claudeUsage ?: @{}]) {
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        NSDictionary *usage = self.usageByProvider[provider.name];
         NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
             ? usage[@"tokenUsage"] : nil;
         if ([tokenUsage[@"recentWeekStartsAt"] isKindOfClass:NSNumber.class]) {
@@ -607,8 +647,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 }
 - (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage {
     BOOL api = profile ? CCPetsProfileShowsAPIUsage(profile)
-        : ([name isEqualToString:@"Codex"] ? self.codexShowsAPIUsage : self.claudeShowsAPIUsage);
-    NSString *usedKey = [name isEqualToString:@"Claude"] ? @"used_percentage" : @"used_percent";
+        : [self.showsAPIUsageByProvider[name] boolValue];
+    NSString *usedKey = CCPetsProviderForName(name).usedKey;
     BOOL exhausted = [usage[@"exhaustedAt"] isKindOfClass:NSNumber.class];
     BOOL hasData = api ? [self tokenTotals:usage key:@"month"] != nil
         : ([self usedForQuota:[self quota:usage key:@"fiveHour"] usedKey:usedKey] ||
@@ -624,7 +664,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSString *profileID = profile[@"id"];
     NSDictionary *usage = profile ? (self.profileUsages[profileID] ?: @{}) : [self usageForProvider:name];
     NSArray *history = profile ? (self.profileHistories[profileID] ?: @[])
-        : ([name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory);
+        : self.historyByProvider[name];
     NSMutableDictionary *snapshot = [[self accountStateForProvider:name profile:profile usage:usage] mutableCopy];
     snapshot[@"provider"] = name;
     snapshot[@"usage"] = usage ?: @{};

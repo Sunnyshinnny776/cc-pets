@@ -20,6 +20,7 @@
 @property CodexUsageReader *codexReader;
 @property CCPetsCodexRateLimitsReader *codexRateLimitsReader;
 @property ClaudeUsageReader *claudeReader;
+@property(readwrite, copy) NSDictionary<NSString *, NSDictionary *> *usageByProvider;
 @property(readwrite) NSDictionary *codexUsage;
 @property(readwrite) NSDictionary *claudeUsage;
 @property(readwrite) NSDictionary<NSString *, NSDictionary *> *profileUsages;
@@ -132,8 +133,18 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 }
 
 @implementation CCPetsUsageMonitor
+- (NSDictionary *)codexUsage { return self.usageByProvider[@"Codex"]; }
+- (NSDictionary *)claudeUsage { return self.usageByProvider[@"Claude"]; }
+- (void)setCodexUsage:(NSDictionary *)usage { [self setUsage:usage forProvider:@"Codex"]; }
+- (void)setClaudeUsage:(NSDictionary *)usage { [self setUsage:usage forProvider:@"Claude"]; }
+- (void)setUsage:(NSDictionary *)usage forProvider:(NSString *)name {
+    NSMutableDictionary *updated = [self.usageByProvider mutableCopy] ?: [NSMutableDictionary dictionary];
+    updated[name] = usage;
+    self.usageByProvider = updated;
+}
 - (instancetype)init {
     if ((self = [super init])) {
+        _usageByProvider = @{};
         _queue = dispatch_queue_create("com.universewang.cc-pets.usage",
             dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
                 QOS_CLASS_UTILITY, 0));
@@ -173,11 +184,10 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
 // 回调交给主线程：下游全是 UI（面板重排、气泡定位、系统通知）。
 - (void)publishChange {
     [self syncDefaultProfileUsages];
-    void (^handler)(NSDictionary *, NSDictionary *) = self.changeHandler;
+    void (^handler)(NSDictionary<NSString *, NSDictionary *> *) = self.changeHandler;
     if (!handler) return;
-    NSDictionary *codex = self.codexUsage;
-    NSDictionary *claude = self.claudeUsage;
-    dispatch_async(dispatch_get_main_queue(), ^{ handler(codex, claude); });
+    NSDictionary<NSString *, NSDictionary *> *usages = self.usageByProvider;
+    dispatch_async(dispatch_get_main_queue(), ^{ handler(usages); });
 }
 
 // 默认账号的卡片读的是 profileUsages，但 FSEvents、statusline 监听和 App Server 回调

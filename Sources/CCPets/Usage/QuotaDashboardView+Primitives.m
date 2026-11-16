@@ -14,6 +14,9 @@
         : [NSColor colorWithRed:0.66 green:0.43 blue:0.94 alpha:1];
 }
 - (NSColor *)accentColor { return [NSColor colorWithRed:0.30 green:0.82 blue:0.90 alpha:1]; }
+- (NSDictionary<NSString *, NSColor *> *)providerColorsWithAccent:(NSColor *)accent {
+    return @{@"Codex": accent, @"Claude": self.claudeColor};
+}
 // 有 Agent 在线才用绿色，否则整块转灰，避免"暂无 Agent 在线"配一个绿点。
 - (NSColor *)agentStatusColor {
     return self.activeAgentCount > 0 ? NSColor.systemGreenColor : self.secondaryColor;

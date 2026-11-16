@@ -63,7 +63,7 @@
     card.size.height = QuotaBaseCardHeight;
 
     NSRect icon = NSMakeRect(NSMinX(card) + 12, NSMinY(card) + 41, 70, 70);
-    NSImage *logo = [name isEqualToString:@"Codex"] ? self.codexLogo : self.claudeLogo;
+    NSImage *logo = self.logoByProvider[name];
     if (logo) {
         [NSGraphicsContext saveGraphicsState];
         [[NSBezierPath bezierPathWithRoundedRect:icon xRadius:18 yRadius:18] addClip];
@@ -278,7 +278,7 @@
         withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
     NSString *profileID = [self selectedProfileForProvider:name][@"id"];
     NSArray<NSDictionary *> *history = profileID.length > 0 ? (self.profileHistories[profileID] ?: @[])
-        : ([name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory);
+        : self.historyByProvider[name];
     NSNumber *currentUsed = weekUsed;
     NSArray<NSDictionary *> *points = [self curvePointsFromHistory:history currentUsed:currentUsed];
     // 趋势这一列算的是 7 天窗口（currentUsed 取 weekUsed）。而 exhaustedAt 来自
@@ -426,12 +426,12 @@
         [self drawSummaryForProviders:visibleProviders primary:primary secondary:secondary
             accent:cyan];
     }
-    NSDictionary *cardSpecs = @{
-        @"Codex": @{@"usage": [self usageForProvider:@"Codex"], @"usedKey": @"used_percent",
-                    @"color": cyan},
-        @"Claude": @{@"usage": [self usageForProvider:@"Claude"], @"usedKey": @"used_percentage",
-                     @"color": self.claudeColor}
-    };
+    NSDictionary<NSString *, NSColor *> *colors = [self providerColorsWithAccent:cyan];
+    NSMutableDictionary *cardSpecs = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        cardSpecs[provider.name] = @{@"usage": [self usageForProvider:provider.name],
+            @"usedKey": provider.usedKey, @"color": colors[provider.name] ?: secondary};
+    }
     // 卡片从汇总条下方依次向下排；原脚注空间按可见卡片数平分。这里的分段账必须和
     // QuotaLogicalHeightForProviderCount 完全一致，否则面板会多出或少掉一段空白。
     CGFloat cardTop = height - QuotaHeaderHeight - QuotaSummaryHeight;
@@ -500,13 +500,14 @@
         @{@"icon": @"◉", @"headerSymbol": @"calendar.badge.clock", @"key": @"recentWeek",
           @"label": [self recentWeekUsageLabel]}
     ];
-    BOOL hasMultipleAccounts = [self profilesForProvider:@"Codex"].count > 1 ||
-        [self profilesForProvider:@"Claude"].count > 1;
-    NSDictionary *rowSpecs = @{
-        @"Codex": @{@"usage": [self summaryUsageForProvider:@"Codex"], @"color": cyan},
-        @"Claude": @{@"usage": [self summaryUsageForProvider:@"Claude"],
-                     @"color": self.claudeColor}
-    };
+    BOOL hasMultipleAccounts = NO;
+    NSDictionary<NSString *, NSColor *> *colors = [self providerColorsWithAccent:cyan];
+    NSMutableDictionary *rowSpecs = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        if ([self profilesForProvider:provider.name].count > 1) hasMultipleAccounts = YES;
+        rowSpecs[provider.name] = @{@"usage": [self summaryUsageForProvider:provider.name],
+            @"color": colors[provider.name] ?: secondary};
+    }
     // 两行版的槽位是写死的。只装了一家时改用居中的单行槽位，否则汇总条会空出半格，
     // 看着像数据没加载出来。
     NSArray<NSDictionary *> *slots = providers.count == 1

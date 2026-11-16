@@ -13,6 +13,11 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property BOOL usesLiquidGlass;
 // 原生玻璃下卡片和汇总区衬底的不透明度，由 App 按压暗档位设置。
 @property CGFloat cardScrimAlpha;
+@property(copy) NSDictionary<NSString *, NSDictionary *> *usageByProvider;
+@property(copy) NSDictionary<NSString *, NSArray<NSDictionary *> *> *historyByProvider;
+@property(copy) NSDictionary<NSString *, NSImage *> *logoByProvider;
+@property(copy) NSDictionary<NSString *, NSNumber *> *showsAPIUsageByProvider;
+// 旧调用方的兼容入口，读写均转发到上面的字典。
 @property NSDictionary *codexUsage;
 @property NSDictionary *claudeUsage;
 @property NSArray<NSDictionary *> *profiles;

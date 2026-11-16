@@ -1,6 +1,7 @@
 // 额度面板、用量刷新与系统指标。
 #import "CCPetsAppDelegate+Private.h"
 #import "CCPetsWorkbench.h"
+#import "CCPetsProviderRegistry.h"
 
 @implementation AppDelegate (Quota)
 - (void)rescheduleUsageTimer {
@@ -200,8 +201,8 @@
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSMutableSet<NSString *> *detected = [NSMutableSet set];
     for (NSDictionary *profile in CCPetsProfiles()) {
-        if ([profile[@"provider"] isEqualToString:CCPetsProfileProviderCodex]) [detected addObject:@"Codex"];
-        if ([profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude]) [detected addObject:@"Claude"];
+        CCPetsProviderDescriptor *provider = CCPetsProviderForProfileProvider(profile[@"provider"]);
+        if (provider) [detected addObject:provider.name];
     }
     if (self.quotaView.detectedProviders &&
         [detected isEqualToSet:self.quotaView.detectedProviders]) return;
@@ -210,12 +211,10 @@
     [self resizeQuotaDashboard];
     self.quotaView.needsDisplay = YES;
 }
-- (void)applyCodexUsage:(NSDictionary *)codexUsage claudeUsage:(NSDictionary *)claudeUsage {
-    self.quotaView.codexUsage = codexUsage;
-    self.quotaView.claudeUsage = claudeUsage;
+- (void)applyUsageByProvider:(NSDictionary<NSString *, NSDictionary *> *)usageByProvider {
+    self.quotaView.usageByProvider = usageByProvider;
     [self refreshDetectedProviders];
-    NSDictionary *history = RecordQuotaHistory(self.quotaView.codexUsage,
-        self.quotaView.claudeUsage);
+    NSDictionary *history = RecordQuotaHistory(self.quotaView.usageByProvider);
     history = RecordProfileQuotaHistory(self.usageMonitor.profileUsages, self.usageMonitor.profiles);
     NSMutableDictionary *profileHistories = [NSMutableDictionary dictionary];
     for (NSDictionary *profile in self.usageMonitor.profiles) {
@@ -223,8 +222,11 @@
         if (profileID.length > 0) profileHistories[profileID] = QuotaHistorySeriesForProfile(history, profileID);
     }
     self.quotaView.profileHistories = profileHistories;
-    self.quotaView.codexHistory = QuotaHistorySeries(history, @"codex");
-    self.quotaView.claudeHistory = QuotaHistorySeries(history, @"claude");
+    NSMutableDictionary *historyByProvider = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        historyByProvider[provider.name] = QuotaHistorySeries(history, provider.key);
+    }
+    self.quotaView.historyByProvider = historyByProvider;
     self.quotaView.lastUpdatedAt = NSDate.date.timeIntervalSince1970;
     self.quotaView.needsDisplay = YES;
     [NSNotificationCenter.defaultCenter postNotificationName:CCPetsWorkbenchQuotasDidChangeNotification object:nil];

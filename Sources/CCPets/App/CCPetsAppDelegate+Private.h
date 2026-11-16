@@ -326,7 +326,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)scheduleQuotaDashboardHide;
 - (void)hideQuotaDashboardIfNeeded;
 - (void)refreshUsage:(id)sender;
-- (void)applyCodexUsage:(NSDictionary *)codexUsage claudeUsage:(NSDictionary *)claudeUsage;
+- (void)applyUsageByProvider:(NSDictionary<NSString *, NSDictionary *> *)usageByProvider;
 - (void)rescheduleUsageTimer;
 - (BOOL)shouldRefreshUsageForDashboard;
 - (BOOL)hasEnabledSystemMetric;

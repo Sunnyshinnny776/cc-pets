@@ -2,6 +2,7 @@
 #import "QuotaDashboardView.h"
 #import "CCPetsL10n.h"
 #import "CCPetsUsageMode.h"
+#import "CCPetsProviderRegistry.h"
 
 // 面板高度按"检测到几家 CLI"变化，所以纵向布局不再是一堆绝对坐标，而是自上而下的分段：
 // 标题区 → 汇总条 → N × 额度卡，块之间统一留 QuotaBlockGap。
@@ -64,6 +65,7 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 - (NSColor *)secondaryColor;
 - (NSColor *)claudeColor;
 - (NSColor *)accentColor;
+- (NSDictionary<NSString *, NSColor *> *)providerColorsWithAccent:(NSColor *)accent;
 - (NSColor *)agentStatusColor;
 - (void)drawSystemMetricsEndingAtX:(CGFloat)rightEdge y:(CGFloat)y;
 - (NSString *)formattedTokenSplitForUsage:(NSDictionary *)usage key:(NSString *)key

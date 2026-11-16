@@ -489,10 +489,10 @@
     self.agentEventPartialLine = [NSMutableData data];
     self.pendingApprovalRecords = [NSMutableDictionary dictionary];
     self.stallNotifiedSessionKeys = [NSMutableSet set];
-    self.usageMonitor.changeHandler = ^(NSDictionary *codexUsage, NSDictionary *claudeUsage) {
+    self.usageMonitor.changeHandler = ^(NSDictionary<NSString *, NSDictionary *> *usageByProvider) {
         weakSelf.quotaView.profiles = weakSelf.usageMonitor.profiles;
         weakSelf.quotaView.profileUsages = weakSelf.usageMonitor.profileUsages;
-        [weakSelf applyCodexUsage:codexUsage claudeUsage:claudeUsage];
+        [weakSelf applyUsageByProvider:usageByProvider];
         [weakSelf considerQuotaSpeech];
     };
     [self.usageMonitor start];
