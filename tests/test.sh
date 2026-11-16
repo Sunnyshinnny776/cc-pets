@@ -619,6 +619,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m -lsqlite3 \
   "${PET_SRC[CCPetsCodexRateLimits.m]:?}" \
   "${PET_SRC[CCPetsUsageMonitor.m]:?}" \
+  "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
   "${PROJECT_DIR}/tests/usage-monitor-harness.m" \
   -o "${USAGE_MONITOR_TMP}/usage-monitor-test"
 CC_PETS_CODEX_HOME="${USAGE_MONITOR_TMP}/codex" \
@@ -1793,7 +1794,9 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsQuotaHistory.m]:?}" \
+  "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
   "${PET_SRC[CCPetsPaths.m]:?}" \
+  "${PROJECT_DIR}/tests/usage-profile-stubs.m" \
   "${PROJECT_DIR}/tests/quota-history-harness.m" \
   -o "${QUOTA_HISTORY_TMP}/quota-history-test"
 CC_PETS_APPLICATION_SUPPORT_DIR="${QUOTA_HISTORY_TMP}/fresh" \
@@ -1833,6 +1836,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   -framework Cocoa \
   "${USAGE_MODE_SOURCES[@]}" \
   "${PET_SOURCE_DIR}"/**/QuotaDashboardView(|+*).m \
+  "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \
   -o "${QUOTA_ONLINE_TMP}/quota-online-test"

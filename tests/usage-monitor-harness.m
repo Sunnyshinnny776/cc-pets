@@ -28,7 +28,9 @@ int main(void) {
         // 额度快照文件还没写出来时，reader 给的是 @{@"week": NSNull}（缺额度不该否决
         // Token 统计，见 ClaudeUsageReader.refresh）。两条数据源各走各的事件流，谁先到达
         // 没有保证，因此这里按"还没到齐"处理，继续等下一次回调，而不是直接下标 NSNull。
-        monitor.changeHandler = ^(NSDictionary *codex, NSDictionary *claude) {
+        monitor.changeHandler = ^(NSDictionary<NSString *, NSDictionary *> *usageByProvider) {
+            NSDictionary *codex = usageByProvider[@"Codex"];
+            NSDictionary *claude = usageByProvider[@"Claude"];
             NSDictionary *codexWeek = [codex[@"week"] isKindOfClass:NSDictionary.class]
                 ? codex[@"week"] : nil;
             NSDictionary *claudeWeek = [claude[@"week"] isKindOfClass:NSDictionary.class]
@@ -107,7 +109,8 @@ int main(void) {
         __block NSDictionary *restored = nil;
         CCPetsUsageMonitor *restarted = [CCPetsUsageMonitor new];
         __weak CCPetsUsageMonitor *weakRestarted = restarted;
-        restarted.changeHandler = ^(NSDictionary *codex, NSDictionary *claude) {
+        restarted.changeHandler = ^(NSDictionary<NSString *, NSDictionary *> *usageByProvider) {
+            NSDictionary *codex = usageByProvider[@"Codex"];
             if (![codex[@"week"] isKindOfClass:NSDictionary.class]) return;
             restored = codex;
             [weakRestarted stop];
