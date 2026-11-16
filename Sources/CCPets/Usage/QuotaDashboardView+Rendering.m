@@ -426,11 +426,10 @@
         [self drawSummaryForProviders:visibleProviders primary:primary secondary:secondary
             accent:cyan];
     }
-    NSDictionary<NSString *, NSColor *> *colors = [self providerColorsWithAccent:cyan];
     NSMutableDictionary *cardSpecs = [NSMutableDictionary dictionary];
     for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
         cardSpecs[provider.name] = @{@"usage": [self usageForProvider:provider.name],
-            @"usedKey": provider.usedKey, @"color": colors[provider.name] ?: secondary};
+            @"usedKey": provider.usedKey, @"color": [self colorForProvider:provider.name]};
     }
     // 卡片从汇总条下方依次向下排；原脚注空间按可见卡片数平分。这里的分段账必须和
     // QuotaLogicalHeightForProviderCount 完全一致，否则面板会多出或少掉一段空白。
@@ -501,12 +500,11 @@
           @"label": [self recentWeekUsageLabel]}
     ];
     BOOL hasMultipleAccounts = NO;
-    NSDictionary<NSString *, NSColor *> *colors = [self providerColorsWithAccent:cyan];
     NSMutableDictionary *rowSpecs = [NSMutableDictionary dictionary];
     for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
         if ([self profilesForProvider:provider.name].count > 1) hasMultipleAccounts = YES;
         rowSpecs[provider.name] = @{@"usage": [self summaryUsageForProvider:provider.name],
-            @"color": colors[provider.name] ?: secondary};
+            @"color": [self colorForProvider:provider.name]};
     }
     // 两行版的槽位是写死的。只装了一家时改用居中的单行槽位，否则汇总条会空出半格，
     // 看着像数据没加载出来。

@@ -8,15 +8,13 @@
     // 没有深色底托着时，0.68 的灰在亮壁纸上会发虚。
     return [NSColor colorWithWhite:self.usesLiquidGlass ? 0.84 : 0.68 alpha:1];
 }
-// 原生玻璃背后只有一层压暗，原来的紫在上面偏暗，提亮到和青色相近的明度。
-- (NSColor *)claudeColor {
-    return self.usesLiquidGlass ? [NSColor colorWithRed:0.80 green:0.66 blue:1.00 alpha:1]
-        : [NSColor colorWithRed:0.66 green:0.43 blue:0.94 alpha:1];
+- (NSColor *)colorForProvider:(NSString *)name {
+    CCPetsProviderDescriptor *provider = CCPetsProviderForName(name);
+    NSArray<NSNumber *> *rgb = self.usesLiquidGlass ? provider.glassColorRGB : provider.standardColorRGB;
+    if (rgb.count != 3) return self.secondaryColor;
+    return [NSColor colorWithRed:rgb[0].doubleValue green:rgb[1].doubleValue blue:rgb[2].doubleValue alpha:1];
 }
 - (NSColor *)accentColor { return [NSColor colorWithRed:0.30 green:0.82 blue:0.90 alpha:1]; }
-- (NSDictionary<NSString *, NSColor *> *)providerColorsWithAccent:(NSColor *)accent {
-    return @{@"Codex": accent, @"Claude": self.claudeColor};
-}
 // 有 Agent 在线才用绿色，否则整块转灰，避免"暂无 Agent 在线"配一个绿点。
 - (NSColor *)agentStatusColor {
     return self.activeAgentCount > 0 ? NSColor.systemGreenColor : self.secondaryColor;

@@ -21,8 +21,9 @@
 @property CCPetsCodexRateLimitsReader *codexRateLimitsReader;
 @property ClaudeUsageReader *claudeReader;
 @property(readwrite, copy) NSDictionary<NSString *, NSDictionary *> *usageByProvider;
-@property(readwrite) NSDictionary *codexUsage;
-@property(readwrite) NSDictionary *claudeUsage;
+// Reader 内部仍使用具名入口，外部统一读取 usageByProvider。
+@property NSDictionary *codexUsage;
+@property NSDictionary *claudeUsage;
 @property(readwrite) NSDictionary<NSString *, NSDictionary *> *profileUsages;
 @property(readwrite) NSArray<NSDictionary *> *profiles;
 @property NSMutableDictionary<NSString *, ClaudeUsageReader *> *claudeProfileReaders;

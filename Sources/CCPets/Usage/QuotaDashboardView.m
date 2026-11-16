@@ -107,46 +107,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 }
 
 
-// 兼容 setter 使用新快照，避免修改调用方提供的字典；nil 仍表示清除该 provider 的值。
-static NSDictionary *ProviderValuesBySettingValue(NSDictionary *values, NSString *name, id value) {
-    NSMutableDictionary *updated = [values mutableCopy] ?: [NSMutableDictionary dictionary];
-    updated[name] = value;
-    return [updated copy];
-}
-
 @implementation QuotaDashboardView
-- (NSDictionary *)codexUsage { return self.usageByProvider[@"Codex"]; }
-- (NSDictionary *)claudeUsage { return self.usageByProvider[@"Claude"]; }
-- (void)setCodexUsage:(NSDictionary *)value {
-    self.usageByProvider = ProviderValuesBySettingValue(self.usageByProvider, @"Codex", value);
-}
-- (void)setClaudeUsage:(NSDictionary *)value {
-    self.usageByProvider = ProviderValuesBySettingValue(self.usageByProvider, @"Claude", value);
-}
-- (NSArray<NSDictionary *> *)codexHistory { return self.historyByProvider[@"Codex"]; }
-- (NSArray<NSDictionary *> *)claudeHistory { return self.historyByProvider[@"Claude"]; }
-- (void)setCodexHistory:(NSArray<NSDictionary *> *)value {
-    self.historyByProvider = ProviderValuesBySettingValue(self.historyByProvider, @"Codex", value);
-}
-- (void)setClaudeHistory:(NSArray<NSDictionary *> *)value {
-    self.historyByProvider = ProviderValuesBySettingValue(self.historyByProvider, @"Claude", value);
-}
-- (NSImage *)codexLogo { return self.logoByProvider[@"Codex"]; }
-- (NSImage *)claudeLogo { return self.logoByProvider[@"Claude"]; }
-- (void)setCodexLogo:(NSImage *)value {
-    self.logoByProvider = ProviderValuesBySettingValue(self.logoByProvider, @"Codex", value);
-}
-- (void)setClaudeLogo:(NSImage *)value {
-    self.logoByProvider = ProviderValuesBySettingValue(self.logoByProvider, @"Claude", value);
-}
-- (BOOL)codexShowsAPIUsage { return [self.showsAPIUsageByProvider[@"Codex"] boolValue]; }
-- (BOOL)claudeShowsAPIUsage { return [self.showsAPIUsageByProvider[@"Claude"] boolValue]; }
-- (void)setCodexShowsAPIUsage:(BOOL)value {
-    self.showsAPIUsageByProvider = ProviderValuesBySettingValue(self.showsAPIUsageByProvider, @"Codex", @(value));
-}
-- (void)setClaudeShowsAPIUsage:(BOOL)value {
-    self.showsAPIUsageByProvider = ProviderValuesBySettingValue(self.showsAPIUsageByProvider, @"Claude", @(value));
-}
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         _selectedProfileIDs = [NSMutableDictionary dictionary];

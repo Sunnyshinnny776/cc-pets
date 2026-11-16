@@ -6,6 +6,7 @@
 #import "CCPetsAppDelegate+Private.h"
 #import "CCPetsUsageMode.h"
 #import "CCPetsWorkbench.h"
+#import "CCPetsProviderRegistry.h"
 
 @implementation AppDelegate (Settings)
 - (void)setPetSizeFromSlider:(NSSlider *)sender {
@@ -48,10 +49,12 @@
 }
 - (void)applyUsageDisplayModePreferences {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    self.quotaView.codexShowsAPIUsage =
-        [[defaults stringForKey:CodexUsageDisplayModeKey] isEqualToString:@"api"];
-    self.quotaView.claudeShowsAPIUsage =
-        [[defaults stringForKey:ClaudeUsageDisplayModeKey] isEqualToString:@"api"];
+    NSMutableDictionary *showsAPIUsageByProvider = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        showsAPIUsageByProvider[provider.name] =
+            @([[defaults stringForKey:provider.usageDisplayModeDefaultsKey] isEqualToString:@"api"]);
+    }
+    self.quotaView.showsAPIUsageByProvider = showsAPIUsageByProvider;
     self.quotaView.needsDisplay = YES;
 }
 - (void)setUsageDisplayModeFromControl:(NSButton *)sender {

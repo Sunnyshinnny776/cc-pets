@@ -17,14 +17,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property(copy) NSDictionary<NSString *, NSArray<NSDictionary *> *> *historyByProvider;
 @property(copy) NSDictionary<NSString *, NSImage *> *logoByProvider;
 @property(copy) NSDictionary<NSString *, NSNumber *> *showsAPIUsageByProvider;
-// 旧调用方的兼容入口，读写均转发到上面的字典。
-@property NSDictionary *codexUsage;
-@property NSDictionary *claudeUsage;
 @property NSArray<NSDictionary *> *profiles;
 @property NSDictionary<NSString *, NSDictionary *> *profileUsages;
 @property NSDictionary<NSString *, NSArray<NSDictionary *> *> *profileHistories;
-@property NSArray<NSDictionary *> *codexHistory;
-@property NSArray<NSDictionary *> *claudeHistory;
 @property NSInteger activeAgentCount;
 // 仍在运行的客户端所属的 provider（"Codex" / "Claude"）。卡片的在线徽章据此判定，
 // 而不是看有没有额度数据——额度会一直缓存着，拿它当在线信号会恒亮。
@@ -50,8 +45,6 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property NSNumber *systemCPUPercent;
 @property NSNumber *systemTemperatureCelsius;
 @property NSNumber *systemMemoryPercent;
-@property BOOL codexShowsAPIUsage;
-@property BOOL claudeShowsAPIUsage;
 - (BOOL)isProviderOnline:(NSString *)name;
 - (NSDictionary *)selectedProfileForProvider:(NSString *)name;
 - (NSDictionary *)usageForProvider:(NSString *)name;
@@ -61,7 +54,5 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 // 有数据时还有 level（0 充足 / 1 平稳 / 2 需关注 / 3 高风险）。
 - (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed
     color:(NSColor *)providerColor;
-@property NSImage *codexLogo;
-@property NSImage *claudeLogo;
 @property(copy) void (^hoverChanged)(BOOL hovering);
 @end

@@ -2,6 +2,7 @@
 // 共享常量和跨文件的方法声明见 CCPetsAppDelegate+Private.h。
 #import "CCPetsAppDelegate+Private.h"
 #import "CCPetsOpenCommand.h"
+#import "CCPetsProviderRegistry.h"
 
 @implementation CCPetsBubbleContainerView
 @end
@@ -466,8 +467,12 @@
     self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
     [self applySystemMetricPreferences];
     [self applyUsageDisplayModePreferences];
-    self.quotaView.codexLogo = OfficialAppIcon(@"com.openai.codex", @"icon-chatgpt.icns");
-    self.quotaView.claudeLogo = OfficialAppIcon(@"com.anthropic.claudefordesktop", @"electron.icns");
+    NSMutableDictionary *logoByProvider = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        NSImage *logo = OfficialAppIcon(provider.logoBundleIdentifier, provider.logoResourceName);
+        if (logo) logoByProvider[provider.name] = logo;
+    }
+    self.quotaView.logoByProvider = logoByProvider;
     self.quotaView.hoverChanged = ^(BOOL hovering) {
         weakSelf.dashboardHovering = hovering;
         if (!hovering) [weakSelf scheduleQuotaDashboardHide];

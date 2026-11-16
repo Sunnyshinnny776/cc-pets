@@ -5,6 +5,7 @@
 #import "CCPetsBridgeStore.h"
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsUsageMode.h"
+#import "CCPetsProviderRegistry.h"
 
 NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWorkbenchQuotasDidChange";
 
@@ -79,7 +80,7 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
     for (NSString *provider in [self.quotaView visibleProviders]) {
         NSMutableArray<NSDictionary *> *profiles = [NSMutableArray array];
         for (NSDictionary *profile in self.quotaView.profiles ?: CCPetsProfiles()) {
-            if ([profile[@"provider"] isEqualToString:provider.lowercaseString]) [profiles addObject:profile];
+            if ([profile[@"provider"] isEqualToString:CCPetsProviderForName(provider).profileProvider]) [profiles addObject:profile];
         }
         // 未登记账号时保留旧版的平台卡片。
         if (profiles.count == 0) [profiles addObject:@{}];
@@ -88,7 +89,7 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
             NSMutableDictionary *quota = [[self.quotaView accountSnapshotForProvider:provider
                 profile:profile.count > 0 ? profile : nil] mutableCopy];
             NSDictionary *usage = quota[@"usage"];
-            NSString *usedKey = [provider isEqualToString:@"Claude"] ? @"used_percentage" : @"used_percent";
+            NSString *usedKey = CCPetsProviderForName(provider).usedKey;
             NSNumber *weekUsed = nil;
             for (NSArray<NSString *> *window in @[@[@"fiveHour", @"five"], @[@"week", @"week"]]) {
                 NSDictionary *limit = [usage[window[0]] isKindOfClass:NSDictionary.class] ? usage[window[0]] : nil;

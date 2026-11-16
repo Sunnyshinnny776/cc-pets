@@ -63,9 +63,8 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 @interface QuotaDashboardView (Primitives)
 - (NSColor *)primaryColor;
 - (NSColor *)secondaryColor;
-- (NSColor *)claudeColor;
 - (NSColor *)accentColor;
-- (NSDictionary<NSString *, NSColor *> *)providerColorsWithAccent:(NSColor *)accent;
+- (NSColor *)colorForProvider:(NSString *)name;
 - (NSColor *)agentStatusColor;
 - (void)drawSystemMetricsEndingAtX:(CGFloat)rightEdge y:(CGFloat)y;
 - (NSString *)formattedTokenSplitForUsage:(NSDictionary *)usage key:(NSString *)key
