@@ -2,34 +2,20 @@
 
 @implementation QuotaDashboardView (Rendering)
 - (void)drawProvider:(NSString *)name displayName:(NSString *)displayName
-    usage:(NSDictionary *)usage usedKey:(NSString *)usedKey color:(NSColor *)color
+    usage:(NSDictionary *)usage color:(NSColor *)color
     cardRect:(NSRect)card profileCount:(NSUInteger)profileCount selectedIndex:(NSUInteger)selectedIndex {
     NSColor *primary = self.primaryColor;
     NSColor *secondary = self.secondaryColor;
-    NSDictionary *five = [self quota:usage key:@"fiveHour"];
-    NSDictionary *week = [self quota:usage key:@"week"];
-    NSDictionary *fiveTokens = [self tokenTotals:usage key:@"fiveHour"];
-    NSDictionary *weekTokens = [self tokenTotals:usage key:@"week"];
-    NSDictionary *monthTokens = [self tokenTotals:usage key:@"month"];
-    // 同比两侧都只数到最后一个完整自然日（见 CalendarMonthWindows），因此不能拿含今天的
-    // monthTokens 去比不含同日的上月——那样每天都会凭空多出小半天的增量。
-    NSDictionary *monthComparable = [self tokenTotals:usage key:@"monthComparable"];
-    NSDictionary *previousMonthTokens = [self tokenTotals:usage key:@"previousMonthToDate"];
-    NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
-        ? usage[@"tokenUsage"] : nil;
-    NSArray<NSDictionary *> *monthDaily = [tokenUsage[@"monthDaily"] isKindOfClass:NSArray.class]
-        ? tokenUsage[@"monthDaily"] : @[];
     NSDictionary *profile = [self selectedProfileForProvider:name];
-    NSDictionary *state = [self accountStateForProvider:name profile:profile usage:usage];
+    NSDictionary *normalized = [self normalizedUsageForProvider:name profile:profile usage:usage];
+    NSDictionary *state = [self accountStateForProvider:name profile:profile normalized:normalized];
+    NSDictionary *tokens = normalized[@"tokens"];
+    NSDictionary *monthTokens = [self quota:tokens key:@"month"];
+    NSDictionary *monthComparable = [self quota:tokens key:@"monthComparable"];
+    NSDictionary *previousMonthTokens = [self quota:tokens key:@"previousMonthToDate"];
+    NSArray *monthDaily = [tokens[@"monthDaily"] isKindOfClass:NSArray.class] ? tokens[@"monthDaily"] : @[];
     BOOL apiMode = [state[@"apiMode"] boolValue];
-    NSNumber *fiveUsed = [self usedForQuota:five usedKey:usedKey];
-    NSNumber *weekUsed = [self usedForQuota:week usedKey:usedKey];
-    // usage_limit_exceeded 只能说明某次请求被额度限制，不能说明耗尽的是 5 小时还是
-    // 7 天窗口；切到 credits 后请求还能继续成功，但 rate_limits 可能一直为空。因此把它
-    // 作为独立的“额度受限”状态，不再拿一个无窗口归属的事件覆盖两个官方百分比。
-    BOOL exhausted = [usage[@"exhaustedAt"] isKindOfClass:NSNumber.class];
-    BOOL hasData = [state[@"hasData"] boolValue];
-    BOOL online = [state[@"online"] boolValue];
+    BOOL exhausted = [normalized[@"exhausted"] boolValue];
 
     NSBezierPath *cardPath = [NSBezierPath bezierPathWithRoundedRect:card xRadius:18 yRadius:18];
     // 经典主题的浅色渐变放到玻璃上会变成磨砂；原生玻璃下改垫一层深色衬底托住文字。
@@ -91,8 +77,7 @@
     // 四态：额度被拒 → 额度受限（百分比仍是上次官方快照）；没有任何额度数据 → 等待数据；
     // 有数据但客户端已退出 → 离线；两者都有 → 在线。
     NSString *statusText = state[@"status"];
-    NSColor *statusColor = (!apiMode && exhausted) ? NSColor.systemOrangeColor
-        : (online && hasData ? NSColor.systemGreenColor : secondary);
+    NSColor *statusColor = [self statusColorForState:state];
     if (self.usesLiquidGlass) {
         // 原生玻璃下不画彩色底标签，状态色交给字前的圆点；文字里自带的"●"去掉，免得两个点。
         NSString *plain = [statusText stringByReplacingOccurrencesOfString:@"● " withString:@""];
@@ -226,17 +211,11 @@
 
     // 层级：官方剩余额度是订阅限额的权威值，占主位；本机 Token 是参考量，降一级并用
     // 强调色区分；重置时间最小。反过来会让最抢眼的数字恰好是最不该照着做决定的那个。
-    NSArray<NSDictionary *> *windows = @[
-        @{@"x": @(NSMinX(card) + 244), @"title": L(@"5h window"), @"quota": five ?: @{},
-          @"tokens": fiveTokens ?: @{}, @"used": fiveUsed ?: NSNull.null,
-          @"showDate": @NO, @"rolling": L(@"Waiting for refresh")},
-        @{@"x": @(NSMinX(card) + 414), @"title": L(@"7d window"), @"quota": week ?: @{},
-          @"tokens": weekTokens ?: @{}, @"used": weekUsed ?: NSNull.null,
-          @"showDate": @YES, @"rolling": L(@"Waiting for refresh")}
-    ];
-    for (NSDictionary *window in windows) {
-        CGFloat x = [window[@"x"] doubleValue];
-        [window[@"title"] drawInRect:NSMakeRect(x, NSMinY(card) + 114, 130, 20)
+    NSArray<NSDictionary *> *windows = normalized[@"windows"];
+    for (NSUInteger index = 0; index < MIN(windows.count, 2); index++) {
+        NSDictionary *window = windows[index];
+        CGFloat x = NSMinX(card) + 244 + 170 * index;
+        [L(window[@"titleKey"]) drawInRect:NSMakeRect(x, NSMinY(card) + 114, 130, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
         NSNumber *used = [window[@"used"] isKindOfClass:NSNumber.class] ? window[@"used"] : nil;
         double remaining = used ? 100.0 - used.doubleValue : 0;
@@ -262,7 +241,7 @@
         NSString *resetValue = [self resetText:window[@"quota"]
             showDate:[window[@"showDate"] boolValue]];
         NSString *reset = [resetValue isEqualToString:@"--"]
-            ? window[@"rolling"] : [NSString stringWithFormat:L(@"Reset %@"), resetValue];
+            ? L(@"Waiting for refresh") : [NSString stringWithFormat:L(@"Reset %@"), resetValue];
         [self drawText:reset inRect:NSMakeRect(x, NSMinY(card) + 46, 160, 18)
             size:11 weight:NSFontWeightRegular color:secondary dotColor:nil];
         // 两个主题统一使用紧凑文案；脚注里已说明 Token 即本机统计的已用量。
@@ -279,7 +258,14 @@
     NSString *profileID = [self selectedProfileForProvider:name][@"id"];
     NSArray<NSDictionary *> *history = profileID.length > 0 ? (self.profileHistories[profileID] ?: @[])
         : self.historyByProvider[name];
-    NSNumber *currentUsed = weekUsed;
+    NSDictionary *trend = CCPetsTrendWindow(windows);
+    if (!trend) {
+        [self drawText:@"--" inRect:NSMakeRect(trendX, NSMinY(card) + 74, 130, 34)
+            size:25 weight:NSFontWeightBold color:secondary dotColor:nil];
+        [NSGraphicsContext restoreGraphicsState];
+        return;
+    }
+    NSNumber *currentUsed = trend[@"used"];
     NSArray<NSDictionary *> *points = [self curvePointsFromHistory:history currentUsed:currentUsed];
     // 趋势这一列算的是 7 天窗口（currentUsed 取 weekUsed）。而 exhaustedAt 来自
     // rateLimitReachedType，没有窗口归属，实际撞墙的通常是 5 小时窗口——拿它一票否决
@@ -289,7 +275,7 @@
     NSDictionary *pace = weekUnknown
         ? @{ @"label": L(@"Stale"), @"tip": L(@"Awaiting refresh"),
              @"color": NSColor.systemOrangeColor }
-        : [self paceStatusForQuota:week currentUsed:currentUsed color:color];
+        : [self paceStatusForWindow:trend color:color];
     NSColor *paceColor = pace[@"color"];
     // 档位讲的是 7 天趋势，脚注讲的是此刻为什么发不出请求：受限但 7 天窗口尚有余量时
     // 两者都要说清，所以脚注单独取色，不跟着档位走。
@@ -429,7 +415,7 @@
     NSMutableDictionary *cardSpecs = [NSMutableDictionary dictionary];
     for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
         cardSpecs[provider.name] = @{@"usage": [self usageForProvider:provider.name],
-            @"usedKey": provider.usedKey, @"color": [self colorForProvider:provider.name]};
+            @"color": [self colorForProvider:provider.name]};
     }
     // 卡片从汇总条下方依次向下排；原脚注空间按可见卡片数平分。这里的分段账必须和
     // QuotaLogicalHeightForProviderCount 完全一致，否则面板会多出或少掉一段空白。
@@ -454,7 +440,7 @@
             [transform concat];
         }
         [self drawProvider:name displayName:[self displayNameForProvider:name]
-            usage:spec[@"usage"] usedKey:spec[@"usedKey"] color:spec[@"color"]
+            usage:spec[@"usage"] color:spec[@"color"]
             cardRect:cardRect
             profileCount:profiles.count selectedIndex:[self selectedIndexForProvider:name]];
         if (animating) [NSGraphicsContext restoreGraphicsState];

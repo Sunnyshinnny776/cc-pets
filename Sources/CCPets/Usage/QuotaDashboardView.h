@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import "CCPetsNormalizedUsage.h"
 
 // 额度面板按逻辑尺寸绘制后整体缩放，保证离屏渲染和实时显示是同一套代码。
 extern const CGFloat QuotaLogicalWidth;
@@ -52,7 +53,6 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 - (NSDictionary *)accountSnapshotForProvider:(NSString *)name profile:(NSDictionary *)profile;
 // 本周额度的节奏判断，主窗口概览页的额度卡和面板用同一份。返回 label、tip、color，
 // 有数据时还有 level（0 充足 / 1 平稳 / 2 需关注 / 3 高风险）。
-- (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed
-    color:(NSColor *)providerColor;
+- (NSDictionary *)paceStatusForWindow:(NSDictionary *)window color:(NSColor *)providerColor;
 @property(copy) void (^hoverChanged)(BOOL hovering);
 @end

@@ -90,10 +90,6 @@
     return [self formattedTokenSplit:[self tokenTotals:usage key:key] ?: @{}
         wantsOutput:wantsOutput];
 }
-- (NSNumber *)usedForQuota:(NSDictionary *)quota usedKey:(NSString *)usedKey {
-    NSNumber *used = [quota[usedKey] isKindOfClass:NSNumber.class] ? quota[usedKey] : nil;
-    return used ? @(fmax(0, fmin(100, used.doubleValue))) : nil;
-}
 - (NSString *)refreshAgeText {
     if (self.lastUpdatedAt <= 0) return L(@"Waiting for data");
     NSTimeInterval age = fmax(0, NSDate.date.timeIntervalSince1970 - self.lastUpdatedAt);

@@ -306,11 +306,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     for (NSString *provider in [self visibleProviders]) {
         if (!NSPointInRect(logicalPoint, [self logicalTrendRectForProvider:provider])) continue;
         NSDictionary *usage = [self usageForProvider:provider];
-        NSDictionary *state = [self accountStateForProvider:provider
+        NSDictionary *normalized = [self normalizedUsageForProvider:provider
             profile:[self selectedProfileForProvider:provider] usage:usage];
-        if (![state[@"apiMode"] boolValue]) return nil;
-        NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
-            ? usage[@"tokenUsage"] : nil;
+        if ([normalized[@"billing"] isEqualToString:@"subscription"]) return nil;
+        NSDictionary *tokenUsage = normalized[@"tokens"];
         NSArray<NSDictionary *> *days = [tokenUsage[@"monthDaily"] isKindOfClass:NSArray.class]
             ? tokenUsage[@"monthDaily"] : @[];
         NSTimeInterval now = NSDate.date.timeIntervalSince1970;
@@ -606,27 +605,33 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     }
     return [self.liveProviders containsObject:name] || self.hasUnlabeledClient;
 }
-- (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage {
-    BOOL api = profile ? CCPetsProfileShowsAPIUsage(profile)
-        : [self.showsAPIUsageByProvider[name] boolValue];
-    NSString *usedKey = CCPetsProviderForName(name).usedKey;
-    BOOL exhausted = [usage[@"exhaustedAt"] isKindOfClass:NSNumber.class];
-    BOOL hasData = api ? [self tokenTotals:usage key:@"month"] != nil
-        : ([self usedForQuota:[self quota:usage key:@"fiveHour"] usedKey:usedKey] ||
-           [self usedForQuota:[self quota:usage key:@"week"] usedKey:usedKey] ||
-           [self tokenTotals:usage key:@"fiveHour"] || [self tokenTotals:usage key:@"week"] || exhausted);
+- (NSDictionary *)normalizedUsageForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage {
+    BOOL api = profile ? CCPetsProfileShowsAPIUsage(profile) : [self.showsAPIUsageByProvider[name] boolValue];
+    return CCPetsNormalizedUsage(CCPetsProviderForName(name), usage, api);
+}
+- (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile normalized:(NSDictionary *)normalized {
+    BOOL api = ![normalized[@"billing"] isEqualToString:@"subscription"];
+    BOOL exhausted = [normalized[@"exhausted"] boolValue];
+    BOOL hasData = [normalized[@"hasData"] boolValue];
     BOOL online = [self isProfileOnline:profile provider:name];
     NSString *state = !api && exhausted ? @"limited" : (!hasData ? @"waiting" : (online ? @"online" : @"offline"));
     NSString *text = !api && exhausted ? L(@"Rate limited")
         : (!hasData ? L(@"Waiting for data") : (online ? L(@"● Online") : L(@"Offline")));
     return @{@"apiMode": @(api), @"online": @(online), @"hasData": @(hasData), @"state": state, @"status": text};
 }
+- (NSColor *)statusColorForState:(NSDictionary *)state {
+    if ([state[@"state"] isEqualToString:@"limited"]) return NSColor.systemOrangeColor;
+    if ([state[@"state"] isEqualToString:@"online"]) return NSColor.systemGreenColor;
+    return self.secondaryColor;
+}
 - (NSDictionary *)accountSnapshotForProvider:(NSString *)name profile:(NSDictionary *)profile {
     NSString *profileID = profile[@"id"];
     NSDictionary *usage = profile ? (self.profileUsages[profileID] ?: @{}) : [self usageForProvider:name];
     NSArray *history = profile ? (self.profileHistories[profileID] ?: @[])
         : self.historyByProvider[name];
-    NSMutableDictionary *snapshot = [[self accountStateForProvider:name profile:profile usage:usage] mutableCopy];
+    NSDictionary *normalized = [self normalizedUsageForProvider:name profile:profile usage:usage];
+    NSMutableDictionary *snapshot = [[self accountStateForProvider:name profile:profile normalized:normalized] mutableCopy];
+    snapshot[@"normalized"] = normalized;
     snapshot[@"provider"] = name;
     snapshot[@"usage"] = usage ?: @{};
     snapshot[@"history"] = history ?: @[];
@@ -637,8 +642,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     }
     return snapshot;
 }
-- (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed
-    color:(NSColor *)providerColor {
+- (NSDictionary *)paceStatusForWindow:(NSDictionary *)window color:(NSColor *)providerColor {
+    NSDictionary *quota = window[@"quota"];
+    NSNumber *currentUsed = window[@"used"];
     if (!currentUsed) {
         return @{@"label": L(@"Not enough data"), @"tip": L(@"Waiting for data"),
                  @"color": self.secondaryColor};
@@ -646,19 +652,19 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class]
         ? quota[@"resets_at"] : nil;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    const NSTimeInterval sevenDaySeconds = 7 * 24 * 60 * 60;
-    NSTimeInterval start = reset ? reset.doubleValue - sevenDaySeconds : 0;
+    NSTimeInterval windowSeconds = [window[@"minutes"] doubleValue] * 60;
+    NSTimeInterval start = reset ? reset.doubleValue - windowSeconds : 0;
     NSTimeInterval elapsed = now - start;
     double projectedRemaining = NAN;
-    const NSTimeInterval paceObservationSeconds = 24 * 60 * 60;
+    NSTimeInterval paceObservationSeconds = windowSeconds / 7.0;
     // 满 24 小时就全额外推的话，放大倍数还有 7 倍：窗口第 25 小时，任何已用超过 14.3%
     // 的用户都会被判成"重置前用尽"。更糟的是两家的窗口起点差几个小时，就会出现一家
     // 已外推、另一家还没到门槛的断层——剩 80% 的报高风险，剩 61% 的却显示平稳。
     // 因此在 24 小时到窗口 1/3（56 小时）之间按观测时长加权，从"按当前已用"平滑过渡
     // 到"完全信任外推"，门槛处不再有跳变。
-    const NSTimeInterval paceFullTrustSeconds = sevenDaySeconds / 3.0;
+    const NSTimeInterval paceFullTrustSeconds = windowSeconds / 3.0;
     if (reset && reset.doubleValue > now && elapsed >= paceObservationSeconds) {
-        double linearUsed = currentUsed.doubleValue * sevenDaySeconds / elapsed;
+        double linearUsed = currentUsed.doubleValue * windowSeconds / elapsed;
         double confidence = fmin(1.0, (elapsed - paceObservationSeconds) /
             (paceFullTrustSeconds - paceObservationSeconds));
         double projectedUsed = currentUsed.doubleValue +

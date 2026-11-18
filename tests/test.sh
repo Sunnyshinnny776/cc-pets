@@ -1836,11 +1836,23 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   -framework Cocoa \
   "${USAGE_MODE_SOURCES[@]}" \
   "${PET_SOURCE_DIR}"/**/QuotaDashboardView(|+*).m \
+  "${PET_SRC[CCPetsNormalizedUsage.m]:?}" \
   "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \
   -o "${QUOTA_ONLINE_TMP}/quota-online-test"
 "${QUOTA_ONLINE_TMP}/quota-online-test"
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
+  "${PET_INCLUDE_FLAGS[@]}" \
+  -framework Cocoa \
+  "${USAGE_MODE_SOURCES[@]}" \
+  "${PET_SOURCE_DIR}"/**/QuotaDashboardView(|+*).m \
+  "${PET_SRC[CCPetsNormalizedUsage.m]:?}" \
+  "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
+  "${PROJECT_DIR}/tests/quota-compact-row-harness.m" \
+  -o "${QUOTA_ONLINE_TMP}/quota-compact-row-test"
+"${QUOTA_ONLINE_TMP}/quota-compact-row-test"
 # 直接跑 claude / codex 的客户端没有 pid 文件，必须靠事件活跃度补上，否则会误判离线。
 grep -q 'providerActivityAt' "${PET_SOURCES[@]}"
 rm -rf "${QUOTA_ONLINE_TMP}"

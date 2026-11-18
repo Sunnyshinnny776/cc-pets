@@ -88,24 +88,18 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
             NSString *profileID = profile[@"id"];
             NSMutableDictionary *quota = [[self.quotaView accountSnapshotForProvider:provider
                 profile:profile.count > 0 ? profile : nil] mutableCopy];
-            NSDictionary *usage = quota[@"usage"];
-            NSString *usedKey = CCPetsProviderForName(provider).usedKey;
-            NSNumber *weekUsed = nil;
-            for (NSArray<NSString *> *window in @[@[@"fiveHour", @"five"], @[@"week", @"week"]]) {
-                NSDictionary *limit = [usage[window[0]] isKindOfClass:NSDictionary.class] ? usage[window[0]] : nil;
-                NSNumber *used = [limit[usedKey] isKindOfClass:NSNumber.class] ? limit[usedKey] : nil;
-                if (used) {
-                    double clamped = fmax(0, fmin(100, used.doubleValue));
-                    quota[[window[1] stringByAppendingString:@"Remaining"]] = @(100 - clamped);
-                    if ([window[1] isEqualToString:@"week"]) weekUsed = @(clamped);
-                }
-                if ([limit[@"resets_at"] isKindOfClass:NSNumber.class]) {
-                    quota[[window[1] stringByAppendingString:@"Reset"]] = limit[@"resets_at"];
-                }
+            NSArray *windows = quota[@"normalized"][@"windows"];
+            for (NSDictionary *window in windows) {
+                NSString *key = window[@"key"];
+                NSString *prefix = [key isEqualToString:@"fiveHour"] ? @"five" : key;
+                NSNumber *used = window[@"used"];
+                if (used) quota[[prefix stringByAppendingString:@"Remaining"]] = @(100 - used.doubleValue);
+                NSNumber *reset = window[@"quota"][@"resets_at"];
+                if ([reset isKindOfClass:NSNumber.class]) quota[[prefix stringByAppendingString:@"Reset"]] = reset;
             }
             if (![quota[@"apiMode"] boolValue]) {
-                NSDictionary *week = [usage[@"week"] isKindOfClass:NSDictionary.class] ? usage[@"week"] : nil;
-                NSDictionary *pace = [self.quotaView paceStatusForQuota:week currentUsed:weekUsed color:NSColor.systemTealColor];
+                NSDictionary *pace = [self.quotaView paceStatusForWindow:CCPetsTrendWindow(windows)
+                    color:NSColor.systemTealColor];
                 if (pace[@"level"]) {
                     quota[@"pace"] = pace[@"label"];
                     quota[@"paceLevel"] = pace[@"level"];
