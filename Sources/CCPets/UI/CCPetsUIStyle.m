@@ -40,12 +40,14 @@ NSColor *CCPetsSelectionColor(void) { CACHED_COLOR(Dynamic(0x0e9db3, 0.13, 0x4fd
 NSColor *CCPetsRingTrackColor(void) { CACHED_COLOR(Dynamic(0xe3e7ee, 1, 0x343a42, 1)); }
 
 NSColor *CCPetsProviderColor(NSString *provider) {
-    static NSColor *claude, *codex;
+    static NSColor *claude, *codex, *antigravity;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         claude = Dynamic(0xc8643b, 1, 0xe07a50, 1);
         codex = Dynamic(0x3d4655, 1, 0xb9c2cf, 1);
+        antigravity = Dynamic(0x286fcb, 1, 0x71adff, 1);
     });
+    if ([provider.lowercaseString isEqualToString:@"antigravity"]) return antigravity;
     return [provider.lowercaseString isEqualToString:@"claude"] ? claude : codex;
 }
 

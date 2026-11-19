@@ -6,8 +6,8 @@
 
 [English](./README.md) | 简体中文
 
-一个不依赖 Codex/Claude 桌面端的 macOS 原生桌宠。直接启动桌面端，或启动 Codex CLI / Claude Code CLI 时自动出现，
-并通过 Codex App Server 官方接口与 Claude Code 官方 status line 数据读取 5 小时额度、周额度和周重置时间。
+一个支持 Codex、Claude Code 和 Antigravity CLI 的 macOS 原生桌宠。可以独立启动，也会随已接入的 CLI 启动，
+显示会话状态、额度和本地 Token 用量。
 
 ## v2.5.0 新功能
 
@@ -30,9 +30,9 @@
 
 - App 与 CLI 支持英语和简体中文，界面语言可即时切换
 - macOS 26 及以上可在经典与原生 Liquid Glass 两种面板主题之间切换
-- 随 Codex CLI 或 Claude Code CLI 自动启动，无需打开对应桌面版
-- 多个 Codex/Claude CLI 共用一个桌宠，最后一个托管 CLI 退出且 Codex 桌面端未运行时，桌宠自动关闭
-- 鼠标悬停口袋时展开额度详情面板，用两张卡分别显示 Codex、Claude 的剩余 5 小时额度、周额度和精确到秒的周重置时间
+- 随 Codex、Claude Code 或 Antigravity CLI 自动启动，无需打开对应桌面版
+- 多个支持的 CLI 会话共用一个桌宠。最后一个经 CC Pets 启动的 CLI 退出后，Codex 和 Antigravity 桌面端都未运行时，桌宠自动关闭
+- 鼠标悬停口袋时展开额度详情面板，显示 Codex、Claude 和 Antigravity 的 5 小时额度、周额度与重置时间
 - reset 时间自动转换为 Mac 当前系统时区，例如 `Jul 22 3pm America/Los_Angeles` 在上海时区显示为 `7/23 06:00:00`
 - 支持待机、左右拖动、身体两侧感应、头部/脚部悬停和点击反馈动画
 - 待机呼吸、随机小动作（11 行素材会转头看鼠标）、拖动时的水平滞后与落脚回弹
@@ -78,11 +78,11 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
   以及 Claude / Codex 的简洁账号卡片：订阅模式展示 5 小时和本周的剩余额度环、重置时间与本周节奏；API 模式展示本月调用、Token 总量，并补充日均调用及输入/输出 Token。数据与悬停面板同源。每个已登记账号独立显示一张卡片，两列排列；「查看诊断」位于名称后，仅在该账号确实有诊断问题时出现。暂未采集到额度不视为配置异常。
 - **会话**：此刻在线的 Agent 会话（等审批的置顶，每行可「跳到终端」），以及 CC Bridge 的
   消息往来：卡在信箱里待投递的、最近送达的。仅显示消息交互，无消息正文。
-- **用量**：本机 Claude Code / Codex 最近 7、30、90 天的 Token 用量。顶部和概览同一套五格：总用量
+- **用量**统计本机 Claude Code、Codex、Antigravity CLI 和 Antigravity App 最近 7、30、90 天的 Token 用量。「全部」包含所有来源，Antigravity CLI 和 App 各有独立筛选。顶部和概览同一套五格：总用量
   （输入 + 缓存写 + 输出 + 缓存输入 + 后台用量）、输入、输出、缓存输入（附命中率）、请求数。本机 Codex SQLite 日志补充的后台用量仅计入总量，不推算 Token 明细。每日柱状图按模型分色堆叠，
   颜色固定跟着模型走，可以在这五项之间切换；点图例或表格里的模型只看它，鼠标移到柱子上看当天各模型的数值。
   数据全部来自本机会话日志，不会发送到任何地方；按日归档让 Claude Code 清理旧转录之后，历史仍然留得住。
-- **多账号**：添加 Claude / Codex Home，查看账号的目录与集成状态，并通过“管理”菜单修复、重命名、重新定位或移除自定义 Home 的集成。
+- **多账号**可添加 Claude、Codex 或 Antigravity CLI Home，查看目录与集成状态，并通过「管理」菜单修复、重命名、重新定位或移除自定义 Home 的集成。
 - **宠物 / 提醒 / 设置**：桌宠的全部设置拆成三页（宠物：选宠物、确认删除未选中的自定义宠物、大小、碎碎念、点击互动、导入 Codex 素材；提醒：系统通知、桌面状态卡和系统状态；
   设置：语言、显示位置、面板外观和素材目录），另有更细的项（比如连击阈值、可以连续调节的玻璃压暗，菜单里仍是四档）。
   右键菜单只留最常用的几项：管理桌宠、宠物大小、显示消息气泡、用量展示模式、面板主题和 CC Bridge，其余都到这里改。改动会立刻作用到桌面上的宠物，在菜单里改的也会同步显示在这里。
@@ -164,6 +164,11 @@ Claude Code Hook 会合并到 `~/.claude/settings.json`，现有的 `env`、`mod
 通过 npm 安装或升级时会自动重新构建应用、安装或更新两套 Hooks，并配置 shell 集成；如果旧版桌宠正在运行，
 安装器会自动重启桌宠，使新版本生效。`cc-pets install` 用于手动修复或重新初始化。
 
+Antigravity CLI 通过 Gemini 全局 Hooks 接入状态卡、审批提醒、卡住提醒、主菜单与菜单栏展示和系统通知，和 Claude / Codex 一致。
+Antigravity App 的对话共用同一份 Hooks，以「Antigravity App」显示，点状态卡回到 App。审批状态只对 CLI 可用。
+运行 `agy` 保留原生终端界面，也可以显式运行 `agy-with-pet`。`cc-pets doctor` 检查启动入口、Hooks 和 Bridge MCP，
+`cc-pets paths` 列出配置文件的位置。
+
 通过 `codex-with-pet` / `claude-with-pet` 启动时，包装脚本会在 Agent 启动前记录终端身份，
 这是最精确的来源。直接运行 `codex` / `claude`、或终端窗口早于 shim 安装就已打开的会话，
 会回退到内核信息：从进程树解析控制终端和承载终端的应用，这些会话的状态卡同样可以点击回跳。
@@ -212,6 +217,7 @@ Hook 状态卡和消息气泡在宠物小于 100% 时同比例缩小，文字、
 通过 CC Pets 包装器启动 `claude` / `codex` 时，会先确认 Shadowrocket 的系统 VPN
 状态为已连接，再向对应服务的 `/cdn-cgi/trace` 发起 HTTPS GET，检查出口 IP 和地区；失败会在终端提示原因并返回非零退出码，
 不会启动 CLI，也不会登记会话或发送启动事件。关闭开关后不进行网络检查。
+`agy` 只检查 Shadowrocket 是否已连接：Google 的服务域名没有 `/cdn-cgi/trace` 这类端点，无法核验出口地区。
 
 仅识别 Shadowrocket 的 VPN 配置，不把「应用进程正在运行」当成代理已连接。
 Claude 默认检查 `api.anthropic.com`；Codex 根据当前 Home 的 `auth.json` 选择：ChatGPT 登录检查
@@ -440,13 +446,14 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown             # 交�
 - macOS 13 或更高版本
 - Node.js 18 或更高版本，仅供 npm 安装与升级使用；桌宠本身以及 `cc-pets` 命令、Hooks、
   CC Bridge 都是原生程序，运行时不依赖 Node
-- 已安装并登录 Codex CLI 和/或 Claude Code CLI
+- 已配置 Codex、Claude Code 或 Antigravity CLI（`agy`）中的至少一种
 - zsh
 - Xcode Command Line Tools，可通过 `xcode-select --install` 安装
 
 ## CC Bridge
 
-[CC Bridge](./CC_BRIDGE.zh-CN.md) 是默认关闭的可选功能，让本机 Claude Code / Codex 会话互发消息并预留文件。
+[CC Bridge](./CC_BRIDGE.zh-CN.md) 是默认关闭的可选功能，让本机 Claude Code、Codex 和 Antigravity CLI 会话互发消息并预留文件。
+原生 `agy` 在下一次模型调用时读取等待消息。[Antigravity App](./CC_BRIDGE.zh-CN.md#antigravity-app) 启用 Sidecar 后支持自动唤醒。
 身份识别优先验证会话 ID；按 PID 回退时只接受唯一在线会话，共享宿主下身份不明确会拒绝操作。
 Codex 消息使用接收方的 Home 投递。
 多个 Codex 会话共用 app-server PID 时，Agent 在每次 MCP 调用中传入 Bridge hook 提供的当前 `session_id`。
@@ -470,6 +477,8 @@ npm install -g cc-pets@latest --allow-scripts=cc-pets
 codex
 # 或
 claude
+# 或
+agy
 ```
 
 `--allow-scripts=cc-pets` 用于允许新版 npm 执行 CC Pets 的 `postinstall`，完成原生应用构建、
@@ -506,26 +515,35 @@ cc-pets install
 codex
 # 或
 claude
+# 或
+agy
 ```
 
 npm 12 会把本地目录安装识别为项目范围安装，不接受命令行传入的 `--allow-scripts`。
 因此本地源码安装显式跳过生命周期脚本，再通过 `cc-pets install` 执行可重复的初始化流程。
 
-两种方式都会安装 `cc-pets`、`codex-with-pet` 和 `claude-with-pet`。
-npm 的安装后脚本会自动构建原生应用、安装两套 Agent Hooks，并在 `~/.cc-pets/shims` 下生成指向包装脚本的
-`codex` 与 `claude` 软链，再向 `~/.zshrc` 追加带明确标记的一行把该目录前置到 `PATH`，不会覆盖真实的 CLI 二进制。
+两种方式都会安装 `cc-pets`、`codex-with-pet`、`claude-with-pet` 和 `agy-with-pet`。
+npm 的安装后脚本会自动构建原生应用、安装已发现账号的 Agent Hooks，并在 `~/.cc-pets/shims` 下生成指向包装脚本的
+`codex`、`claude` 与 `agy` 软链，再向 `~/.zshrc` 追加带标记的配置，把该目录前置到 `PATH`。
 用 shim 而不是 alias，是因为 alias 名区分大小写而 macOS 文件系统默认不区分：`Claude`、`CODEX` 这类写法
 匹配不到 alias，会直接命中真二进制，桌宠不会被拉起。shim 让任意大小写写法都落到同一个文件上。
 
 ### 多账号
 
-CC Pets 会自动发现并集成官方 `~/.claude` 和 `~/.codex` Home。`~/.claude-x`、
+CC Pets 会自动发现并集成已安装 CLI 的默认 Home，包括 `~/.claude`、`~/.codex` 和 `~/.gemini`。`~/.claude-x`、
 `~/.codex-work` 等自定义 Home 不会被自动扫描，必须从「主菜单 → 多账号」（位于“宠物”下方）手动添加。
 默认使用文件夹名作为账号名称并保持原样，也可以在该页的“管理”菜单中重命名。每个 Provider
 拥有独立的循环额度卡片，用量页也可以按账号筛选本机会话 Token 历史。
 
 添加账号时会配置 Pet Hooks 和用量采集。若 CC Bridge 已开启，会同时配置它的 Hooks、
 权限与 MCP；若尚未开启，之后启用 CC Bridge 时会自动为所有已登记账号补齐。
+
+Antigravity Home 选择包含 `antigravity-cli/` 子目录的 Gemini 根目录。在多账号页添加自定义根目录后，
+启动 `agy` 时可以指定对应目录。
+
+```bash
+CC_PETS_ANTIGRAVITY_HOME=/absolute/path/to/gemini-root agy
+```
 
 首次安装需要新开终端让 `PATH` 生效；以后升级只需执行 npm 命令。
 同时会将标准 macOS 应用安装到 `~/Applications/CC Pets.app`，可从 Finder 或 Launchpad 启动，
@@ -553,6 +571,8 @@ export CODEX_REAL_BIN=/absolute/path/to/codex
 ```bash
 export CLAUDE_REAL_BIN=/absolute/path/to/claude
 ```
+
+如果真实 Antigravity CLI 不在当前 `PATH`，设置 `AGY_REAL_BIN=/absolute/path/to/agy`。
 
 ## 命令说明
 
@@ -599,7 +619,7 @@ printf '%s' '{"schemaVersion":1,"provider":"MyAgent","state":"thinking"}' \
 # 手动修复或重新初始化 Hooks、shell 集成，并让已运行桌宠加载当前版本
 cc-pets install
 
-# CC Bridge（实验性，默认关闭）：让本机 Claude Code / Codex 会话互发消息，详见 CC_BRIDGE.zh-CN.md
+# CC Bridge（实验性，默认关闭），详见 CC_BRIDGE.zh-CN.md
 cc-pets bridge enable
 cc-pets bridge status
 cc-pets bridge disable
@@ -621,6 +641,9 @@ codex-with-pet
 
 # 启动桌宠后进入 Claude Code CLI
 claude-with-pet
+
+# 启动桌宠后进入原生 Antigravity CLI
+agy-with-pet
 ```
 
 项目版本以 `package.json` 为唯一来源。发布新版本时执行 `npm version patch`、
@@ -650,6 +673,12 @@ Claude 用量来自官方 status line 输入中的 `rate_limits.five_hour` 与
 `rate_limits.seven_day`。其中的 `used_percentage` 会换算为剩余百分比。该字段仅面向
 Claude.ai Pro/Max 订阅账号，并在会话完成首次 API 响应后出现；字段尚不可用时显示 `--`。
 
+Antigravity CLI 从 `~/.gemini/antigravity-cli/brain` 或已登记 CLI Home 的对应目录读取会话转录，
+Antigravity App 从 `~/.gemini/antigravity/brain` 读取。两种来源的 Token 和请求数分别展示。
+Antigravity 的展示模式位于「设置 → 悬停面板显示」，与 Codex 和 Claude 使用同一组设置。
+订阅额度由 `agy -p /usage --output-format json` 读取，每个已登录账号只显示一份可用的五小时与周额度。
+API key 模式展示本地用量。
+
 Claude Code 本地 Token 来自 `~/.claude/projects` 下的会话转录：
 
 - 每条 `type = assistant` 的记录带 `message.usage`，是**单次请求的增量**，与 Codex 的
@@ -678,9 +707,9 @@ Codex 侧同理：桌宠固定只统计 `~/.codex`，不读继承来的 `CODEX_H
 本地 Token 是 CLI 会话事件的原始计数，不等同于订阅额度。官方额度可能受模型、缓存和
 请求复杂度等因素影响，应始终以服务端返回的百分比为准。
 
-额度详情面板使用青色区分 Codex、紫色区分 Claude。标题行显示在线 Agent 数，下方汇总条
-分别展示 Codex、Claude 的「今日」与「最近 7 天」Token，并显示最近刷新时间。统计用的是与订阅无关的
-自然日窗口（今日 = 本机零点至今，最近 7 天 = 含今天在内的 7 个自然日），因为两家的
+额度详情面板用青色标识 Codex、紫色标识 Claude、蓝色标识 Antigravity。标题行显示在线 Agent 数，下方分别展示
+Codex、Claude、Antigravity CLI 和 Antigravity App 的「今日」与「最近 7 天」Token，并显示最近刷新时间。统计用的是与订阅无关的
+自然日窗口（今日 = 本机零点至今，最近 7 天 = 含今天在内的 7 个自然日），因为各家的
 `resets_at` 并不一致，按各自订阅窗口算出的数不在同一区间上，相加没有意义。每个 Agent 卡片按 5 小时和 7 天两列
 展示官方剩余百分比（主值）、本机 Token 用量和重置时间，右侧是近 7 天额度趋势。右键菜单的
 “用量展示模式”保留原有切换控件，按已登记账号分别设置，旧的平台设置作为未单独设置账号的默认值。

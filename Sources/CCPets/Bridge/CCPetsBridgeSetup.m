@@ -2,8 +2,10 @@
 #import "CCPetsBridgeSetup.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeStore.h"
+#import "CCPetsAntigravityConfig.h"
 #import "CCPetsCLISupport.h"
 #import "CCPetsJSON.h"
+#import "CCPetsProfiles.h"
 #import <sys/stat.h>
 
 #define LF(localized, values) CCPetsInterpolate(localized, values)
@@ -361,6 +363,16 @@ static BOOL RemoveJSONHooks(NSString *file, BOOL claudeAllow);
 NSArray<NSString *> *CCBridgeInstallForProfile(NSDictionary *profile, NSDictionary *rawOptions, BOOL registerMcp) {
     NSString *provider = [profile[@"provider"] isKindOfClass:NSString.class] ? profile[@"provider"] : @"";
     NSString *home = [profile[@"home"] isKindOfClass:NSString.class] ? profile[@"home"] : @"";
+    if ([provider isEqual:@"antigravity"]) {
+        NSDictionary *options = CCBridgeNormalizeOptions(rawOptions);
+        BOOL appEnabled = [options[@"antigravityApp"] boolValue];
+        // The App's MCP and Sidecar must run the same Bridge build, including when upgrading
+        // an existing CLI-only MCP registration from a different installation.
+        BOOL ensureMcp = appEnabled && CCBridgeShouldTouchMCP() && CCPetsProfileIsOfficialDefault(profile);
+        NSArray *report = CCPetsInstallAntigravityBridge(profile, options[@"antigravityAllow"], registerMcp || ensureMcp);
+        CCPetsConfigureAntigravityBridgeTitle(profile, [options[@"tabTitle"] boolValue]);
+        return [report arrayByAddingObjectsFromArray:CCPetsConfigureAntigravityAppSidecar(profile, appEnabled)];
+    }
     if (home.length == 0 || (![provider isEqualToString:@"claude"] && ![provider isEqualToString:@"codex"])) {
         [NSException raise:@"CCBridgeConfig" format:@"Invalid Agent profile."];
     }
@@ -586,6 +598,11 @@ static void RemoveMCPRegistration(NSString *executable, NSString *provider, NSSt
 
 NSArray<NSString *> *CCBridgeUninstallForProfile(NSDictionary *profile, BOOL unregisterMcp) {
     NSString *provider = [profile[@"provider"] isKindOfClass:NSString.class] ? profile[@"provider"] : @"";
+    if ([provider isEqual:@"antigravity"]) {
+        CCPetsConfigureAntigravityBridgeTitle(profile, NO);
+        NSArray *sidecar = CCPetsConfigureAntigravityAppSidecar(profile, NO);
+        return [sidecar arrayByAddingObjectsFromArray:CCPetsRemoveAntigravityBridge(profile, unregisterMcp)];
+    }
     NSString *home = [profile[@"home"] isKindOfClass:NSString.class] ? profile[@"home"] : @"";
     NSMutableArray<NSString *> *report = [NSMutableArray array];
     if ([provider isEqualToString:@"claude"]) {

@@ -9,6 +9,10 @@ BOOL TerminalFocusRunsUnderSharedAgentHost(void);
 BOOL IsCodexDesktopFocusTarget(NSDictionary *target);
 BOOL CodexDesktopFocusTargetIsLive(NSDictionary *target, NSTimeInterval eventTime);
 BOOL CodexDesktopApplicationIsRunning(void);
+BOOL AntigravityDesktopApplicationIsRunning(void);
+// Antigravity App 会话的回跳目标只有 bundleID，没有 TTY。
+extern NSString *const CCPetsAntigravityAppBundleIdentifier;
+BOOL IsAntigravityDesktopFocusTarget(NSDictionary *target);
 // 只读本地聊天索引；YES 为已持久化聊天，NO 为未收录/已归档，nil 为无法确认。
 NSNumber *CodexPersistentThreadStatus(NSString *thread, NSString *codexHome);
 
@@ -17,10 +21,10 @@ NSNumber *CodexPersistentThreadStatus(NSString *thread, NSString *codexHome);
 NSDictionary *TerminalFocusTargetForHook(NSDictionary *payload, NSString *provider);
 // cc-pets --codex-launch：codex-with-pet 在 exec 真正的 codex 之前登记自己的终端。
 int RegisterCodexLaunch(void);
-// 以下两个供测试直接驱动。
 BOOL RegisterCodexLaunchForProcess(pid_t pid, NSString *cwd, NSDictionary *terminal,
     NSTimeInterval launchedAt);
 NSDictionary *CodexLaunchTerminalForThread(NSString *thread, NSDictionary *payload);
+BOOL CodexHasTerminalTitleLaunch(NSString *cwd);
 
 // Terminal / iTerm2 / Ghostty 按 TTY 精确选择；JetBrains IDE 和 VS Code 家族通过插件/扩展
 // 异步聚焦。YES 表示已执行或已交给插件处理，其他终端在无扩展模式下激活应用。

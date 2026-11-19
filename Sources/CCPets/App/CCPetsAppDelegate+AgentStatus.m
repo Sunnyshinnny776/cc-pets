@@ -206,7 +206,7 @@
     if (![state isEqualToString:@"completed"] && ![state isEqualToString:@"failed"]) return NO;
     NSString *event = [record[@"event"] isKindOfClass:NSString.class] ? record[@"event"] : @"";
     return [event isEqualToString:@"SubagentStop"] || [event isEqualToString:@"PostToolUse"] ||
-        [event isEqualToString:@"TaskCompleted"];
+        [event isEqualToString:@"TaskCompleted"] || [event isEqualToString:@"ApprovalResolved"];
 }
 // 标题优先显示账号名；身份比较使用 profileId 和会话身份，不按显示名合并终端。
 - (NSString *)statusPresentationNameForRecord:(NSDictionary *)record {
@@ -376,8 +376,12 @@
     NSString *tool = [record[@"tool"] isKindOfClass:NSString.class] ? record[@"tool"] : @"";
     NSString *animationEvent = [state isEqualToString:@"auto_review"]
         ? @"AutoReviewRequest" : event;
-    [self.petView handleAgentEvent:animationEvent tool:tool
-        failed:[record[@"failed"] boolValue]];
+    if ([event isEqual:@"ApprovalResolved"]) {
+        if ([state isEqual:@"idle"]) [self.petView resetAgentToIdle];
+        else [self.petView handleAgentEvent:@"UserPromptSubmit" tool:@"" failed:NO];
+    } else {
+        [self.petView handleAgentEvent:animationEvent tool:tool failed:[record[@"failed"] boolValue]];
+    }
     [self showAgentStatusForRecord:record notify:shouldNotify];
     // 说话是事件流的新消费者，不改变事件生产。冷启动重放已被 processAgentEventData
     // 的 recentOnly + 5 秒 cutoff 挡住，再加上预算制和冷却，最坏也只多说一句。
@@ -463,12 +467,16 @@
         }
         return CodexDesktopFocusTargetIsLive(terminal, [record[@"timestamp"] doubleValue]);
     }
+    // Antigravity App 没有 pid 文件：App 退出即下线，在运行时按 Bridge 会话或活跃度判断。
+    if ([record[@"provider"] isEqual:CCBridgeAntigravityAppProvider] && !AntigravityDesktopApplicationIsRunning()) return NO;
     NSString *onlineKey = [self onlineAgentSessionKeyForRecord:record];
     if (onlineKey.length > 0 && [self.liveAgentSessionKeys containsObject:onlineKey]) return YES;
     // 老版本包装脚本的 pid 文件不带账号，只能按 provider + tty 认领。
     NSString *unscopedKey = OnlineAgentSessionKey(record[@"provider"], nil, terminal[@"tty"]);
     if (unscopedKey.length > 0 && [self.liveAgentSessionKeys containsObject:unscopedKey]) return YES;
     if ([self.managedAgentSessionKeys containsObject:[self statusIdentityForRecord:record]]) return NO;
+    if (IsAntigravitySessionRecord(record) && CCBridgeEnabled() &&
+        CCBridgeSessionLive(CCBridgeReadSession(record[@"session"]))) return YES;
     return NSDate.date.timeIntervalSince1970 - [record[@"timestamp"] doubleValue]
         < AgentStatusInactivityInterval;
 }

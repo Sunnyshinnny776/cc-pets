@@ -20,6 +20,10 @@ NSString *DefaultClaudeConfigDirectory(void);
 NSString *CurrentClaudeConfigDirectory(void);
 // 桌宠端用：只看主账号的 Codex 目录，不受继承来的 CODEX_HOME 影响。
 NSString *DefaultCodexHomeDirectory(void);
+// Gemini 根目录，包含 Antigravity CLI 自己的 antigravity-cli/ 子目录。
+NSString *DefaultAntigravityConfigDirectory(void);
+// 桌面 App 固定使用官方 Gemini 根目录，不受 CLI 的目录覆盖影响。
+NSString *DefaultAntigravityAppConfigDirectory(void);
 NSString *ClaudeUsagePathForConfigDirectory(NSString *configDirectory);
 // Token 会话摘要缓存的落盘位置，按 provider 与数据源目录分文件。
 NSString *TokenSummaryCachePath(NSString *provider, NSString *sourceDirectory);
@@ -56,6 +60,7 @@ extern NSString *const SystemMemoryEnabledKey;
 // 每个 Provider 独立保存额度卡展示模式，值为 "subscription" 或 "api"。
 extern NSString *const CodexUsageDisplayModeKey;
 extern NSString *const ClaudeUsageDisplayModeKey;
+extern NSString *const AntigravityUsageDisplayModeKey;
 // 曾经检测到过的 provider 集合。只增不减：探测有可能瞬时失败（配置目录被临时改名、
 // 外置盘没挂上），而卡片突然消失比多显示一张空卡更像 bug。
 extern NSString *const DetectedProvidersKey;

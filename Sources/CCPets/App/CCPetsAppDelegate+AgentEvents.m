@@ -1,5 +1,6 @@
 // agent 事件流读取与客户端存活检测。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsBridgeStore.h"
 
 // 客户端是否真的还在跑。只问 kill(pid, 0) 不够：关掉终端窗口只是销毁 pty，claude /
 // codex（Node 进程）不一定跟着 SIGHUP 退出，会变成脱离控制终端的孤儿继续活着。那样
@@ -86,15 +87,17 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
         if (desktop && !ended && persistent && !persistent.boolValue) continue;
         if (persistent) normalized[@"desktopPersistent"] = persistent;
         BOOL replay = recentOnly && (desktop || [record[@"timestamp"] doubleValue] < cutoff);
+        BOOL liveAntigravity = replay && !ended && IsAntigravitySessionRecord(record) &&
+            CCBridgeEnabled() && CCBridgeSessionLive(CCBridgeReadSession(record[@"session"]));
         // 只有确认的持久化聊天可以恢复在线列表。应用存活不证明某轮任务仍在运行。
-        if (replay && !ended && !(desktop && persistent.boolValue && CodexDesktopFocusTargetIsLive(record[@"terminal"],
+        if (replay && !ended && !liveAntigravity && !(desktop && persistent.boolValue && CodexDesktopFocusTargetIsLive(record[@"terminal"],
             [record[@"timestamp"] doubleValue]))) continue;
         NSString *sessionKey = [self agentSessionKeyForRecord:record];
         NSDictionary *previous = sessionKey ? self.agentSessionRecords[sessionKey] : nil;
         // 在记录、审批、动画等所有消费者之前挡住完成后的尾随事件。
         if (!ended && previous && [[self statusIdentityForRecord:previous] isEqual:[self statusIdentityForRecord:record]] &&
             [self isTrailingRecord:record afterState:previous[@"state"]]) continue;
-        if (replay && desktop && !ended &&
+        if (replay && (desktop || liveAntigravity) && !ended &&
             ![@[@"completed", @"failed"] containsObject:record[@"state"] ?: @""]) {
             normalized[@"state"] = @"idle";
             normalized[@"event"] = @"Snapshot";
@@ -263,6 +266,7 @@ static BOOL ClientProcessAlive(pid_t pid, NSString *recordedTTY) {
     // 启动模式在应用生命周期内保持不变。手动启动的桌宠即使后来检测到
     // Codex/Claude 客户端，也不应被转成 CLI 托管模式并随客户端退出。
     // 桌面端不创建 CLI pid 文件；只要桌面应用仍运行，就不能随最后一个终端退出。
-    if (liveClients == 0 && self.managedByCLI && !CodexDesktopApplicationIsRunning()) [NSApp terminate:nil];
+    if (liveClients == 0 && self.managedByCLI && !CodexDesktopApplicationIsRunning() &&
+        !AntigravityDesktopApplicationIsRunning()) [NSApp terminate:nil];
 }
 @end

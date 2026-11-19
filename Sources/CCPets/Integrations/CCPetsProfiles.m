@@ -1,4 +1,5 @@
 #import "CCPetsProfiles.h"
+#import "CCPetsAntigravityConfig.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeSetup.h"
 #import "CCPetsCLISupport.h"
@@ -9,6 +10,7 @@
 
 NSString *const CCPetsProfileProviderClaude = @"claude";
 NSString *const CCPetsProfileProviderCodex = @"codex";
+NSString *const CCPetsProfileProviderAntigravity = @"antigravity";
 NSNotificationName const CCPetsProfilesDidChangeNotification = @"CCPetsProfilesDidChange";
 NSString *const CCPetsProfileStateIntegrated = @"integrated";
 NSString *const CCPetsProfileStateRepair = @"repair";
@@ -23,8 +25,14 @@ NSString *CCPetsProfilesPath(void) {
 }
 
 static BOOL ValidProvider(NSString *provider) {
-    return [provider isEqualToString:CCPetsProfileProviderClaude] ||
-        [provider isEqualToString:CCPetsProfileProviderCodex];
+    return [provider isKindOfClass:NSString.class] &&
+        [@[CCPetsProfileProviderClaude, CCPetsProfileProviderCodex, CCPetsProfileProviderAntigravity] containsObject:provider];
+}
+
+static NSString *OfficialHome(NSString *provider) {
+    if (!ValidProvider(provider)) return nil;
+    NSString *leaf = [provider isEqualToString:CCPetsProfileProviderAntigravity] ? @"gemini" : provider;
+    return [CCPetsHomeDirectory() stringByAppendingPathComponent:[@"." stringByAppendingString:leaf]];
 }
 
 static NSString *CanonicalHome(NSString *home) {
@@ -80,11 +88,7 @@ NSString *CCPetsProfileDefaultDisplayName(NSString *provider, NSString *home) {
 }
 
 BOOL CCPetsProfileIsOfficialDefault(NSDictionary *profile) {
-    NSString *provider = profile[@"provider"];
-    NSString *leaf = [provider isEqualToString:CCPetsProfileProviderClaude] ? @".claude"
-        : ([provider isEqualToString:CCPetsProfileProviderCodex] ? @".codex" : nil);
-    if (!leaf) return NO;
-    NSString *official = CanonicalHome([CCPetsHomeDirectory() stringByAppendingPathComponent:leaf]);
+    NSString *official = CanonicalHome(OfficialHome(profile[@"provider"]));
     return official.length > 0 && [CanonicalHome(profile[@"home"]) isEqualToString:official];
 }
 
@@ -113,6 +117,11 @@ static BOOL HomeContainsAny(NSString *home, NSArray<NSString *> *names) {
 
 BOOL CCPetsProfileHomeMatchesProvider(NSString *provider, NSString *home) {
     if (!ValidProvider(provider) || home.length == 0) return NO;
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+        return CCPetsDirectoryExists([home stringByAppendingPathComponent:@"antigravity-cli"]) ||
+            ([CanonicalHome(home) isEqual:CanonicalHome(OfficialHome(provider))] &&
+                CCPetsDirectoryExists([home stringByAppendingPathComponent:@"antigravity"]));
+    }
     NSString *other = [provider isEqualToString:CCPetsProfileProviderClaude]
         ? CCPetsProfileProviderCodex : CCPetsProfileProviderClaude;
     return HomeContainsAny(home, ProfileHomeMarkers(provider)) &&
@@ -203,13 +212,18 @@ NSDictionary *CCPetsProfileForHome(NSString *provider, NSString *home) {
 NSDictionary *CCPetsRegisterProfile(NSString *provider, NSString *home,
     NSString *displayName, NSString *existingID, NSString **errorMessage) {
     if (!ValidProvider(provider)) {
-        if (errorMessage) *errorMessage = @"Provider must be claude or codex.";
+        if (errorMessage) *errorMessage = L(@"Provider must be claude, codex, or antigravity.");
         return nil;
     }
     NSString *canonical = CanonicalHome(home);
     BOOL isDirectory = NO;
     if (canonical.length == 0 || ![NSFileManager.defaultManager fileExistsAtPath:canonical isDirectory:&isDirectory] || !isDirectory) {
         if (errorMessage) *errorMessage = [NSString stringWithFormat:@"Profile Home is not a directory: %@", home ?: @""];
+        return nil;
+    }
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity] &&
+        !CCPetsProfileHomeMatchesProvider(provider, canonical)) {
+        if (errorMessage) *errorMessage = L(@"Choose a Gemini root folder containing the antigravity-cli directory.");
         return nil;
     }
     NSString *profileID = existingID.length > 0 ? existingID : CCPetsProfileID(provider, canonical);
@@ -287,17 +301,22 @@ NSDictionary *CCPetsProfileStatus(NSDictionary *profile) {
     BOOL available = CCPetsDirectoryExists(home);
     if (!available) return @{@"state": CCPetsProfileStateUnavailable, @"available": @NO,
         @"petHooks": @NO, @"bridge": @NO};
-    NSString *config = [home stringByAppendingPathComponent:
-        [provider isEqualToString:CCPetsProfileProviderClaude] ? @"settings.json" : @"hooks.json"];
-    NSString *petMarker = [provider isEqualToString:CCPetsProfileProviderClaude]
-        ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker;
-    NSString *configText = [NSString stringWithContentsOfFile:config
-        encoding:NSUTF8StringEncoding error:nil] ?: @"";
-    NSString *profileID = [profile[@"id"] isKindOfClass:NSString.class] ? profile[@"id"] : @"";
-    BOOL petHooks = [configText containsString:petMarker] &&
-        (profileID.length == 0 || [configText containsString:profileID]);
-    BOOL bridge = [configText containsString:CCBridgeHookMarker] &&
-        (profileID.length == 0 || [configText containsString:profileID]);
+    BOOL petHooks, bridge;
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+        petHooks = CCPetsAntigravityPetHooksInstalled(profile);
+        bridge = CCPetsAntigravityBridgeInstalled(profile);
+    } else {
+        BOOL claude = [provider isEqualToString:CCPetsProfileProviderClaude];
+        NSString *config = [home stringByAppendingPathComponent:claude ? @"settings.json" : @"hooks.json"];
+        NSString *petMarker = claude ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker;
+        NSString *configText = [NSString stringWithContentsOfFile:config
+            encoding:NSUTF8StringEncoding error:nil] ?: @"";
+        NSString *profileID = [profile[@"id"] isKindOfClass:NSString.class] ? profile[@"id"] : @"";
+        petHooks = [configText containsString:petMarker] &&
+            (profileID.length == 0 || [configText containsString:profileID]);
+        bridge = [configText containsString:CCBridgeHookMarker] &&
+            (profileID.length == 0 || [configText containsString:profileID]);
+    }
     BOOL bridgeExpected = CCBridgeEnabled();
     BOOL healthy = petHooks && (!bridgeExpected || bridge) && ![profile[@"needsRepair"] boolValue];
     return @{@"state": healthy ? CCPetsProfileStateIntegrated : CCPetsProfileStateRepair,
@@ -326,32 +345,36 @@ BOOL CCPetsMigrateManagedDefaultProfiles(NSString **errorMessage) {
         if (CCPetsProfileForHome(candidate[@"provider"], home)) continue;
         if (!CCPetsRegisterProfile(candidate[@"provider"], home, nil, nil, errorMessage)) return NO;
     }
+    NSString *home = OfficialHome(CCPetsProfileProviderAntigravity);
+    NSDictionary *antigravity = @{@"provider": CCPetsProfileProviderAntigravity, @"home": home,
+        @"id": CCPetsProfileID(CCPetsProfileProviderAntigravity, home)};
+    if (!CCPetsProfileForHome(CCPetsProfileProviderAntigravity, home) &&
+        CCPetsAntigravityPetHooksInstalled(antigravity)) {
+        return CCPetsRegisterProfile(CCPetsProfileProviderAntigravity, home, nil, nil, errorMessage) != nil;
+    }
     return YES;
 }
 
 BOOL CCPetsEnsureOfficialDefaultProfiles(NSString **errorMessage) {
-    NSArray<NSDictionary *> *candidates = @[
-        @{ @"provider": CCPetsProfileProviderClaude,
-           @"home": [CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude"] },
-        @{ @"provider": CCPetsProfileProviderCodex,
-           @"home": [CCPetsHomeDirectory() stringByAppendingPathComponent:@".codex"] }
-    ];
-    for (NSDictionary *candidate in candidates) {
-        NSString *provider = candidate[@"provider"];
-        NSString *home = candidate[@"home"];
+    for (NSString *provider in @[CCPetsProfileProviderClaude, CCPetsProfileProviderCodex, CCPetsProfileProviderAntigravity]) {
+        NSString *home = OfficialHome(provider);
         if (CCPetsProfileForHome(provider, home)) continue;
-        BOOL isDirectory = NO;
-        BOOL homeExists = [NSFileManager.defaultManager fileExistsAtPath:home isDirectory:&isDirectory] && isDirectory;
-        BOOL cliInstalled = [provider isEqualToString:CCPetsProfileProviderClaude]
-            ? CCPetsClaudeCLIInstalled() : CCPetsCodexCLIInstalled();
+        BOOL antigravity = [provider isEqualToString:CCPetsProfileProviderAntigravity];
+        NSString *dataHome = antigravity ? [home stringByAppendingPathComponent:@"antigravity-cli"] : home;
         // 官方 Home 是唯一允许自动发现的目录：已有目录直接登记；CLI 已安装但首次尚未
         // 生成目录时创建它。其他任何相似目录都只能由用户从菜单手动添加。
-        if (!homeExists && !cliInstalled) continue;
-        NSError *directoryError = nil;
-        if (!homeExists && ![NSFileManager.defaultManager createDirectoryAtPath:home
-                withIntermediateDirectories:YES attributes:nil error:&directoryError]) {
-            if (errorMessage) *errorMessage = directoryError.localizedDescription;
-            return NO;
+        if (!CCPetsDirectoryExists(dataHome) && !(antigravity && CCPetsProfileHomeMatchesProvider(provider, home))) {
+            BOOL cliInstalled;
+            if (antigravity) cliInstalled = CCPetsFindRealExecutable(@"agy", @"AGY_REAL_BIN") != nil;
+            else if ([provider isEqualToString:CCPetsProfileProviderClaude]) cliInstalled = CCPetsClaudeCLIInstalled();
+            else cliInstalled = CCPetsCodexCLIInstalled();
+            if (!cliInstalled) continue;
+            NSError *directoryError = nil;
+            if (![NSFileManager.defaultManager createDirectoryAtPath:dataHome
+                    withIntermediateDirectories:YES attributes:nil error:&directoryError]) {
+                if (errorMessage) *errorMessage = directoryError.localizedDescription;
+                return NO;
+            }
         }
         if (!CCPetsRegisterProfile(provider, home, nil, nil, errorMessage)) return NO;
     }
@@ -363,38 +386,55 @@ static NSString *ValueAfter(NSArray<NSString *> *arguments, NSString *flag) {
     return index != NSNotFound && index + 1 < arguments.count ? arguments[index + 1] : nil;
 }
 
-static int AdaptProfile(NSDictionary *profile) {
+static BOOL PrintReport(NSArray<NSString *> *report) {
+    BOOL succeeded = YES;
+    for (NSString *line in report) {
+        BOOL failed = [line hasPrefix:@"ERROR: "];
+        CCPetsPrintLine(failed ? stderr : stdout, line);
+        if (failed) succeeded = NO;
+    }
+    return succeeded;
+}
+
+static int InstallProfileHooks(NSDictionary *profile) {
     NSString *provider = profile[@"provider"], *home = profile[@"home"];
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+        return PrintReport(CCPetsInstallAntigravityPetHooks(profile)) ? 0 : 1;
+    }
+    if ([provider isEqualToString:CCPetsProfileProviderClaude]) {
+        return InstallClaudeHooksAtHome(CCPetsExecutablePath(), home);
+    }
+    return InstallCodexHooksAtHome(CCPetsExecutablePath(), home);
+}
+
+static int UninstallProfileHooks(NSDictionary *profile) {
+    NSString *provider = profile[@"provider"], *home = profile[@"home"];
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+        BOOL installed = CCPetsAntigravityPetHooksInstalled(profile);
+        if (!CCPetsRemoveAntigravityPetHooks(profile)) return 1;
+        if (installed) CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"Removed the CC Pets hooks in %@."), home]);
+        return 0;
+    }
+    if ([provider isEqualToString:CCPetsProfileProviderClaude]) return UninstallClaudeHooksAtHome(home);
+    return UninstallCodexHooksAtHome(home);
+}
+
+static int AdaptProfile(NSDictionary *profile) {
     CCPetsPrintLine(stdout, @"stage=hooks");
-    int status = [provider isEqualToString:CCPetsProfileProviderClaude]
-        ? InstallClaudeHooksAtHome(CCPetsExecutablePath(), home)
-        : InstallCodexHooksAtHome(CCPetsExecutablePath(), home);
-    if (status != 0) {
+    int status;
+    @try {
+        status = InstallProfileHooks(profile);
+        if (status == 0 && CCBridgeEnabled()) {
+            CCPetsPrintLine(stdout, @"stage=bridge");
+            if (!PrintReport(CCBridgeInstallForProfile(profile, CCBridgeOptions(), YES))) status = 1;
+        }
+    } @catch (NSException *exception) {
         CCPetsSetProfileNeedsRepair(profile[@"id"], YES, NULL);
-        return status;
+        @throw;
     }
-    if (CCBridgeEnabled()) {
-        CCPetsPrintLine(stdout, @"stage=bridge");
-        NSArray<NSString *> *report = nil;
-        @try {
-            report = CCBridgeInstallForProfile(profile, CCBridgeOptions(), YES);
-        } @catch (NSException *exception) {
-            CCPetsSetProfileNeedsRepair(profile[@"id"], YES, NULL);
-            @throw;
-        }
-        BOOL bridgeFailed = NO;
-        for (NSString *line in report) {
-            CCPetsPrintLine([line hasPrefix:@"ERROR: "] ? stderr : stdout, line);
-            if ([line hasPrefix:@"ERROR: "]) bridgeFailed = YES;
-        }
-        if (bridgeFailed) {
-            CCPetsSetProfileNeedsRepair(profile[@"id"], YES, NULL);
-            return 1;
-        }
-    }
-    CCPetsPrintLine(stdout, @"stage=verify");
-    CCPetsSetProfileNeedsRepair(profile[@"id"], NO, NULL);
-    return 0;
+    if (status == 0) CCPetsPrintLine(stdout, @"stage=verify");
+    CCPetsSetProfileNeedsRepair(profile[@"id"], status != 0, NULL);
+    return status;
 }
 
 int CCPetsProfileCommandMain(NSArray<NSString *> *arguments) {
@@ -468,12 +508,9 @@ int CCPetsProfileCommandMain(NSArray<NSString *> *arguments) {
             int status = AdaptProfile(profile);
             if (status != 0) return status;
             if (![oldProfile[@"home"] isEqualToString:profile[@"home"]]) {
-                for (NSString *line in CCBridgeUninstallForProfile(oldProfile, CCBridgeShouldTouchMCP())) {
-                    CCPetsPrintLine(stdout, line);
-                }
-                status = [oldProfile[@"provider"] isEqualToString:CCPetsProfileProviderClaude]
-                    ? UninstallClaudeHooksAtHome(oldProfile[@"home"])
-                    : UninstallCodexHooksAtHome(oldProfile[@"home"]);
+                BOOL bridgeRemoved = PrintReport(CCBridgeUninstallForProfile(oldProfile, CCBridgeShouldTouchMCP()));
+                status = UninstallProfileHooks(oldProfile);
+                if (!bridgeRemoved && status == 0) status = 1;
             }
             return status;
         }
@@ -481,16 +518,10 @@ int CCPetsProfileCommandMain(NSArray<NSString *> *arguments) {
             NSString *profileID = ValueAfter(arguments, @"--id");
             NSDictionary *profile = CCPetsProfileWithID(profileID);
             if (!profile) { CCPetsPrintLine(stderr, @"Profile not found."); return 1; }
-            BOOL bridgeFailed = NO;
-            for (NSString *line in CCBridgeUninstallForProfile(profile, CCBridgeShouldTouchMCP())) {
-                CCPetsPrintLine([line hasPrefix:@"ERROR: "] ? stderr : stdout, line);
-                if ([line hasPrefix:@"ERROR: "]) bridgeFailed = YES;
-            }
-            int status = [profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude]
-                ? UninstallClaudeHooksAtHome(profile[@"home"])
-                : UninstallCodexHooksAtHome(profile[@"home"]);
+            BOOL bridgeRemoved = PrintReport(CCBridgeUninstallForProfile(profile, CCBridgeShouldTouchMCP()));
+            int status = UninstallProfileHooks(profile);
             if (status != 0) return status;
-            if (bridgeFailed) {
+            if (!bridgeRemoved) {
                 CCPetsSetProfileNeedsRepair(profileID, YES, NULL);
                 return 1;
             }

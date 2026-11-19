@@ -4,6 +4,7 @@
 @property(copy) void (^changeHandler)(NSDictionary<NSString *, NSDictionary *> *usageByProvider);
 @property(readonly, copy) NSDictionary<NSString *, NSDictionary *> *usageByProvider;
 // profileId → 当前用量；profiles 保持用户添加顺序。默认账号同时保留在 usageByProvider 中。
+// 默认 Antigravity 账号的 appTokenUsage 单独记录 App 的本机用量。
 @property(readonly) NSDictionary<NSString *, NSDictionary *> *profileUsages;
 @property(readonly) NSArray<NSDictionary *> *profiles;
 - (void)start;

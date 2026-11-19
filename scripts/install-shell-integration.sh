@@ -6,6 +6,7 @@ PROJECT_DIR="${SCRIPT_DIR:h}"
 source "${PROJECT_DIR}/scripts/i18n.zsh"
 LAUNCHER="${PROJECT_DIR}/bin/codex-with-pet"
 CLAUDE_LAUNCHER="${PROJECT_DIR}/bin/claude-with-pet"
+AGY_LAUNCHER="${PROJECT_DIR}/bin/agy-with-pet"
 SHELL_RC="${ZDOTDIR:-${HOME}}/.zshrc"
 SHIM_DIR="${CC_PETS_SHIM_DIR:-${HOME}/.cc-pets/shims}"
 SHIM_START_MARKER="# >>> cc-pets-shims >>>"
@@ -69,6 +70,10 @@ fi
 mkdir -p "${SHIM_DIR}"
 ln -sfn "${LAUNCHER}" "${SHIM_DIR}/codex"
 ln -sfn "${CLAUDE_LAUNCHER}" "${SHIM_DIR}/claude"
+if [[ ! -e "${SHIM_DIR}/agy" && ! -L "${SHIM_DIR}/agy" ]] || \
+   [[ -L "${SHIM_DIR}/agy" && "$(readlink "${SHIM_DIR}/agy")" == */bin/agy-with-pet ]]; then
+  ln -sfn "${AGY_LAUNCHER}" "${SHIM_DIR}/agy"
+fi
 
 if ! grep -Fq "${SHIM_START_MARKER}" "${SHELL_RC}" 2>/dev/null; then
   {

@@ -195,15 +195,18 @@
 "Delete %@" = "删除素材 %@";
 "%@ usage display" = "%@ 用量展示模式";
 "Enable" = "启用";
-"Let local Claude Code / Codex sessions message and wake each other and reserve files" = "让本机 Claude Code / Codex 会话互相发消息、唤醒对方、预留文件";
+"Let local Agent sessions exchange messages, wake supported sessions, and reserve files" = "让本机 Agent 会话互相发消息、唤醒可唤醒的会话并预留文件";
 "\nBelow: online sessions · active file reservations" = "\n下方为在线会话数 · 有效的文件预留数";
 "%lu sessions · %lu reserved" = "%lu 会话 · %lu 预留";
 "Auto-wake" = "自动唤醒";
+"Tab nicknames" = "标签昵称";
+"Append CC Bridge nicknames to terminal tab titles. Restart CLI sessions after turning this on." = "在终端标签标题末尾追加 CC Bridge 昵称。开启后，请重启 CLI 会话。";
+"Bridge nicknames in tab titles: {tabTitle}" = "终端标签昵称：{tabTitle}";
 "Wake idle sessions automatically. When off, messages wait in the inbox until that session's next input, which saves tokens. Codex needs a session restart" = "自动唤醒空闲会话。关闭后消息只进信箱，等对方下次收到你的输入时带入，可省 token；Codex 需重启会话生效";
 "Edit guard" = "编辑拦截";
 "Pause once with an explanation when editing a file another session reserved; retrying goes through. Codex needs a session restart" = "编辑他人预留的文件时先暂停一次并说明原因，重试即放行；Codex 需重启会话生效";
 "Auto-approve" = "免审批";
-"Each group applies to both Codex approvals and Claude permissions. Codex needs a session restart" = "每组同时作用于 Codex 免审批与 Claude 免确认；Codex 需重启会话生效";
+"Each group applies to the integrated Agents. Restart sessions to reload tool permissions" = "每组对已集成的 Agent 生效。请重启会话以加载工具权限";
 "Read" = "查看类";
 "Listing sessions, viewing reservations and reading the inbox. Read-only and safe" = "列出会话、查看预留、读取信箱免审批；只读，放开没有风险";
 "Send" = "发消息";
@@ -365,9 +368,9 @@
 "Removed the CC Pets hooks in %@." = "已移除 %@ 中的 CC Pets Hooks。";
 "Removed the CC Pets hooks in %@ and restored the original status line." = "已移除 %@ 中的 CC Pets Hooks，并恢复原 status line。";
 "%1$@ the CC Pets shell integration in %2$@." = "%1$@ %2$@ 中的 CC Pets shell 集成。";
-"%1$@ the codex / claude shims in %2$@." = "%1$@ %2$@ 中的 codex / claude shim。";
+"%1$@ the codex / claude / agy shims in %2$@." = "%1$@ %2$@ 中的 codex / claude / agy shim。";
 "No CC Pets integrations to remove." = "未发现需要移除的 CC Pets 集成。";
-"Usage: cc-pets bridge <command>\n\n  enable [options]       Turn on CC Bridge: write Claude Code / Codex hooks and register MCP\n  configure [options]    Change options while enabled (doesn't re-register MCP)\n  disable                Turn off and remove all CC Bridge integrations\n  status                 Show whether it's on and which sessions are online\n  list                   List online sessions\n  send <to> <message…>   Send as the current session (run inside an Agent session, or use --from)\n  name <new-name>        Rename the current session (run inside an Agent session, or use --from)\n  inbox                  Read the current session's inbox (for debugging)\n\nOptions (anything omitted keeps its current value):\n  --approve=<list>       Auto-approve in both Codex and Claude\n  --codex-approve=<list> Auto-approve in Codex only\n  --claude-allow=<list>  Allow without asking in Claude only\n                         Use groups view, send, reserve, name, or tool names; pass an empty value to clear\n  --wake=on|off          Wake idle sessions automatically (off saves tokens; messages arrive with the next user input)\n  --edit-guard=on|off    Pause once when editing a file another session reserved\n\nName a session at launch: CC_BRIDGE_NAME=frontend claude (or codex)\n\nCC Bridge lets local Claude Code and Codex terminal sessions find, message and wake each other.\nMessage bodies are stored in a local temp directory readable only by you. Off by default." = "用法: cc-pets bridge <命令>\n\n  enable [选项]          开启 CC Bridge：写入 Claude Code / Codex hooks 并注册 MCP\n  configure [选项]       已开启时只修改选项（不重新注册 MCP）\n  disable                关闭并移除所有 CC Bridge 集成\n  status                 查看开关状态与在线会话\n  list                   列出在线会话\n  send <to> <消息…>      以当前会话身份发送（需在 Agent 会话内执行，或用 --from 指定）\n  name <新名字>          修改当前会话的名字（需在 Agent 会话内执行，或用 --from 指定）\n  inbox                  读取当前会话信箱（调试用）\n\n选项（没给的保持原值）：\n  --approve=<列表>       Codex 与 Claude 同时免审批\n  --codex-approve=<列表> 只设 Codex 免审批\n  --claude-allow=<列表>  只设 Claude 免确认\n                         列表可写分组 view, send, reserve, name，或具体工具名；传空值表示清空\n  --wake=on|off          自动唤醒空闲会话（关闭可省 token，消息等对方下次收到用户输入时带入）\n  --edit-guard=on|off    编辑他人预留的文件时暂停一次\n\n启动时指定会话名：CC_BRIDGE_NAME=frontend claude（或 codex）\n\nCC Bridge 让本机的 Claude Code 与 Codex 终端会话互相发现、发消息、唤醒对方。\n消息正文会保存在本机临时目录（仅当前用户可读），默认关闭。";
+"Usage: cc-pets bridge <command>\n\n  enable [options]       Turn on CC Bridge: install Agent hooks and register MCP\n  configure [options]    Change options while enabled (doesn't re-register MCP)\n  disable                Turn off and remove all CC Bridge integrations\n  status                 Show whether it's on and which sessions are online\n  list                   List online sessions\n  send <to> <message…>   Send as the current session (run inside an Agent session, or use --from)\n  name <new-name>        Rename the current session (run inside an Agent session, or use --from)\n  inbox                  Read the current session's inbox (for debugging)\n\nOptions (anything omitted keeps its current value):\n  --approve=<list>       Auto-approve in both Codex and Claude\n  --codex-approve=<list> Auto-approve in Codex only\n  --claude-allow=<list>  Allow without asking in Claude only\n  --agy-allow=<list>     Allow without asking in Antigravity only\n                         Use groups view, send, reserve, name, or tool names; pass an empty value to clear\n  --agy-app=on|off       Enable or disable the Antigravity App Sidecar (off by default)\n  --tab-title=on|off     Append Bridge nicknames to CLI terminal titles (off by default)\n  --wake=on|off          Wake supported idle sessions automatically (off saves tokens; messages arrive with the next user input)\n  --edit-guard=on|off    Pause once when editing a file another session reserved\n\nName a session at launch: CC_BRIDGE_NAME=frontend claude (or codex, or agy)\n\nCC Bridge connects local Claude Code, Codex and Antigravity sessions.\nMessage bodies are stored in a local temp directory readable only by you. Off by default." = "用法: cc-pets bridge <命令>\n\n  enable [选项]          开启 CC Bridge：安装 Agent Hooks 并注册 MCP\n  configure [选项]       已开启时只修改选项（不重新注册 MCP）\n  disable                关闭并移除所有 CC Bridge 集成\n  status                 查看开关状态与在线会话\n  list                   列出在线会话\n  send <to> <消息…>      以当前会话身份发送（需在 Agent 会话内执行，或用 --from 指定）\n  name <新名字>          修改当前会话的名字（需在 Agent 会话内执行，或用 --from 指定）\n  inbox                  读取当前会话信箱（调试用）\n\n选项（没给的保持原值）：\n  --approve=<列表>       Codex 与 Claude 同时免审批\n  --codex-approve=<列表> 只设 Codex 免审批\n  --claude-allow=<列表>  只设 Claude 免确认\n  --agy-allow=<列表>     只设 Antigravity 免确认\n                         列表可写分组 view, send, reserve, name，或具体工具名；传空值表示清空\n  --agy-app=on|off       启用或关闭 Antigravity App Sidecar（默认关闭）\n  --tab-title=on|off     在 CLI 终端标签标题末尾追加 Bridge 昵称（默认关闭）\n  --wake=on|off          自动唤醒支持此功能的空闲会话（关闭可省 token，消息等对方下次收到用户输入时带入）\n  --edit-guard=on|off    编辑他人预留的文件时暂停一次\n\n启动时指定会话名：CC_BRIDGE_NAME=frontend claude（也可用 codex 或 agy）\n\nCC Bridge 连接本机的 Claude Code、Codex 和 Antigravity 会话。\n消息正文会保存在本机临时目录（仅当前用户可读），默认关闭。";
 "No sessions online." = "没有在线会话。";
 "pending" = "待投递";
 "[cc-bridge file reservation] This edit is paused once: the files below are reserved by another Agent session on this machine." = "[cc-bridge 文件预留] 这次编辑先暂停一次：以下文件已被本机另一个 Agent 会话预留。";
@@ -381,13 +384,13 @@
 "Users may also call it “pet”, “desktop pet”, “桌宠” or “cc-pets”: “send this to web with pet”, “have the pet tell api”, “pet, who's online?” " = "用户也会把它叫作“pet”“桌宠”“cc-pets”：“用 pet 发给 web”“让桌宠转告 api”“pet 看看谁在线”";
 "and “reserve src/api with pet” all mean this tool. It only counts when it's about messaging other sessions, listing sessions or reserving files; " = "“用 pet 预留 src/api”都指本工具。只有涉及给其他会话发消息、查看会话、预留文件时才算；";
 "“add a field to pet” or “the pet API” refer to a pet in the code, so don't call this tool for those." = "“给 pet 加个字段”“pet 接口”这类说的是业务代码里的 pet，不要调用本工具。";
-"List the other Claude Code / Codex terminal sessions running on this machine that can exchange messages (cc-pets CC Bridge; " = "列出本机正在运行、可以互发消息的其他 Claude Code / Codex 终端会话（cc-pets CC Bridge，";
+"List other local sessions that can receive CC Bridge messages, including Claude Code, Codex, and Antigravity CLI sessions (" = "列出本机其他可接收 CC Bridge 消息的会话，包括 Claude Code、Codex 和Antigravity CLI（";
 "this is what the user means by “bridge”, “cc-bridge”, “other sessions” or “another terminal”). " = "用户说“bridge”“cc-bridge”“其他会话”“另一个终端”时指的就是它）。";
 "Each line shows: name [ref], CLI, busy/idle, terminal (tty), start time, working directory. " = "每行依次是：名字 [ref]、CLI、忙闲状态、所在终端（tty）、启动时间、工作目录。";
 "The name is the send_message address; append ` [ref]` only when names collide. " = "名字就是 send_message 的地址；只有重名时才需要在名字后加上 ` [ref]`。";
 "When the user describes a target by terminal (e.g. ttys003) or directory, use this to find its name." = "用户用终端（如 ttys003）或目录描述目标时，据此找到对应的名字。";
 "List Agent sessions" = "列出 Agent 会话";
-"Send a message to another Claude Code / Codex session on this machine (what the user means by “message it via bridge” or “send to another session / terminal”). " = "给本机另一个 Claude Code / Codex 会话发消息（用户说“用 bridge 发消息”“发给另一个会话 / 终端”即指此工具）。";
+"Send a message to another CC Bridge session on this machine (what the user means by “message it via bridge” or “send to another session / terminal”). " = "给本机另一个 CC Bridge 会话发消息（用户说“用 bridge 发消息”“发给另一个会话 / 终端”即指此工具）。";
 "An idle recipient is woken; a busy one gets it after its current turn. " = "对方空闲时会被唤醒，忙碌时排在当前回合之后。";
 "Delivery doesn't mean it was read or agreed to; replies arrive as new messages in this session. " = "送达不代表对方已读或同意；对方回复会作为新消息出现在本会话里。";
 "When replying, put the from name from the message header into to." = "回复收到的消息时，把消息头里的 from 名字填到 to。";
@@ -441,7 +444,7 @@
 "File reservations in {root} ({length}):\n" = "{root} 的文件预留（{length}）：\n";
 "No new messages in the inbox." = "信箱里没有新消息。";
 "Unknown tool: {name}" = "未知工具：{name}";
-"cc-pets CC Bridge: exchange messages with other Claude Code / Codex terminal sessions on this machine. " = "cc-pets CC Bridge：与本机其他 Claude Code / Codex 终端会话互发消息。";
+"cc-pets CC Bridge: exchange messages with local Claude Code, Codex, and Antigravity CLI sessions. " = "cc-pets CC Bridge：与本机的 Claude Code、Codex 和 Antigravity CLI 会话互发消息。";
 "When the user mentions cc-bridge, bridge, pet, desktop pet, 桌宠, cc-pets, cross-session / cross-terminal messages, " = "当用户提到 cc-bridge、bridge、pet、桌宠、cc-pets、跨会话 / 跨终端消息、";
 "“message another session / terminal / Claude / Codex”, or names a session or tty (e.g. ttys003), " = "“给另一个会话 / 终端 / Claude / Codex 发消息”，或提到某个会话名、tty（如 ttys003）时，";
 "use this server's tools directly; there's no need to look up bridge usage in project files. " = "直接使用本服务器的工具，不需要在项目文件里查找 bridge 的用法。";
@@ -482,6 +485,8 @@
 "[cc-pets idle notice] {target} finished its current turn and is now idle. " = "[cc-pets 空闲通知] {target} 已完成当前回合，现在处于空闲状态。";
 "This is an automatic notice, not an instruction from anyone." = "这是自动通知，不是来自某个人的指令。";
 "Delivered to {name}'s input queue ({status}). Delivery doesn't mean it was read or agreed to." = "已送达 {name} 的输入队列（{status}）。送达不代表对方已读或同意。";
+"Submitted the message as a prompt to {name}." = "已将消息作为提示词提交给 {name}。";
+"If the cc-bridge MCP server is configured, reply to {name} using that server's send_message tool." = "如果已配置 cc-bridge MCP server，请用该服务的 send_message 工具回复 {name}。";
 "busy; it will be handled after the current turn" = "对方忙碌，将在当前回合结束后处理";
 "idle; it was woken up" = "对方空闲，已被唤醒";
 "Put in {name}'s inbox (auto-wake is off): it will be read with the next user input, or via check_inbox." = "已放入 {name} 的信箱（未开启自动唤醒）：对方下次收到用户输入时读到，也可以让对方用 check_inbox 读取。";
@@ -564,6 +569,7 @@
 "{stale} {name} hooks point to cc-pets elsewhere (the package was moved or reinstalled)" = "{name} Hooks 中有 {stale} 条指向其他位置的 cc-pets（包被移动或重装过）";
 "{stale} {name} hook points to cc-pets elsewhere (the package was moved or reinstalled)" = "{name} Hooks 中有 {stale} 条指向其他位置的 cc-pets（包被移动或重装过）";
 "{name} hooks installed ({total} events)" = "{name} Hooks 已安装（{total} 个事件）";
+"{name} hooks installed" = "{name} Hooks 已安装";
 "{name} config still has {legacy} old codex-pet hooks" = "{name} 配置里残留 {legacy} 条旧版 codex-pet Hooks";
 "{name} config still has {legacy} old codex-pet hook" = "{name} 配置里残留 {legacy} 条旧版 codex-pet Hooks";
 "Claude status line feeds quota data through the wrapper" = "Claude status line 已通过包装器接入额度采集";
@@ -578,9 +584,9 @@
 "Shims complete: {shimDirectory}" = "shim 完整：{shimDirectory}";
 "Shim problems: {broken}" = "shim 异常：{broken}";
 "source {shellRC}, or open a new terminal" = "source {shellRC}，或新开一个终端";
-"This terminal's PATH lacks the shim directory, so typing codex / claude won't start the pet" = "当前终端的 PATH 里没有 shim 目录，直接敲 codex / claude 不会拉起桌宠";
+"This terminal's PATH lacks the shim directory, so the Agent launchers won't start the pet" = "当前终端的 PATH 里没有 shim 目录，直接运行 Agent CLI 时无法拉起桌宠";
 "{shadowing} comes before the shim directory in PATH and bypasses the pet" = "PATH 中 {shadowing} 排在 shim 目录之前，会绕过桌宠";
-"The shim directory comes before the real codex / claude in PATH" = "PATH 中 shim 目录优先于真实的 codex / claude";
+"The shim directory comes before the real Agent binaries in PATH" = "PATH 中 shim 目录优先于真实的 Agent CLI 程序";
 "The shim directory is first in PATH" = "PATH 中 shim 目录排在最前";
 "Found the real {name}: {real}" = "找到真实的 {name}：{real}";
 "The real {name} isn't in PATH, so the shim can't forward to it" = "PATH 中找不到真实的 {name}，shim 无法转发";
@@ -661,6 +667,7 @@
 "CC_PETS_SOURCE points to an unknown source \"{DEFAULT_SOURCE}\". Available sources: {SOURCES}" = "CC_PETS_SOURCE 指向未知的源 \"{DEFAULT_SOURCE}\"。可用的源: {SOURCES}";
 "Unknown subcommand: {command}" = "未知子命令: {command}";
 "No executable Codex CLI found. Install codex, or set CODEX_REAL_BIN to its real path." = "未找到可执行的 Codex CLI。请先安装 codex，或通过 CODEX_REAL_BIN 指定真实路径。";
+"No executable Antigravity CLI found. Install agy, or set AGY_REAL_BIN to its real path." = "未找到可执行的 Antigravity CLI。请先安装 agy，或通过 AGY_REAL_BIN 指定真实路径。";
 "No executable Claude Code CLI found. Install claude, or set CLAUDE_REAL_BIN to its real path." = "未找到可执行的 Claude Code CLI。请先安装 claude，或通过 CLAUDE_REAL_BIN 指定真实路径。";
 "Failed to install CC Pets.app; the existing app was kept." = "安装 CC Pets.app 失败，已保留原应用。";
 "App installed: {targetApp}" = "应用已安装: {targetApp}";
@@ -681,7 +688,7 @@
 "Refusing to delete: {targetApp} isn't the CC Pets app (bundle ID mismatch)." = "拒绝删除：{targetApp} 不是 CC Pets 应用（Bundle ID 不匹配）。";
 "App removed: {targetApp}" = "已删除应用: {targetApp}";
 "App not installed: {targetApp}" = "未安装应用: {targetApp}";
-"Usage: cc-pets [command]\n\n  cc-pets                    Start the pet (prefers the copy installed in ~/Applications)\n  cc-pets install            Install or repair the shell / Claude Code / Codex integrations\n  cc-pets uninstall          Remove the integrations and restore the status line\n  cc-pets uninstall --purge  Also delete the app, app data and preferences (asks first; keeps pets and lines in ~/.cc-pets)\n  cc-pets uninstall-app      Only delete ~/Applications/CC Pets.app\n  cc-pets build              Rebuild\n  cc-pets clean              Clear caches (quit the pet first)\n  cc-pets doctor             Check the installation and integrations, with suggested fixes\n  cc-pets open [page]        Open the Main menu (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics)\n  cc-pets paths [--json]     List where settings, caches and data live, and their sizes\n  cc-pets pet <command>      Manage pet sprites; see cc-pets pet help\n  cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help\n  cc-pets --status           Print the current Codex quota\n  cc-pets --history          Print quota history (JSON)\n  cc-pets --foreground       Run the pet in the foreground (for debugging)\n  cc-pets -v, --version      Show the version\n  cc-pets -h, --help         Show this help\n\ncodex-with-pet / claude-with-pet start the pet along with the CLI." = "用法：cc-pets [命令]\n\n  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）\n  cc-pets install            安装或修复 shell / Claude Code / Codex 集成\n  cc-pets uninstall          移除集成并恢复 status line\n  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）\n  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app\n  cc-pets build              重新构建\n  cc-pets clean              清理缓存（需先退出桌宠）\n  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议\n  cc-pets open [页面]        打开主菜单（页面：overview、sessions、usage、pet、accounts、alerts、general、diagnostics）\n  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小\n  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help\n  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help\n  cc-pets --status           输出 Codex 当前额度\n  cc-pets --history          输出额度历史（JSON）\n  cc-pets --foreground       在前台运行桌宠（调试用）\n  cc-pets -v, --version      显示版本\n  cc-pets -h, --help         显示本帮助\n\ncodex-with-pet / claude-with-pet 会在启动 CLI 的同时拉起桌宠。";
+"Usage: cc-pets [command]\n\n  cc-pets                    Start the pet (prefers the copy installed in ~/Applications)\n  cc-pets install            Install or repair the shell / Claude Code / Codex integrations\n  cc-pets uninstall          Remove the integrations and restore the status line\n  cc-pets uninstall --purge  Also delete the app, app data and preferences (asks first; keeps pets and lines in ~/.cc-pets)\n  cc-pets uninstall-app      Only delete ~/Applications/CC Pets.app\n  cc-pets build              Rebuild\n  cc-pets clean              Clear caches (quit the pet first)\n  cc-pets doctor             Check the installation and integrations, with suggested fixes\n  cc-pets open [page]        Open the Main menu (pages: overview, sessions, usage, pet, accounts, alerts, general, diagnostics)\n  cc-pets paths [--json]     List where settings, caches and data live, and their sizes\n  cc-pets pet <command>      Manage pet sprites; see cc-pets pet help\n  cc-pets bridge <command>   CC Bridge cross-session messaging; see cc-pets bridge --help\n  cc-pets --status           Print the current Codex quota\n  cc-pets --history          Print quota history (JSON)\n  cc-pets --foreground       Run the pet in the foreground (for debugging)\n  cc-pets -v, --version      Show the version\n  cc-pets -h, --help         Show this help\n\ncodex-with-pet / claude-with-pet / agy-with-pet start the pet along with the CLI." = "用法：cc-pets [命令]\n\n  cc-pets                    启动桌宠（优先使用 ~/Applications 里安装的版本）\n  cc-pets install            安装或修复 shell / Claude Code / Codex 集成\n  cc-pets uninstall          移除集成并恢复 status line\n  cc-pets uninstall --purge  同时删除 App、应用数据和偏好（会先确认；保留 ~/.cc-pets 的素材与台词）\n  cc-pets uninstall-app      只删除 ~/Applications/CC Pets.app\n  cc-pets build              重新构建\n  cc-pets clean              清理缓存（需先退出桌宠）\n  cc-pets doctor             检查安装与各项集成是否正常，并给出修复建议\n  cc-pets open [页面]        打开主菜单（页面：overview、sessions、usage、pet、accounts、alerts、general、diagnostics）\n  cc-pets paths [--json]     列出配置、缓存与数据的存放位置和大小\n  cc-pets pet <命令>         管理桌宠素材，详见 cc-pets pet help\n  cc-pets bridge <命令>      CC Bridge 跨会话消息，详见 cc-pets bridge --help\n  cc-pets --status           输出 Codex 当前额度\n  cc-pets --history          输出额度历史（JSON）\n  cc-pets --foreground       在前台运行桌宠（调试用）\n  cc-pets -v, --version      显示版本\n  cc-pets -h, --help         显示本帮助\n\ncodex-with-pet / claude-with-pet / agy-with-pet 会在启动 CLI 的同时拉起桌宠。";
 "Main menu" = "主菜单";
 "Settings…" = "设置…";
 "Window" = "窗口";
@@ -812,6 +819,8 @@
 "Agent profiles" = "Agent 配置";
 "Add Claude Home…" = "添加 Claude Home…";
 "Add Codex Home…" = "添加 Codex Home…";
+"Add Antigravity Home…" = "添加 Antigravity Home…";
+"Provider must be claude, codex, or antigravity." = "Provider 必须是 claude、codex 或 antigravity。";
 "Repair Integration" = "修复集成";
 "Remove Integration…" = "移除集成…";
 "Agent Profile Setup" = "Agent 配置适配";
@@ -819,6 +828,7 @@
 "Choose Home" = "选择 Home";
 "Choose an existing Claude Home folder, such as ~/.claude-work." = "选择已有的 Claude Home 文件夹，例如 ~/.claude-work。";
 "Choose an existing Codex Home folder, such as ~/.codex-work." = "选择已有的 Codex Home 文件夹，例如 ~/.codex-work。";
+"Choose a Gemini root folder containing the antigravity-cli directory." = "选择包含 antigravity-cli 子目录的 Gemini 根目录。";
 "This folder doesn't look like an Agent Home" = "这个文件夹不像 Agent Home";
 "Choose a folder containing Claude settings, state, or projects." = "请选择包含 Claude 设置、状态或项目数据的文件夹。";
 "Choose a folder containing Codex config, hooks, or sign-in state." = "请选择包含 Codex 配置、Hooks 或登录状态的文件夹。";
@@ -836,6 +846,7 @@
 "Agent Profile Setup Failed" = "Agent 配置适配失败";
 "The Claude Home is integrated. Restart Claude to load newly registered MCP tools." = "Claude Home 已集成。请重启 Claude 以加载新注册的 MCP 工具。";
 "The Codex Home is integrated. Restart Codex, then trust the CC Pets hooks in /hooks." = "Codex Home 已集成。请重启 Codex，然后在 /hooks 中信任 CC Pets Hooks。";
+"The Antigravity CLI Home is integrated. Restart agy to load the updated hooks and tools." = "Antigravity CLI Home 已集成。请重启 agy 以加载更新后的 Hooks 和工具。";
 "Repairing %@" = "正在修复 %@";
 "The Agent profile integration was repaired." = "Agent 配置集成已修复。";
 "Remove integration for %@?" = "移除 %@ 的集成？";
@@ -843,7 +854,6 @@
 "Remove Integration" = "移除集成";
 "Removing %@" = "正在移除 %@";
 "The CC Pets integration was removed. The Agent Home and its data were kept." = "CC Pets 集成已移除，Agent Home 及其数据已保留。";
-"All accounts" = "全部账号";
 "No Agent accounts detected" = "尚未检测到账号";
 "Official Homes appear automatically" = "官方 Home 会自动显示";
 "Add custom Homes from Multi-Account in the Main menu" = "自定义 Home 请从主菜单的“多账号”中添加";
@@ -861,6 +871,10 @@
 "Relocating %@" = "正在重新定位 %@";
 "The Agent Home was relocated and its integration was updated." = "Agent Home 已重新定位，集成也已更新。";
 "Agent profile registry" = "Agent 配置注册表";
+"Agent shims" = "Agent shim 目录";
+"Antigravity CLI hooks" = "Antigravity CLI Hooks";
+"Antigravity CLI MCP config" = "Antigravity CLI MCP 配置";
+"Antigravity CLI settings" = "Antigravity CLI 设置";
 "Agent profile: %@" = "Agent 配置：%@";
 "No registered Agent profiles" = "没有已登记的 Agent 配置";
 "Some registered Agent profiles need repair; open Multi-Account in the Main menu and retry." = "部分已登记的账号需要修复；请打开主菜单的“多账号”后重试。";
@@ -868,8 +882,11 @@
 "No Agent Homes are registered; CC Bridge will be applied when you add one from Multi-Account in the Main menu." = "尚未登记 Agent Home；以后从主菜单的“多账号”添加时会自动接入 CC Bridge。";
 "CC Bridge hooks installed in %@" = "%@ 已安装 CC Bridge Hooks";
 "CC Bridge hooks missing in %@" = "%@ 缺少 CC Bridge Hooks";
+"CC Bridge hooks and MCP installed in %@" = "%@ 已安装 CC Bridge Hooks 和 MCP";
+"CC Bridge hooks or MCP missing in %@" = "%@ 缺少 CC Bridge Hooks 或 MCP";
+"Antigravity CLI reads Bridge messages on its next model invocation." = "Antigravity CLI 会在下次模型调用时读取 Bridge 消息。";
 "Agent usage account cards" = "Agent 用量账号卡片";
-"Click the arrows or page dots, swipe horizontally, or use the left and right arrow keys to switch accounts." = "点击箭头或页码圆点、横向滑动，或使用左右方向键切换账号。";
+"Use the arrows, page dots, or horizontal swipes to switch usage pages or accounts. Use the button below the cards to show more or fewer." = "点击箭头或页码圆点，或横向滑动，可切换用量页面或账号。点击卡片下方的按钮可展开或收起。";
 
 /* 多账号页面。 */
 "Add and manage Claude and Codex Homes." = "添加和管理 Claude、Codex 的 Home。";
@@ -877,7 +894,7 @@
 "Integrated" = "已集成";
 "Home unavailable" = "Home 不可用";
 "Needs repair" = "需要修复";
-"Use the buttons above to add an existing Claude or Codex Home." = "使用上方按钮添加已有的 Claude 或 Codex Home。";
+"Use the buttons above to add an existing Agent Home." = "使用上方按钮添加已有的 Agent Home。";
 
 "The target Codex Home is unknown; send input in that session to refresh its registration." = "无法确定接收方的 Codex Home；请在该会话发送输入以刷新注册信息。";
 
@@ -907,14 +924,17 @@
 
 /* 启动前代理检查 */
 "Launch Protection" = "启动保护";
-"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region" = "Shadowrocket 未连接，或出口为不支持的地区时，阻止启动 Claude / Codex";
+"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region. Antigravity only checks the connection." = "Shadowrocket 未连接，或出口为不支持的地区时，阻止启动 Claude / Codex。Antigravity 只检查连接状态。";
 "Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key." = "默认关闭。通过 CC Pets 包装器分别检查各服务的出口 IP 和地区，不验证账号或 API 密钥。";
 "CC Pets blocked {provider}: {reason}" = "CC Pets 已阻止启动 {provider}：{reason}";
 "Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接 Shadowrocket，选择中国大陆和香港以外的出口，并检查分流及 DNS 设置。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
+"Connect Shadowrocket to continue. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接 Shadowrocket 后继续。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
 "Unable to read the system VPN status." = "无法读取系统 VPN 状态。";
 "Shadowrocket is not connected. Opening the app alone is not enough." = "Shadowrocket 尚未连接，仅打开应用不代表代理已开启。";
 "No Shadowrocket VPN configuration was found." = "未找到 Shadowrocket 的 VPN 配置。";
-"Launch check expects claude or codex." = "启动检查需要指定 claude 或 codex。";
+"Launch check expects claude, codex or agy." = "启动检查需要指定 claude、codex 或 agy。";
+"CC Pets: checking Shadowrocket ..." = "CC Pets：正在检查 Shadowrocket 连接状态 ...";
+"CC Pets: Shadowrocket is connected." = "CC Pets：Shadowrocket 已连接。";
 "CC Pets: checking Shadowrocket and service exit regions ..." = "CC Pets：正在检查 Shadowrocket 连接状态及服务出口地区 ...";
 "The proxy or service hostname could not be resolved." = "无法解析代理或服务域名。";
 "TLS negotiation or certificate verification failed." = "TLS 握手或证书校验失败。";
@@ -1041,3 +1061,29 @@
 "No quota data" = "暂无额度数据";
 "API · This month %@" = "API · 本月 %@";
 "Credits · This month %@" = "积分计费 · 本月 %@";
+
+"Antigravity allow without asking: {agyAllow}" = "Antigravity 免确认：{agyAllow}";
+"Queued in {name}'s inbox. Antigravity CLI will read it on its next model invocation." = "已放入 {name} 的信箱，Antigravity CLI 会在下次调用模型时读取。";
+"The supplied session_id differs from the current Antigravity conversation." = "传入的 session_id 与当前 Antigravity 对话不一致。";
+"Expected a JSON object." = "配置必须是 JSON 对象。";
+"The Antigravity hook name is already in use." = "Antigravity Hook 名称已被使用。";
+"Antigravity CLI hooks configured in {path}." = "已在 {path} 配置 Antigravity CLI Hooks。";
+"The Antigravity MCP server name is already in use." = "Antigravity MCP 服务名称已被使用。";
+"Expected an Antigravity permissions object with an allow array." = "Antigravity 的 permissions 必须是对象，allow 必须是数组。";
+"Registered CC Bridge MCP for Antigravity CLI." = "已为 Antigravity CLI 注册 CC Bridge MCP。";
+"Removed CC Bridge MCP from Antigravity CLI." = "已从 Antigravity CLI 移除 CC Bridge MCP。";
+
+"Antigravity App integration: {agyApp}" = "Antigravity App 集成：{agyApp}";
+"Open Antigravity App once before enabling its CC Bridge integration." = "请先打开一次 Antigravity App，再启用它的 CC Bridge 集成。";
+"CC Bridge is unavailable for this Antigravity host." = "当前 Antigravity 宿主无法使用 CC Bridge。";
+"Delivered to the Antigravity App conversation {name}." = "已送入 Antigravity App 对话 {name}。";
+"Queued in {name}'s inbox. Idle Antigravity App conversations are woken by the Sidecar." = "已放入 {name} 的信箱。Sidecar 会唤醒空闲的 Antigravity App 对话。";
+"Antigravity App Sidecar configured" = "Antigravity App Sidecar 已配置";
+"Antigravity App Sidecar needs repair" = "Antigravity App Sidecar 需要修复";
+"The Antigravity sidecar name is already in use." = "Antigravity Sidecar 名称已被使用。";
+"Antigravity App Sidecar enabled." = "已启用 Antigravity App Sidecar。";
+"Antigravity App Sidecar disabled." = "已停用 Antigravity App Sidecar。";
+"Expand all" = "展开全部";
+"Show less" = "收起";
+"Quota Card Order" = "额度卡片顺序";
+"Drag to reorder cards in the hover panel" = "拖动调整悬停面板中的卡片顺序";

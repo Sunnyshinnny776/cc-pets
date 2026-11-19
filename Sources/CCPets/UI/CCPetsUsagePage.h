@@ -1,6 +1,6 @@
 #import <Cocoa/Cocoa.h>
 
-// 主窗口的「用量」页：本机 Claude Code / Codex 的 Token 用量，按模型分色堆叠的每日柱状图 + 模型表。
+// 主窗口的「用量」页：本机 Agent 的 Token 用量，按模型分色堆叠的每日柱状图 + 模型表。
 //
 // 数据来自 CCPetsModelUsage（本机会话日志，不联网），由 CCPetsUsageStore 在后台按最长的 90 天算一次，
 // 切换来源、区间、指标、模型都只在本地截取，不重算。页面显示期间每分钟问一次 loadIfStale，
@@ -11,11 +11,12 @@
 // 90 天的模型用量，用量页和概览页共用一份。数据层按请求的起点清理缓存，所以统一按最长窗口取，
 // 两页各取各的窗口会让较早的会话缓存被删了又重读。
 //
-// results：provider（claude / codex）-> CCPetsModelUsage 的返回值；还没算完时为 nil。
+// results：provider -> CCPetsModelUsage 的返回值；还没算完时为 nil。
 extern NSNotificationName const CCPetsUsageStoreDidChangeNotification;
+extern NSString *const CCPetsUsageProviderAntigravityApp;
 @interface CCPetsUsageStore : NSObject
 @property(class, nonatomic, readonly) NSDictionary<NSString *, NSDictionary *> *results;
-// profileId → 独立模型用量；providerResults 仍保留按 Provider 汇总，兼容概览页。
+// profileId → 独立模型用量。Antigravity App 只提供 results 中的独立来源。
 @property(class, nonatomic, readonly) NSDictionary<NSString *, NSDictionary *> *profileResults;
 @property(class, nonatomic, readonly) BOOL loading;
 // 没算过、结果超过两分钟、或者跨过了午夜就重算；正在算时不重复发起。算完发 CCPetsUsageStoreDidChangeNotification。

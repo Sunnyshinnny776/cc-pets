@@ -9,6 +9,10 @@
 // QuotaLogicalHeight 保留为两家都装时的高度（590），既是历史默认值，也是预览图尺寸。
 static const CGFloat QuotaHeaderHeight = 106;
 static const CGFloat QuotaSummaryHeight = 112;
+static const CGFloat QuotaSummaryRowHeight = 38;
+static const NSUInteger QuotaSummaryRowsPerPage = 2;
+static const NSUInteger QuotaCollapsedCardCount = 2;
+static const CGFloat QuotaCardsDisclosureHeight = 20;
 static const CGFloat QuotaBaseCardHeight = 152;
 static const CGFloat QuotaBlockGap = 12;
 // 原脚注区占用 44px；保留 12px 外边距，其余空间平均分给可见卡片。
@@ -32,6 +36,9 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 @property(copy) NSString *animatingCarouselProvider;
 @property NSTimeInterval carouselAnimationStartedAt;
 @property NSInteger carouselAnimationDirection;
+@property(copy) NSArray<NSString *> *animatingCardOrder;
+@property NSUInteger selectedSummaryPage;
+@property BOOL quotaCardsExpanded;
 @property(copy) NSString *dragCarouselProvider;
 @property NSPoint dragCarouselStartPoint;
 @property BOOL dragCarouselDidSwitch;
@@ -42,10 +49,19 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 // 主文件里实现、绘图 category 也要用的方法。
 - (NSArray<NSDictionary *> *)profilesForProvider:(NSString *)name;
 - (NSDictionary *)summaryUsageForProvider:(NSString *)name;
+- (NSDictionary *)summaryUsageForAntigravityApp;
 - (NSString *)displayNameForProvider:(NSString *)name;
 - (NSUInteger)selectedIndexForProvider:(NSString *)name;
+- (NSUInteger)summaryPageCount;
+- (NSUInteger)summaryPageIndex;
+- (NSRect)logicalSummaryPageArrowRectForDirection:(NSInteger)direction;
+- (NSRect)logicalSummaryPageDotRectAtIndex:(NSUInteger)index;
 - (NSRect)logicalSummaryRect;
 - (NSRect)logicalSummaryCellRectAtIndex:(NSUInteger)index;
+- (NSArray<NSString *> *)displayedCardProviders;
+- (BOOL)areQuotaCardsExpanded;
+- (NSRect)logicalCardsDisclosureRect;
+- (NSRect)logicalCardRectForProvider:(NSString *)target;
 - (NSDictionary *)quota:(NSDictionary *)usage key:(NSString *)key;
 - (NSDictionary *)tokenTotals:(NSDictionary *)usage key:(NSString *)key;
 - (NSString *)formattedTokenValue:(double)value;

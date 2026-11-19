@@ -162,7 +162,7 @@ static NSButton *ActionButton(NSString *title, BOOL prominent, void (^action)(vo
 
 #pragma mark 宠物卡
 
-// 今天的用量：取 90 天数据的最后一天（就是今天），两家相加。
+// 从每个来源的 90 天数据取最后一天，合计为今日用量。
 - (NSArray<NSArray<NSString *> *> *)todayStats {
     NSDictionary *results = CCPetsUsageStore.results;
     if (!results) {

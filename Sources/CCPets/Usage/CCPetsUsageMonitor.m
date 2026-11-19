@@ -17,6 +17,7 @@
 // 会让桌宠窗口迟迟不出现、切换展示模式时整个界面卡死。
 @interface CCPetsUsageMonitor ()
 @property dispatch_queue_t queue;
+@property dispatch_queue_t antigravityQueue;
 @property CodexUsageReader *codexReader;
 @property CCPetsCodexRateLimitsReader *codexRateLimitsReader;
 @property ClaudeUsageReader *claudeReader;
@@ -30,6 +31,8 @@
 @property NSMutableDictionary<NSString *, CodexUsageReader *> *codexProfileReaders;
 @property NSMutableDictionary<NSString *, CCPetsCodexRateLimitsReader *> *codexProfileRateReaders;
 @property NSMutableDictionary<NSString *, NSDictionary *> *codexProfileLiveUsages;
+@property NSMutableDictionary<NSString *, NSDictionary *> *antigravityProfileUsages;
+@property NSMutableDictionary<NSString *, NSObject *> *antigravityPendingRequests;
 @property NSMutableDictionary<NSString *, NSString *> *profileReaderHomes;
 @property NSDictionary *codexLiveUsage;
 @property FSEventStreamRef codexStream;
@@ -47,6 +50,12 @@
 // 窗口翻篇由 resets_at 兜底。只有"额度受限"标记有寿命——它没有窗口归属，实时查询连续
 // 失败时不能让一次旧的受限结论一直挂着。
 static const NSTimeInterval CodexLiveUsageTTL = 5 * 60.0;
+static const NSTimeInterval AntigravityQuotaUsageTTL = 5 * 60.0;
+
+static BOOL AntigravityHomeMatches(NSString *home, NSString *other) {
+    return [home.stringByStandardizingPath.stringByResolvingSymlinksInPath isEqualToString:
+        other.stringByStandardizingPath.stringByResolvingSymlinksInPath];
+}
 
 // 默认账号、自定义 Home、缓存恢复和实时回调共用同一条合并路径。
 // 用采样时间计龄，轮询旧缓存不会延长受限标记的寿命；窗口百分比仍按新旧快照择优。
@@ -149,6 +158,8 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         _queue = dispatch_queue_create("com.universewang.cc-pets.usage",
             dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
                 QOS_CLASS_UTILITY, 0));
+        _antigravityQueue = dispatch_queue_create("com.universewang.cc-pets.usage.antigravity",
+            dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         _codexReader = [CodexUsageReader new];
         _codexRateLimitsReader = [CCPetsCodexRateLimitsReader new];
         _claudeReader = [ClaudeUsageReader new];
@@ -156,6 +167,8 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         _codexProfileReaders = [NSMutableDictionary dictionary];
         _codexProfileRateReaders = [NSMutableDictionary dictionary];
         _codexProfileLiveUsages = [NSMutableDictionary dictionary];
+        _antigravityProfileUsages = [NSMutableDictionary dictionary];
+        _antigravityPendingRequests = [NSMutableDictionary dictionary];
         _profileReaderHomes = [NSMutableDictionary dictionary];
         // 桌宠是唯一的常驻读取者，摘要缓存由它维护并落盘。
         _codexReader.persistsCache = YES;
@@ -217,12 +230,58 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
     }
     if (changed) self.profileUsages = usages;
 }
+
+- (void)requestAntigravityUsageForProfile:(NSString *)profileID home:(NSString *)home {
+    if (self.antigravityPendingRequests[profileID]) return;
+    NSObject *request = [NSObject new];
+    self.antigravityPendingRequests[profileID] = request;
+    dispatch_queue_t destination = self.queue;
+    BOOL defaultCLI = AntigravityHomeMatches(home, DefaultAntigravityConfigDirectory());
+    BOOL includesApp = AntigravityHomeMatches(home, DefaultAntigravityAppConfigDirectory());
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(self.antigravityQueue, ^{
+        NSDictionary *quota = AntigravityRateLimitsForConfigDirectory(home);
+        NSDictionary *tokens = AntigravityTokenUsageForConfigDirectory(home);
+        NSDictionary *appTokens = includesApp && CCPetsAntigravityAppUsageAvailable()
+            ? AntigravityAppTokenUsageForConfigDirectory(home) : nil;
+        dispatch_async(destination, ^{
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf || !strongSelf.started ||
+                strongSelf.antigravityPendingRequests[profileID] != request) return;
+            [strongSelf.antigravityPendingRequests removeObjectForKey:profileID];
+            if (![strongSelf.profileReaderHomes[profileID] isEqualToString:home]) return;
+
+            NSDictionary *effectiveQuota = quota;
+            NSDictionary *previous = strongSelf.antigravityProfileUsages[profileID];
+            if (!quota && !CCPetsAntigravityUsesGeminiAPI(home) && [previous[@"sampledAt"] isKindOfClass:NSNumber.class] &&
+                NSDate.date.timeIntervalSince1970 - [previous[@"sampledAt"] doubleValue] < AntigravityQuotaUsageTTL) {
+                effectiveQuota = UsageByRemovingExpiredQuotaWindows(previous);
+            }
+            NSMutableDictionary *snapshot = [effectiveQuota mutableCopy] ?: [NSMutableDictionary dictionary];
+            snapshot[@"tokenUsage"] = tokens;
+            snapshot[@"appTokenUsage"] = appTokens;
+            NSDictionary *usage = snapshot.count > 0 ? [snapshot copy] : nil;
+            strongSelf.antigravityProfileUsages[profileID] = usage;
+            NSMutableDictionary *updated = [strongSelf.profileUsages mutableCopy];
+            updated[profileID] = usage;
+            strongSelf.profileUsages = updated;
+            if (defaultCLI) [strongSelf setUsage:usage forProvider:@"Antigravity"];
+            if (includesApp) {
+                [strongSelf setUsage:appTokens ? @{@"tokenUsage": appTokens} : nil forProvider:@"Antigravity App"];
+            }
+            [strongSelf publishChange];
+        });
+    });
+}
+
 - (void)refreshProfileUsages {
     NSArray<NSDictionary *> *profiles = CCPetsProfiles();
     NSMutableDictionary<NSString *, NSDictionary *> *usages = [NSMutableDictionary dictionary];
     NSMutableSet<NSString *> *liveIDs = [NSMutableSet set];
     NSString *defaultClaude = DefaultClaudeConfigDirectory().stringByStandardizingPath;
     NSString *defaultCodex = DefaultCodexHomeDirectory().stringByStandardizingPath;
+    NSDictionary *defaultAntigravityUsage = nil;
+    NSDictionary *appTokens = nil;
     for (NSDictionary *profile in profiles) {
         NSString *profileID = profile[@"id"], *provider = profile[@"provider"];
         NSString *home = [profile[@"home"] stringByStandardizingPath];
@@ -235,6 +294,8 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
             [self.codexProfileRateReaders[profileID] stop];
             [self.codexProfileRateReaders removeObjectForKey:profileID];
             [self.codexProfileLiveUsages removeObjectForKey:profileID];
+            [self.antigravityProfileUsages removeObjectForKey:profileID];
+            [self.antigravityPendingRequests removeObjectForKey:profileID];
         }
         self.profileReaderHomes[profileID] = home;
         NSDictionary *usage = nil;
@@ -282,6 +343,11 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
                 }
                 [rateReader refresh];
             }
+        } else if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+            usage = self.antigravityProfileUsages[profileID];
+            if (AntigravityHomeMatches(home, DefaultAntigravityConfigDirectory())) defaultAntigravityUsage = usage;
+            if (AntigravityHomeMatches(home, DefaultAntigravityAppConfigDirectory())) appTokens = usage[@"appTokenUsage"];
+            [self requestAntigravityUsageForProfile:profileID home:home];
         }
         if (usage) usages[profileID] = usage;
     }
@@ -298,8 +364,13 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         }
     }
     for (NSString *profileID in self.profileReaderHomes.allKeys.copy) {
-        if (![liveIDs containsObject:profileID]) [self.profileReaderHomes removeObjectForKey:profileID];
+        if ([liveIDs containsObject:profileID]) continue;
+        [self.profileReaderHomes removeObjectForKey:profileID];
+        [self.antigravityProfileUsages removeObjectForKey:profileID];
+        [self.antigravityPendingRequests removeObjectForKey:profileID];
     }
+    [self setUsage:defaultAntigravityUsage forProvider:@"Antigravity"];
+    [self setUsage:appTokens ? @{@"tokenUsage": appTokens} : nil forProvider:@"Antigravity App"];
     self.profiles = profiles;
     self.profileUsages = usages;
 }
@@ -435,6 +506,7 @@ static void CodexEventsCallback(ConstFSEventStreamRef streamRef,
         dispatch_source_cancel(self.claudeSource);
         self.claudeSource = nil;
     }
+    [self.antigravityPendingRequests removeAllObjects];
 }
 - (void)dealloc {
     [self stop];

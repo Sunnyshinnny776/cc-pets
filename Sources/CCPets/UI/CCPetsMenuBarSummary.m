@@ -81,15 +81,18 @@ NSString *CCPetsMenuBarApprovalSessionID(NSArray<NSDictionary *> *sessions) {
 NSNumber *CCPetsMenuBarTodayTokens(NSArray<NSDictionary *> *quotas) {
     BOOL found = NO;
     unsigned long long total = 0;
+    NSArray<NSString *> *tokenSources = @[@"tokenUsage", @"appTokenUsage"];
     for (NSDictionary *quota in quotas) {
         if (![quota isKindOfClass:NSDictionary.class]) continue;
         NSDictionary *usage = [quota[@"usage"] isKindOfClass:NSDictionary.class] ? quota[@"usage"] : nil;
-        NSDictionary *tokens = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class] ? usage[@"tokenUsage"] : nil;
-        NSDictionary *today = [tokens[@"today"] isKindOfClass:NSDictionary.class] ? tokens[@"today"] : nil;
-        NSNumber *value = [today[@"total_tokens"] isKindOfClass:NSNumber.class] ? today[@"total_tokens"] : nil;
-        if (!value || value.doubleValue < 0) continue;
-        found = YES;
-        total += value.unsignedLongLongValue;
+        for (NSString *source in tokenSources) {
+            NSDictionary *tokens = [usage[source] isKindOfClass:NSDictionary.class] ? usage[source] : nil;
+            NSDictionary *today = [tokens[@"today"] isKindOfClass:NSDictionary.class] ? tokens[@"today"] : nil;
+            NSNumber *value = [today[@"total_tokens"] isKindOfClass:NSNumber.class] ? today[@"total_tokens"] : nil;
+            if (!value || !isfinite(value.doubleValue) || value.doubleValue < 0) continue;
+            found = YES;
+            total += value.unsignedLongLongValue;
+        }
     }
     return found ? @(total) : nil;
 }

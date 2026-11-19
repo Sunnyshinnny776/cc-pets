@@ -2,6 +2,7 @@
 
 extern NSString *const CCPetsProfileProviderClaude;
 extern NSString *const CCPetsProfileProviderCodex;
+extern NSString *const CCPetsProfileProviderAntigravity;
 extern NSNotificationName const CCPetsProfilesDidChangeNotification;
 
 NSString *CCPetsProfilesPath(void);
@@ -31,7 +32,7 @@ BOOL CCPetsSetProfileNeedsRepair(NSString *profileID, BOOL needsRepair, NSString
 
 // 只迁移已经存在 CC Pets 管理标记的默认配置，不扫描任何其他目录。
 BOOL CCPetsMigrateManagedDefaultProfiles(NSString **errorMessage);
-// 自动发现官方 ~/.claude / ~/.codex（目录已存在或 CLI 已安装）；不发现任何自定义 Home。
+// 自动发现官方 Claude、Codex 和 Antigravity CLI 的默认目录；不发现任何自定义 Home。
 BOOL CCPetsEnsureOfficialDefaultProfiles(NSString **errorMessage);
 
 // profile CLI：list/ensure-defaults/add/repair/remove。add/repair 会执行实际集成适配。

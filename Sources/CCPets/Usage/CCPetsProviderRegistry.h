@@ -19,7 +19,7 @@ typedef NSDictionary *(^CCPetsUsageNormalizer)(NSDictionary *rawUsage, BOOL show
 @property(readonly, copy) NSString *usageDisplayModeDefaultsKey;
 @end
 
-// 展示顺序固定：Codex、Claude。
+// 展示顺序固定：Codex、Claude、Antigravity。
 NSArray<CCPetsProviderDescriptor *> *CCPetsProviderDescriptors(void);
 CCPetsProviderDescriptor *CCPetsProviderForName(NSString *name);
 CCPetsProviderDescriptor *CCPetsProviderForProfileProvider(NSString *profileProvider);

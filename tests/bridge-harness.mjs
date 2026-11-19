@@ -48,6 +48,13 @@ const env = {
 delete env.CLAUDE_CODE_SESSION_ID;
 delete env.CODEX_THREAD_ID;
 delete env.CC_BRIDGE_AGENT;
+// 开发机会话由 *-with-pet 启动时会带着终端、账号和标签昵称变量，测试必须从干净的环境开始。
+for (const key of Object.keys(env)) {
+  if (/^CC_PETS_(BRIDGE_TITLE_TOKEN|TERMINAL_|IDE_|PROFILE_)/.test(key)) {
+    delete env[key];
+    delete process.env[key];
+  }
+}
 Object.assign(process.env, env);
 for (const directory of ["state", "home", "claude", "codex", "bin", "fake", "user-home"]) {
   fs.mkdirSync(path.join(root, directory), { recursive: true });

@@ -220,7 +220,8 @@
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     [defaults registerDefaults:@{StatusBubbleExpandedKey: @YES,
         CodexUsageDisplayModeKey: @"subscription",
-        ClaudeUsageDisplayModeKey: @"subscription"}];
+        ClaudeUsageDisplayModeKey: @"subscription",
+        AntigravityUsageDisplayModeKey: @"subscription"}];
     [defaults registerDefaults:@{
         SystemCPUEnabledKey: @YES,
         SystemTemperatureEnabledKey: @YES,
@@ -259,7 +260,8 @@
     self.panel.backgroundColor = NSColor.clearColor;
     self.panel.hasShadow = NO;
     self.panel.level = NSFloatingWindowLevel;
-    self.panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    self.panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
+        NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorCanJoinAllApplications;
     // 与 1.0 一致：透明背景交给 AppKit 原生拖动；PetView 通过
     // mouseDownCanMoveWindow=NO 保留自己的点击和奔跑动画拖动，两条路径按命中区隔离。
     self.panel.movableByWindowBackground = YES;
@@ -477,6 +479,7 @@
         weakSelf.dashboardHovering = hovering;
         if (!hovering) [weakSelf scheduleQuotaDashboardHide];
     };
+    self.quotaView.layoutChanged = ^{ [weakSelf resizeQuotaDashboard]; };
     [self.quotaGlass.contentView addSubview:self.quotaView];
     self.quotaPanel.contentView = quotaRoot;
     // 先探测再第一次显示：否则面板会先按两张卡的高度弹出来再收缩一下。

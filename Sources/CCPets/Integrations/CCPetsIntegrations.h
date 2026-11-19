@@ -1,6 +1,6 @@
 #import <Foundation/Foundation.h>
 
-// CC Pets 在 Claude Code / Codex 配置和 shell 里留下的集成：Agent Hooks、Claude status line
+// CC Pets 在 Claude Code / Codex / Antigravity CLI 配置和 shell 里留下的集成：Agent Hooks、Claude status line
 // 额度采集、.zshrc 里的 shim 段落与 shim 软链。原先是 scripts/install-claude-hooks.mjs、
 // install-codex-hooks.mjs 和 uninstall-integrations.mjs，改成原生实现后安装和卸载都不再依赖 Node。
 // CC Bridge 的集成不在这里，仍由 scripts/bridge 负责。

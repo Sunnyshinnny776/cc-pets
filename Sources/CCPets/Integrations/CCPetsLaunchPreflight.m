@@ -7,7 +7,10 @@
 static int BlockLaunch(NSString *provider, NSString *reason) {
     CCPetsPrintLine(stderr, CCPetsInterpolate(
         L(@"CC Pets blocked {provider}: {reason}"), @{@"provider": provider, @"reason": reason}));
-    CCPetsPrintLine(stderr, L(@"Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection."));
+    NSString *hint = [provider isEqualToString:@"Antigravity"]
+        ? L(@"Connect Shadowrocket to continue. You can turn off this check in Main menu → Settings → Launch Protection.")
+        : L(@"Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection.");
+    CCPetsPrintLine(stderr, hint);
     return 1;
 }
 
@@ -333,14 +336,21 @@ static BOOL HasLocalNetworkOverrides(NSString *provider, NSString *directory) {
 }
 
 int CCPetsLaunchPreflight(NSString *provider, NSArray<NSString *> *arguments) {
-    if (![@[@"claude", @"codex"] containsObject:provider]) {
-        CCPetsPrintLine(stderr, L(@"Launch check expects claude or codex."));
+    if (![@[@"claude", @"codex", @"agy"] containsObject:provider]) {
+        CCPetsPrintLine(stderr, L(@"Launch check expects claude, codex or agy."));
         return 2;
     }
     if (!CCPetsPrefBool(CCPetsShadowrocketLaunchCheckKey)) return 0;
-    NSString *name = [provider isEqualToString:@"claude"] ? @"Claude" : @"Codex";
-    CCPetsPrintLine(stderr, L(@"CC Pets: checking Shadowrocket and service exit regions ..."));
+    NSString *name = [provider isEqualToString:@"claude"] ? @"Claude"
+        : ([provider isEqualToString:@"codex"] ? @"Codex" : @"Antigravity");
     NSString *reason = nil;
+    if ([provider isEqualToString:@"agy"]) {
+        CCPetsPrintLine(stderr, L(@"CC Pets: checking Shadowrocket ..."));
+        if (!ShadowrocketConnected(&reason)) return BlockLaunch(name, reason);
+        CCPetsPrintLine(stderr, L(@"CC Pets: Shadowrocket is connected."));
+        return 0;
+    }
+    CCPetsPrintLine(stderr, L(@"CC Pets: checking Shadowrocket and service exit regions ..."));
     if (!ShadowrocketConnected(&reason)) return BlockLaunch(name, reason);
 
     NSString *profile = nil, *directory = NSFileManager.defaultManager.currentDirectoryPath;

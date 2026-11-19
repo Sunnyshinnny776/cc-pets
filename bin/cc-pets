@@ -31,7 +31,7 @@ print_usage() {
   cc-pets -v, --version      Show the version
   cc-pets -h, --help         Show this help
 
-codex-with-pet / claude-with-pet start the pet along with the CLI.")"
+codex-with-pet / claude-with-pet / agy-with-pet start the pet along with the CLI.")"
 }
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then

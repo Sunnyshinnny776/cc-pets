@@ -67,6 +67,12 @@ NSArray<CCPetsProviderDescriptor *> *CCPetsProviderDescriptors(void) {
                 standardColorRGB:@[@0.66, @0.43, @0.94] glassColorRGB:@[@0.80, @0.66, @1.00]
                 logoBundleIdentifier:@"com.anthropic.claudefordesktop" logoResourceName:@"electron.icns"
                 usageDisplayModeDefaultsKey:ClaudeUsageDisplayModeKey billing:@"subscription"
+                windowSpecs:windows normalizer:nil],
+            [[CCPetsProviderDescriptor alloc] initWithName:@"Antigravity" key:@"antigravity"
+                usedKey:@"used_percent" profileProvider:CCPetsProfileProviderAntigravity
+                standardColorRGB:@[@0.28, @0.63, @0.98] glassColorRGB:@[@0.40, @0.71, @1.00]
+                logoBundleIdentifier:@"com.google.antigravity" logoResourceName:@"icon.icns"
+                usageDisplayModeDefaultsKey:AntigravityUsageDisplayModeKey billing:@"subscription"
                 windowSpecs:windows normalizer:nil]
         ];
     });

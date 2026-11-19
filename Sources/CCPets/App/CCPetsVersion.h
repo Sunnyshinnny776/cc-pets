@@ -7,6 +7,10 @@
 // 只接受严格的三段纯数字版本号；valid 为 NO 时返回值无意义。
 // 自动更新会把比较结果作为是否升级的唯一依据，所以这里刻意不接受预发布号。
 NSComparisonResult CompareStableVersions(NSString *left, NSString *right, BOOL *valid);
+// 应用内更新用：本机版本可以是预览版（X.Y.Z-beta.0 这类 semver 预发布号），npm 的 latest
+// 仍必须是严格的正式版，误发成 latest 的预发布号会被当作无效，不会推给正式版用户。
+// 预览版低于同号正式版：2.6.0-beta.0 < 2.6.0。
+NSComparisonResult CompareInstalledVersionToRelease(NSString *installed, NSString *release, BOOL *valid);
 int RestartAfterPID(pid_t pid, NSString *appPath, BOOL managed);
 
 // npm 安装日志里是否只是暂时性故障（值得自动重试一次），而不是真的装不上。

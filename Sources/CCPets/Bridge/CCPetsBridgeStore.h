@@ -14,6 +14,8 @@
 extern const NSUInteger CCBridgeMessageBodyLimit;
 extern const long long CCBridgeMessageTTL;
 extern const NSUInteger CCBridgePairLimitCount;
+extern NSString *const CCBridgeAntigravityProvider;
+extern NSString *const CCBridgeAntigravityAppProvider;
 
 #pragma mark - 开关与选项
 
@@ -48,6 +50,7 @@ NSString *CCBridgeSHA1Hex(NSString *text);
 NSString *CCBridgeSessionRef(NSString *sessionId);
 NSDictionary *CCBridgeReadSession(id sessionId);
 NSArray<NSDictionary *> *CCBridgeListSessions(void);
+NSNumber *CCBridgeSessionHostPID(NSDictionary *session);
 void CCBridgeRemoveSession(id sessionId);
 void CCBridgeRemoveSessionIfOffline(id sessionId);
 NSString *CCBridgeNormalizeSessionName(id value);
@@ -80,6 +83,8 @@ NSArray<NSDictionary *> *CCBridgeClaimInbox(id sessionId);
 // transport 非 nil 表示输出成功；nil 保留消息供重试。两种情况都会释放锁。
 void CCBridgeFinishInbox(id sessionId, NSArray<NSDictionary *> *messages, NSString *transport);
 NSUInteger CCBridgePendingCount(id sessionId);
+// 无锁查看信箱中最早的消息文件名，不读取或认领正文。
+NSString *CCBridgeOldestPendingMessageName(id sessionId);
 // 会话结束：信箱里还没投出去的消息标记为 undeliverable。
 void CCBridgeAbandonInbox(id sessionId);
 // 同上，但用于没有 SessionEnd 的离线会话（崩溃、被杀）：连同它的空闲订阅一起清掉；锁繁忙或会话又上线时不动。
@@ -121,9 +126,9 @@ NSArray<NSString *> *CCBridgeProcessArguments(pid_t pid);
 // CLI 进程的控制终端，如 "ttys003"；没有时返回 nil。
 NSString *CCBridgeProcessTty(pid_t pid);
 BOOL CCBridgeArgumentsMatchProvider(NSString *provider, NSArray<NSString *> *arguments);
-// 离 startPid 最近的 Claude / Codex 祖先进程：@{provider, pid}。CC_BRIDGE_AGENT=Codex:1234 可强制指定。
+// 离 startPid 最近的 Agent 祖先进程：@{provider, pid}。CC_BRIDGE_AGENT=Codex:1234 可强制指定。
 NSDictionary *CCBridgeFindAgentAncestor(pid_t startPid);
-// 有 pid 时以"进程还在且仍是同一种 CLI"为准（防 pid 复用）；没有 pid 的记录退回 6 小时活动窗口。
+// 有 pid 时检查进程与宿主类型。Claude/Codex 的旧记录没有 pid 时使用活动窗口。
 BOOL CCBridgeSessionLive(NSDictionary *session);
 // `codex queue` 能力探测：@{status: supported|unsupported|missing|unknown, executable, version}。
 NSDictionary *CCBridgeProbeCodexQueue(NSString *executable);

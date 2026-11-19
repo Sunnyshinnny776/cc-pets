@@ -17,7 +17,8 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
     NSMutableArray<NSDictionary *> *sessions = [NSMutableArray array];
     for (NSString *key in self.agentSessionRecords) {
         NSDictionary *record = self.agentSessionRecords[key];
-        NSString *provider = SanitizedShortString(record[@"provider"], 32).lowercaseString;
+        NSString *provider = SanitizedShortString(record[@"provider"], 32);
+        NSString *providerKey = provider.lowercaseString;
         // 和状态气泡一致：启动后一直没有后续事件，说明会话已就绪、在等输入。
         NSString *state = SessionDisplayState([record[@"state"] isKindOfClass:NSString.class]
             ? record[@"state"] : @"", [record[@"timestamp"] doubleValue], NSDate.date.timeIntervalSince1970);
@@ -25,8 +26,8 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
         NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
         NSMutableDictionary *session = [NSMutableDictionary dictionary];
         session[@"id"] = key;
-        session[@"provider"] = [provider isEqualToString:@"claude"] ? @"Claude"
-            : ([provider isEqualToString:@"codex"] ? @"Codex" : (provider.length > 0 ? provider : @"Agent"));
+        session[@"provider"] = [providerKey isEqualToString:@"claude"] ? @"Claude"
+            : ([providerKey isEqualToString:@"codex"] ? @"Codex" : (provider.length > 0 ? provider : @"Agent"));
         if ([record[@"profileId"] isKindOfClass:NSString.class]) session[@"profileId"] = record[@"profileId"];
         if ([record[@"profileName"] isKindOfClass:NSString.class]) session[@"profileName"] = record[@"profileName"];
         session[@"state"] = state;
@@ -76,11 +77,13 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
 
 - (NSArray<NSDictionary *> *)workbenchQuotas {
     NSMutableArray<NSDictionary *> *quotas = [NSMutableArray array];
-    // 平台次序和悬停面板一致，但概览同时列出全部账号，不跟随轮播选择。
-    for (NSString *provider in [self.quotaView visibleProviders]) {
+    // 工作台展示已检测的平台和全部账号，也包含不进入悬停面板的平台。
+    for (CCPetsProviderDescriptor *descriptor in CCPetsProviderDescriptors()) {
+        NSString *provider = descriptor.name;
+        if (self.quotaView.detectedProviders && ![self.quotaView.detectedProviders containsObject:provider]) continue;
         NSMutableArray<NSDictionary *> *profiles = [NSMutableArray array];
         for (NSDictionary *profile in self.quotaView.profiles ?: CCPetsProfiles()) {
-            if ([profile[@"provider"] isEqualToString:CCPetsProviderForName(provider).profileProvider]) [profiles addObject:profile];
+            if ([profile[@"provider"] isEqualToString:descriptor.profileProvider]) [profiles addObject:profile];
         }
         // 未登记账号时保留旧版的平台卡片。
         if (profiles.count == 0) [profiles addObject:@{}];

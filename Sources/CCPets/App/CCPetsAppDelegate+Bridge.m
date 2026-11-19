@@ -71,10 +71,13 @@
     if (sender.action == @selector(toggleBridgeEnabled:)) return CCBridgeEnabled();
     if (sender.action == @selector(toggleBridgeWake:)) return [options[@"wake"] boolValue];
     if (sender.action == @selector(toggleBridgeEditGuard:)) return [options[@"editGuard"] boolValue];
+    if (sender.action == @selector(toggleBridgeTabTitle:)) return [options[@"tabTitle"] boolValue];
     if (sender.action == @selector(toggleBridgeApproval:)) {
         NSSet *tools = [NSSet setWithArray:CCBridgeToolGroup([self bridgeApprovalGroupForTag:sender.tag])];
+        BOOL hasAntigravity = CCPetsProfilesForProvider(CCPetsProfileProviderAntigravity).count > 0;
         return tools.count > 0 && [tools isSubsetOfSet:[NSSet setWithArray:options[@"codexApprove"]]] &&
-            [tools isSubsetOfSet:[NSSet setWithArray:options[@"claudeAllow"]]];
+            [tools isSubsetOfSet:[NSSet setWithArray:options[@"claudeAllow"]]] &&
+            (!hasAntigravity || [tools isSubsetOfSet:[NSSet setWithArray:options[@"antigravityAllow"]]]);
     }
     return NO;
 }
@@ -99,7 +102,7 @@
             ? L(@"Enabled. Running Codex sessions need a restart and must be trusted in /hooks; Claude sessions get the cc-bridge tools after a restart.")
             : L(@"Disabled. The related hooks and MCP registrations were removed.")];
 }
-// 一个分组同时作用于 Codex 免审批与 Claude 免确认：菜单上只有一组开关，两边保持一致。
+// 菜单上的一个分组同时更新已集成 Agent 各自的工具权限。
 - (void)toggleBridgeApproval:(NSButton *)sender {
     NSArray<NSString *> *tools = CCBridgeToolGroup([self bridgeApprovalGroupForTag:sender.tag]);
     if (tools.count == 0) return;
@@ -110,10 +113,13 @@
         if (allow) [next addObjectsFromArray:tools]; else [next removeObjectsInArray:tools];
         return [next.array componentsJoinedByString:@","];
     };
-    [self runBridgeCommand:@[@"configure",
+    NSMutableArray *command = [@[@"configure",
         [@"--codex-approve=" stringByAppendingString:apply(options[@"codexApprove"])],
-        [@"--claude-allow=" stringByAppendingString:apply(options[@"claudeAllow"])]]
-        sender:sender successMessage:nil];
+        [@"--claude-allow=" stringByAppendingString:apply(options[@"claudeAllow"])]] mutableCopy];
+    if (CCPetsProfilesForProvider(CCPetsProfileProviderAntigravity).count > 0) {
+        [command addObject:[@"--agy-allow=" stringByAppendingString:apply(options[@"antigravityAllow"])]];
+    }
+    [self runBridgeCommand:command sender:sender successMessage:nil];
 }
 - (void)toggleBridgeWake:(NSButton *)sender {
     [self runBridgeCommand:@[@"configure",
@@ -122,6 +128,11 @@
 - (void)toggleBridgeEditGuard:(NSButton *)sender {
     [self runBridgeCommand:@[@"configure",
         [self targetBridgeStateForSwitch:sender] ? @"--edit-guard=on" : @"--edit-guard=off"]
+        sender:sender successMessage:nil];
+}
+- (void)toggleBridgeTabTitle:(NSButton *)sender {
+    [self runBridgeCommand:@[@"configure",
+        [self targetBridgeStateForSwitch:sender] ? @"--tab-title=on" : @"--tab-title=off"]
         sender:sender successMessage:nil];
 }
 - (void)toggleBridgeBadge:(NSButton *)sender {

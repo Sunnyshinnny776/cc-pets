@@ -1,7 +1,7 @@
 {
   "name": "cc-pets",
   "version": "2.5.0",
-  "description": "A native macOS desktop pet for Codex CLI and Claude Code",
+  "description": "A native macOS desktop pet for Codex CLI, Claude Code, and Antigravity CLI",
   "author": {
     "name": "Sunnyshiny",
     "url": "https://github.com/Sunnyshinnny776"
@@ -18,6 +18,7 @@
   "keywords": [
     "codex",
     "claude-code",
+    "antigravity",
     "desktop-pet",
     "macos",
     "appkit"
@@ -60,7 +61,8 @@
   "bin": {
     "cc-pets": "bin/cc-pets",
     "codex-with-pet": "bin/codex-with-pet",
-    "claude-with-pet": "bin/claude-with-pet"
+    "claude-with-pet": "bin/claude-with-pet",
+    "agy-with-pet": "bin/agy-with-pet"
   },
   "scripts": {
     "build": "./scripts/build.sh",

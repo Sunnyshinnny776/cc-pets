@@ -2,6 +2,7 @@
 #import <Cocoa/Cocoa.h>
 #import "CCPetsAppDelegate.h"
 #import "CCPetsEvents.h"
+#import "CCPetsAntigravityEvents.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPreviews.h"
@@ -11,6 +12,7 @@
 #import "CCPetsCleanup.h"
 #import "CCPetsIntegrations.h"
 #import "CCPetsBridgeCLI.h"
+#import "CCPetsBridgeTerminalTitle.h"
 #import "CCPetsDoctor.h"
 #import "CCPetsOpenCommand.h"
 #import "CCPetsPetStore.h"
@@ -27,6 +29,9 @@ int main(int argc, const char *argv[]) {
     @autoreleasepool {
         // 下面这些都是命令行入口，输出语言跟终端走；真正启动桌宠前再切回 App 的语言规则。
         CCPetsUseCommandLineLanguage(YES);
+        if (argc > 1 && strcmp(argv[1], "--agy-bridge-title") == 0) {
+            return CCBridgePrintAntigravityTitle(argc > 2 ? @(argv[2]) : nil);
+        }
         if (argc > 1 && strcmp(argv[1], "--launch-preflight") == 0) {
             NSMutableArray<NSString *> *arguments = [NSMutableArray array];
             for (int index = 3; index < argc; index++) [arguments addObject:@(argv[index])];
@@ -93,6 +98,12 @@ int main(int argc, const char *argv[]) {
             return RestartAfterPID(pid, appPath, managed);
         }
         if (argc > 1 && strcmp(argv[1], "--hook") == 0) return RecordHookEvent();
+        if (argc == 3 && strcmp(argv[1], "--agy-hook") == 0) return CCPetsRecordAntigravityHook(@(argv[2]));
+        if (argc == 2 && strcmp(argv[1], "--agy-status-line") == 0) return CCPetsRecordAntigravityStatusLine();
+        if (argc == 2 && strcmp(argv[1], "--agy-launch") == 0) {
+            CCPetsRegisterAntigravityTerminalClient(getppid());
+            return EXIT_SUCCESS;
+        }
         if (argc > 1 && strcmp(argv[1], "--frontmost-bundle-id") == 0) {
             puts(FrontmostApplicationBundleIdentifier().UTF8String);
             return EXIT_SUCCESS;

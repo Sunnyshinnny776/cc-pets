@@ -18,6 +18,7 @@
 #import "MenuChoiceRow.h"
 #import "CCPetsGlassMenu.h"
 #import "CCPetsBridge.h"
+#import "CCPetsBridgeStore.h"
 #import "CCPetsProfiles.h"
 #import "MenuToggleSwitch.h"
 #import "CCPetsStatusItem.h"
@@ -103,6 +104,11 @@ static NSString *const PetSpeechFrequencyChatty = @"chatty";
 // 用控件自己的 fittingSize 量，不要用 sizeWithAttributes:。
 // NSTextField 的 cell 有一点内部留白，纯按字符串量出来的宽度会比控件真正需要的小几个点，
 // 结果就是明明算着"刚好够"，显示出来最后一两个字变成省略号。
+// Antigravity CLI 与 App 的会话都登记在 CC Bridge，存活判断可以共用 Bridge 会话表。
+static inline BOOL IsAntigravitySessionRecord(NSDictionary *record) {
+    id provider = record[@"provider"];
+    return [provider isEqual:CCBridgeAntigravityProvider] || [provider isEqual:CCBridgeAntigravityAppProvider];
+}
 static inline CGFloat PetMeasuredLabelWidth(NSTextField *label) {
     if (label.stringValue.length == 0) return 0;
     return ceil(label.fittingSize.width) + 2;
@@ -185,6 +191,8 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)setUsageDisplayModeFromControl:(NSButton *)sender;
 - (void)applySystemMetricPreferences;
 - (void)applyUsageDisplayModePreferences;
+- (NSArray<NSString *> *)quotaCardOrderForSettings;
+- (void)updateQuotaCardOrder:(NSArray<NSString *> *)order;
 - (void)showImportedCodexPetsAlert:(NSUInteger)imported;
 - (void)setPanelTheme:(MenuChoiceRowView *)sender;
 - (void)applyBubbleTextStyle;
@@ -254,6 +262,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)toggleBridgeApproval:(NSButton *)sender;
 - (void)toggleBridgeWake:(NSButton *)sender;
 - (void)toggleBridgeEditGuard:(NSButton *)sender;
+- (void)toggleBridgeTabTitle:(NSButton *)sender;
 - (void)toggleBridgeBadge:(NSButton *)sender;
 - (void)updateBridgeBadgeEnabled:(BOOL)enabled;
 - (void)toggleBridgeNotification:(NSButton *)sender;
@@ -281,6 +290,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 @interface AppDelegate (Profiles)
 - (void)addClaudeProfile:(id)sender;
 - (void)addCodexProfile:(id)sender;
+- (void)addAntigravityProfile:(id)sender;
 - (void)repairAgentProfile:(NSMenuItem *)sender;
 - (void)renameAgentProfile:(NSMenuItem *)sender;
 - (void)relocateAgentProfile:(NSMenuItem *)sender;

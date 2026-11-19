@@ -618,6 +618,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${USAGE_MODE_SOURCES[@]}" \
   "${PET_SOURCE_DIR}"/**/CCPetsUsage(|+*).m -lsqlite3 \
   "${PET_SRC[CCPetsCodexRateLimits.m]:?}" \
+  "${PET_SRC[CCPetsAntigravityQuota.m]:?}" \
   "${PET_SRC[CCPetsUsageMonitor.m]:?}" \
   "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
   "${PROJECT_DIR}/tests/usage-monitor-harness.m" \
@@ -933,6 +934,49 @@ if print -n '{"schemaVersion":1,"provider":"MyAgent","state":"unknown"}' | \
   exit 1
 fi
 print "统一 Provider 事件协议校验与映射测试通过"
+
+# Antigravity Hooks：CLI 与 App 共用同一份 Hook，按祖先进程区分来源。
+# CLI 用 argv[0] 为 agy 的 sh 模拟；App 按内核可执行路径识别，用编译出的小宿主放到
+# Antigravity.app/Contents/Resources/bin/language_server 下模拟（复制系统 sh 会被签名校验杀掉）。
+AGY_HOOK_TMP="$(mktemp -d /tmp/cc-pets-agy-hook-test.XXXXXX)"
+AGY_HOOK_EVENTS="${AGY_HOOK_TMP}/state/cc-pets-$(id -u)-agent-events.ndjson"
+AGY_APP_HOST="${AGY_HOOK_TMP}/app/Antigravity.app/Contents/Resources/bin/language_server"
+mkdir -p "${AGY_HOOK_TMP}/state" "${AGY_HOOK_TMP}/home" "${AGY_HOOK_TMP}/user" "${AGY_APP_HOST:h}"
+print -r -- '#include <stdlib.h>
+int main(int argc, char **argv) { return argc > 1 ? system(argv[1]) : 2; }' > "${AGY_HOOK_TMP}/host.c"
+cc -o "${AGY_APP_HOST}" "${AGY_HOOK_TMP}/host.c"
+agy_hook_env() {
+  env HOME="${AGY_HOOK_TMP}/user" CC_PETS_HOME="${AGY_HOOK_TMP}/home" \
+    CC_PETS_STATE_DIR="${AGY_HOOK_TMP}/state" "$@"
+}
+agy_cli_hook() {
+  print -rn -- "$2" | agy_hook_env /bin/zsh -c \
+    "exec -a '${AGY_HOOK_TMP}/agy' /bin/sh -c '\"${PROJECT_DIR}/.build/release/cc-pets\" --agy-hook $1; :'"
+}
+agy_app_hook() {
+  print -rn -- "$2" | agy_hook_env "${AGY_APP_HOST}" "'${PROJECT_DIR}/.build/release/cc-pets' --agy-hook $1"
+}
+[[ "$(agy_cli_hook SessionStart '{"conversationId":"agy-cli-1","cwd":"/tmp"}')" == "{}" ]]
+[[ "$(agy_cli_hook PreInvocation '{"conversationId":"agy-cli-1","cwd":"/tmp"}')" == "{}" ]]
+# 还有后续步骤的 Stop 不算回合结束，不写事件，但仍要回 decision。
+[[ "$(agy_cli_hook Stop '{"conversationId":"agy-cli-1","fullyIdle":false}')" == '{"decision":"stop"}' ]]
+agy_cli_hook Stop '{"conversationId":"agy-cli-1","terminationReason":"error"}' >/dev/null
+agy_app_hook PreInvocation '{"conversationId":"agy-app-1","workspacePaths":["/tmp"]}' >/dev/null
+node -e '
+  const lines = require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n").map(JSON.parse);
+  const cli = lines.filter((line) => line.session === "agy-cli-1");
+  const app = lines.filter((line) => line.session === "agy-app-1");
+  const events = cli.map((line) => line.event).join(",");
+  if (events !== "SessionStart,UserPromptSubmit,StopFailure") throw new Error(`CLI 事件序列错误：${events}`);
+  if (!cli.every((line) => line.provider === "Antigravity")) throw new Error("CLI 事件 Provider 错误");
+  if (cli[2].state !== "failed" || cli[2].failed !== true) throw new Error("terminationReason=error 应记为失败");
+  if (app.length !== 1 || app[0].provider !== "Antigravity App") throw new Error("App 事件应单独记为 Antigravity App");
+  if (app[0].event !== "UserPromptSubmit" || app[0].cwd !== "/tmp") throw new Error("App 事件映射或工作目录错误");
+  if (JSON.stringify(app[0].terminal) !== JSON.stringify({ bundleID: "com.google.antigravity" })) {
+    throw new Error("App 事件的回跳目标应为 Antigravity App 本身");
+  }
+' "${AGY_HOOK_EVENTS}"
+print "Antigravity CLI / App Hook 事件上报测试通过"
 
 CLAUDE_TMP="$(mktemp -d /tmp/cc-pets-claude-config-test.XXXXXX)"
 CLAUDE_STATUS_SCRIPT="${CLAUDE_TMP}/statusline-command.sh"
@@ -1414,10 +1458,18 @@ doctor_env() {
     CC_PETS_SHIM_DIR="${DOCTOR_TMP}/shims" \
     CC_PETS_APPLICATIONS_DIR="${DOCTOR_TMP}/Applications" \
     CLAUDE_CONFIG_DIR="${DOCTOR_TMP}/claude" CODEX_HOME="${DOCTOR_TMP}/codex" \
-    ZDOTDIR="${DOCTOR_TMP}/zdot" \
+    ZDOTDIR="${DOCTOR_TMP}/zdot" PATH="${DOCTOR_PATH}" \
     CODEX_REAL_BIN="${DOCTOR_TMP}/bin/codex" CLAUDE_REAL_BIN="${DOCTOR_TMP}/bin/claude" \
     "$@"
 }
+
+# 本机装了 agy 时 doctor 会把它算作已安装的 CLI。这一段只验证 Claude / Codex，
+# 所以从 PATH 里去掉含 agy 的目录，结果不随开发机环境变化。
+typeset -a doctor_path_entries=()
+for doctor_path_entry in ${(s.:.)PATH}; do
+  [[ -x "${doctor_path_entry}/agy" ]] || doctor_path_entries+=("${doctor_path_entry}")
+done
+DOCTOR_PATH="${(j.:.)doctor_path_entries}"
 
 # paths --json：环境变量覆盖生效，不存在的条目 bytes 为 null。
 doctor_env "${PROJECT_DIR}/.build/release/cc-pets" paths --json > "${DOCTOR_TMP}/paths.json"
@@ -1452,10 +1504,11 @@ doctor_env "${PROJECT_DIR}/.build/release/cc-pets" --install-codex-hooks "${PROJ
 mkdir -p "${DOCTOR_TMP}/shims"
 ln -s "${PROJECT_DIR}/bin/codex-with-pet" "${DOCTOR_TMP}/shims/codex"
 ln -s "${PROJECT_DIR}/bin/claude-with-pet" "${DOCTOR_TMP}/shims/claude"
+ln -s "${PROJECT_DIR}/bin/agy-with-pet" "${DOCTOR_TMP}/shims/agy"
 print -r -- '# >>> cc-pets-shims >>>
 # <<< cc-pets-shims <<<' > "${DOCTOR_TMP}/zdot/.zshrc"
 DOCTOR_SNAPSHOT="$(cat "${DOCTOR_TMP}/claude/settings.json" "${DOCTOR_TMP}/codex/hooks.json" | shasum)"
-doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
+doctor_env PATH="${DOCTOR_TMP}/shims:${DOCTOR_PATH}" \
   "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ claude Hooks 已安装（14 个事件）" "${DOCTOR_TMP}/installed.txt"
 grep -q "✅ codex Hooks 已安装（9 个事件）" "${DOCTOR_TMP}/installed.txt"
@@ -1473,7 +1526,7 @@ node -e '
   config.hooks.Stop[0].hooks[0].command = "CC_PETS_CODEX_AGENT_HOOK=1 '"'"'/moved/away/.build/release/cc-pets'"'"' --hook";
   fs.writeFileSync(file, JSON.stringify(config));
 ' "${DOCTOR_TMP}/codex/hooks.json"
-doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" \
+doctor_env PATH="${DOCTOR_TMP}/shims:${DOCTOR_PATH}" \
   "${PROJECT_DIR}/.build/release/cc-pets" doctor > "${DOCTOR_TMP}/stale.txt"
 grep -q "⚠️  codex Hooks 中有 1 条指向其他位置的 cc-pets" "${DOCTOR_TMP}/stale.txt"
 
@@ -1536,14 +1589,14 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${DOCTOR_SECTIONS_SOURCES[@]}" \
   "${PROJECT_DIR}/tests/doctor-sections-harness.m" \
   -o "${DOCTOR_TMP}/doctor-sections-test"
-doctor_env PATH="${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test"
+doctor_env PATH="${DOCTOR_TMP}/shims:${DOCTOR_PATH}" "${DOCTOR_TMP}/doctor-sections-test"
 # 主窗口里的诊断跑在桌宠进程中，PATH 是桌宠启动时继承的（被 npm 拉起时 node 目录会插在最前），
 # 和终端无关。PATH 顺序那一项在那里只能给提示，不能照着报警告。
 DOCTOR_SHADOW="${DOCTOR_TMP}/shadow-node-bin"
 mkdir -p "${DOCTOR_SHADOW}"
 print -r -- '#!/bin/sh' > "${DOCTOR_SHADOW}/codex"
 chmod +x "${DOCTOR_SHADOW}/codex"
-doctor_env PATH="${DOCTOR_SHADOW}:${DOCTOR_TMP}/shims:${PATH}" "${DOCTOR_TMP}/doctor-sections-test" shadow "${DOCTOR_SHADOW}"
+doctor_env PATH="${DOCTOR_SHADOW}:${DOCTOR_TMP}/shims:${DOCTOR_PATH}" "${DOCTOR_TMP}/doctor-sections-test" shadow "${DOCTOR_SHADOW}"
 # 本地版本来源：普通 checkout、worktree、npm 安装、npm link 和未知目录。
 DOCTOR_PACKAGE_ROOT="${DOCTOR_TMP}/packages"
 mkdir -p "${DOCTOR_PACKAGE_ROOT}/checkout/.git" "${DOCTOR_PACKAGE_ROOT}/worktree" \
@@ -1838,6 +1891,8 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_SOURCE_DIR}"/**/QuotaDashboardView(|+*).m \
   "${PET_SRC[CCPetsNormalizedUsage.m]:?}" \
   "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
+  "${PET_SRC[CCPetsPreferences.m]:?}" \
+  "${PET_SRC[CCPetsPetSize.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/quota-online-harness.m" \
   -o "${QUOTA_ONLINE_TMP}/quota-online-test"
@@ -1849,6 +1904,8 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_SOURCE_DIR}"/**/QuotaDashboardView(|+*).m \
   "${PET_SRC[CCPetsNormalizedUsage.m]:?}" \
   "${PET_SRC[CCPetsProviderRegistry.m]:?}" \
+  "${PET_SRC[CCPetsPreferences.m]:?}" \
+  "${PET_SRC[CCPetsPetSize.m]:?}" \
   "${PET_SRC[CCPetsL10n.m]:?}" \
   "${PROJECT_DIR}/tests/quota-compact-row-harness.m" \
   -o "${QUOTA_ONLINE_TMP}/quota-compact-row-test"
@@ -2159,6 +2216,37 @@ grep -q 'enterIdleStatus' "${PET_SOURCES[@]}"
 grep -q 'terminalSlotKeyForRecord' "${PET_SOURCES[@]}"
 print "Agent 状态气泡终态保持与待机降级测试通过"
 
+# Antigravity 与 Claude / Codex 走同一套状态卡、审批卡和卡住提醒，不能按 Provider 跳过。
+AGENT_STATUS_SOURCE="${PET_SRC[CCPetsAppDelegate+AgentStatus.m]:?}"
+if grep -q 'isEqual:CCBridgeAntigravityProvider\]) continue' "${AGENT_STATUS_SOURCE}" || \
+  grep -q '!\[provider isEqual:CCBridgeAntigravityProvider\]' "${AGENT_STATUS_SOURCE}"; then
+  print -u2 "Antigravity 会话不应被排除在状态卡、审批卡或卡住提醒之外"
+  exit 1
+fi
+grep -A12 '^- (void)displayAgentRecord:' "${AGENT_STATUS_SOURCE}" \
+  | grep -q '^    \[self showAgentStatusForRecord:record notify:shouldNotify\];'
+# App 没有 pid 文件：App 退出即下线；CLI 与 App 都可以由 Bridge 会话证明在线。
+grep -q 'CCBridgeAntigravityAppProvider\] && !AntigravityDesktopApplicationIsRunning()) return NO' "${AGENT_STATUS_SOURCE}"
+grep -q 'IsAntigravitySessionRecord(record) && CCBridgeEnabled()' "${AGENT_STATUS_SOURCE}"
+grep -q 'IsAntigravitySessionRecord(record) &&' "${PET_SRC[CCPetsAppDelegate+AgentEvents.m]:?}"
+print "Antigravity 状态卡、审批卡与在线判定接入测试通过"
+
+# 启动保护：agy 只检查 Shadowrocket 连接，包装脚本在交互启动前调用；未知 Provider 直接报错。
+if "${PROJECT_DIR}/.build/release/cc-pets" --launch-preflight gemini >/dev/null 2>&1; then
+  print -u2 "未知 Provider 的启动检查应以非零退出"
+  exit 1
+fi
+grep -q '"${PET_BIN}" --launch-preflight agy "${agy_arguments\[@\]}" || exit \$?' "${PROJECT_DIR}/bin/agy-with-pet"
+grep -q '"provider":"Antigravity","state":"starting"' "${PROJECT_DIR}/bin/agy-with-pet"
+grep -q '\[@"claude", @"codex", @"agy"\]' "${PET_SRC[CCPetsLaunchPreflight.m]:?}"
+print "Antigravity 启动保护与启动事件接入测试通过"
+
+# 用量展示模式：Provider 层默认值三家一致，写入白名单来自 Provider 注册表。
+grep -q 'AntigravityUsageDisplayModeKey: @"subscription"' "${PET_SRC[CCPetsAppDelegate.m]:?}"
+grep -q 'sender.tag == 3 ? AntigravityUsageDisplayModeKey' "${PET_SRC[CCPetsAppDelegate+Settings.m]:?}"
+grep -q 'provider.usageDisplayModeDefaultsKey\]' "${PET_SRC[CCPetsAppDelegate+Settings.m]:?}"
+print "Antigravity 用量展示模式 Provider 层设置测试通过"
+
 TERMINAL_FOCUS_TMP="$(mktemp -d /tmp/cc-pets-terminal-focus-test.XXXXXX)"
 cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
@@ -2247,6 +2335,21 @@ grep -q 'UpdateRetryDelay' "${PET_SOURCES[@]}"
 grep -q 'update-retry-cache' "${PET_SOURCES[@]}"
 print "自动更新暂时性故障重试测试通过"
 
+VERSION_COMPARE_TMP="$(mktemp -d /tmp/cc-pets-version-compare-test.XXXXXX)"
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
+  "${PET_INCLUDE_FLAGS[@]}" \
+  -framework Foundation \
+  "${PET_SRC[CCPetsVersion.m]:?}" \
+  "${PET_SRC[CCPetsL10n.m]:?}" \
+  "${PROJECT_DIR}/tests/version-compare-harness.m" \
+  -o "${VERSION_COMPARE_TMP}/version-compare-test"
+"${VERSION_COMPARE_TMP}/version-compare-test"
+# 应用内更新的三处比较都要用允许本机预发布号的版本，不能退回严格比较。
+if grep -q 'CompareStableVersions(@CC_PETS_VERSION' "${PET_SRC[CCPetsAppDelegate+Update.m]:?}"; then
+  print -u2 "应用内更新仍在用严格比较，预览版用户会一直报版本信息无效"
+  exit 1
+fi
+
 RELEASE_NOTES_TMP="$(mktemp -d /tmp/cc-pets-release-notes-test.XXXXXX)"
 cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
@@ -2329,6 +2432,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_SRC[CCPetsBridge.m]:?}" \
   "${PET_SRC[CCPetsBridgeCore.m]:?}" \
   "${PET_SRC[CCPetsBridgeSetup.m]:?}" \
+  "${PET_SRC[CCPetsAntigravityConfig.m]:?}" \
   "${PET_SRC[CCPetsBridgeStore.m]:?}" \
   "${PET_SRC[CCPetsCLISupport.m]:?}" \
   "${PET_SRC[CCPetsJSON.m]:?}" \

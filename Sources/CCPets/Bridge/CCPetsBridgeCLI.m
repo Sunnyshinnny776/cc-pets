@@ -1,11 +1,15 @@
 #import "CCPetsL10n.h"
 #import "CCPetsBridgeCLI.h"
+#import "CCPetsBridgeAntigravityApp.h"
+#import "CCPetsBridgeTerminalTitle.h"
+#import "CCPetsBridgeTitleRelay.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeCore.h"
 #import "CCPetsBridgeSetup.h"
 #import "CCPetsBridgeStore.h"
 #import "CCPetsCLISupport.h"
 #import "CCPetsProfiles.h"
+#import "CCPetsTerminalFocus.h"
 #import <unistd.h>
 #import <math.h>
 
@@ -68,7 +72,7 @@ static BOOL WriteOutput(FILE *stream, NSString *text) {
 static NSString *USAGE(void) {
     return L(@"Usage: cc-pets bridge <command>\n"
         "\n"
-        "  enable [options]       Turn on CC Bridge: write Claude Code / Codex hooks and register MCP\n"
+        "  enable [options]       Turn on CC Bridge: install Agent hooks and register MCP\n"
         "  configure [options]    Change options while enabled (doesn't re-register MCP)\n"
         "  disable                Turn off and remove all CC Bridge integrations\n"
         "  status                 Show whether it's on and which sessions are online\n"
@@ -81,13 +85,16 @@ static NSString *USAGE(void) {
         "  --approve=<list>       Auto-approve in both Codex and Claude\n"
         "  --codex-approve=<list> Auto-approve in Codex only\n"
         "  --claude-allow=<list>  Allow without asking in Claude only\n"
+        "  --agy-allow=<list>     Allow without asking in Antigravity only\n"
         "                         Use groups view, send, reserve, name, or tool names; pass an empty value to clear\n"
-        "  --wake=on|off          Wake idle sessions automatically (off saves tokens; messages arrive with the next user input)\n"
+        "  --agy-app=on|off       Enable or disable the Antigravity App Sidecar (off by default)\n"
+        "  --tab-title=on|off     Append Bridge nicknames to CLI terminal titles (off by default)\n"
+        "  --wake=on|off          Wake supported idle sessions automatically (off saves tokens; messages arrive with the next user input)\n"
         "  --edit-guard=on|off    Pause once when editing a file another session reserved\n"
         "\n"
-        "Name a session at launch: CC_BRIDGE_NAME=frontend claude (or codex)\n"
+        "Name a session at launch: CC_BRIDGE_NAME=frontend claude (or codex, or agy)\n"
         "\n"
-        "CC Bridge lets local Claude Code and Codex terminal sessions find, message and wake each other.\n"
+        "CC Bridge connects local Claude Code, Codex and Antigravity sessions.\n"
         "Message bodies are stored in a local temp directory readable only by you. Off by default.");
 }
 
@@ -119,8 +126,9 @@ static NSString *ParseFlag(NSMutableArray<NSString *> *arguments, NSString *name
 static NSDictionary<NSString *, NSString *> *ReadOptionFlags(NSMutableArray<NSString *> *arguments) {
     NSMutableDictionary<NSString *, NSString *> *flags = [NSMutableDictionary dictionary];
     NSDictionary<NSString *, NSString *> *names = @{@"approve": @"approve", @"codex-approve": @"codexApprove",
-        @"claude-allow": @"claudeAllow", @"wake": @"wake", @"edit-guard": @"editGuard"};
-    for (NSString *flag in @[@"approve", @"codex-approve", @"claude-allow", @"wake", @"edit-guard"]) {
+        @"claude-allow": @"claudeAllow", @"agy-allow": @"antigravityAllow", @"agy-app": @"antigravityApp",
+        @"tab-title": @"tabTitle", @"wake": @"wake", @"edit-guard": @"editGuard"};
+    for (NSString *flag in @[@"approve", @"codex-approve", @"claude-allow", @"agy-allow", @"agy-app", @"tab-title", @"wake", @"edit-guard"]) {
         NSString *value = ParseFlag(arguments, flag);
         if (value) flags[names[flag]] = value;
     }
@@ -144,7 +152,7 @@ static void PrintSessions(void) {
     }
     for (NSDictionary *session in sessions) {
         Print([NSString stringWithFormat:@"%@  %@  %@  pid=%@  %@  %@  %@=%lu", CCBridgeDescribeSessionForDisplay(session), session[@"provider"],
-            StringValue(session[@"status"]) ?: @"-", session[@"pid"] ?: @"-", StringValue(session[@"tty"]) ?: @"-",
+            StringValue(session[@"status"]) ?: @"-", CCBridgeSessionHostPID(session) ?: @"-", StringValue(session[@"tty"]) ?: @"-",
             StringValue(session[@"cwd"]) ?: @"-", L(@"pending"), (unsigned long)CCBridgePendingCount(session[@"session"])]);
     }
 }
@@ -187,9 +195,7 @@ static NSDictionary *InjectPending(NSString *sessionId, NSString *eventName) {
 // 重试同一操作时这处预留已确认，直接放行。用 deny 而不是只注入 additionalContext：实测 Codex 的
 // additionalContext 在工具调用发出之后才到达，拦不住这次编辑。不用 "ask"：Codex 的 PreToolUse
 // 只支持 allow / deny，两边行为要一致。
-static NSDictionary *CheckReservations(NSDictionary *payload, NSString *sessionId) {
-    NSArray<NSString *> *files = CCBridgeEditedFiles(payload[@"tool_input"]);
-    NSString *cwd = StringValue(payload[@"cwd"]) ?: StringValue(CCBridgeReadSession(sessionId)[@"cwd"]);
+static NSString *ReservationReason(NSArray<NSString *> *files, NSString *cwd, NSString *sessionId) {
     if (files.count == 0 || cwd.length == 0) return nil;
     NSMutableArray<NSDictionary *> *pending = [NSMutableArray array];
     for (NSDictionary *hit in CCBridgeFindForeignReservations(sessionId, cwd, files)) {
@@ -207,8 +213,69 @@ static NSDictionary *CheckReservations(NSDictionary *payload, NSString *sessionI
     // 实测 Codex 重试放行后只回复"已创建"，用户不知道自己改的是别人正在改的区域。
     [lines addObject:[L(@"If you retry, tell the user in your reply that these files are reserved by the session above (include its name and reason), ")
         stringByAppendingString:L(@"so they can decide whether to coordinate.")]];
-    return @{@"hookSpecificOutput": @{@"hookEventName": @"PreToolUse", @"permissionDecision": @"deny",
-        @"permissionDecisionReason": [lines componentsJoinedByString:@"\n"]}};
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+static NSDictionary *CheckReservations(NSDictionary *payload, NSString *sessionId) {
+    NSString *cwd = StringValue(payload[@"cwd"]) ?: StringValue(CCBridgeReadSession(sessionId)[@"cwd"]);
+    NSString *reason = ReservationReason(CCBridgeEditedFiles(payload[@"tool_input"]), cwd, sessionId);
+    return reason ? @{@"hookSpecificOutput": @{@"hookEventName": @"PreToolUse", @"permissionDecision": @"deny",
+        @"permissionDecisionReason": reason}} : nil;
+}
+
+NSDictionary *CCBridgeHandleAntigravityHook(NSString *event, NSDictionary *payload) {
+    if (!CCBridgeEnabled()) return nil;
+    NSString *sessionId = CCBridgeSafeSessionId(payload[@"conversationId"]);
+    NSDictionary *ancestor = CCBridgeFindAgentAncestor(getppid());
+    NSString *provider = ancestor[@"provider"];
+    BOOL app = [provider isEqual:CCBridgeAntigravityAppProvider];
+    if (!sessionId || (!app && ![provider isEqual:CCBridgeAntigravityProvider])) return nil;
+    NSDictionary *options = CCBridgeOptions();
+    if (app && ![options[@"antigravityApp"] boolValue]) return nil;
+
+    NSDictionary *known = CCBridgeReadSession(sessionId);
+    if (known && ![known[@"provider"] isEqual:provider] && CCBridgeSessionLive(known)) return nil;
+    NSArray *workspaces = [payload[@"workspacePaths"] isKindOfClass:NSArray.class] ? payload[@"workspacePaths"] : nil;
+    NSString *cwd = StringValue(workspaces.firstObject) ?: StringValue(payload[@"cwd"]);
+    if (!cwd.isAbsolutePath) cwd = StringValue(known[@"cwd"]) ?: NSFileManager.defaultManager.currentDirectoryPath;
+    if ([event isEqual:@"PreToolUse"]) {
+        if (![options[@"editGuard"] boolValue]) return nil;
+        NSDictionary *tool = [payload[@"toolCall"] isKindOfClass:NSDictionary.class] ? payload[@"toolCall"] : nil;
+        if (![@[@"write_to_file", @"replace_file_content", @"multi_replace_file_content", @"sed_file"] containsObject:tool[@"name"] ?: @""]) return nil;
+        NSDictionary *args = [tool[@"args"] isKindOfClass:NSDictionary.class] ? tool[@"args"] : nil;
+        NSString *file = StringValue(args[@"TargetFile"]) ?: StringValue(args[@"FilePath"]);
+        NSString *reason = file.length > 0 ? ReservationReason(@[file], cwd, sessionId) : nil;
+        return reason ? @{@"decision": @"deny", @"reason": reason} : nil;
+    }
+
+    NSString *status = @{@"SessionStart": @"idle", @"PreInvocation": @"busy", @"Stop": @"idle"}[event];
+    if (!status || ([event isEqual:@"Stop"] && [payload[@"fullyIdle"] isEqual:@NO])) return nil;
+    NSNumber *pid = ancestor[@"pid"];
+    CCBridgeUpsertSession(sessionId, provider, pid, cwd, app ? nil : CCBridgeProcessTty(pid.intValue),
+        status, CCPetsEnvironmentValue(@"CC_BRIDGE_NAME"), CCPetsEnvironmentValue(@"CC_PETS_PROFILE_ID"),
+        CCPetsEnvironmentValue(@"CC_PETS_PROFILE_NAME"), @[]);
+    if ([event isEqual:@"Stop"]) {
+        if (CCBridgeHasIdleSubscriptions(sessionId)) CCPetsSpawnDetached(CCPetsExecutablePath(), @[@"bridge", @"notify-idle", sessionId]);
+        return nil;
+    }
+    NSMutableArray<NSDictionary *> *steps = [NSMutableArray array];
+    if ([event isEqual:@"SessionStart"] || !known) {
+        [steps addObject:@{@"systemMessage": @{@"systemMessage": SessionIdentityContext(sessionId)}}];
+    }
+    BOOL wake = [options[@"wake"] boolValue];
+    BOOL previousWakePrompt = app && [payload[@"lastUserInput"] isEqual:CCBridgeAntigravityAppWakePrompt];
+    if ([event isEqual:@"PreInvocation"] && (wake || (!previousWakePrompt && ![known[@"status"] isEqual:@"busy"]))) {
+        NSMutableArray<NSString *> *messages = [NSMutableArray array];
+        for (NSDictionary *message in ClaimForOutput(sessionId, app ? @"agy-app-hook" : @"agy-hook")) {
+            [messages addObject:CCBridgeFormatEnvelope(message)];
+        }
+        if (messages.count > 0) [steps addObject:@{@"userMessage": [messages componentsJoinedByString:@"\n\n"]}];
+    }
+    return steps.count > 0 ? @{@"injectSteps": steps} : nil;
+}
+
+void CCBridgeFinishAntigravityHook(BOOL written) {
+    FinishInboxOutput(written);
 }
 
 static NSDictionary *RunHook(NSString *input) {
@@ -247,13 +314,34 @@ static NSDictionary *RunHook(NSString *input) {
     // 每次都重新探测：`claude --resume` 会在新进程里沿用同一个 session id。
     NSDictionary *ancestor = CCBridgeFindAgentAncestor(getppid());
     NSNumber *pid = [ancestor[@"provider"] isEqual:provider] ? ancestor[@"pid"] : known[@"pid"];
+    BOOL titleEnabled = CCBridgeTerminalTitleEnabled();
+    BOOL interactiveEvent = [event isEqual:@"SessionStart"] || [event isEqual:@"UserPromptSubmit"];
+    NSDictionary *terminal = nil;
+    if (interactiveEvent && (titleEnabled || CCPetsEnvironmentValue(@"CC_PETS_BRIDGE_TITLE_TOKEN").length > 0)) {
+        @try { terminal = TerminalFocusTargetForHook(payload, provider); } @catch (NSException *exception) {}
+    }
+    NSString *titleToken = StringValue(terminal[@"bridgeTitleToken"]);
+    NSString *tty = titleToken ? StringValue(terminal[@"tty"]) : nil;
+    if (!tty) tty = [event isEqual:@"Stop"] ? StringValue(known[@"tty"]) : nil;
+    if (!tty && pid) tty = CCBridgeProcessTty(pid.intValue);
     // 账号名写进 profileName 字段，也作为默认会话名的前缀：<账号名>.<项目名>.<动物>。
     NSString *preferredName = CCPetsEnvironmentValue(@"CC_BRIDGE_NAME");
     CCBridgeUpsertSession(sessionId, provider, pid, StringValue(payload[@"cwd"]),
-        pid ? CCBridgeProcessTty(pid.intValue) : nil, status,
+        tty, status,
         // hook 继承宿主 CLI 的环境：`CC_BRIDGE_NAME=frontend claude` 即以 frontend 注册。只在首次注册时生效。
         preferredName, CCPetsEnvironmentValue(@"CC_PETS_PROFILE_ID"),
         CCPetsEnvironmentValue(@"CC_PETS_PROFILE_NAME"), @[]);
+    if (titleEnabled && interactiveEvent) {
+        @try {
+            if (titleToken.length > 0) {
+                CCBridgeBindTerminalTitle(titleToken, provider, sessionId);
+            } else if ([provider isEqual:@"Codex"] && CodexHasTerminalTitleLaunch(StringValue(payload[@"cwd"])) &&
+                TerminalFocusRunsUnderSharedAgentHost()) {
+                CCPetsSpawnDetached(CCPetsExecutablePath(), @[@"bridge", @"retry-codex-title", sessionId,
+                    StringValue(payload[@"cwd"]), StringValue(payload[@"transcript_path"]) ?: @""]);
+            }
+        } @catch (NSException *exception) {}
+    }
 
     if ([event isEqualToString:@"SessionStart"]) {
         // 清理失败不能影响身份注入。
@@ -283,6 +371,39 @@ static int HookCommand(void) {
     } @catch (NSException *exception) {
     } @finally {
         FinishInboxOutput(written);
+    }
+    return 0;
+}
+
+static int RetryCodexTerminalTitleCommand(NSArray<NSString *> *arguments) {
+    if (arguments.count != 3 || !CCBridgeTerminalTitleEnabled()) return 0;
+    NSString *session = CCBridgeSafeSessionId(arguments[0]);
+    NSString *cwd = arguments[1];
+    if (!session || !cwd.isAbsolutePath) return 0;
+
+    NSString *lock = nil;
+    @try {
+        lock = CCBridgeAcquireLock([@"codex-title-retry-" stringByAppendingString:session]);
+        if (!lock) return 0;
+        // Codex can buffer TUI startup logs for 10 seconds. Wait outside the hook.
+        NSDictionary *payload = @{@"cwd": cwd, @"transcript_path": arguments[2]};
+        NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + 16;
+        while (NSProcessInfo.processInfo.systemUptime < deadline) {
+            @autoreleasepool {
+                if (!CCBridgeTerminalTitleEnabled() || !CodexHasTerminalTitleLaunch(cwd)) break;
+                NSDictionary *record = CCBridgeReadSession(session);
+                if (![record[@"provider"] isEqual:@"Codex"] || !CCBridgeSessionLive(record)) break;
+                NSString *token = StringValue(CodexLaunchTerminalForThread(session, payload)[@"bridgeTitleToken"]);
+                if (token.length > 0) {
+                    CCBridgeBindTerminalTitleIfUnbound(token, @"Codex", session);
+                    break;
+                }
+            }
+            sleep(2);
+        }
+    } @catch (NSException *exception) {
+    } @finally {
+        CCBridgeReleaseLock(lock);
     }
     return 0;
 }
@@ -378,7 +499,7 @@ static NSArray<NSDictionary *> *Tools(void) {
     return @[
         @{@"name": @"list_agents",
           @"description": [@[
-              L(@"List the other Claude Code / Codex terminal sessions running on this machine that can exchange messages (cc-pets CC Bridge; "),
+              L(@"List other local sessions that can receive CC Bridge messages, including Claude Code, Codex, and Antigravity CLI sessions ("),
               L(@"this is what the user means by “bridge”, “cc-bridge”, “other sessions” or “another terminal”). "), AliasNote(),
               L(@"Each line shows: name [ref], CLI, busy/idle, terminal (tty), start time, working directory. "),
               L(@"The name is the send_message address; append ` [ref]` only when names collide. "),
@@ -388,7 +509,7 @@ static NSArray<NSDictionary *> *Tools(void) {
           @"annotations": @{@"readOnlyHint": @YES, @"title": L(@"List Agent sessions")}},
         @{@"name": @"send_message",
           @"description": [@[
-              L(@"Send a message to another Claude Code / Codex session on this machine (what the user means by “message it via bridge” or “send to another session / terminal”). "),
+              L(@"Send a message to another CC Bridge session on this machine (what the user means by “message it via bridge” or “send to another session / terminal”). "),
               L(@"An idle recipient is woken; a busy one gets it after its current turn. "), AliasNote(),
               L(@"Delivery doesn't mean it was read or agreed to; replies arrive as new messages in this session. "),
               L(@"When replying, put the from name from the message header into to."), SafetyNote()
@@ -606,7 +727,7 @@ static NSDictionary *HandleRequest(NSDictionary *request, NSDictionary **error) 
             @"capabilities": @{@"tools": @{}},
             @"serverInfo": @{@"name": @"cc-bridge", @"version": @"1.0.0"},
             @"instructions": [@[
-                L(@"cc-pets CC Bridge: exchange messages with other Claude Code / Codex terminal sessions on this machine. "),
+                L(@"cc-pets CC Bridge: exchange messages with local Claude Code, Codex, and Antigravity CLI sessions. "),
                 L(@"When the user mentions cc-bridge, bridge, pet, desktop pet, 桌宠, cc-pets, cross-session / cross-terminal messages, "),
                 L(@"“message another session / terminal / Claude / Codex”, or names a session or tty (e.g. ttys003), "),
                 L(@"use this server's tools directly; there's no need to look up bridge usage in project files. "), AliasNote(),
@@ -619,7 +740,27 @@ static NSDictionary *HandleRequest(NSDictionary *request, NSDictionary **error) 
     }
     if ([method isEqualToString:@"ping"]) return @{};
     if ([method isEqualToString:@"tools/list"]) return @{@"tools": Tools()};
-    if ([method isEqualToString:@"tools/call"]) return CallTool(StringValue(params[@"name"]), params[@"arguments"]);
+    if ([method isEqualToString:@"tools/call"]) {
+        NSDictionary *meta = [params[@"_meta"] isKindOfClass:NSDictionary.class] ? params[@"_meta"] : nil;
+        BOOL agyMCP = [CCPetsEnvironmentValue(@"CC_PETS_AGY_MCP") isEqual:@"1"];
+        NSString *rootConversation = CCBridgeSafeSessionId(meta[@"antigravity.google/root_conversation_id"]);
+        id arguments = params[@"arguments"];
+        if (agyMCP || rootConversation) {
+            NSString *provider = CCBridgeFindAgentAncestor(getppid())[@"provider"];
+            BOOL antigravity = [provider isEqual:CCBridgeAntigravityProvider] ||
+                ([provider isEqual:CCBridgeAntigravityAppProvider] && [CCBridgeOptions()[@"antigravityApp"] boolValue]);
+            if (agyMCP && !antigravity) return TextResult(L(@"CC Bridge is unavailable for this Antigravity host."), YES);
+            if (rootConversation && antigravity) {
+                NSMutableDictionary *withIdentity = [arguments isKindOfClass:NSDictionary.class] ? [arguments mutableCopy] : [NSMutableDictionary dictionary];
+                if (withIdentity[@"session_id"] && ![withIdentity[@"session_id"] isEqual:rootConversation]) {
+                    return TextResult(L(@"The supplied session_id differs from the current Antigravity conversation."), YES);
+                }
+                withIdentity[@"session_id"] = rootConversation;
+                arguments = withIdentity;
+            }
+        }
+        return CallTool(StringValue(params[@"name"]), arguments);
+    }
     *error = @{@"code": @(-32601), @"message": [NSString stringWithFormat:@"Method not found: %@", method ?: @"undefined"]};
     return nil;
 }
@@ -676,6 +817,16 @@ static NSArray<NSDictionary *> *RegisteredProfiles(void) {
 
 static BOOL InstallBridgeForRegisteredProfiles(NSDictionary *options, BOOL registerMcp) {
     __block BOOL succeeded = YES;
+    if ([options[@"antigravityApp"] boolValue]) {
+        NSString *home = [CCPetsHomeDirectory() stringByAppendingPathComponent:@".gemini"];
+        NSString *error = nil;
+        if (!CCPetsProfileForHome(CCPetsProfileProviderAntigravity, home) &&
+            (!CCPetsProfileHomeMatchesProvider(CCPetsProfileProviderAntigravity, home) ||
+                !CCPetsRegisterProfile(CCPetsProfileProviderAntigravity, home, nil, nil, &error))) {
+            CCPetsPrintLine(stderr, error ?: L(@"Open Antigravity App once before enabling its CC Bridge integration."));
+            return NO;
+        }
+    }
     NSArray<NSDictionary *> *profiles = RegisteredProfiles();
     if (profiles.count == 0) {
         Print(L(@"No Agent Homes are registered; CC Bridge will be applied when you add one from Multi-Account in the Main menu."));
@@ -869,6 +1020,10 @@ int CCBridgeCommandMain(NSArray<NSString *> *argv) {
     if ([command isEqualToString:@"hook"]) return HookCommand();
     if ([command isEqualToString:@"watch"]) return WatchCommand();
     if ([command isEqualToString:@"mcp"]) return MCPCommand();
+    if ([command isEqualToString:@"agy-app-sidecar"]) return arguments.count == 0 ? CCBridgeRunAntigravityAppSidecar() : 2;
+    if ([command isEqualToString:@"terminal-title-enabled"]) return CCBridgeTerminalTitleEnabled() ? 0 : 1;
+    if ([command isEqualToString:@"terminal-title-run"]) return CCPetsRunBridgeTitleRelay(arguments);
+    if ([command isEqualToString:@"retry-codex-title"]) return RetryCodexTerminalTitleCommand(arguments);
     @try {
         if ([command isEqualToString:@"notify-idle"]) return NotifyIdleCommand(arguments);
         NSDictionary<NSString *, int (^)(void)> *commands = @{

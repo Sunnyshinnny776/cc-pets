@@ -1,11 +1,15 @@
 #import <Foundation/Foundation.h>
 
-// Codex 与 Claude 的额度读取。
+// Agent CLI 的额度读取。
 int RecordClaudeUsage(void);
 NSDictionary *ClaudeRateLimits(void);
 NSDictionary *ClaudeRateLimitsForConfigDirectory(NSString *configDirectory);
 NSDictionary *LatestClaudeUsage(void);
 NSDictionary *LatestUsage(void);
+NSDictionary *AntigravityRateLimitsForConfigDirectory(NSString *configDirectory);
+NSDictionary *AntigravityTokenUsageForConfigDirectory(NSString *configDirectory);
+NSDictionary *AntigravityAppTokenUsageForConfigDirectory(NSString *configDirectory);
+BOOL CCPetsAntigravityAppUsageAvailable(void);
 // 清掉 resets_at 已经翻篇（或不可能属于当前窗口）的额度窗口，缺 resets_at 的保留。
 NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 
@@ -38,7 +42,8 @@ NSDictionary *UsageByRemovingExpiredQuotaWindows(NSDictionary *usage);
 - (NSDictionary *)refreshForSessionURLs:(NSArray<NSURL *> *)urls;
 @end
 
-// 按模型的用量，provider 为 "claude" 或 "codex"（别的返回 nil）。统计 [start, end) 之间的自然日
+// 按模型的用量，provider 为 "claude"、"codex"、"antigravity"（CLI）或 "antigravity-app"。
+// 统计 [start, end) 之间的自然日
 // （start / end 应是日零点），数据来自本机会话日志，不联网。会读整段区间的会话文件，首次可能耗时
 // 数百毫秒到数秒，只在后台队列调用。结果：
 //   models: @{模型名: counts}   区间合计

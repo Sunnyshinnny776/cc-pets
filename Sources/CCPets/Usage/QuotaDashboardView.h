@@ -38,7 +38,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 // 按两家都有渲染。
 @property NSSet<NSString *> *detectedProviders;
 - (NSArray<NSString *> *)visibleProviders;
+- (NSArray<NSString *> *)orderedQuotaProviderKeys;
 - (CGFloat)logicalHeight;
+- (void)refreshQuotaCardLayout;
 @property NSTimeInterval lastUpdatedAt;
 @property BOOL systemCPUEnabled;
 @property BOOL systemTemperatureEnabled;
@@ -55,4 +57,5 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 // 有数据时还有 level（0 充足 / 1 平稳 / 2 需关注 / 3 高风险）。
 - (NSDictionary *)paceStatusForWindow:(NSDictionary *)window color:(NSColor *)providerColor;
 @property(copy) void (^hoverChanged)(BOOL hovering);
+@property(copy) void (^layoutChanged)(void);
 @end

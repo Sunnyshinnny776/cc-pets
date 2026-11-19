@@ -57,6 +57,35 @@
     self.quotaView.showsAPIUsageByProvider = showsAPIUsageByProvider;
     self.quotaView.needsDisplay = YES;
 }
+- (NSArray<NSString *> *)quotaCardOrderForSettings {
+    return [self.quotaView orderedQuotaProviderKeys] ?: @[];
+}
+- (void)updateQuotaCardOrder:(NSArray<NSString *> *)order {
+    if (order.count == 0) {
+        CCPetsPrefSetObject(CCPetsQuotaCardOrderKey, nil);
+        [self.quotaView refreshQuotaCardLayout];
+        return;
+    }
+    NSArray<NSString *> *visible = [self quotaCardOrderForSettings];
+    NSSet<NSString *> *visibleKeys = [NSSet setWithArray:visible];
+    NSArray<NSString *> *requested = CCPetsPrefNormalizedValue(CCPetsQuotaCardOrderKey, order);
+    if (requested.count == 0) return;
+    NSMutableOrderedSet<NSString *> *reordered = [NSMutableOrderedSet orderedSetWithArray:requested];
+    [reordered intersectSet:visibleKeys];
+    [reordered addObjectsFromArray:visible];
+    if ([reordered.array isEqualToArray:visible]) return;
+
+    // Keep the previous slots for known cards that are absent from the current panel.
+    NSSet<NSString *> *knownKeys = [NSSet setWithArray:[CCPetsProviderDescriptors() valueForKey:@"key"]];
+    NSMutableArray<NSString *> *saved = [NSMutableArray array];
+    NSUInteger next = 0;
+    for (NSString *key in CCPetsQuotaCardOrder()) {
+        if (![knownKeys containsObject:key]) continue;
+        [saved addObject:[visibleKeys containsObject:key] ? reordered[next++] : key];
+    }
+    while (next < reordered.count) [saved addObject:reordered[next++]];
+    if (CCPetsPrefSetObject(CCPetsQuotaCardOrderKey, saved)) [self.quotaView refreshQuotaCardLayout];
+}
 - (void)setUsageDisplayModeFromControl:(NSButton *)sender {
     if (sender.identifier.length > 0) {
         NSDictionary *profile = CCPetsProfileWithID(sender.identifier);
@@ -68,14 +97,18 @@
         return;
     }
     NSString *key = sender.tag == 1 ? CodexUsageDisplayModeKey
-        : (sender.tag == 2 ? ClaudeUsageDisplayModeKey : nil);
+        : (sender.tag == 2 ? ClaudeUsageDisplayModeKey
+        : (sender.tag == 3 ? AntigravityUsageDisplayModeKey : nil));
     NSString *mode = sender.state == NSControlStateValueOn ? @"api" : @"subscription";
     if (!key) return;
     [self updateUsageDisplayMode:mode forKey:key];
 }
 - (void)updateUsageDisplayMode:(NSString *)mode forKey:(NSString *)key {
-    if (![@[CodexUsageDisplayModeKey, ClaudeUsageDisplayModeKey] containsObject:key] ||
-        ![@[@"api", @"subscription"] containsObject:mode]) return;
+    NSMutableSet<NSString *> *providerKeys = [NSMutableSet set];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        if (provider.usageDisplayModeDefaultsKey.length > 0) [providerKeys addObject:provider.usageDisplayModeDefaultsKey];
+    }
+    if (![providerKeys containsObject:key] || ![@[@"api", @"subscription"] containsObject:mode]) return;
     CCPetsPrefSetObject(key, mode);
     [self applyUsageDisplayModePreferences];
     // 展示模式决定了会话要回溯多远（订阅 8 天 / API 到上月月初），切换之后必须重新聚合，

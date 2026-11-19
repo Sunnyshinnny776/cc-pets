@@ -57,6 +57,8 @@ NSData *SessionTailData(NSURL *url);
 NSDictionary *LatestQuotaInRecentSessions(NSURL *sessionsURL, NSURL *skipURL);
 
 // Token 窗口聚合、摘要缓存与月度归档（CCPetsUsage+TokenTotals.m）
+unsigned long long EnumerateUsageLines(NSFileHandle *handle, BOOL includeTail,
+    void (^consume)(NSData *line));
 BOOL IsPseudoModelName(NSString *model);
 NSDictionary *CodexBackgroundModelDays(NSString *home, NSTimeInterval start, NSTimeInterval end);
 NSDictionary *TokenSessionSummaryTracking(NSURL *url, NSMutableDictionary *cache,

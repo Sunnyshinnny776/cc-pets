@@ -1,5 +1,6 @@
 #import "CCPetsL10n.h"
 #import "CCPetsDoctor.h"
+#import "CCPetsAntigravityConfig.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeSetup.h"
 #import "CCPetsBridgeStore.h"
@@ -125,7 +126,17 @@ static NSDictionary *ReadJSONFile(NSString *file) {
 
 #pragma mark - cc-pets paths
 
+static NSString *ProfileHooksPath(NSDictionary *profile) {
+    NSString *provider = profile[@"provider"], *home = profile[@"home"];
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+        return [home stringByAppendingPathComponent:@"config/hooks.json"];
+    }
+    return [home stringByAppendingPathComponent:
+        [provider isEqualToString:CCPetsProfileProviderClaude] ? @"settings.json" : @"hooks.json"];
+}
+
 static NSArray<NSDictionary *> *PathGroups(NSDictionary *native) {
+    NSString *agyHome = DefaultAntigravityConfigDirectory();
     NSMutableArray *integrationItems = [NSMutableArray arrayWithArray:@[
         @[PackageKind(), PackageDirectory()],
         @[L(@"Installed app"), InstalledApp()],
@@ -134,13 +145,14 @@ static NSArray<NSDictionary *> *PathGroups(NSDictionary *native) {
             stringByAppendingPathComponent:@"settings.json"]],
         @[@"Codex Hooks", [[CCPetsHomeDirectory() stringByAppendingPathComponent:@".codex"]
             stringByAppendingPathComponent:@"hooks.json"]],
+        @[L(@"Antigravity CLI hooks"), [agyHome stringByAppendingPathComponent:@"config/hooks.json"]],
+        @[L(@"Antigravity CLI MCP config"), [agyHome stringByAppendingPathComponent:@"config/mcp_config.json"]],
+        @[L(@"Antigravity CLI settings"), [agyHome stringByAppendingPathComponent:@"antigravity-cli/settings.json"]],
         @[L(@"Shell config"), ShellRC()]
     ]];
     for (NSDictionary *profile in CCPetsProfiles()) {
         NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: profile[@"provider"];
-        NSString *file = [profile[@"home"] stringByAppendingPathComponent:
-            [profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude] ? @"settings.json" : @"hooks.json"];
-        [integrationItems addObject:@[[NSString stringWithFormat:L(@"Agent profile: %@"), name], file]];
+        [integrationItems addObject:@[[NSString stringWithFormat:L(@"Agent profile: %@"), name], ProfileHooksPath(profile)]];
     }
     return @[
         @{@"title": L(@"Settings (removed by --purge)"), @"items": @[@[L(@"Preferences"), native[@"preferences"]]]},
@@ -149,7 +161,7 @@ static NSArray<NSDictionary *> *PathGroups(NSDictionary *native) {
             @[L(@"Shared lines"), native[@"phrases"]],
             @[L(@"Per-pet lines"), native[@"petPhrases"]],
             @[L(@"CC Bridge switch"), [CCBridgeHomeDirectory() stringByAppendingPathComponent:@"bridge-enabled"]],
-            @[@"codex / claude shim", CCPetsShimDirectory()]
+            @[L(@"Agent shims"), CCPetsShimDirectory()]
         ]},
         @{@"title": L(@"App data (removed by --purge; clean only clears the token cache and update log)"), @"items": @[
             @[L(@"App data directory"), native[@"applicationSupport"]],
@@ -278,6 +290,19 @@ static NSArray<NSDictionary *> *HookChecks(NSString *name, NSString *configFile,
     return results;
 }
 
+static NSDictionary *AntigravityHookCheck(NSDictionary *profile) {
+    NSString *name = profile[@"displayName"] ?: @"Antigravity CLI";
+    NSString *path = ProfileHooksPath(profile);
+    NSDictionary *read = ReadJSONFile(path);
+    if ([read[@"error"] isEqualToString:@"invalid"] || (read[@"value"] && ![read[@"value"] isKindOfClass:NSDictionary.class])) {
+        return Result(@"fail", LF(L(@"Can't parse {name} config: {configFile}"),
+            (@{@"name": name, @"configFile": CCPetsTildePath(path)})), L(@"Fix that JSON file, then run cc-pets install"));
+    }
+    return CCPetsAntigravityPetHooksInstalled(profile)
+        ? Result(@"ok", LF(L(@"{name} hooks installed"), @{@"name": name}), nil)
+        : Result(@"fail", LF(L(@"{name} hooks not installed"), @{@"name": name}), @"cc-pets install");
+}
+
 static NSDictionary *StatusLineCheckAtHome(NSString *home) {
     NSDictionary *value = ReadJSONFile([home stringByAppendingPathComponent:@"settings.json"])[@"value"];
     NSDictionary *statusLine = [value isKindOfClass:NSDictionary.class] && [value[@"statusLine"] isKindOfClass:NSDictionary.class]
@@ -308,7 +333,8 @@ static NSArray<NSDictionary *> *ShimChecks(BOOL inApp) {
 
     NSString *shimDirectory = CCPetsShimDirectory();
     NSMutableArray<NSString *> *broken = [NSMutableArray array];
-    for (NSString *name in @[@"codex", @"claude"]) {
+    NSArray<NSString *> *names = @[@"codex", @"claude", @"agy"];
+    for (NSString *name in names) {
         NSString *link = [NSFileManager.defaultManager destinationOfSymbolicLinkAtPath:[shimDirectory stringByAppendingPathComponent:name] error:nil];
         if (!link) {
             [broken addObject:LF(L(@"{name} (missing)"), @{@"name": name})];
@@ -335,17 +361,17 @@ static NSArray<NSDictionary *> *ShimChecks(BOOL inApp) {
     NSUInteger index = [entries indexOfObject:shimDirectory];
     NSString *sourceHint = LF(L(@"source {shellRC}, or open a new terminal"), @{@"shellRC": CCPetsTildePath(shellRC)});
     if (index == NSNotFound) {
-        [results addObject:Result(@"warn", L(@"This terminal's PATH lacks the shim directory, so typing codex / claude won't start the pet"), sourceHint)];
+        [results addObject:Result(@"warn", L(@"This terminal's PATH lacks the shim directory, so the Agent launchers won't start the pet"), sourceHint)];
     } else if (index > 0) {
         NSString *shadowing = nil;
         for (NSString *entry in [entries subarrayWithRange:NSMakeRange(0, index)]) {
-            for (NSString *name in @[@"codex", @"claude"]) {
+            for (NSString *name in names) {
                 if (!shadowing && [NSFileManager.defaultManager fileExistsAtPath:[entry stringByAppendingPathComponent:name]]) shadowing = entry;
             }
         }
         [results addObject:shadowing
             ? Result(@"warn", LF(L(@"{shadowing} comes before the shim directory in PATH and bypasses the pet"), @{@"shadowing": CCPetsTildePath(shadowing)}), sourceHint)
-            : Result(@"ok", L(@"The shim directory comes before the real codex / claude in PATH"), nil)];
+            : Result(@"ok", L(@"The shim directory comes before the real Agent binaries in PATH"), nil)];
     } else {
         [results addObject:Result(@"ok", L(@"The shim directory is first in PATH"), nil)];
     }
@@ -355,7 +381,7 @@ static NSArray<NSDictionary *> *ShimChecks(BOOL inApp) {
 // searchPath：主窗口传登录 shell 的 PATH，终端里传 nil 用自身 PATH。
 static NSString *FindRealBinary(NSString *name, NSString *variable, NSString *searchPath) {
     NSString *real = CCPetsFindRealExecutableInPath(name, variable, searchPath ?: CCPetsEnvironmentValue(@"PATH"));
-    return real && [NSFileManager.defaultManager fileExistsAtPath:real] ? real : nil;
+    return real && [NSFileManager.defaultManager isExecutableFileAtPath:real] ? real : nil;
 }
 
 static NSDictionary *RealBinaryCheck(NSString *name, NSString *variable, NSString *searchPath, BOOL inApp) {
@@ -401,6 +427,8 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
     NSMutableArray<NSDictionary *> *sections = [NSMutableArray array];
     BOOL claudeDetected = CCPetsClaudeCLIInstalled();
     BOOL codexDetected = CCPetsCodexCLIInstalled();
+    BOOL agyDetected = CCPetsDirectoryExists([DefaultAntigravityConfigDirectory() stringByAppendingPathComponent:@"antigravity-cli"]) ||
+        CCPetsFindRealExecutable(@"agy", @"AGY_REAL_BIN") != nil;
     NSString *packageVersion = PackageVersion();
 
     NSMutableArray<NSDictionary *> *program = [NSMutableArray arrayWithObject:
@@ -432,19 +460,19 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
     for (NSDictionary *profile in registeredProfiles) {
         NSString *provider = profile[@"provider"];
         NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: provider;
-        NSString *file = [profile[@"home"] stringByAppendingPathComponent:
-            [provider isEqualToString:CCPetsProfileProviderClaude] ? @"settings.json" : @"hooks.json"];
         NSUInteger bridgeHooks = 0;
-        NSMutableArray *checks = [HookChecks(name, file,
-            [provider isEqualToString:CCPetsProfileProviderClaude] ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker,
-            [provider isEqualToString:CCPetsProfileProviderClaude] ? CCPetsLegacyClaudeHookMarker : CCPetsLegacyCodexHookMarker,
-            &bridgeHooks) mutableCopy];
-        profileBridgeHooks[profile[@"id"]] = @(bridgeHooks);
-        if ([provider isEqualToString:CCPetsProfileProviderClaude]) {
-            [checks addObject:StatusLineCheckAtHome(profile[@"home"])];
+        NSMutableArray *checks;
+        if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+            checks = [NSMutableArray arrayWithObject:AntigravityHookCheck(profile)];
+            bridgeHooks = CCPetsAntigravityBridgeInstalled(profile);
         } else {
-            [checks addObject:Result(@"info", L(@"Codex only runs CC Pets hooks after you trust them in /hooks (can't be checked automatically)"), nil)];
+            BOOL claude = [provider isEqualToString:CCPetsProfileProviderClaude];
+            checks = [HookChecks(name, ProfileHooksPath(profile), claude ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker,
+                claude ? CCPetsLegacyClaudeHookMarker : CCPetsLegacyCodexHookMarker, &bridgeHooks) mutableCopy];
+            if (claude) [checks addObject:StatusLineCheckAtHome(profile[@"home"])];
+            else [checks addObject:Result(@"info", L(@"Codex only runs CC Pets hooks after you trust them in /hooks (can't be checked automatically)"), nil)];
         }
+        profileBridgeHooks[profile[@"id"]] = @(bridgeHooks);
         for (NSUInteger index = 0; index < checks.count; index++) {
             NSDictionary *check = checks[index];
             if ([check[@"fix"] isEqualToString:@"cc-pets install"]) {
@@ -461,24 +489,41 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
     }
 
     // Finder 拉起的主窗口只有 launchd 的最小 PATH，nvm / Homebrew 下的 CLI 都不在里面，改用登录 shell 的。
-    NSString *searchPath = inApp && (codexDetected || claudeDetected) ? CCPetsLoginShellPath() : nil;
+    NSString *searchPath = inApp && (codexDetected || claudeDetected || agyDetected) ? CCPetsLoginShellPath() : nil;
     NSMutableArray *shell = [ShimChecks(inApp) mutableCopy];
     if (codexDetected) [shell addObject:RealBinaryCheck(@"codex", @"CODEX_REAL_BIN", searchPath, inApp)];
     if (claudeDetected) [shell addObject:RealBinaryCheck(@"claude", @"CLAUDE_REAL_BIN", searchPath, inApp)];
+    if (agyDetected) [shell addObject:RealBinaryCheck(@"agy", @"AGY_REAL_BIN", searchPath, inApp)];
     [sections addObject:@{@"title": L(@"Shell integration"), @"results": shell}];
 
     if (!CCBridgeEnabled()) {
         [sections addObject:@{@"title": @"CC Bridge", @"results": @[Result(@"info", L(@"Off (optional; turn on with cc-pets bridge enable)"), nil)]}];
     } else {
         NSMutableArray *bridge = [NSMutableArray arrayWithObject:Result(@"ok", L(@"Enabled"), nil)];
+        BOOL agyAppEnabled = [CCBridgeOptions()[@"antigravityApp"] boolValue];
         for (NSDictionary *profile in registeredProfiles) {
             NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: profile[@"provider"];
+            BOOL antigravity = [profile[@"provider"] isEqualToString:CCPetsProfileProviderAntigravity];
+            NSString *installed = antigravity ? L(@"CC Bridge hooks and MCP installed in %@") : L(@"CC Bridge hooks installed in %@");
+            NSString *missing = antigravity ? L(@"CC Bridge hooks or MCP missing in %@") : L(@"CC Bridge hooks missing in %@");
             NSDictionary *result = [profileBridgeHooks[profile[@"id"]] unsignedIntegerValue] > 0
-                ? Result(@"ok", [NSString stringWithFormat:L(@"CC Bridge hooks installed in %@"), name], nil)
-                : Result(@"warn", [NSString stringWithFormat:L(@"CC Bridge hooks missing in %@"), name], @"cc-pets bridge enable");
+                ? Result(@"ok", [NSString stringWithFormat:installed, name], nil)
+                : Result(@"warn", [NSString stringWithFormat:missing, name], @"cc-pets bridge enable");
             NSMutableDictionary *check = [result mutableCopy];
             check[@"profileID"] = profile[@"id"];
+            if (antigravity && [result[@"level"] isEqualToString:@"warn"] &&
+                [AntigravityHookCheck(profile)[@"level"] isEqualToString:@"ok"]) {
+                check[@"repairProfileID"] = profile[@"id"];
+            }
             [bridge addObject:check];
+            if (antigravity && agyAppEnabled && CCPetsProfileIsOfficialDefault(profile)) {
+                BOOL installedSidecar = CCPetsAntigravityAppSidecarInstalled(profile);
+                NSMutableDictionary *sidecar = [Result(installedSidecar ? @"ok" : @"warn",
+                    installedSidecar ? L(@"Antigravity App Sidecar configured") : L(@"Antigravity App Sidecar needs repair"),
+                    installedSidecar ? nil : @"cc-pets bridge configure --agy-app=on") mutableCopy];
+                if (!installedSidecar) sidecar[@"repairProfileID"] = profile[@"id"];
+                [bridge addObject:sidecar];
+            }
         }
         if (codexDetected) {
             if ([CCBridgeOptions()[@"wake"] boolValue]) {
@@ -497,6 +542,9 @@ static NSArray<NSDictionary *> *DoctorSections(BOOL inApp) {
                         : Result(@"ok", L(@"Codex supports codex queue, so it can be woken automatically"), nil)];
                 }
             }
+        }
+        if (agyDetected && [CCBridgeOptions()[@"wake"] boolValue]) {
+            [bridge addObject:Result(@"info", L(@"Antigravity CLI reads Bridge messages on its next model invocation."), nil)];
         }
         [sections addObject:@{@"title": @"CC Bridge", @"results": bridge}];
     }
@@ -561,13 +609,29 @@ static int RepairProfile(NSString *profileID) {
         return 1;
     }
     BOOL claude = [profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude];
+    BOOL antigravity = [profile[@"provider"] isEqualToString:CCPetsProfileProviderAntigravity];
+    BOOL repairAntigravityBridge = antigravity && CCBridgeEnabled();
+    BOOL repairAntigravityApp = repairAntigravityBridge && CCPetsProfileIsOfficialDefault(profile) &&
+        [CCBridgeOptions()[@"antigravityApp"] boolValue];
     NSArray<NSString *> *files = claude ? CCPetsClaudeIntegrationFilesAtHome(profile[@"home"])
-        : @[[profile[@"home"] stringByAppendingPathComponent:@"hooks.json"]];
-    NSString *parseError = nil;
-    id config = CCPetsReadConfig(files.firstObject, &parseError);
-    if (parseError || (config && ![config isKindOfClass:CCPetsJSONObject.class])) {
-        CCPetsPrintLine(stderr, parseError ?: L(@"The Agent configuration must be a JSON object."));
-        return 1;
+        : @[ProfileHooksPath(profile)];
+    if (antigravity) {
+        NSString *home = profile[@"home"];
+        files = [files arrayByAddingObject:[home stringByAppendingPathComponent:@"antigravity-cli/settings.json"]];
+        if (repairAntigravityBridge) files = [files arrayByAddingObject:[home stringByAppendingPathComponent:@"config/mcp_config.json"]];
+        if (repairAntigravityApp) files = [files arrayByAddingObjectsFromArray:@[
+            [home stringByAppendingPathComponent:@"config/config.json"],
+            [home stringByAppendingPathComponent:@"config/sidecars/cc-pets-bridge/sidecar.json"]
+        ]];
+    }
+    for (NSString *path in antigravity ? files : @[files.firstObject]) {
+        NSString *parseError = nil;
+        id config = antigravity ? CCPetsReadAntigravityConfig(path, &parseError) : CCPetsReadConfig(path, &parseError);
+        if (parseError || (config && ![config isKindOfClass:CCPetsJSONObject.class])) {
+            CCPetsPrintLine(stderr, [NSString stringWithFormat:@"%@: %@", CCPetsTildePath(path),
+                parseError ?: L(@"The Agent configuration must be a JSON object.")]);
+            return 1;
+        }
     }
     NSString *backup = [[ApplicationSupportDirectory() stringByAppendingPathComponent:@"diagnostic-backups"]
         stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
@@ -606,16 +670,41 @@ static int RepairProfile(NSString *profileID) {
         return 1;
     }
     CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"Configuration backup: %@"), CCPetsTildePath(backup)]);
-    int status = claude ? InstallClaudeHooksAtHome(binary, profile[@"home"])
-        : InstallCodexHooksAtHome(binary, profile[@"home"]);
-    if (status != 0) return status;
-
     // 安装返回成功后重新读配置；未恢复的 Hooks / status line 不能清掉待修复状态。
-    NSUInteger bridgeHooks = 0;
-    NSMutableArray<NSDictionary *> *checks = [HookChecks(profile[@"displayName"] ?: profileID,
-        files.firstObject, claude ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker,
-        claude ? CCPetsLegacyClaudeHookMarker : CCPetsLegacyCodexHookMarker, &bridgeHooks) mutableCopy];
-    if (claude) [checks addObject:StatusLineCheckAtHome(profile[@"home"])];
+    NSMutableArray<NSDictionary *> *checks;
+    if (antigravity) {
+        @try {
+            NSArray *report = repairAntigravityBridge ? CCBridgeInstallForProfile(profile, CCBridgeOptions(), YES)
+                : CCPetsInstallAntigravityPetHooks(profile);
+            BOOL failed = NO;
+            for (NSString *line in report) {
+                BOOL errorLine = [line hasPrefix:@"ERROR: "];
+                CCPetsPrintLine(errorLine ? stderr : stdout, line);
+                failed |= errorLine;
+            }
+            if (failed) return 1;
+        } @catch (NSException *exception) {
+            CCPetsPrintLine(stderr, exception.reason ?: exception.name);
+            return 1;
+        }
+        checks = [NSMutableArray arrayWithObject:AntigravityHookCheck(profile)];
+        if (repairAntigravityBridge && !CCPetsAntigravityBridgeInstalled(profile)) {
+            [checks addObject:Result(@"fail", [NSString stringWithFormat:L(@"CC Bridge hooks or MCP missing in %@"),
+                profile[@"displayName"] ?: profileID], nil)];
+        }
+        if (repairAntigravityApp && !CCPetsAntigravityAppSidecarInstalled(profile)) {
+            [checks addObject:Result(@"fail", L(@"Antigravity App Sidecar needs repair"), nil)];
+        }
+    } else {
+        int status = claude ? InstallClaudeHooksAtHome(binary, profile[@"home"])
+            : InstallCodexHooksAtHome(binary, profile[@"home"]);
+        if (status != 0) return status;
+        NSUInteger bridgeHooks = 0;
+        checks = [HookChecks(profile[@"displayName"] ?: profileID, files.firstObject,
+            claude ? CCPetsClaudeHookMarker : CCPetsCodexHookMarker,
+            claude ? CCPetsLegacyClaudeHookMarker : CCPetsLegacyCodexHookMarker, &bridgeHooks) mutableCopy];
+        if (claude) [checks addObject:StatusLineCheckAtHome(profile[@"home"])];
+    }
     for (NSDictionary *check in checks) {
         if ([check[@"level"] isEqualToString:@"ok"]) continue;
         CCPetsPrintLine(stderr, check[@"title"]);

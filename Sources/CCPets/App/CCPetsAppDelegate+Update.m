@@ -218,7 +218,7 @@ static void TrimUpdateLog(NSString *path) {
         NSString *latestVersion = [metadata isKindOfClass:NSDictionary.class] &&
             [metadata[@"version"] isKindOfClass:NSString.class] ? metadata[@"version"] : nil;
         BOOL valid = NO;
-        NSComparisonResult comparison = CompareStableVersions(@CC_PETS_VERSION, latestVersion, &valid);
+        NSComparisonResult comparison = CompareInstalledVersionToRelease(@CC_PETS_VERSION, latestVersion, &valid);
         if (error || httpResponse.statusCode != 200 || !valid) {
             NSString *message = error.localizedDescription ?: L(@"The npm registry returned invalid version info. Please try again later.");
             dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, nil, message); });
@@ -290,7 +290,7 @@ static void TrimUpdateLog(NSString *path) {
             return;
         }
         BOOL valid = NO;
-        if (CompareStableVersions(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
+        if (CompareInstalledVersionToRelease(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
             [strongSelf clearPendingUpdate];
             [strongSelf showAlertWithTitle:L(@"You're Up to Date")
                 message:[NSString stringWithFormat:L(@"Version %@"), @CC_PETS_VERSION]];
@@ -319,7 +319,7 @@ static void TrimUpdateLog(NSString *path) {
         strongSelf.checkingForUpdate = NO;
         if (errorMessage || strongSelf.updating) return;
         BOOL valid = NO;
-        if (CompareStableVersions(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
+        if (CompareInstalledVersionToRelease(@CC_PETS_VERSION, version, &valid) != NSOrderedAscending) {
             [strongSelf clearPendingUpdate];
             return;
         }

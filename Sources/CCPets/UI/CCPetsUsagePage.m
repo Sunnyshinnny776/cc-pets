@@ -1,9 +1,11 @@
 #import "CCPetsUsagePage.h"
 #import "CCPetsFormBuilder.h"
 #import "CCPetsL10n.h"
+#import "CCPetsPaths.h"
 #import "CCPetsUIStyle.h"
 #import "CCPetsUsage.h"
 #import "CCPetsProfiles.h"
+#import "CCPetsProviderRegistry.h"
 #import "CCPetsCLISupport.h"
 #import "CCPetsUsageShared.h"
 #import "CCPetsUsageChartView.h"
@@ -38,7 +40,26 @@ static NSString *HitRateText(NSDictionary *counts) {
 }
 
 static NSString *ProviderTitle(NSString *provider) {
-    return [provider isEqualToString:@"claude"] ? @"Claude Code" : @"Codex";
+    if ([provider isEqualToString:CCPetsProfileProviderClaude]) return @"Claude Code";
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) return @"Antigravity CLI";
+    if ([provider isEqualToString:CCPetsUsageProviderAntigravityApp]) return @"Antigravity App";
+    return CCPetsProviderForProfileProvider(provider).name ?: provider;
+}
+
+static NSString *SourceTitle(NSDictionary *source) {
+    NSString *provider = source[@"provider"];
+    NSString *accountName = source[@"displayName"] ?: source[@"slug"];
+    if (accountName.length == 0) return ProviderTitle(provider);
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+        NSString *title = ProviderTitle(provider);
+        if (CCPetsProfileIsOfficialDefault(source) && ![source[@"customName"] boolValue]) return title;
+        return [NSString stringWithFormat:@"%@ · %@", title, accountName];
+    }
+    return accountName;
+}
+
+static NSString *SourceIdentity(NSDictionary *source) {
+    return source[@"id"] ?: source[@"provider"];
 }
 
 static NSString *EntrySourceTitle(NSDictionary *entry) {
@@ -115,8 +136,8 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
 @property(nonatomic) NSSegmentedControl *sourceControl;
 @property(nonatomic) NSPopUpButton *sourcePopup;
 @property(nonatomic) NSStackView *sourceSwitcher;
-// segment 0 是全部账号，其余与这里的 profile 顺序一一对应。
-@property(nonatomic) NSArray<NSDictionary *> *filterProfiles;
+// segment 0 是全部来源，其余与这里的顺序一一对应。
+@property(nonatomic) NSArray<NSDictionary *> *filterSources;
 @property(nonatomic) NSSegmentedControl *rangeControl;
 @property(nonatomic) NSSegmentedControl *metricControl;
 @property(nonatomic) NSProgressIndicator *spinner;
@@ -182,7 +203,7 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
     self.sourceSwitcher = [NSStackView stackViewWithViews:@[self.sourceControl, self.sourcePopup]];
     self.sourceSwitcher.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     self.sourceSwitcher.spacing = 0;
-    [self rebuildSourceControlSelectingProfileID:nil];
+    [self rebuildSourceControlSelectingID:nil];
     NSMutableArray<NSString *> *ranges = [NSMutableArray array];
     for (NSNumber *days in @[@7, @30, @90]) {
         [ranges addObject:[NSString stringWithFormat:L(@"%ld Days"), (long)days.integerValue]];
@@ -237,8 +258,7 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
 
 - (void)storeDidChange:(NSNotification *)notification {
     [self.spinner stopAnimation:nil];
-    NSString *selectedID = [self selectedAccountID];
-    [self rebuildSourceControlSelectingProfileID:selectedID];
+    [self rebuildSourceControlSelectingID:SourceIdentity([self selectedSource])];
     [self computeColorSlots];
     [self render];
 }
@@ -252,32 +272,42 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
     return (UsageMetric)MAX(0, self.metricControl.selectedSegment);
 }
 
-- (void)rebuildSourceControlSelectingProfileID:(NSString *)selectedID {
-    NSMutableArray<NSDictionary *> *profiles = [NSMutableArray array];
-    // 同一家账号放在一起，顺序与面板一致：Codex 在前，Claude 在后。
-    [profiles addObjectsFromArray:CCPetsProfilesForProvider(CCPetsProfileProviderCodex)];
-    [profiles addObjectsFromArray:CCPetsProfilesForProvider(CCPetsProfileProviderClaude)];
-    self.filterProfiles = profiles;
-    self.sourceControl.segmentCount = profiles.count + 1;
-    [self.sourceControl setLabel:L(@"All") forSegment:0];
+- (void)rebuildSourceControlSelectingID:(NSString *)selectedID {
+    NSMutableArray<NSDictionary *> *sources = [NSMutableArray array];
+    for (CCPetsProviderDescriptor *descriptor in CCPetsProviderDescriptors()) {
+        NSString *provider = descriptor.profileProvider;
+        NSArray<NSDictionary *> *profiles = CCPetsProfilesForProvider(provider);
+        if ([provider isEqualToString:CCPetsProfileProviderAntigravity] && profiles.count > 1) {
+            [sources addObject:@{@"provider": provider}];
+        }
+        [sources addObjectsFromArray:profiles];
+    }
+    if (CCPetsUsageStore.results[CCPetsUsageProviderAntigravityApp] || CCPetsAntigravityAppUsageAvailable()) {
+        [sources addObject:@{@"provider": CCPetsUsageProviderAntigravityApp, @"home": DefaultAntigravityAppConfigDirectory()}];
+    }
+    self.filterSources = sources;
+    NSString *defaultTitle = L(@"All");
+    self.sourceControl.segmentCount = sources.count + 1;
+    [self.sourceControl setLabel:defaultTitle forSegment:0];
     [self.sourceControl setWidth:0 forSegment:0];
     [self.sourcePopup removeAllItems];
-    [self.sourcePopup addItemWithTitle:L(@"All")];
+    [self.sourcePopup addItemWithTitle:defaultTitle];
     NSInteger selectedSegment = 0;
-    CGFloat estimatedWidth = 44;
-    for (NSUInteger index = 0; index < profiles.count; index++) {
-        NSDictionary *profile = profiles[index];
-        NSString *title = profile[@"displayName"] ?: profile[@"slug"] ?: profile[@"provider"];
+    NSDictionary *labelAttributes = @{NSFontAttributeName: self.sourceControl.font};
+    CGFloat estimatedWidth = MAX(44, [defaultTitle sizeWithAttributes:labelAttributes].width + 22);
+    for (NSUInteger index = 0; index < sources.count; index++) {
+        NSDictionary *source = sources[index];
+        NSString *title = SourceTitle(source);
+        NSString *home = source[@"home"];
+        NSString *toolTip = home ? CCPetsTildePath(home) : nil;
         NSInteger segment = (NSInteger)index + 1;
         [self.sourceControl setLabel:title forSegment:segment];
-        [self.sourceControl setToolTip:CCPetsTildePath(profile[@"home"]) forSegment:segment];
+        [self.sourceControl setToolTip:toolTip forSegment:segment];
         [self.sourceControl setWidth:0 forSegment:segment];
         [self.sourcePopup addItemWithTitle:title];
-        self.sourcePopup.lastItem.toolTip = CCPetsTildePath(profile[@"home"]);
-        estimatedWidth += MAX(54, [title sizeWithAttributes:@{
-            NSFontAttributeName: self.sourceControl.font
-        }].width + 22);
-        if (selectedID.length > 0 && [profile[@"id"] isEqualToString:selectedID]) {
+        self.sourcePopup.lastItem.toolTip = toolTip;
+        estimatedWidth += MAX(54, [title sizeWithAttributes:labelAttributes].width + 22);
+        if ([SourceIdentity(source) isEqualToString:selectedID]) {
             selectedSegment = segment;
         }
     }
@@ -285,22 +315,17 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
     [self.sourcePopup selectItemAtIndex:selectedSegment];
     // 少量短名称保留快速分段切换；账号多或名称长时自动降级为下拉菜单，避免和
     // 右侧时间范围控件互相挤压。下拉菜单仍完整保留每个账号和 Home 提示。
-    BOOL usePopup = profiles.count > 3 || estimatedWidth > 360;
+    BOOL usePopup = sources.count > 3 || estimatedWidth > 360;
     self.sourceControl.hidden = usePopup;
     self.sourcePopup.hidden = !usePopup;
 }
 
-- (NSDictionary *)selectedProfile {
+- (NSDictionary *)selectedSource {
     NSInteger selected = self.sourcePopup.hidden
         ? self.sourceControl.selectedSegment : self.sourcePopup.indexOfSelectedItem;
     NSInteger index = selected - 1;
-    return index >= 0 && index < (NSInteger)self.filterProfiles.count
-        ? self.filterProfiles[(NSUInteger)index] : nil;
-}
-
-- (NSString *)selectedAccountID {
-    NSString *value = [self selectedProfile][@"id"];
-    return [value isKindOfClass:NSString.class] && value.length > 0 ? value : nil;
+    return index >= 0 && index < (NSInteger)self.filterSources.count
+        ? self.filterSources[(NSUInteger)index] : nil;
 }
 
 // 色板位置：90 天、全部来源里按总用量排名，前 8 名各占一色，其余归「其他」。
@@ -346,15 +371,17 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
 // 按当前来源和区间整理条目。区间合计由截取后的每日数据现加，不用数据层的 models（那是整整 90 天的）。
 - (NSArray<NSDictionary *> *)entriesForRangeDays:(NSInteger)rangeDays {
     NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
-    NSDictionary *selectedProfile = [self selectedProfile];
-    NSString *selectedProvider = selectedProfile[@"provider"];
-    NSArray<NSString *> *providers = selectedProvider.length > 0
-        ? @[selectedProvider] : @[@"claude", @"codex"];
+    NSDictionary *selectedSource = [self selectedSource];
+    NSString *selectedProvider = selectedSource[@"provider"];
+    NSString *selectedProfileID = selectedSource[@"id"];
+    NSString *sourceTitle = selectedProfileID ? SourceTitle(selectedSource) : nil;
+    NSDictionary *results = CCPetsUsageStore.results;
+    NSArray<NSString *> *providers = selectedProvider ? @[selectedProvider]
+        : [[CCPetsProviderDescriptors() valueForKey:@"profileProvider"] arrayByAddingObject:CCPetsUsageProviderAntigravityApp];
     NSArray<NSNumber *> *stamps = nil;
     for (NSString *provider in providers) {
-        NSString *selectedID = selectedProfile[@"id"];
-        NSDictionary *result = selectedID.length > 0
-            ? CCPetsUsageStore.profileResults[selectedID] : CCPetsUsageStore.results[provider];
+        NSDictionary *result = selectedProfileID
+            ? CCPetsUsageStore.profileResults[selectedProfileID] : results[provider];
         NSArray<NSDictionary *> *daily = result[@"daily"];
         if (daily.count > (NSUInteger)rangeDays) {
             daily = [daily subarrayWithRange:NSMakeRange(daily.count - (NSUInteger)rangeDays, (NSUInteger)rangeDays)];
@@ -369,8 +396,7 @@ static const NSTimeInterval UsagePageRefreshInterval = 60;
             if (CCPetsTotalTokens(counts) == 0 && Count(counts, @"requests") == 0) continue;
             NSMutableDictionary *entry = [@{@"key": [NSString stringWithFormat:@"%@|%@", provider, model],
                 @"provider": provider, @"model": model, @"counts": counts, @"days": days} mutableCopy];
-            NSString *accountName = selectedProfile[@"displayName"] ?: selectedProfile[@"slug"];
-            if (accountName.length > 0) entry[@"accountName"] = accountName;
+            if (sourceTitle.length > 0) entry[@"accountName"] = sourceTitle;
             [entries addObject:entry];
         }
     }

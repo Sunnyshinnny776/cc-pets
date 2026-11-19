@@ -66,5 +66,20 @@ print -rn -- '{"schemaVersion":1,"provider":"Claude","state":"starting"}' | \
   "${PET_BIN}" --provider-event >/dev/null 2>&1 || true
 # 桌宠是常驻进程，会一直带着这里的环境。CLAUDE_CONFIG_DIR 是会话级的（claude-nw
 # 之类的别名会设它），泄漏过去会让桌宠永久只统计"第一个拉起它的账号"。
+unset CC_PETS_BRIDGE_TITLE_TOKEN
 env -u CLAUDE_CONFIG_DIR open -g "${PET_APP}" --args --managed
+if [[ -t 0 && -t 1 ]] && "${PET_BIN}" bridge terminal-title-enabled; then
+  case "${1:-}" in
+    auth|doctor|install|mcp|plugin|setup-token|update|upgrade|help|--help|-h|--version|-v) ;;
+    *)
+      if (( ${@[(Ie)-p]} == 0 && ${@[(Ie)--print]} == 0 )); then
+        CC_PETS_BRIDGE_TITLE_TOKEN="$(/usr/bin/uuidgen)" || CC_PETS_BRIDGE_TITLE_TOKEN=''
+        if [[ -n "${CC_PETS_BRIDGE_TITLE_TOKEN}" ]]; then
+          export CC_PETS_BRIDGE_TITLE_TOKEN
+          exec "${PET_BIN}" bridge terminal-title-run Claude "${REAL_CLAUDE}" "$@"
+        fi
+      fi
+      ;;
+  esac
+fi
 exec "${REAL_CLAUDE}" "$@"

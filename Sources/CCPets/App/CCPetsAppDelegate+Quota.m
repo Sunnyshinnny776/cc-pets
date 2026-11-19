@@ -1,5 +1,6 @@
 // 额度面板、用量刷新与系统指标。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsBridgeStore.h"
 #import "CCPetsWorkbench.h"
 #import "CCPetsProviderRegistry.h"
 
@@ -126,9 +127,7 @@
         [self updateSystemMetricsTimer];
     }
 }
-// 在线判定合并两个信号：包装脚本写出的客户端 pid 文件，以及该 provider 最近是否还在
-// 发事件。只看前者会把直接跑 claude / codex 的会话误判成离线；只看后者则在客户端退出后
-// 还要挂满一整个静默窗口。额度数据本身不是在线信号——它一直缓存着，用它判定会恒亮。
+// 在线判定合并托管 CLI 进程、最近的 Agent 事件和桌面端运行状态。额度缓存不参与判定。
 - (void)updateQuotaLiveState {
     NSMutableSet<NSString *> *online = [self.liveClientProviders mutableCopy] ?: [NSMutableSet set];
     NSMutableSet<NSString *> *onlineProfiles = [self.liveClientProfileIDs mutableCopy]
@@ -137,6 +136,13 @@
         ?: [NSMutableSet set];
     NSMutableSet<NSString *> *approvalProfiles = [NSMutableSet set];
     NSInteger desktopSessions = 0;
+    if (AntigravityDesktopApplicationIsRunning()) {
+        [online addObject:CCBridgeAntigravityAppProvider];
+        desktopSessions += 1;
+        NSDictionary *profile = CCPetsProfileForHome(CCPetsProfileProviderAntigravity, DefaultAntigravityAppConfigDirectory());
+        NSString *profileID = profile[@"id"];
+        if (profileID.length > 0) [onlineProfiles addObject:profileID];
+    }
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     for (NSString *provider in self.providerActivityAt) {
         NSTimeInterval last = [self.providerActivityAt[provider] doubleValue];
@@ -176,9 +182,11 @@
 }
 // 面板高度取决于渲染几张额度卡。调整玻璃容器后，内部内容随 autoresizingMask 铺满。
 - (void)resizeQuotaDashboard {
-    NSSize size = NSMakeSize(QuotaLogicalWidth * QuotaScale,
-        QuotaLogicalHeightForProviderCount([self.quotaView visibleProviders].count) * QuotaScale);
-    if (NSEqualSizes(self.quotaPanel.frame.size, size)) return;
+    NSSize size = NSMakeSize(QuotaLogicalWidth * QuotaScale, [self.quotaView logicalHeight] * QuotaScale);
+    if (NSEqualSizes(self.quotaPanel.frame.size, size)) {
+        [self.quotaView refreshQuotaCardLayout];
+        return;
+    }
     // 只改 size 不动 origin：窗口 frame 的原点在左下，面板会朝上收缩，底边保持贴着宠物。
     NSRect frame = self.quotaPanel.frame;
     frame.size = size;
@@ -186,7 +194,7 @@
     NSRect bounds = NSMakeRect(0, 0, size.width, size.height);
     self.quotaPanel.contentView.frame = bounds;
     for (NSView *subview in self.quotaPanel.contentView.subviews) subview.frame = bounds;
-    self.quotaView.needsDisplay = YES;
+    [self.quotaView refreshQuotaCardLayout];
     if (self.quotaPanel.isVisible) [self positionQuotaDashboard];
 }
 // 卡片来自自动登记的官方 Home 与用户明确登记的自定义 Home。自定义目录不会被扫描；
@@ -214,6 +222,7 @@
 - (void)applyUsageByProvider:(NSDictionary<NSString *, NSDictionary *> *)usageByProvider {
     self.quotaView.usageByProvider = usageByProvider;
     [self refreshDetectedProviders];
+    [self resizeQuotaDashboard];
     NSDictionary *history = RecordQuotaHistory(self.quotaView.usageByProvider);
     history = RecordProfileQuotaHistory(self.usageMonitor.profileUsages, self.usageMonitor.profiles);
     NSMutableDictionary *profileHistories = [NSMutableDictionary dictionary];

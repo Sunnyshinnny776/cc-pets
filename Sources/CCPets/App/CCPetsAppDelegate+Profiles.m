@@ -11,6 +11,10 @@
     [self chooseProfileHomeForProvider:CCPetsProfileProviderCodex];
 }
 
+- (void)addAntigravityProfile:(id)sender {
+    [self chooseProfileHomeForProvider:CCPetsProfileProviderAntigravity];
+}
+
 // 设置页的按钮在命令执行期间仍可点，被挡下时要告诉用户，不能悄悄什么都不做。
 - (BOOL)rejectWhileProfileCommandRunning {
     if (!self.profileCommandRunning) return NO;
@@ -20,6 +24,8 @@
 
 - (void)chooseProfileHomeForProvider:(NSString *)provider {
     if ([self rejectWhileProfileCommandRunning]) return;
+    BOOL antigravity = [provider isEqualToString:CCPetsProfileProviderAntigravity];
+    BOOL claude = [provider isEqualToString:CCPetsProfileProviderClaude];
     NSOpenPanel *panel = [NSOpenPanel openPanel];
     panel.canChooseDirectories = YES;
     panel.canChooseFiles = NO;
@@ -27,18 +33,18 @@
     panel.canCreateDirectories = NO;
     panel.showsHiddenFiles = YES;
     panel.prompt = L(@"Choose Home");
-    panel.message = [provider isEqualToString:CCPetsProfileProviderClaude]
-        ? L(@"Choose an existing Claude Home folder, such as ~/.claude-work.")
+    if (antigravity) panel.message = L(@"Choose a Gemini root folder containing the antigravity-cli directory.");
+    else panel.message = claude ? L(@"Choose an existing Claude Home folder, such as ~/.claude-work.")
         : L(@"Choose an existing Codex Home folder, such as ~/.codex-work.");
     panel.directoryURL = [NSURL fileURLWithPath:CCPetsHomeDirectory() isDirectory:YES];
     [NSApp activateIgnoringOtherApps:YES];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString *home = panel.URL.path;
     if (!CCPetsProfileHomeMatchesProvider(provider, home)) {
-        [self showAlertWithTitle:L(@"This folder doesn't look like an Agent Home")
-            message:[provider isEqualToString:CCPetsProfileProviderClaude]
-                ? L(@"Choose a folder containing Claude settings, state, or projects.")
-                : L(@"Choose a folder containing Codex config, hooks, or sign-in state.")];
+        NSString *message = antigravity ? L(@"Choose a Gemini root folder containing the antigravity-cli directory.")
+            : (claude ? L(@"Choose a folder containing Claude settings, state, or projects.")
+                : L(@"Choose a folder containing Codex config, hooks, or sign-in state."));
+        [self showAlertWithTitle:L(@"This folder doesn't look like an Agent Home") message:message];
         return;
     }
     NSString *name = CCPetsProfileDefaultDisplayName(provider, home);
@@ -53,11 +59,12 @@
     if ([confirm runModal] != NSAlertFirstButtonReturn) return;
     // 首次名称只是 Home 文件夹名，不算用户自定义；这样以后重新定位 Home 时，
     // 未主动重命名的账号名称仍会跟随新的文件夹名。
+    NSString *completionMessage = antigravity ? L(@"The Antigravity CLI Home is integrated. Restart agy to load the updated hooks and tools.")
+        : (claude ? L(@"The Claude Home is integrated. Restart Claude to load newly registered MCP tools.")
+            : L(@"The Codex Home is integrated. Restart Codex, then trust the CC Pets hooks in /hooks."));
     [self runProfileCommand:@[@"add", @"--provider", provider, @"--home", home]
         title:[NSString stringWithFormat:L(@"Configuring %@"), name]
-        completionMessage:[provider isEqualToString:CCPetsProfileProviderClaude]
-            ? L(@"The Claude Home is integrated. Restart Claude to load newly registered MCP tools.")
-            : L(@"The Codex Home is integrated. Restart Codex, then trust the CC Pets hooks in /hooks.")];
+        completionMessage:completionMessage];
 }
 
 - (void)repairAgentProfile:(NSMenuItem *)sender {
@@ -101,14 +108,17 @@
     panel.canCreateDirectories = NO;
     panel.showsHiddenFiles = YES;
     panel.prompt = L(@"Choose Home");
-    panel.message = L(@"Choose the new location for this Agent Home.");
+    BOOL antigravity = [profile[@"provider"] isEqualToString:CCPetsProfileProviderAntigravity];
+    panel.message = antigravity ? L(@"Choose a Gemini root folder containing the antigravity-cli directory.")
+        : L(@"Choose the new location for this Agent Home.");
     panel.directoryURL = [NSURL fileURLWithPath:profile[@"home"] isDirectory:YES];
     [NSApp activateIgnoringOtherApps:YES];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString *home = panel.URL.path;
     if (!CCPetsProfileHomeMatchesProvider(profile[@"provider"], home)) {
         [self showAlertWithTitle:L(@"This folder doesn't look like an Agent Home")
-            message:L(@"Choose a folder containing the selected Agent's settings or state.")];
+            message:antigravity ? L(@"Choose a Gemini root folder containing the antigravity-cli directory.")
+                : L(@"Choose a folder containing the selected Agent's settings or state.")];
         return;
     }
     [self runProfileCommand:@[@"update", @"--id", profileID, @"--home", home]
