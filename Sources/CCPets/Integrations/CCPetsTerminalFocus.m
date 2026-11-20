@@ -343,6 +343,7 @@ BOOL ActivateTerminalFocusTarget(NSDictionary *target) {
 // 仅在会话创建前后一秒内存在唯一就绪候选时配对；信息不足就留空，之后的 Hook 可再试。
 static const NSUInteger CodexLaunchThreadLimit = 32;
 static const NSTimeInterval CodexClientReadyWindow = 1.0;
+static const NSTimeInterval CodexResumeClientReadyAfterConnection = 5.0;
 
 static NSTimeInterval ProcessStartTime(pid_t pid) {
     struct kinfo_proc info;
@@ -514,8 +515,8 @@ static NSDictionary *CodexThreadMeta(NSString *thread, NSDictionary *payload, NS
 
 // Codex 的本机日志记录每个 TUI 的就绪时刻和带 PID 的 process_uuid。
 // 初始会话可能先于首帧就绪（0.167.1 实测晚约 1.56ms 才记录就绪），不能要求就绪
-// 一定早于会话创建。前后使用同一窄窗口，并在整个窗口内检查唯一性，避免两侧各有
-// 一个候选时误配；SQL 的秒级范围与下面的精确时间过滤必须使用相同的上下界。
+// 一定早于会话创建。在整个窗口内检查唯一性，避免两侧各有一个候选时误配；
+// SQL 的秒级范围与下面的精确时间过滤必须使用相同的上下界。
 // 只读这一类元数据，不读取提示词、输出或 HTTP 日志。内部日志格式改变、日志尚未落盘、
 // 多个客户端同时就绪时都不能猜测；sqlite 的读锁等待和返回条数也有上限。
 static int CodexLogQueryExpired(void *context) {
@@ -559,8 +560,8 @@ static NSString *RegisteredCodexLaunchForClient(const char *process, NSDictionar
 }
 
 static NSString *ReadyCodexLaunch(NSDictionary<NSString *, NSDictionary *> *launches,
-    NSArray<NSString *> *candidates, NSNumber *createdAt, NSString *codexHome) {
-    if (candidates.count == 0 || !createdAt || createdAt.doubleValue <= 0) return nil;
+    NSArray<NSString *> *candidates, NSNumber *referenceAt, NSTimeInterval readyAfter, NSString *codexHome) {
+    if (candidates.count == 0 || referenceAt.doubleValue <= 0) return nil;
     sqlite3 *database = OpenCodexLogs(codexHome);
     if (!database) return nil;
     CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 0.15;
@@ -571,8 +572,8 @@ static NSString *ReadyCodexLaunch(NSDictionary<NSString *, NSDictionary *> *laun
         "AND feedback_log_body LIKE 'tui startup initial frame scheduled%' LIMIT 128";
     NSMutableSet<NSString *> *matches = [NSMutableSet set];
     BOOL complete = NO;
-    NSTimeInterval earliestReadyAt = createdAt.doubleValue - CodexClientReadyWindow;
-    NSTimeInterval latestReadyAt = createdAt.doubleValue + CodexClientReadyWindow;
+    NSTimeInterval earliestReadyAt = referenceAt.doubleValue - CodexClientReadyWindow;
+    NSTimeInterval latestReadyAt = referenceAt.doubleValue + readyAfter;
     if (sqlite3_prepare_v2(database, query, -1, &statement, NULL) == SQLITE_OK) {
         sqlite3_bind_int64(statement, 1, (sqlite3_int64)floor(earliestReadyAt));
         sqlite3_bind_int64(statement, 2, (sqlite3_int64)ceil(latestReadyAt));
@@ -595,7 +596,7 @@ static NSString *ReadyCodexLaunch(NSDictionary<NSString *, NSDictionary *> *laun
 
 // 在 TUI 里用 /resume（或不带会话 ID 的 codex resume）接上旧会话时，命令行里没有会话 ID，
 // 会话创建时刻也远早于 TUI 就绪。共享后台的日志记着是哪条 codex-tui 连接发起了 thread/resume；
-// 同一后台进程里这条连接最早的请求紧跟在 TUI 就绪之后，把它当作就绪时刻交给 ReadyCodexLaunch。
+// 同一后台进程里这条连接最早的日志可能比 TUI 首帧早几秒，用它作为匹配首帧的时间基准。
 // 桌面端连接的 client_name 不是 codex-tui，不会被配到终端上。
 static NSNumber *CodexResumeClientConnectedAt(NSString *thread, NSTimeInterval earliest, NSString *codexHome) {
     if (thread.length == 0 || !(earliest > 0)) return nil;
@@ -667,7 +668,7 @@ static NSString *ChooseCodexLaunch(NSDictionary<NSString *, NSDictionary *> *lau
         }
     }
     if (resumed.count > 0) return resumed.count == 1 ? resumed.firstObject : nil;
-    NSString *ready = ReadyCodexLaunch(launches, sameDirectory, createdAt, codexHome);
+    NSString *ready = ReadyCodexLaunch(launches, sameDirectory, createdAt, CodexClientReadyWindow, codexHome);
     if (ready) return ready;
     NSTimeInterval earliest = 0;
     for (NSString *key in sameDirectory) {
@@ -675,7 +676,8 @@ static NSString *ChooseCodexLaunch(NSDictionary<NSString *, NSDictionary *> *lau
         if (launchedAt > 0 && (earliest == 0 || launchedAt < earliest)) earliest = launchedAt;
     }
     NSNumber *connectedAt = CodexResumeClientConnectedAt(thread, earliest, codexHome);
-    NSString *resumedInClient = connectedAt ? ReadyCodexLaunch(launches, sameDirectory, connectedAt, codexHome) : nil;
+    NSString *resumedInClient = ReadyCodexLaunch(launches, sameDirectory, connectedAt,
+        CodexResumeClientReadyAfterConnection, codexHome);
     if (resumedInClient) return resumedInClient;
     if (sameDirectory.count != 1) return nil;
     NSString *onlyLaunch = sameDirectory.firstObject;

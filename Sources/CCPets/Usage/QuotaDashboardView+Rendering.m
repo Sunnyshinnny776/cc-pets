@@ -489,10 +489,10 @@
     for (NSString *provider in providers) {
         BOOL antigravity = [provider isEqualToString:@"Antigravity"];
         NSColor *color = [self colorForProvider:provider];
-        [rows addObject:@{@"name": antigravity ? @"Agy cli" : provider,
+        [rows addObject:@{@"name": antigravity ? @"AGY CLI" : provider,
             @"usage": [self summaryUsageForProvider:provider], @"color": color}];
         if (antigravity) {
-            [rows addObject:@{@"name": @"Agy app", @"usage": [self summaryUsageForAntigravityApp], @"color": color}];
+            [rows addObject:@{@"name": @"AGY APP", @"usage": [self summaryUsageForAntigravityApp], @"color": color}];
         }
     }
     NSUInteger pageCount = [self summaryPageCount];
