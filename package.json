@@ -1,6 +1,6 @@
 {
   "name": "cc-pets",
-  "version": "2.6.0-beta.0",
+  "version": "2.6.0-beta.1",
   "description": "A native macOS desktop pet for Codex CLI, Claude Code, and Antigravity CLI",
   "author": {
     "name": "Sunnyshiny",
