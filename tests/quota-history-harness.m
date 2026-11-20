@@ -25,7 +25,7 @@ int main(int argc, const char **argv) {
         // fresh：受限标记比快照更旧，百分比可信，必须落盘。
         // stale：受限标记不比快照旧，百分比可能是受限前的残留，不落盘。
         NSDictionary *usage = fresh ? CodexUsage(now, now - 120) : CodexUsage(now - 120, now);
-        NSDictionary *codex = LastSample(RecordQuotaHistory(usage, nil))[@"codex"];
+        NSDictionary *codex = LastSample(RecordQuotaHistory(@{@"Codex": usage}))[@"codex"];
         NSNumber *week = [codex[@"weekRemaining"] isKindOfClass:NSNumber.class]
             ? codex[@"weekRemaining"] : nil;
         if (fresh) {

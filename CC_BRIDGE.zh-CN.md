@@ -4,15 +4,15 @@
 
 CC Bridge 让本机同时运行的 Claude Code 与 Codex 终端会话互相发现、发消息、唤醒对方，
 体验对齐 Claude Code 原生的跨会话消息（`ListAgents` / `SendMessage`），并且支持
-Claude ↔ Codex、Codex ↔ Codex。
+Claude ↔ Codex、Codex ↔ Codex。Antigravity CLI 也能与本机会话互发消息，启用 Sidecar 的 Antigravity App 支持自动唤醒。
 
-它只使用两边官方公开的扩展点：hooks、MCP、`codex queue`。不接入任何内部协议，
+它使用官方公开的扩展点，包括 hooks、MCP、`codex queue` 和 Antigravity App Sidecar。不接入任何内部协议，
 不向终端注入按键，不修改会话记录。
 
 ## 开启与关闭
 
 ```bash
-cc-pets bridge enable     # 写入 hooks、注册 MCP，并打开开关
+cc-pets bridge enable     # 配置已登记的 CLI 账号，并打开开关
 cc-pets bridge status     # 查看开关、选项、在线会话与最近消息
 cc-pets bridge disable    # 移除全部 CC Bridge 集成并关闭
 ```
@@ -25,6 +25,7 @@ cc-pets bridge disable    # 移除全部 CC Bridge 集成并关闭
   在此之前可以在 Bash 里用 `cc-pets bridge send <名字> '<内容>'` 回复（收到的消息里会附带这条提示）。
 - 已经在运行的 Codex 会话需要**重启**。启动后执行 `/hooks`，信任 cc-pets bridge 的 hooks；
   未信任的 hooks 会被 Codex 跳过，对应会话不会出现在列表里。
+- 用 `agy` 重启 Antigravity CLI 会话，以加载 Hooks 与 Bridge MCP。
 - Codex 默认每次调用 MCP 工具都要审批（审批策略为 `never` 时调用会直接失败）；Claude Code 首次调用时也会按你的
   权限设置询问。可以按需放开，见下方[选项](#选项)。
 
@@ -38,6 +39,7 @@ cc-pets bridge disable    # 移除全部 CC Bridge 集成并关闭
 cc-pets bridge configure --approve=view,send    # Codex 与 Claude 同时免审批
 cc-pets bridge configure --codex-approve=view   # 只设 Codex
 cc-pets bridge configure --claude-allow=        # 清空 Claude 免确认
+cc-pets bridge configure --agy-allow=view       # 只设 Antigravity CLI 免确认
 cc-pets bridge configure --wake=off             # 关闭自动唤醒
 cc-pets bridge configure --edit-guard=off       # 关闭编辑前预留拦截
 ```
@@ -45,7 +47,10 @@ cc-pets bridge configure --edit-guard=off       # 关闭编辑前预留拦截
 | 选项 | 说明 |
 | --- | --- |
 | `--approve` / `--codex-approve` / `--claude-allow` | 免审批的工具。可写分组 `view`（列会话、查预留、读信箱）、`send`（发消息）、`reserve`（预留 / 释放）、`name`（改名），或具体工具名。Codex 写入 `~/.codex/config.toml` 末尾的带标记块，Claude 写入 `~/.claude/settings.json` 的 `permissions.allow`（只增删 `mcp__cc-bridge__*` 条目）；`disable` 时一并移除 |
-| `--wake=on\|off` | 自动唤醒空闲会话，默认开。关闭后消息只进信箱，等对方下次收到你的输入时带入，可省 token |
+| `--agy-allow` | 单独设置 Antigravity CLI 的免审批工具，接受同一组分组或工具名。`--agy-allow=` 清空列表。`--approve` 作用于 Codex 和 Claude |
+| `--agy-app=on\|off` | 在默认 Gemini 根目录启用 Antigravity App Sidecar，默认关闭 |
+| `--tab-title=on\|off` | 在 CLI 终端标签标题末尾追加 Bridge 昵称，默认关闭 |
+| `--wake=on\|off` | 自动唤醒空闲的 Claude Code、支持唤醒的 Codex 和启用了 Sidecar 的 Antigravity App 会话，默认开。关闭后消息只进信箱，等对方下次收到你的输入时带入，可省 token |
 | `--edit-guard=on\|off` | 编辑他人预留的文件时暂停一次，默认开 |
 
 运行中的 watcher 会在轮询时检查关闭状态；关闭自动唤醒后不再主动取信，关闭 Bridge 后 CLI 也拒绝发送、改名和收件。
@@ -53,6 +58,9 @@ cc-pets bridge configure --edit-guard=off       # 关闭编辑前预留拦截
 `disable` 会删除所有未投递的消息，回执标记为 undeliverable；已送达的回执不含正文，按保留期留作记录。
 
 Claude 侧的改动会被热加载；Codex 侧（审批、hooks）需要重启 Codex 会话，hooks 变化后还要在 `/hooks` 中重新信任。
+
+在桌宠右键菜单中打开 **CC Bridge → 标签昵称**，再通过 CC Pets 的终端集成重启 CLI 会话。
+标签标题可显示为 `修复额度轮询 | cc-pets · 知更鸟`。
 
 ## 使用
 
@@ -71,6 +79,33 @@ Agent 会调用这些 MCP 工具：
 | `release_files` | 释放本会话的预留。 |
 | `list_reservations` | 查看当前仓库的所有预留，或某个文件被谁预留。 |
 | `check_inbox` | 手动读取信箱。正常情况下消息会自动送达，一般不需要调用。 |
+
+### Antigravity CLI
+
+开启 CC Bridge 并确保 `agy` 在 `PATH` 中，然后在项目目录运行 `agy`。收到的消息会先留在信箱，
+等下一次模型调用时带入。在另一个会话中调用 `list_agents`，或运行 `cc-pets bridge status`，
+即可查到该会话的 Bridge 名字。
+
+Antigravity CLI 默认使用 `~/.gemini` 作为 Gemini 根目录。启动时可通过 `CC_PETS_ANTIGRAVITY_HOME` 选择已登记的自定义根目录。
+CC Pets 在根目录下使用 `config/hooks.json` 配置 CLI Hooks，在 `config/mcp_config.json` 注册 Bridge MCP，
+在 `antigravity-cli/settings.json` 设置工具免审批列表。`cc-pets doctor` 检查 Hooks、MCP 注册和 shell 启动入口。
+
+登录方式见 [Antigravity CLI 认证文档](https://antigravity.google/docs/cli/install/)。
+
+### Antigravity App
+
+运行下面的命令以启用 App 的 Sidecar。
+
+```bash
+cc-pets bridge enable --agy-app=on
+```
+
+重启 App 加载 Sidecar 和 Bridge MCP。在每个希望收信的对话中启动一轮，然后用 `cc-pets bridge status`
+或在另一个会话中调用 `list_agents` 找到它的 Bridge 名称。保持 App 运行，Sidecar 才能唤醒对话。
+开启自动唤醒后，Sidecar 通过 `agentapi` 向原对话提交固定的唤醒提示。Hook 会将队友的正文另行作为用户消息送入，并附上 Bridge 来源标头。
+
+Sidecar 使用 App 默认的 `~/.gemini` 根目录。`cc-pets bridge configure --agy-app=off` 会移除 CC Pets 管理的
+Sidecar 和对应的 App 设置。[Google Sidecars 文档](https://antigravity.google/docs/sidecars#agentapi)
 
 ### 当前会话身份
 
@@ -191,6 +226,8 @@ Bridge 优先验证当前进程提供的 `CODEX_THREAD_ID` / `CLAUDE_CODE_SESSIO
 | --- | --- | --- | --- |
 | Codex | 通过 `codex queue` 立即唤醒 | 排在当前回合之后处理 | 不投递，回执为 undeliverable |
 | Claude Code | 后台 watcher 通过 `asyncRewake` 唤醒 | 注入当前回合 | 不投递，回执为 undeliverable |
+| Antigravity CLI（`agy`） | 等下一次模型调用 | 后续模型调用时带入 | 不投递，回执为 undeliverable |
+| 已启用 Sidecar 的 Antigravity App | 在原对话中开始新一轮 | 等待对话空闲或后续模型调用 | App 离线后无法投递 |
 
 Claude Code 的 watcher 在会话启动和每轮结束时挂上，新挂上的会取代旧的并重新计时，最多等待约 55 分钟后自动退出。
 如果 Claude 会话在这段空窗期里一直空闲，消息会留在信箱，等用户下次输入时一并带入；
@@ -251,4 +288,4 @@ hook、watcher 或 `check_inbox` 会恢复未确认消息。在输出已到达�
   所以默认关闭，需要你主动开启。
 - 单条消息最多 16KB。同一对会话 10 分钟内往来超过 20 条会被暂停，防止两个 Agent 互相自动回复形成循环。
 - 桌宠的状态卡片与系统通知不会显示消息正文。
-- 不引入常驻守护进程：只有 hooks、MCP server，以及 Claude 会话内的 watcher，都随会话结束而退出。
+- Hooks、MCP server 和 Claude watcher 都随各自的会话结束而退出。Antigravity Sidecar 随 App 运行。

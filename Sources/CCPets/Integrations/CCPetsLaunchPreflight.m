@@ -4,10 +4,18 @@
 #import "CCPetsPreferences.h"
 #import <arpa/inet.h>
 
-static int BlockLaunch(NSString *provider, NSString *reason) {
+static int ReportBlockedLaunch(NSString *provider, NSString *reason) {
     CCPetsPrintLine(stderr, CCPetsInterpolate(
         L(@"CC Pets blocked {provider}: {reason}"), @{@"provider": provider, @"reason": reason}));
-    CCPetsPrintLine(stderr, L(@"Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection."));
+    return 1;
+}
+
+static int BlockLaunch(NSString *provider, NSString *reason) {
+    ReportBlockedLaunch(provider, reason);
+    NSString *hint = [provider isEqualToString:@"Antigravity"]
+        ? L(@"Connect Shadowrocket to continue. You can turn off this check in Main menu → Settings → Launch Protection.")
+        : L(@"Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection.");
+    CCPetsPrintLine(stderr, hint);
     return 1;
 }
 
@@ -115,7 +123,19 @@ static NSString *TraceURL(NSString *baseURL, NSString **reason) {
     return url.string;
 }
 
-static NSArray<NSString *> *ProbeURLs(NSString *provider, NSMutableDictionary *environment, NSString *selectedProfile, NSString **reason) {
+// Empty means a known custom route. Nil means the route could not be determined.
+static NSArray<NSString *> *OfficialEndpoint(NSString *baseURL, NSArray<NSString *> *officialHosts, NSString **reason) {
+    NSURLComponents *url = [NSURLComponents componentsWithString:baseURL];
+    NSString *host = url.host.lowercaseString;
+    if ([host hasSuffix:@"."]) host = [host substringToIndex:host.length - 1];
+    if (host.length && [officialHosts containsObject:host]) return @[baseURL];
+    if (host.length && [@[@"http", @"https"] containsObject:url.scheme.lowercaseString ?: @""]) return @[];
+    *reason = L(@"Unable to determine the CLI endpoint from its network configuration.");
+    return nil;
+}
+
+static NSArray<NSString *> *OfficialEndpoints(NSString *provider, NSMutableDictionary *environment,
+    NSString *selectedProfile, NSString **reason) {
     if ([provider isEqualToString:@"claude"]) {
         // 读取网络相关 env，不执行 apiKeyHelper，也不把账号凭据放进探测请求。
         NSString *path = [CCPetsClaudeHome() stringByAppendingPathComponent:@"settings.json"];
@@ -129,9 +149,7 @@ static NSArray<NSString *> *ProbeURLs(NSString *provider, NSMutableDictionary *e
             if ([env[key] isKindOfClass:NSString.class]) environment[key] = env[key];
         }
         for (NSString *key in @[@"CLAUDE_CODE_USE_BEDROCK", @"CLAUDE_CODE_USE_VERTEX", @"CLAUDE_CODE_USE_FOUNDRY"]) {
-            if ([environment[key] isEqualToString:@"1"]) {
-                *reason = L(@"Exit checks for this cloud provider are not supported. No official-domain fallback was used."); return nil;
-            }
+            if ([environment[key] isEqualToString:@"1"]) return @[];
         }
         // curl 与 Claude 对代理变量的优先级不同，明确指定 Claude 的 HTTPS 代理。
         NSString *proxy = NonemptyString(environment[@"https_proxy"]) ?: NonemptyString(environment[@"HTTPS_PROXY"]) ?:
@@ -139,8 +157,8 @@ static NSArray<NSString *> *ProbeURLs(NSString *provider, NSMutableDictionary *e
         [environment removeObjectForKey:@"ALL_PROXY"];
         [environment removeObjectForKey:@"all_proxy"];
         if (proxy) { environment[@"https_proxy"] = proxy; environment[@"HTTPS_PROXY"] = proxy; }
-        NSString *url = TraceURL(NonemptyString(environment[@"ANTHROPIC_BASE_URL"]) ?: @"https://api.anthropic.com", reason);
-        return url ? @[url] : nil;
+        return OfficialEndpoint(NonemptyString(environment[@"ANTHROPIC_BASE_URL"]) ?: @"https://api.anthropic.com",
+            @[@"api.anthropic.com"], reason);
     }
 
     NSDictionary *routing = CodexRouting(CCPetsCodexHome(), reason);
@@ -157,10 +175,9 @@ static NSArray<NSString *> *ProbeURLs(NSString *provider, NSMutableDictionary *e
     NSString *modelProvider = routing[@"model_provider"] ?: @"openai";
     NSString *baseURL = routing[[NSString stringWithFormat:@"model_providers.%@.base_url", modelProvider]];
     if (!baseURL && [modelProvider isEqualToString:@"openai"]) baseURL = NonemptyString(environment[@"OPENAI_BASE_URL"]);
-    if (baseURL) {
-        NSString *url = TraceURL(baseURL, reason);
-        return url ? @[url] : nil;
-    }
+    NSArray *officialHosts = @[@"api.openai.com", @"chatgpt.com"];
+    if (baseURL) return OfficialEndpoint(baseURL, officialHosts, reason);
+    if ([@[@"ollama", @"lmstudio"] containsObject:modelProvider]) return @[];
     if (![modelProvider isEqualToString:@"openai"]) {
         *reason = L(@"Unable to determine the CLI endpoint from its network configuration."); return nil;
     }
@@ -179,13 +196,17 @@ static NSArray<NSString *> *ProbeURLs(NSString *provider, NSMutableDictionary *e
     if (mode && !api && !chatGPT) {
         *reason = L(@"Unable to determine the CLI endpoint from its network configuration."); return nil;
     }
-    NSString *chatGPTURL = TraceURL(chatGPTBase, reason);
-    if (!chatGPTURL) return nil;
-    if (api) return @[@"https://api.openai.com/cdn-cgi/trace"];
-    if (chatGPT) return @[chatGPTURL];
+    NSString *apiBase = @"https://api.openai.com";
+    if (api) return @[apiBase];
+    NSArray *chatGPTEndpoints = OfficialEndpoint(chatGPTBase, officialHosts, reason);
+    if (chatGPT || !chatGPTEndpoints) return chatGPTEndpoints;
+    if (chatGPTEndpoints.count == 0) {
+        *reason = L(@"Codex login mode is unknown and its configured endpoints do not all use official hosts.");
+        return nil;
+    }
     // 未登录或凭据位于 Keychain 时不猜模式；两个候选出口都必须通过。
     CCPetsPrintLine(stderr, L(@"Codex login mode is unknown; checking both ChatGPT and OpenAI API exits."));
-    return @[chatGPTURL, @"https://api.openai.com/cdn-cgi/trace"];
+    return [chatGPTEndpoints arrayByAddingObject:apiBase];
 }
 
 static NSDictionary *ParseTrace(NSString *body, NSString *host) {
@@ -278,8 +299,10 @@ static NSDictionary *ProbeExit(NSString *url, NSString *host, NSDictionary *envi
 }
 
 // 不静默忽略会改变目标服务的命令行覆盖；配置 profile 可以直接参与解析。
-static BOOL ResolveArguments(NSString *provider, NSArray<NSString *> *arguments, NSString **profile, NSString **directory) {
+static BOOL ResolveArguments(NSString *provider, NSArray<NSString *> *arguments, NSString **profile,
+    NSString **directory, BOOL *localModel) {
     BOOL codex = [provider isEqualToString:@"codex"];
+    BOOL localProvider = NO;
     for (NSUInteger index = 0; index < arguments.count; index++) {
         NSString *argument = arguments[index];
         if ([argument isEqualToString:@"--"]) break;
@@ -293,15 +316,22 @@ static BOOL ResolveArguments(NSString *provider, NSArray<NSString *> *arguments,
                 (++index < arguments.count ? arguments[index] : nil);
             if (!value.length) return NO;
             *directory = CCPetsResolvePath(value);
-        } else if (codex && ([@[@"-c", @"--config", @"--oss", @"--local-provider"] containsObject:argument] ||
-                [argument hasPrefix:@"--config="] || [argument hasPrefix:@"--local-provider="] ||
+        } else if (codex && [argument isEqualToString:@"--oss"]) {
+            *localModel = YES;
+        } else if (codex && ([argument isEqualToString:@"--local-provider"] || [argument hasPrefix:@"--local-provider="])) {
+            NSString *value = [argument hasPrefix:@"--local-provider="] ? [argument substringFromIndex:17] :
+                (++index < arguments.count ? arguments[index] : nil);
+            if (!value.length || [value hasPrefix:@"-"]) return NO;
+            localProvider = YES;
+        } else if (codex && ([@[@"-c", @"--config"] containsObject:argument] ||
+                [argument hasPrefix:@"--config="] ||
                 [argument hasPrefix:@"-c"] || [argument hasPrefix:@"-p"] || [argument hasPrefix:@"-C"])) {
             // -c 可以覆盖任意嵌套项，不能当作默认配置放行。
             return NO;
         } else if (!codex && ([@[@"--settings", @"--setting-sources"] containsObject:argument] ||
                 [argument hasPrefix:@"--settings="] || [argument hasPrefix:@"--setting-sources="])) return NO;
     }
-    return YES;
+    return !localProvider || *localModel;
 }
 
 static BOOL HasLocalNetworkOverrides(NSString *provider, NSString *directory) {
@@ -333,24 +363,45 @@ static BOOL HasLocalNetworkOverrides(NSString *provider, NSString *directory) {
 }
 
 int CCPetsLaunchPreflight(NSString *provider, NSArray<NSString *> *arguments) {
-    if (![@[@"claude", @"codex"] containsObject:provider]) {
-        CCPetsPrintLine(stderr, L(@"Launch check expects claude or codex."));
+    if (![@[@"claude", @"codex", @"agy"] containsObject:provider]) {
+        CCPetsPrintLine(stderr, L(@"Launch check expects claude, codex or agy."));
         return 2;
     }
     if (!CCPetsPrefBool(CCPetsShadowrocketLaunchCheckKey)) return 0;
-    NSString *name = [provider isEqualToString:@"claude"] ? @"Claude" : @"Codex";
-    CCPetsPrintLine(stderr, L(@"CC Pets: checking Shadowrocket and service exit regions ..."));
+    NSString *name = [provider isEqualToString:@"claude"] ? @"Claude"
+        : ([provider isEqualToString:@"codex"] ? @"Codex" : @"Antigravity");
     NSString *reason = nil;
-    if (!ShadowrocketConnected(&reason)) return BlockLaunch(name, reason);
-
-    NSString *profile = nil, *directory = NSFileManager.defaultManager.currentDirectoryPath;
-    if (!ResolveArguments(provider, arguments, &profile, &directory) || HasLocalNetworkOverrides(provider, directory)) {
-        return BlockLaunch(name, L(@"CLI arguments or project network overrides cannot be verified by this exit check."));
+    if ([provider isEqualToString:@"agy"]) {
+        CCPetsPrintLine(stderr, L(@"CC Pets: checking Shadowrocket ..."));
+        if (!ShadowrocketConnected(&reason)) return BlockLaunch(name, reason);
+        CCPetsPrintLine(stderr, L(@"CC Pets: Shadowrocket is connected."));
+        return 0;
     }
+    NSString *profile = nil, *directory = NSFileManager.defaultManager.currentDirectoryPath;
+    BOOL localModel = NO;
     NSMutableDictionary *environment = [NSProcessInfo.processInfo.environment mutableCopy];
-    NSArray<NSString *> *urls = ProbeURLs(provider, environment, profile, &reason);
-    if (!urls) return BlockLaunch(name, reason);
-    for (NSString *url in urls) {
+    NSArray<NSString *> *endpoints = nil;
+    if (!ResolveArguments(provider, arguments, &profile, &directory, &localModel) ||
+        (!localModel && HasLocalNetworkOverrides(provider, directory))) {
+        reason = L(@"CLI arguments or project network overrides cannot be verified by this exit check.");
+    } else if (localModel) {
+        return 0;
+    } else {
+        endpoints = OfficialEndpoints(provider, environment, profile, &reason);
+    }
+    if (!endpoints) {
+        if (CCPetsPrefBool(CCPetsLaunchProtectionStrictRoutingKey)) return ReportBlockedLaunch(name, reason);
+        CCPetsPrintLine(stderr, CCPetsInterpolate(L(@"CC Pets: skipped launch protection for {provider}. {reason}"),
+            @{@"provider": name, @"reason": reason}));
+        return 0;
+    }
+    if (endpoints.count == 0) return 0;
+
+    CCPetsPrintLine(stderr, L(@"CC Pets: checking Shadowrocket and service exit regions ..."));
+    if (!ShadowrocketConnected(&reason)) return BlockLaunch(name, reason);
+    for (NSString *endpoint in endpoints) {
+        NSString *url = TraceURL(endpoint, &reason);
+        if (!url) return BlockLaunch(name, reason);
         NSURLComponents *components = [NSURLComponents componentsWithString:url];
         NSString *host = components.port ? [components.host stringByAppendingFormat:@":%@", components.port] : components.host;
         NSDictionary *trace = ProbeExit(url, host, environment, &reason);

@@ -12,6 +12,8 @@
 - (void)updateSystemMetric:(NSString *)key enabled:(BOOL)enabled;
 - (void)updateUsageDisplayMode:(NSString *)mode forKey:(NSString *)key;
 - (void)updateUsageDisplayMode:(NSString *)mode forProfileID:(NSString *)profileID;
+- (NSArray<NSString *> *)quotaCardOrderForSettings;
+- (void)updateQuotaCardOrder:(NSArray<NSString *> *)order;
 - (void)updateImportCodexPets:(BOOL)enabled;
 - (void)updatePanelTheme:(NSString *)theme;
 - (void)updateGlassDimLevel:(NSNumber *)level;
@@ -38,6 +40,7 @@
 - (BOOL)deletePetWithID:(NSString *)petID;
 - (void)addClaudeProfile:(id)sender;
 - (void)addCodexProfile:(id)sender;
+- (void)addAntigravityProfile:(id)sender;
 - (void)repairAgentProfile:(NSMenuItem *)sender;
 - (void)renameAgentProfile:(NSMenuItem *)sender;
 - (void)relocateAgentProfile:(NSMenuItem *)sender;

@@ -1,6 +1,7 @@
 #import "CCPetsPreviews.h"
 #import "CCPetsL10n.h"
 #import "QuotaDashboardView.h"
+#import "CCPetsProviderRegistry.h"
 #import "MenuToggleSwitch.h"
 #import "CCPetsUsage.h"
 #import "PetView.h"
@@ -13,11 +14,16 @@ int RenderQuotaDashboard(NSString *path) {
         QuotaLogicalWidth * QuotaScale, QuotaLogicalHeight * QuotaScale)];
     // 本地视觉验收可用 CC_PETS_PREVIEW_API=1 渲染 API 用量态，不改用户偏好。
     BOOL previewsAPIUsage = [NSProcessInfo.processInfo.environment[@"CC_PETS_PREVIEW_API"] boolValue];
-    view.codexShowsAPIUsage = previewsAPIUsage;
-    view.claudeShowsAPIUsage = previewsAPIUsage;
-    view.codexLogo = OfficialAppIcon(@"com.openai.codex", @"icon-chatgpt.icns");
-    view.claudeLogo = OfficialAppIcon(@"com.anthropic.claudefordesktop", @"electron.icns");
-    view.codexUsage = LatestUsage() ?: @{
+    NSMutableDictionary *showsAPIUsageByProvider = [NSMutableDictionary dictionary];
+    NSMutableDictionary *logoByProvider = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        showsAPIUsageByProvider[provider.name] = @(previewsAPIUsage);
+        NSImage *logo = OfficialAppIcon(provider.logoBundleIdentifier, provider.logoResourceName);
+        if (logo) logoByProvider[provider.name] = logo;
+    }
+    view.showsAPIUsageByProvider = showsAPIUsageByProvider;
+    view.logoByProvider = logoByProvider;
+    NSDictionary *codexUsage = LatestUsage() ?: @{
         @"fiveHour": @{@"used_percent": @34, @"resets_at": @([NSDate.date timeIntervalSince1970] + 7200)},
         @"week": @{@"used_percent": @51, @"resets_at": @([NSDate.date timeIntervalSince1970] + 172800)},
         @"tokenUsage": @{
@@ -28,7 +34,7 @@ int RenderQuotaDashboard(NSString *path) {
             @"source": @"local"
         }
     };
-    view.claudeUsage = LatestClaudeUsage() ?: @{
+    NSDictionary *claudeUsage = LatestClaudeUsage() ?: @{
         @"fiveHour": @{@"used_percentage": @23, @"resets_at": @([NSDate.date timeIntervalSince1970] + 3600)},
         @"week": @{@"used_percentage": @41, @"resets_at": @([NSDate.date timeIntervalSince1970] + 86400)},
         @"tokenUsage": @{
@@ -39,9 +45,10 @@ int RenderQuotaDashboard(NSString *path) {
             @"source": @"local"
         }
     };
+    view.usageByProvider = @{@"Codex": codexUsage, @"Claude": claudeUsage};
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     NSTimeInterval day = 24 * 60 * 60;
-    view.codexHistory = @[
+    NSArray<NSDictionary *> *codexHistory = @[
         @{@"timestamp": @(now - 6.5 * day), @"remaining": @88},
         @{@"timestamp": @(now - 5.5 * day), @"remaining": @81},
         @{@"timestamp": @(now - 4.5 * day), @"remaining": @75},
@@ -50,7 +57,7 @@ int RenderQuotaDashboard(NSString *path) {
         @{@"timestamp": @(now - 1.5 * day), @"remaining": @55},
         @{@"timestamp": @(now - 0.5 * day), @"remaining": @49}
     ];
-    view.claudeHistory = @[
+    NSArray<NSDictionary *> *claudeHistory = @[
         @{@"timestamp": @(now - 6.5 * day), @"remaining": @92},
         @{@"timestamp": @(now - 5.5 * day), @"remaining": @86},
         @{@"timestamp": @(now - 4.5 * day), @"remaining": @78},
@@ -59,6 +66,7 @@ int RenderQuotaDashboard(NSString *path) {
         @{@"timestamp": @(now - 1.5 * day), @"remaining": @58},
         @{@"timestamp": @(now - 0.5 * day), @"remaining": @51}
     ];
+    view.historyByProvider = @{@"Codex": codexHistory, @"Claude": claudeHistory};
     view.activeAgentCount = 1;
     // 预览里刻意只让一家在线，好把"有额度数据但客户端已退出"的离线态也画出来。
     view.liveProviders = [NSSet setWithObject:@"Claude"];

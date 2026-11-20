@@ -1,5 +1,6 @@
 // 说话气泡与碎碎念。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsProviderRegistry.h"
 #import "CCPetsUsageMode.h"
 
 // 档位写进 defaults 的键；PetView 的右键菜单也要读它。
@@ -177,7 +178,8 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
         return;
     }
     if (self.updateBubbleVisible || ![self canSpeakNow]) return;
-    for (NSString *profileID in self.pendingQuotaSpeechProfileIDs.array) {
+    // 遍历独立快照，让账号出队后仍由快照持有，直到本轮处理完成。
+    for (NSString *profileID in [self.pendingQuotaSpeechProfileIDs copy]) {
         NSDictionary *profile = nil;
         for (NSDictionary *candidate in profiles) {
             if ([candidate[@"id"] isEqualToString:profileID]) { profile = candidate; break; }
@@ -187,7 +189,7 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
         NSDictionary *slots = [self speechSlotsWithTool:self.lastSpeechTool usage:usages[profileID]];
         NSString *text = PetPhraseForTag(PetPhraseTagQuotaLow, slots);
         if (text.length == 0) continue;
-        NSString *provider = [profile[@"provider"] isEqualToString:CCPetsProfileProviderCodex] ? @"Codex" : @"Claude";
+        NSString *provider = CCPetsProviderForProfileProvider(profile[@"provider"]).name ?: profile[@"provider"];
         NSString *name = profile[@"displayName"] ?: profile[@"slug"] ?: provider;
         text = [NSString stringWithFormat:@"%@ · %@: %@", provider, name, text];
         NSTimeInterval now = NSDate.date.timeIntervalSince1970;

@@ -2,34 +2,25 @@
 
 @implementation QuotaDashboardView (Rendering)
 - (void)drawProvider:(NSString *)name displayName:(NSString *)displayName
-    usage:(NSDictionary *)usage usedKey:(NSString *)usedKey color:(NSColor *)color
+    usage:(NSDictionary *)usage color:(NSColor *)color
     cardRect:(NSRect)card profileCount:(NSUInteger)profileCount selectedIndex:(NSUInteger)selectedIndex {
     NSColor *primary = self.primaryColor;
     NSColor *secondary = self.secondaryColor;
-    NSDictionary *five = [self quota:usage key:@"fiveHour"];
-    NSDictionary *week = [self quota:usage key:@"week"];
-    NSDictionary *fiveTokens = [self tokenTotals:usage key:@"fiveHour"];
-    NSDictionary *weekTokens = [self tokenTotals:usage key:@"week"];
-    NSDictionary *monthTokens = [self tokenTotals:usage key:@"month"];
-    // 同比两侧都只数到最后一个完整自然日（见 CalendarMonthWindows），因此不能拿含今天的
-    // monthTokens 去比不含同日的上月——那样每天都会凭空多出小半天的增量。
-    NSDictionary *monthComparable = [self tokenTotals:usage key:@"monthComparable"];
-    NSDictionary *previousMonthTokens = [self tokenTotals:usage key:@"previousMonthToDate"];
-    NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
-        ? usage[@"tokenUsage"] : nil;
-    NSArray<NSDictionary *> *monthDaily = [tokenUsage[@"monthDaily"] isKindOfClass:NSArray.class]
-        ? tokenUsage[@"monthDaily"] : @[];
     NSDictionary *profile = [self selectedProfileForProvider:name];
-    NSDictionary *state = [self accountStateForProvider:name profile:profile usage:usage];
+    NSDictionary *normalized = [self normalizedUsageForProvider:name profile:profile usage:usage];
+    NSDictionary *state = [self accountStateForProvider:name profile:profile normalized:normalized];
+    NSDictionary *tokens = normalized[@"tokens"];
+    NSDictionary *monthTokens = [self quota:tokens key:@"month"];
+    NSDictionary *monthComparable = [self quota:tokens key:@"monthComparable"];
+    NSDictionary *previousMonthTokens = [self quota:tokens key:@"previousMonthToDate"];
+    NSArray *monthDaily = [tokens[@"monthDaily"] isKindOfClass:NSArray.class] ? tokens[@"monthDaily"] : @[];
     BOOL apiMode = [state[@"apiMode"] boolValue];
-    NSNumber *fiveUsed = [self usedForQuota:five usedKey:usedKey];
-    NSNumber *weekUsed = [self usedForQuota:week usedKey:usedKey];
-    // usage_limit_exceeded 只能说明某次请求被额度限制，不能说明耗尽的是 5 小时还是
-    // 7 天窗口；切到 credits 后请求还能继续成功，但 rate_limits 可能一直为空。因此把它
-    // 作为独立的“额度受限”状态，不再拿一个无窗口归属的事件覆盖两个官方百分比。
-    BOOL exhausted = [usage[@"exhaustedAt"] isKindOfClass:NSNumber.class];
-    BOOL hasData = [state[@"hasData"] boolValue];
-    BOOL online = [state[@"online"] boolValue];
+    BOOL antigravity = [name isEqualToString:@"Antigravity"];
+    BOOL exhausted = [normalized[@"exhausted"] boolValue];
+    if (apiMode && antigravity && [displayName caseInsensitiveCompare:@"Antigravity CLI"] != NSOrderedSame) {
+        displayName = [displayName caseInsensitiveCompare:name] == NSOrderedSame ? @"Antigravity CLI"
+            : [NSString stringWithFormat:@"%@ · CLI", displayName];
+    }
 
     NSBezierPath *cardPath = [NSBezierPath bezierPathWithRoundedRect:card xRadius:18 yRadius:18];
     // 经典主题的浅色渐变放到玻璃上会变成磨砂；原生玻璃下改垫一层深色衬底托住文字。
@@ -63,7 +54,7 @@
     card.size.height = QuotaBaseCardHeight;
 
     NSRect icon = NSMakeRect(NSMinX(card) + 12, NSMinY(card) + 41, 70, 70);
-    NSImage *logo = [name isEqualToString:@"Codex"] ? self.codexLogo : self.claudeLogo;
+    NSImage *logo = self.logoByProvider[name];
     if (logo) {
         [NSGraphicsContext saveGraphicsState];
         [[NSBezierPath bezierPathWithRoundedRect:icon xRadius:18 yRadius:18] addClip];
@@ -91,8 +82,7 @@
     // 四态：额度被拒 → 额度受限（百分比仍是上次官方快照）；没有任何额度数据 → 等待数据；
     // 有数据但客户端已退出 → 离线；两者都有 → 在线。
     NSString *statusText = state[@"status"];
-    NSColor *statusColor = (!apiMode && exhausted) ? NSColor.systemOrangeColor
-        : (online && hasData ? NSColor.systemGreenColor : secondary);
+    NSColor *statusColor = [self statusColorForState:state];
     if (self.usesLiquidGlass) {
         // 原生玻璃下不画彩色底标签，状态色交给字前的圆点；文字里自带的"●"去掉，免得两个点。
         NSString *plain = [statusText stringByReplacingOccurrencesOfString:@"● " withString:@""];
@@ -226,17 +216,11 @@
 
     // 层级：官方剩余额度是订阅限额的权威值，占主位；本机 Token 是参考量，降一级并用
     // 强调色区分；重置时间最小。反过来会让最抢眼的数字恰好是最不该照着做决定的那个。
-    NSArray<NSDictionary *> *windows = @[
-        @{@"x": @(NSMinX(card) + 244), @"title": L(@"5h window"), @"quota": five ?: @{},
-          @"tokens": fiveTokens ?: @{}, @"used": fiveUsed ?: NSNull.null,
-          @"showDate": @NO, @"rolling": L(@"Waiting for refresh")},
-        @{@"x": @(NSMinX(card) + 414), @"title": L(@"7d window"), @"quota": week ?: @{},
-          @"tokens": weekTokens ?: @{}, @"used": weekUsed ?: NSNull.null,
-          @"showDate": @YES, @"rolling": L(@"Waiting for refresh")}
-    ];
-    for (NSDictionary *window in windows) {
-        CGFloat x = [window[@"x"] doubleValue];
-        [window[@"title"] drawInRect:NSMakeRect(x, NSMinY(card) + 114, 130, 20)
+    NSArray<NSDictionary *> *windows = normalized[@"windows"];
+    for (NSUInteger index = 0; index < MIN(windows.count, 2); index++) {
+        NSDictionary *window = windows[index];
+        CGFloat x = NSMinX(card) + 244 + 170 * index;
+        [L(window[@"titleKey"]) drawInRect:NSMakeRect(x, NSMinY(card) + 114, 130, 20)
             withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
         NSNumber *used = [window[@"used"] isKindOfClass:NSNumber.class] ? window[@"used"] : nil;
         double remaining = used ? 100.0 - used.doubleValue : 0;
@@ -262,14 +246,17 @@
         NSString *resetValue = [self resetText:window[@"quota"]
             showDate:[window[@"showDate"] boolValue]];
         NSString *reset = [resetValue isEqualToString:@"--"]
-            ? window[@"rolling"] : [NSString stringWithFormat:L(@"Reset %@"), resetValue];
+            ? L(@"Waiting for refresh") : [NSString stringWithFormat:L(@"Reset %@"), resetValue];
         [self drawText:reset inRect:NSMakeRect(x, NSMinY(card) + 46, 160, 18)
             size:11 weight:NSFontWeightRegular color:secondary dotColor:nil];
         // 两个主题统一使用紧凑文案；脚注里已说明 Token 即本机统计的已用量。
-        NSString *tokenText = [NSString stringWithFormat:L(@"Used %@"),
-            [self formattedTokenCount:window[@"tokens"]]];
-        [self drawText:tokenText inRect:NSMakeRect(x, NSMinY(card) + 22, 142, 22) size:14
-            weight:NSFontWeightSemibold color:color dotColor:color];
+        // Antigravity 额度是账号窗口，CLI 和 App 的本机 Token 用量分别显示在上方。
+        if (!antigravity) {
+            NSString *tokenText = [NSString stringWithFormat:L(@"Used %@"),
+                [self formattedTokenCount:window[@"tokens"]]];
+            [self drawText:tokenText inRect:NSMakeRect(x, NSMinY(card) + 22, 142, 22) size:14
+                weight:NSFontWeightSemibold color:color dotColor:color];
+        }
     }
 
     CGFloat trendX = NSMinX(card) + 574;
@@ -278,8 +265,15 @@
         withAttributes:[self textAttributesWithSize:13 color:secondary weight:NSFontWeightRegular]];
     NSString *profileID = [self selectedProfileForProvider:name][@"id"];
     NSArray<NSDictionary *> *history = profileID.length > 0 ? (self.profileHistories[profileID] ?: @[])
-        : ([name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory);
-    NSNumber *currentUsed = weekUsed;
+        : self.historyByProvider[name];
+    NSDictionary *trend = CCPetsTrendWindow(windows);
+    if (!trend) {
+        [self drawText:@"--" inRect:NSMakeRect(trendX, NSMinY(card) + 74, 130, 34)
+            size:25 weight:NSFontWeightBold color:secondary dotColor:nil];
+        [NSGraphicsContext restoreGraphicsState];
+        return;
+    }
+    NSNumber *currentUsed = trend[@"used"];
     NSArray<NSDictionary *> *points = [self curvePointsFromHistory:history currentUsed:currentUsed];
     // 趋势这一列算的是 7 天窗口（currentUsed 取 weekUsed）。而 exhaustedAt 来自
     // rateLimitReachedType，没有窗口归属，实际撞墙的通常是 5 小时窗口——拿它一票否决
@@ -289,7 +283,7 @@
     NSDictionary *pace = weekUnknown
         ? @{ @"label": L(@"Stale"), @"tip": L(@"Awaiting refresh"),
              @"color": NSColor.systemOrangeColor }
-        : [self paceStatusForQuota:week currentUsed:currentUsed color:color];
+        : [self paceStatusForWindow:trend color:color];
     NSColor *paceColor = pace[@"color"];
     // 档位讲的是 7 天趋势，脚注讲的是此刻为什么发不出请求：受限但 7 天窗口尚有余量时
     // 两者都要说清，所以脚注单独取色，不跟着档位走。
@@ -337,6 +331,7 @@
     [scale scaleBy:QuotaScale];
     [scale concat];
     NSArray<NSString *> *visibleProviders = [self visibleProviders];
+    NSArray<NSString *> *cardProviders = [self displayedCardProviders];
     const CGFloat height = [self logicalHeight];
     NSRect logicalBounds = NSMakeRect(0, 0, QuotaLogicalWidth, height);
     NSRect outer = NSInsetRect(logicalBounds, 1, 1);
@@ -426,22 +421,10 @@
         [self drawSummaryForProviders:visibleProviders primary:primary secondary:secondary
             accent:cyan];
     }
-    NSDictionary *cardSpecs = @{
-        @"Codex": @{@"usage": [self usageForProvider:@"Codex"], @"usedKey": @"used_percent",
-                    @"color": cyan},
-        @"Claude": @{@"usage": [self usageForProvider:@"Claude"], @"usedKey": @"used_percentage",
-                     @"color": self.claudeColor}
-    };
-    // 卡片从汇总条下方依次向下排；原脚注空间按可见卡片数平分。这里的分段账必须和
-    // QuotaLogicalHeightForProviderCount 完全一致，否则面板会多出或少掉一段空白。
-    CGFloat cardTop = height - QuotaHeaderHeight - QuotaSummaryHeight;
-    CGFloat cardHeight = QuotaCardHeightForProviderCount(visibleProviders.count);
-    for (NSString *name in visibleProviders) {
-        NSDictionary *spec = cardSpecs[name];
-        cardTop -= QuotaBlockGap;
+    // 绘制、tooltip 和轮播点击使用同一个逻辑画框。
+    for (NSString *name in cardProviders) {
         NSArray<NSDictionary *> *profiles = [self profilesForProvider:name];
-        NSRect cardRect = NSMakeRect(20, cardTop - cardHeight,
-            QuotaLogicalWidth - 40, cardHeight);
+        NSRect cardRect = [self logicalCardRectForProvider:name];
         BOOL animating = [self.animatingCarouselProvider isEqualToString:name];
         if (animating) {
             NSTimeInterval elapsed = NSDate.date.timeIntervalSince1970 - self.carouselAnimationStartedAt;
@@ -455,11 +438,16 @@
             [transform concat];
         }
         [self drawProvider:name displayName:[self displayNameForProvider:name]
-            usage:spec[@"usage"] usedKey:spec[@"usedKey"] color:spec[@"color"]
+            usage:[self usageForProvider:name] color:[self colorForProvider:name]
             cardRect:cardRect
             profileCount:profiles.count selectedIndex:[self selectedIndexForProvider:name]];
         if (animating) [NSGraphicsContext restoreGraphicsState];
-        cardTop -= cardHeight;
+    }
+    NSRect disclosure = [self logicalCardsDisclosureRect];
+    if (!NSIsEmptyRect(disclosure)) {
+        NSString *title = [self areQuotaCardsExpanded] ? L(@"Show less") : L(@"Expand all");
+        [title drawInRect:disclosure withAttributes:
+            [self centeredTextAttributesWithSize:12 color:secondary weight:NSFontWeightRegular]];
     }
     if (visibleProviders.count == 0) {
         // 官方 Home 自动发现；自定义 Home 必须由用户明确选择，不能扫描接管。
@@ -477,10 +465,7 @@
     [NSGraphicsContext restoreGraphicsState];
 }
 
-// 今日与最近 7 天都按 Provider 分开展示。底层本来就是两套独立的自然日统计，
-// 不在展示层相加，避免用户无法判断 Token 来自 Codex 还是 Claude。
-// 每格内是一张 2×2 表：标题独占一行，每个 Provider 独占一行；输入/输出标签放在
-// 对应数值上方。这样既能完整展示 7 天统计起期，也不会挤乱两家的数据行。
+// 今日与最近 7 天按本机 Token 来源分别显示。Antigravity 的两种来源仍共用一张账号额度卡。
 - (void)drawSummaryForProviders:(NSArray<NSString *> *)providers primary:(NSColor *)primary
     secondary:(NSColor *)secondary accent:(NSColor *)cyan {
     NSRect summary = [self logicalSummaryRect];
@@ -500,26 +485,24 @@
         @{@"icon": @"◉", @"headerSymbol": @"calendar.badge.clock", @"key": @"recentWeek",
           @"label": [self recentWeekUsageLabel]}
     ];
-    BOOL hasMultipleAccounts = [self profilesForProvider:@"Codex"].count > 1 ||
-        [self profilesForProvider:@"Claude"].count > 1;
-    NSDictionary *rowSpecs = @{
-        @"Codex": @{@"usage": [self summaryUsageForProvider:@"Codex"], @"color": cyan},
-        @"Claude": @{@"usage": [self summaryUsageForProvider:@"Claude"],
-                     @"color": self.claudeColor}
-    };
-    // 两行版的槽位是写死的。只装了一家时改用居中的单行槽位，否则汇总条会空出半格，
-    // 看着像数据没加载出来。
-    NSArray<NSDictionary *> *slots = providers.count == 1
-        ? @[@{@"iconY": @24, @"nameY": @33, @"labelY": @49, @"valueY": @28}]
-        : @[@{@"iconY": @43, @"nameY": @52, @"labelY": @68, @"valueY": @47},
-            @{@"iconY": @5, @"nameY": @14, @"labelY": @30, @"valueY": @9}];
     NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
-    for (NSUInteger index = 0; index < providers.count && index < slots.count; index++) {
-        NSMutableDictionary *row = [slots[index] mutableCopy];
-        [row addEntriesFromDictionary:rowSpecs[providers[index]]];
-        row[@"name"] = providers[index];
-        [rows addObject:row];
+    for (NSString *provider in providers) {
+        BOOL antigravity = [provider isEqualToString:@"Antigravity"];
+        NSColor *color = [self colorForProvider:provider];
+        [rows addObject:@{@"name": antigravity ? @"Antigravity CLI" : provider,
+            @"usage": [self summaryUsageForProvider:provider], @"color": color,
+            @"shiftsName": @(antigravity)}];
+        if (antigravity) {
+            [rows addObject:@{@"name": @"Antigravity App", @"usage": [self summaryUsageForAntigravityApp],
+                @"color": color, @"shiftsName": @YES}];
+        }
     }
+    NSUInteger pageCount = [self summaryPageCount];
+    NSUInteger pageIndex = [self summaryPageIndex];
+    NSUInteger firstRow = MIN(rows.count, pageIndex * QuotaSummaryRowsPerPage);
+    NSUInteger rowCount = MIN((NSUInteger)QuotaSummaryRowsPerPage, rows.count - firstRow);
+    NSArray<NSDictionary *> *pageRows = [rows subarrayWithRange:NSMakeRange(firstRow, rowCount)];
+    CGFloat headerY = NSMinY(summary) + QuotaSummaryHeight - 23;
 
     [[NSColor colorWithWhite:1 alpha:0.10] setStroke];
     for (NSUInteger index = 1; index < cells.count; index++) {
@@ -559,28 +542,28 @@
             initWithString:@"  " attributes:headerAttributes]];
         [header appendAttributedString:[[NSAttributedString alloc]
             initWithString:cell[@"label"] attributes:titleAttributes]];
-        [header drawInRect:NSMakeRect(x + 24, NSMinY(summary) + 89,
+        [header drawInRect:NSMakeRect(x + 24, headerY,
             NSWidth([self logicalSummaryCellRectAtIndex:index]) - 48, 18)];
-        if (hasMultipleAccounts) {
-            [L(@"All accounts") drawInRect:NSMakeRect(x + 230, NSMinY(summary) + 89, 120, 18)
-                withAttributes:[self rightAlignedTextAttributesWithSize:10 color:secondary
-                    weight:NSFontWeightRegular]];
-        }
-        for (NSDictionary *row in rows) {
+        for (NSUInteger rowIndex = 0; rowIndex < pageRows.count; rowIndex++) {
+            NSDictionary *row = pageRows[rowIndex];
             NSDictionary *usage = row[@"usage"];
             NSColor *rowColor = row[@"color"];
-            CGFloat iconY = NSMinY(summary) + [row[@"iconY"] doubleValue];
-            CGFloat nameY = NSMinY(summary) + [row[@"nameY"] doubleValue];
-            CGFloat labelY = NSMinY(summary) + [row[@"labelY"] doubleValue];
-            if (CCPetsLanguageIsSource()) labelY += 2 / QuotaScale;
-            CGFloat valueY = NSMinY(summary) + [row[@"valueY"] doubleValue];
+            CGFloat iconY = NSMinY(summary) + 5 + (pageRows.count - rowIndex - 1) * QuotaSummaryRowHeight;
+            if (pageRows.count == 1) iconY += QuotaSummaryRowHeight / 2;
+            CGFloat nameY = iconY + 9;
+            CGFloat labelY = iconY + 25;
+            // 中英文标签基线相同，统一上移，和下方 Token 数留出一致的间距。
+            labelY += 2 / QuotaScale;
+            CGFloat valueY = iconY + 4;
             // 这是图标字形不是文字，原生玻璃下也保留颜色：它负责标出这一行是哪一家。
             [cell[@"icon"] drawInRect:NSMakeRect(x + 20, iconY, 42, 42)
                 withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:30
                     weight:NSFontWeightRegular], NSForegroundColorAttributeName: rowColor}];
-            [row[@"name"] drawInRect:NSMakeRect(x + 66, nameY, 76, 22)
-                withAttributes:[self textAttributesWithSize:14 color:rowColor
-                    weight:NSFontWeightMedium]];
+            // Antigravity 的名称较长，整体左移 8pt 但宽度不变，让出与「输入」列之间的空隙；
+            // 若同时放宽，字号收缩会把空隙重新吃掉。
+            CGFloat nameX = x + ([row[@"shiftsName"] boolValue] ? 58 : 66);
+            [self drawText:row[@"name"] inRect:NSMakeRect(nameX, nameY, inputX - (x + 66) - 6, 22)
+                size:14 weight:NSFontWeightMedium color:rowColor dotColor:nil];
             [L(@"Input") drawInRect:NSMakeRect(inputX, labelY, 76, 16)
                 withAttributes:headerAttributes];
             [L(@"Output") drawInRect:NSMakeRect(outputX, labelY, 76, 16)
@@ -593,6 +576,29 @@
                 drawInRect:NSMakeRect(outputX, valueY, 76, 23) withAttributes:valueAttributes];
         }
     }
-
+    if (pageCount > 1) {
+        for (NSInteger direction = -1; direction <= 1; direction += 2) {
+            NSRect rect = [self logicalSummaryPageArrowRectForDirection:direction];
+            if (NSIsEmptyRect(rect)) continue;
+            CGFloat centerX = NSMidX(rect), centerY = NSMidY(rect);
+            CGFloat halfWidth = MIN(4, NSWidth(rect) / 4);
+            CGFloat halfHeight = MIN(6, NSHeight(rect) / 4);
+            NSBezierPath *arrow = [NSBezierPath bezierPath];
+            [arrow moveToPoint:NSMakePoint(centerX - direction * halfWidth, centerY + halfHeight)];
+            [arrow lineToPoint:NSMakePoint(centerX + direction * halfWidth, centerY)];
+            [arrow lineToPoint:NSMakePoint(centerX - direction * halfWidth, centerY - halfHeight)];
+            arrow.lineWidth = 2.5;
+            arrow.lineCapStyle = NSLineCapStyleRound;
+            arrow.lineJoinStyle = NSLineJoinStyleRound;
+            [[secondary colorWithAlphaComponent:0.95] setStroke];
+            [arrow stroke];
+        }
+        for (NSUInteger index = 0; index < pageCount; index++) {
+            NSRect rect = [self logicalSummaryPageDotRectAtIndex:index];
+            if (NSIsEmptyRect(rect)) continue;
+            [(index == pageIndex ? cyan : [secondary colorWithAlphaComponent:0.35]) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:rect] fill];
+        }
+    }
 }
 @end

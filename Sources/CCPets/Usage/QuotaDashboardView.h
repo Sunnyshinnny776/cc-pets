@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import "CCPetsNormalizedUsage.h"
 
 // 额度面板按逻辑尺寸绘制后整体缩放，保证离屏渲染和实时显示是同一套代码。
 extern const CGFloat QuotaLogicalWidth;
@@ -13,13 +14,13 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property BOOL usesLiquidGlass;
 // 原生玻璃下卡片和汇总区衬底的不透明度，由 App 按压暗档位设置。
 @property CGFloat cardScrimAlpha;
-@property NSDictionary *codexUsage;
-@property NSDictionary *claudeUsage;
+@property(copy) NSDictionary<NSString *, NSDictionary *> *usageByProvider;
+@property(copy) NSDictionary<NSString *, NSArray<NSDictionary *> *> *historyByProvider;
+@property(copy) NSDictionary<NSString *, NSImage *> *logoByProvider;
+@property(copy) NSDictionary<NSString *, NSNumber *> *showsAPIUsageByProvider;
 @property NSArray<NSDictionary *> *profiles;
 @property NSDictionary<NSString *, NSDictionary *> *profileUsages;
 @property NSDictionary<NSString *, NSArray<NSDictionary *> *> *profileHistories;
-@property NSArray<NSDictionary *> *codexHistory;
-@property NSArray<NSDictionary *> *claudeHistory;
 @property NSInteger activeAgentCount;
 // 仍在运行的客户端所属的 provider（"Codex" / "Claude"）。卡片的在线徽章据此判定，
 // 而不是看有没有额度数据——额度会一直缓存着，拿它当在线信号会恒亮。
@@ -37,7 +38,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 // 按两家都有渲染。
 @property NSSet<NSString *> *detectedProviders;
 - (NSArray<NSString *> *)visibleProviders;
+- (NSArray<NSString *> *)orderedQuotaProviderKeys;
 - (CGFloat)logicalHeight;
+- (void)refreshQuotaCardLayout;
 @property NSTimeInterval lastUpdatedAt;
 @property BOOL systemCPUEnabled;
 @property BOOL systemTemperatureEnabled;
@@ -45,8 +48,6 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 @property NSNumber *systemCPUPercent;
 @property NSNumber *systemTemperatureCelsius;
 @property NSNumber *systemMemoryPercent;
-@property BOOL codexShowsAPIUsage;
-@property BOOL claudeShowsAPIUsage;
 - (BOOL)isProviderOnline:(NSString *)name;
 - (NSDictionary *)selectedProfileForProvider:(NSString *)name;
 - (NSDictionary *)usageForProvider:(NSString *)name;
@@ -54,9 +55,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName);
 - (NSDictionary *)accountSnapshotForProvider:(NSString *)name profile:(NSDictionary *)profile;
 // 本周额度的节奏判断，主窗口概览页的额度卡和面板用同一份。返回 label、tip、color，
 // 有数据时还有 level（0 充足 / 1 平稳 / 2 需关注 / 3 高风险）。
-- (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed
-    color:(NSColor *)providerColor;
-@property NSImage *codexLogo;
-@property NSImage *claudeLogo;
+- (NSDictionary *)paceStatusForWindow:(NSDictionary *)window color:(NSColor *)providerColor;
 @property(copy) void (^hoverChanged)(BOOL hovering);
+@property(copy) void (^layoutChanged)(void);
 @end

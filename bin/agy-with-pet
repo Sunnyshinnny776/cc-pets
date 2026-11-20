@@ -1,0 +1,82 @@
+#!/bin/zsh
+set -eu
+
+SCRIPT_DIR="${0:A:h}"
+PROJECT_DIR="${SCRIPT_DIR:h}"
+source "${PROJECT_DIR}/scripts/i18n.zsh"
+PET_BIN="${PROJECT_DIR}/.build/release/cc-pets"
+BUILD_APP="${PROJECT_DIR}/.build/release/CC Pets.app"
+INSTALLED_APP="${CC_PETS_APPLICATIONS_DIR:-${HOME}/Applications}/CC Pets.app"
+REAL_AGY="${AGY_REAL_BIN:-}"
+SELF="${0:A}"
+SHIM_DIR="${CC_PETS_SHIM_DIR:-${HOME}/.cc-pets/shims}"
+
+if [[ -z "${REAL_AGY}" ]]; then
+  typeset -a candidates
+  candidates=(${(f)"$(whence -ap agy 2>/dev/null || true)"})
+  for candidate in "${candidates[@]}"; do
+    [[ -n "${candidate}" && -x "${candidate}" ]] || continue
+    [[ "${candidate:A}" == "${SELF}" || "${candidate:A:h}" == "${SHIM_DIR:A}" ]] && continue
+    REAL_AGY="${candidate}"
+    break
+  done
+fi
+if [[ -z "${REAL_AGY}" || ! -x "${REAL_AGY}" || "${REAL_AGY:A}" == "${SELF}" ]]; then
+  print -u2 "$(cc_pets_t "No executable Antigravity CLI found. Install agy, or set AGY_REAL_BIN to its real path.")"
+  exit 127
+fi
+
+typeset -a agy_arguments=("$@")
+AGY_PROFILE_HOME="${CC_PETS_ANTIGRAVITY_HOME:-${HOME}/.gemini}"
+explicit_root=0
+for (( index = 1; index <= ${#agy_arguments[@]}; index++ )); do
+  case "${agy_arguments[index]}" in
+    --gemini_dir)
+      explicit_root=1
+      (( index < ${#agy_arguments[@]} )) && AGY_PROFILE_HOME="${agy_arguments[index + 1]}"
+      break
+      ;;
+    --gemini_dir=*)
+      explicit_root=1
+      AGY_PROFILE_HOME="${agy_arguments[index]#--gemini_dir=}"
+      break
+      ;;
+    --) break ;;
+  esac
+done
+if [[ -n "${CC_PETS_ANTIGRAVITY_HOME:-}" ]] && (( !explicit_root )); then
+  agy_arguments=(--gemini_dir "${AGY_PROFILE_HOME:A}" "${agy_arguments[@]}")
+fi
+export CC_PETS_ANTIGRAVITY_HOME="${AGY_PROFILE_HOME}"
+
+# Commands that use agy as a subprocess keep its normal stdin/stdout behavior.
+if [[ ! -t 0 || ! -t 1 ]]; then
+  exec "${REAL_AGY}" "${agy_arguments[@]}"
+fi
+
+if [[ ! -x "${PET_BIN}" || ! -d "${BUILD_APP}" ]]; then
+  "${PROJECT_DIR}/scripts/build.sh" >/dev/null
+fi
+PET_APP="${BUILD_APP}"
+"${PET_BIN}" --launch-preflight agy "${agy_arguments[@]}" || exit $?
+[[ -d "${INSTALLED_APP}" ]] && PET_APP="${INSTALLED_APP}"
+
+export CC_PETS_TERMINAL_TTY="${TTY:-}"
+export CC_PETS_TERMINAL_PROGRAM="${TERM_PROGRAM:-}"
+export CC_PETS_TERMINAL_SESSION="${TERM_SESSION_ID:-${ITERM_SESSION_ID:-}}"
+export CC_PETS_TERMINAL_BUNDLE_ID="$("${PET_BIN}" --frontmost-bundle-id 2>/dev/null || true)"
+unset CC_PETS_PROFILE_ID CC_PETS_PROFILE_NAME CC_PETS_PROFILE_HOME
+CC_PETS_PROFILE_ID="$("${PET_BIN}" profile resolve --provider antigravity --home "${AGY_PROFILE_HOME}" 2>/dev/null || true)"
+if [[ -n "${CC_PETS_PROFILE_ID}" ]]; then
+  export CC_PETS_PROFILE_ID
+  export CC_PETS_PROFILE_HOME="${AGY_PROFILE_HOME}"
+  CC_PETS_PROFILE_NAME="$("${PET_BIN}" profile resolve --provider antigravity --home "${AGY_PROFILE_HOME}" --field name 2>/dev/null || true)"
+  [[ -n "${CC_PETS_PROFILE_NAME}" ]] && export CC_PETS_PROFILE_NAME
+fi
+
+"${PET_BIN}" --agy-launch >/dev/null 2>&1 || true
+print -rn -- '{"schemaVersion":1,"provider":"Antigravity","state":"starting"}' | \
+  "${PET_BIN}" --provider-event >/dev/null 2>&1 || true
+env -u CC_PETS_PROFILE_ID -u CC_PETS_PROFILE_NAME -u CC_PETS_PROFILE_HOME -u CC_PETS_ANTIGRAVITY_HOME \
+  open -g "${PET_APP}" --args --managed >/dev/null 2>&1 || true
+exec "${REAL_AGY}" "${agy_arguments[@]}"

@@ -8,3 +8,5 @@ NSString *CCPetsProfileAuthenticationMode(NSDictionary *profile);
 NSString *CCPetsUsageModePreferenceKey(NSDictionary *profile);
 BOOL CCPetsProfileShowsAPIUsage(NSDictionary *profile);
 BOOL CCPetsProfileCanSwitchUsageMode(NSDictionary *profile);
+BOOL CCPetsAntigravityUsesGeminiAPI(NSString *configDirectory);
+BOOL CCPetsAntigravityQuotaReportEnabled(NSString *configDirectory);

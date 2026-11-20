@@ -11,7 +11,7 @@ static NSTimeInterval LineTimestamp(NSData *line) {
 // 按块切行喂给 consume，返回消费掉的字节数（截止最后一个换行）。返回值就是下一次可以
 // 安全续读的偏移：结尾那半行还没写完，不能算进去。includeTail=YES 时残行照样交给
 // consume（一次性整篇扫描的调用方要它，最后一行未必有换行结尾）。
-static unsigned long long EnumerateLines(NSFileHandle *handle, BOOL includeTail,
+unsigned long long EnumerateUsageLines(NSFileHandle *handle, BOOL includeTail,
     void (^consume)(NSData *)) {
     NSMutableData *pending = [NSMutableData data];
     unsigned long long consumed = 0;
@@ -181,7 +181,7 @@ NSDictionary *TokenSessionSummaryTracking(NSURL *url, NSMutableDictionary *cache
     NSFileHandle *handle = [NSFileHandle fileHandleForReadingFromURL:url error:nil];
     if (!handle) return nil;
     if (offset > 0) [handle seekToFileOffset:offset];
-    unsigned long long consumed = EnumerateLines(handle, NO, ^(NSData *line) {
+    unsigned long long consumed = EnumerateUsageLines(handle, NO, ^(NSData *line) {
         // 会话起点取文件第一条带 timestamp 的行，不限于 token_count：它决定这个会话算不算
         // 整段落在窗口内。找到之后就不再对普通行做 JSON 解析。
         if (!start) {
@@ -307,7 +307,7 @@ static NSDictionary *PartialTokenTotals(NSURL *url, NSTimeInterval start, NSTime
         baseline = nil;
         inside = nil;
     };
-    EnumerateLines(handle, YES, ^(NSData *line) {
+    EnumerateUsageLines(handle, YES, ^(NSData *line) {
         NSDictionary *record = TokenRecordFromLine(line);
         NSDictionary *total = record[@"total"];
         if (!total) return;
@@ -603,7 +603,7 @@ NSMutableDictionary *LoadMonthlyUsageArchive(NSString *path) {
 //   heap-buffer-overflow, WRITE of size 48, 0 bytes after 6640-byte region
 //   分配点 __CFBinaryPlistCreateObjectFiltered <- LoadTokenSummaryCache
 // 越界写破坏堆之后进程不会当场死，而是在之后任意一次内存操作上倒下，因此崩溃点看起来
-// 和这里毫无关系（实际报告里落在 EnumerateLines 和 SaveTokenSummaryCache 上）。
+// 和这里毫无关系（实际报告里落在 EnumerateUsageLines 和 SaveTokenSummaryCache 上）。
 //
 // 可靠的做法只有一条：落盘缓存一读回来就把 records 换成本进程创建的可变副本，
 // 之后 ClaudeRecordsForFile 的原地追加才成立。只替换 records，其余字段原样保留——

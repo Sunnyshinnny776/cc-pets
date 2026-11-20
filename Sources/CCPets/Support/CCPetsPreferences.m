@@ -11,11 +11,13 @@ NSString *const PetInteractionHeartThresholdKey = @"CCPetsInteractionHeartThresh
 NSString *const PetInteractionAnnoyedThresholdKey = @"CCPetsInteractionAnnoyedThreshold";
 NSString *const PetInteractionIntervalKey = @"CCPetsInteractionInterval";
 NSString *const CCPetsShadowrocketLaunchCheckKey = @"CCPetsLaunchProtection.Shadowrocket";
+NSString *const CCPetsLaunchProtectionStrictRoutingKey = @"CCPetsLaunchProtection.StrictRouting";
 NSString *const CCPetsDisplayModeKey = @"CCPetsDisplayMode";
 NSString *const CCPetsDisplayModePet = @"pet";
 NSString *const CCPetsDisplayModeBoth = @"both";
 NSString *const CCPetsDisplayModeMenuBar = @"menubar";
 NSString *const CCPetsMenuBarShowsPercentKey = @"CCPetsMenuBarShowsPercent";
+NSString *const CCPetsQuotaCardOrderKey = @"CCPetsQuotaCardOrder";
 
 static NSArray<NSString *> *DisplayModes(void) {
     return @[CCPetsDisplayModePet, CCPetsDisplayModeBoth, CCPetsDisplayModeMenuBar];
@@ -25,6 +27,22 @@ NSString *CCPetsDisplayMode(void) {
     id value = [NSUserDefaults.standardUserDefaults objectForKey:CCPetsDisplayModeKey];
     return [value isKindOfClass:NSString.class] && [DisplayModes() containsObject:value]
         ? value : CCPetsDisplayModePet;
+}
+
+static NSArray<NSString *> *NormalizedQuotaCardOrder(id value) {
+    if (![value isKindOfClass:NSArray.class]) return nil;
+    NSCharacterSet *invalid = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789-"].invertedSet;
+    NSMutableOrderedSet<NSString *> *order = [NSMutableOrderedSet orderedSet];
+    for (id entry in value) {
+        if (![entry isKindOfClass:NSString.class]) continue;
+        NSString *key = [[entry stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] lowercaseString];
+        if (key.length > 0 && [key rangeOfCharacterFromSet:invalid].location == NSNotFound) [order addObject:key];
+    }
+    return order.array;
+}
+
+NSArray<NSString *> *CCPetsQuotaCardOrder(void) {
+    return NormalizedQuotaCardOrder([NSUserDefaults.standardUserDefaults objectForKey:CCPetsQuotaCardOrderKey]) ?: @[];
 }
 
 // 包装器运行的是裸二进制，默认 preferences domain 与 App bundle 不同。
@@ -94,6 +112,7 @@ static NSNumber *ClampedNumber(id value, double minimum, double maximum) {
 // 下限与右键菜单原先各 setter 里的钳制逐条对应，改这里等于改菜单行为。
 id CCPetsPrefNormalizedValue(NSString *key, id value) {
     if (value == nil) return nil;
+    if ([key isEqualToString:CCPetsQuotaCardOrderKey]) return NormalizedQuotaCardOrder(value);
     if ([key isEqualToString:CCPetsPetScaleKey]) {
         NSNumber *scale = ClampedNumber(value, CCPetsPetMinimumScale, CCPetsPetMaximumScale);
         // 滑动条连续拖动会给出 0.8734 这种值，按百分比取整，免得 defaults 里存一串小数。

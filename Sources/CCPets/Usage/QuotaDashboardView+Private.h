@@ -2,12 +2,17 @@
 #import "QuotaDashboardView.h"
 #import "CCPetsL10n.h"
 #import "CCPetsUsageMode.h"
+#import "CCPetsNormalizedUsage.h"
 
 // 面板高度按"检测到几家 CLI"变化，所以纵向布局不再是一堆绝对坐标，而是自上而下的分段：
 // 标题区 → 汇总条 → N × 额度卡，块之间统一留 QuotaBlockGap。
 // QuotaLogicalHeight 保留为两家都装时的高度（590），既是历史默认值，也是预览图尺寸。
 static const CGFloat QuotaHeaderHeight = 106;
 static const CGFloat QuotaSummaryHeight = 112;
+static const CGFloat QuotaSummaryRowHeight = 38;
+static const NSUInteger QuotaSummaryRowsPerPage = 2;
+static const NSUInteger QuotaCollapsedCardCount = 2;
+static const CGFloat QuotaCardsDisclosureHeight = 20;
 static const CGFloat QuotaBaseCardHeight = 152;
 static const CGFloat QuotaBlockGap = 12;
 // 原脚注区占用 44px；保留 12px 外边距，其余空间平均分给可见卡片。
@@ -31,6 +36,9 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 @property(copy) NSString *animatingCarouselProvider;
 @property NSTimeInterval carouselAnimationStartedAt;
 @property NSInteger carouselAnimationDirection;
+@property(copy) NSArray<NSString *> *animatingCardOrder;
+@property NSUInteger selectedSummaryPage;
+@property BOOL quotaCardsExpanded;
 @property(copy) NSString *dragCarouselProvider;
 @property NSPoint dragCarouselStartPoint;
 @property BOOL dragCarouselDidSwitch;
@@ -41,10 +49,19 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 // 主文件里实现、绘图 category 也要用的方法。
 - (NSArray<NSDictionary *> *)profilesForProvider:(NSString *)name;
 - (NSDictionary *)summaryUsageForProvider:(NSString *)name;
+- (NSDictionary *)summaryUsageForAntigravityApp;
 - (NSString *)displayNameForProvider:(NSString *)name;
 - (NSUInteger)selectedIndexForProvider:(NSString *)name;
+- (NSUInteger)summaryPageCount;
+- (NSUInteger)summaryPageIndex;
+- (NSRect)logicalSummaryPageArrowRectForDirection:(NSInteger)direction;
+- (NSRect)logicalSummaryPageDotRectAtIndex:(NSUInteger)index;
 - (NSRect)logicalSummaryRect;
 - (NSRect)logicalSummaryCellRectAtIndex:(NSUInteger)index;
+- (NSArray<NSString *> *)displayedCardProviders;
+- (BOOL)areQuotaCardsExpanded;
+- (NSRect)logicalCardsDisclosureRect;
+- (NSRect)logicalCardRectForProvider:(NSString *)target;
 - (NSDictionary *)quota:(NSDictionary *)usage key:(NSString *)key;
 - (NSDictionary *)tokenTotals:(NSDictionary *)usage key:(NSString *)key;
 - (NSString *)formattedTokenValue:(double)value;
@@ -55,20 +72,21 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 - (NSString *)formattedTokenSplit:(NSDictionary *)totals wantsOutput:(BOOL)wantsOutput;
 - (NSString *)resetText:(NSDictionary *)quota showDate:(BOOL)showDate;
 - (NSString *)recentWeekUsageLabel;
-- (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage;
+- (NSDictionary *)normalizedUsageForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage;
+- (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile normalized:(NSDictionary *)normalized;
+- (NSColor *)statusColorForState:(NSDictionary *)state;
 @end
 
 // 绘图基础：配色、文字排版、系统指标、圆角块和用量曲线。
 @interface QuotaDashboardView (Primitives)
 - (NSColor *)primaryColor;
 - (NSColor *)secondaryColor;
-- (NSColor *)claudeColor;
 - (NSColor *)accentColor;
+- (NSColor *)colorForProvider:(NSString *)name;
 - (NSColor *)agentStatusColor;
 - (void)drawSystemMetricsEndingAtX:(CGFloat)rightEdge y:(CGFloat)y;
 - (NSString *)formattedTokenSplitForUsage:(NSDictionary *)usage key:(NSString *)key
     wantsOutput:(BOOL)wantsOutput;
-- (NSNumber *)usedForQuota:(NSDictionary *)quota usedKey:(NSString *)usedKey;
 - (NSString *)refreshAgeText;
 - (NSFont *)fontWithSize:(CGFloat)size weight:(NSFontWeight)weight;
 - (void)drawText:(NSString *)text inRect:(NSRect)rect size:(CGFloat)size
@@ -96,8 +114,12 @@ static inline CGFloat QuotaCardHeightForProviderCount(NSUInteger count) {
 // 卡片、汇总条和整块面板的绘制。
 @interface QuotaDashboardView (Rendering)
 - (void)drawProvider:(NSString *)name displayName:(NSString *)displayName
-    usage:(NSDictionary *)usage usedKey:(NSString *)usedKey color:(NSColor *)color
+    usage:(NSDictionary *)usage color:(NSColor *)color
     cardRect:(NSRect)card profileCount:(NSUInteger)profileCount selectedIndex:(NSUInteger)selectedIndex;
 - (void)drawSummaryForProviders:(NSArray<NSString *> *)providers primary:(NSColor *)primary
     secondary:(NSColor *)secondary accent:(NSColor *)cyan;
+@end
+
+@interface QuotaDashboardView (CompactRow)
+- (void)drawCompactRowForProvider:(NSString *)name usage:(NSDictionary *)normalized rect:(NSRect)rect;
 @end

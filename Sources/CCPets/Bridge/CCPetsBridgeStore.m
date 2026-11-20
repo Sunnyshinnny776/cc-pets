@@ -4,6 +4,7 @@
 #import "CCPetsCLISupport.h"
 #import "CCPetsJSON.h"
 #import <CommonCrypto/CommonDigest.h>
+#import <libproc.h>
 #import <sys/sysctl.h>
 #import <sys/stat.h>
 #import <sys/file.h>
@@ -16,6 +17,8 @@
 
 const NSUInteger CCBridgeMessageBodyLimit = 16 * 1024;
 const long long CCBridgeMessageTTL = 24LL * 60 * 60 * 1000;
+NSString *const CCBridgeAntigravityProvider = @"Antigravity";
+NSString *const CCBridgeAntigravityAppProvider = @"Antigravity App";
 // 同一对会话 10 分钟内来回超过这个数，基本可以断定是两个 Agent 在互相自动回复。
 static const long long PairLimitWindow = 10LL * 60 * 1000;
 const NSUInteger CCBridgePairLimitCount = 20;
@@ -87,7 +90,7 @@ void CCBridgeSetEnabled(BOOL enabled, NSDictionary *options) {
     EnsureHomeDirectory();
     NSDictionary *normalized = CCBridgeNormalizeOptions(options);
     CCPetsJSONObject *document = [CCPetsJSONObject new];
-    for (NSString *key in @[@"codexApprove", @"claudeAllow", @"wake", @"editGuard"]) document[key] = normalized[key];
+    for (NSString *key in @[@"codexApprove", @"claudeAllow", @"antigravityAllow", @"antigravityApp", @"tabTitle", @"wake", @"editGuard"]) document[key] = normalized[key];
     NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
     formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
     document[@"enabledAt"] = [formatter stringFromDate:NSDate.date];
@@ -164,6 +167,21 @@ NSDictionary *CCBridgeMergeOptionFlags(NSDictionary *base, NSDictionary<NSString
         if (!tools) return nil;
         next[@"claudeAllow"] = tools;
     }
+    if (flags[@"antigravityAllow"]) {
+        NSArray *tools = CCBridgeParseToolList(flags[@"antigravityAllow"], @"--agy-allow", error);
+        if (!tools) return nil;
+        next[@"antigravityAllow"] = tools;
+    }
+    if (flags[@"antigravityApp"]) {
+        NSNumber *value = CCBridgeParseSwitch(flags[@"antigravityApp"], @"--agy-app", error);
+        if (!value) return nil;
+        next[@"antigravityApp"] = value;
+    }
+    if (flags[@"tabTitle"]) {
+        NSNumber *value = CCBridgeParseSwitch(flags[@"tabTitle"], @"--tab-title", error);
+        if (!value) return nil;
+        next[@"tabTitle"] = value;
+    }
     if (flags[@"wake"]) {
         NSNumber *value = CCBridgeParseSwitch(flags[@"wake"], @"--wake", error);
         if (!value) return nil;
@@ -180,9 +198,13 @@ NSDictionary *CCBridgeMergeOptionFlags(NSDictionary *base, NSDictionary<NSString
 NSArray<NSString *> *CCBridgeDescribeOptions(NSDictionary *options) {
     NSArray *codex = options[@"codexApprove"];
     NSArray *claude = options[@"claudeAllow"];
+    NSArray *agy = options[@"antigravityAllow"];
     return @[
         LF(L(@"Codex auto-approve: {codexApprove}"), (@{@"codexApprove": codex.count > 0 ? [codex componentsJoinedByString:@", "] : L(@"none")})),
         LF(L(@"Claude allow without asking: {claudeAllow}"), (@{@"claudeAllow": claude.count > 0 ? [claude componentsJoinedByString:@", "] : L(@"none")})),
+        LF(L(@"Antigravity allow without asking: {agyAllow}"), (@{@"agyAllow": agy.count > 0 ? [agy componentsJoinedByString:@", "] : L(@"none")})),
+        LF(L(@"Antigravity App integration: {agyApp}"), (@{@"agyApp": [options[@"antigravityApp"] isEqual:@YES] ? L(@"on") : L(@"off")})),
+        LF(L(@"Bridge nicknames in tab titles: {tabTitle}"), (@{@"tabTitle": [options[@"tabTitle"] boolValue] ? L(@"on") : L(@"off")})),
         LF(L(@"Wake idle sessions: {wake}"), (@{@"wake": [options[@"wake"] boolValue] ? L(@"on") : L(@"off")})),
         LF(L(@"Pause edits on reserved files: {editGuard}"), (@{@"editGuard": [options[@"editGuard"] boolValue] ? L(@"on") : L(@"off")}))
     ];
@@ -297,6 +319,17 @@ NSArray<NSDictionary *> *CCBridgeListSessions(void) {
         if ([record isKindOfClass:NSDictionary.class]) [sessions addObject:record];
     }
     return sessions;
+}
+
+static BOOL UsesBridgeHostPID(id provider) {
+    return [provider isEqual:CCBridgeAntigravityProvider] || [provider isEqual:CCBridgeAntigravityAppProvider];
+}
+
+NSNumber *CCBridgeSessionHostPID(NSDictionary *session) {
+    id hostPID = session[@"hostPid"];
+    if (UsesBridgeHostPID(session[@"provider"]) && [hostPID isKindOfClass:NSNumber.class]) return hostPID;
+    id pid = session[@"pid"];
+    return [pid isKindOfClass:NSNumber.class] ? pid : nil;
 }
 
 void CCBridgeRemoveSession(id sessionId) {
@@ -480,7 +513,17 @@ static NSDictionary *UpsertSession(NSString *sessionId, NSString *provider, NSNu
         if (provider) record[@"provider"] = provider;
     }
     if (provider) record[@"provider"] = provider;
-    if (pid && pid.intValue > 1) record[@"pid"] = pid;
+    if (pid.intValue > 1) {
+        if (UsesBridgeHostPID(record[@"provider"])) {
+            // Older Bridge clients treat an unknown provider with a pid as offline and may
+            // remove the record. They can still address it via the legacy activity timestamp.
+            record[@"hostPid"] = pid;
+            [record removeObjectForKey:@"pid"];
+        } else {
+            record[@"pid"] = pid;
+            [record removeObjectForKey:@"hostPid"];
+        }
+    }
     if (cwd.length > 0) record[@"cwd"] = cwd;
     if (tty.length > 0) record[@"tty"] = tty;
     if (profileID.length > 0) record[@"profileId"] = profileID;
@@ -710,6 +753,20 @@ NSUInteger CCBridgePendingCount(id sessionId) {
 
 static NSString *SessionDirectory(NSString *kind, NSString *sessionId) {
     return [[CCBridgeStateDirectory() stringByAppendingPathComponent:kind] stringByAppendingPathComponent:sessionId];
+}
+
+NSString *CCBridgeOldestPendingMessageName(id sessionId) {
+    NSString *safe = CCBridgeSafeSessionId(sessionId);
+    if (!safe) return nil;
+    NSString *oldest = nil;
+    for (NSString *kind in @[@"inbox", @"claimed"]) {
+        for (NSString *name in ListJSON(SessionDirectory(kind, safe))) {
+            if (!IsMessageId(name.stringByDeletingPathExtension)) continue;
+            if (!oldest || [name compare:oldest] == NSOrderedAscending) oldest = name;
+            break;
+        }
+    }
+    return oldest;
 }
 
 // 调用方持有该信箱的锁。空目录一并删掉，否则已退出的会话会在状态目录里留下痕迹。
@@ -1003,8 +1060,22 @@ static BOOL Matches(NSString *pattern, NSString *text) {
     return [expression firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] != nil;
 }
 
-// 只看可执行文件本身和脚本路径，不看其余参数：参数里出现 "claude" / "codex" 的进程太多了
-// （比如 tmux new-session "codex …"、编辑器打开的某个路径）。
+static BOOL NativeAntigravityArguments(NSArray<NSString *> *arguments) {
+    NSString *name = arguments.firstObject.lastPathComponent;
+    NSString *configured = [CCPetsEnvironmentValue(@"AGY_REAL_BIN") lastPathComponent];
+    return [name isEqualToString:@"agy"] || (configured.length > 0 && [name isEqualToString:configured]);
+}
+
+static BOOL AntigravityAppExecutable(NSString *path) {
+    return [path hasPrefix:@"/"] && [path hasSuffix:@"/Antigravity.app/Contents/Resources/bin/language_server"];
+}
+
+static BOOL AntigravityAppHost(pid_t pid) {
+    char path[PROC_PIDPATHINFO_MAXSIZE];
+    // Hooks and MCP share the App backend. Use the kernel's executable path, not its argv.
+    return proc_pidpath(pid, path, sizeof path) > 0 && AntigravityAppExecutable(@(path));
+}
+
 BOOL CCBridgeArgumentsMatchProvider(NSString *provider, NSArray<NSString *> *arguments) {
     NSString *executable = arguments.firstObject ?: @"";
     NSString *second = arguments.count > 1 ? arguments[1] : @"";
@@ -1017,6 +1088,10 @@ BOOL CCBridgeArgumentsMatchProvider(NSString *provider, NSArray<NSString *> *arg
         return [executable.lastPathComponent isEqualToString:@"claude"] ||
             Matches(@"@anthropic-ai/claude-code/", executable) || Matches(@"@anthropic-ai/claude-code/", second);
     }
+    if ([provider isEqualToString:CCBridgeAntigravityProvider]) {
+        return NativeAntigravityArguments(arguments);
+    }
+    if ([provider isEqualToString:CCBridgeAntigravityAppProvider]) return AntigravityAppExecutable(executable);
     return NO;
 }
 
@@ -1037,8 +1112,9 @@ NSDictionary *CCBridgeFindAgentAncestor(pid_t startPid) {
     for (int depth = 0; depth < 12 && pid > 1; depth++) {
         pid_t parent = 0;
         if (!ProcessParent(pid, &parent, NULL)) return nil;
+        if (AntigravityAppHost(pid)) return @{@"provider": CCBridgeAntigravityAppProvider, @"pid": @(pid)};
         NSArray<NSString *> *arguments = CCBridgeProcessArguments(pid);
-        for (NSString *provider in @[@"Claude", @"Codex"]) {
+        for (NSString *provider in @[@"Claude", @"Codex", CCBridgeAntigravityProvider]) {
             if (CCBridgeArgumentsMatchProvider(provider, arguments)) return @{@"provider": provider, @"pid": @(pid)};
         }
         pid = parent;
@@ -1048,13 +1124,18 @@ NSDictionary *CCBridgeFindAgentAncestor(pid_t startPid) {
 
 BOOL CCBridgeSessionLive(NSDictionary *session) {
     if (![session isKindOfClass:NSDictionary.class] || [session[@"status"] isEqual:@"gone"]) return NO;
-    id pid = session[@"pid"];
-    if ([pid isKindOfClass:NSNumber.class]) {
-        if (!CCBridgeProcessAlive([pid intValue])) return NO;
-        NSArray<NSString *> *arguments = CCBridgeProcessArguments([pid intValue]);
-        return arguments == nil || CCBridgeArgumentsMatchProvider(session[@"provider"], arguments);
+    NSString *provider = session[@"provider"];
+    NSNumber *pid = CCBridgeSessionHostPID(session);
+    if ([provider isEqual:CCBridgeAntigravityAppProvider]) {
+        return pid.intValue > 1 && [CCBridgeOptions()[@"antigravityApp"] isEqual:@YES] && AntigravityAppHost(pid.intValue);
     }
-    return CCPetsMilliseconds() - NumberValue(session[@"updatedAt"]) < StaleWithoutPid;
+    if (pid) {
+        if (!CCBridgeProcessAlive(pid.intValue)) return NO;
+        NSArray<NSString *> *arguments = CCBridgeProcessArguments(pid.intValue);
+        return arguments == nil || CCBridgeArgumentsMatchProvider(provider, arguments);
+    }
+    return !UsesBridgeHostPID(provider) &&
+        CCPetsMilliseconds() - NumberValue(session[@"updatedAt"]) < StaleWithoutPid;
 }
 
 // `codex queue` 是较新的 Codex 才有的子命令。旧版本把不认识的子命令当成交互式启动参数，

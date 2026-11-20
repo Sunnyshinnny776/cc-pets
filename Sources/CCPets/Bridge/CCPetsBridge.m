@@ -116,10 +116,9 @@ static NSDictionary *ReadJSONObject(NSString *path) {
     return [object isKindOfClass:NSDictionary.class] ? object : nil;
 }
 
-// 只有 JSON 里明确写着 false 才算关；0、缺省、其他类型都按开处理。
-static BOOL IsJSONFalse(id value) {
+static BOOL IsJSONBoolean(id value, BOOL expected) {
     return [value isKindOfClass:NSNumber.class] &&
-        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() && ![value boolValue];
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() && [value boolValue] == expected;
 }
 
 NSDictionary *CCBridgeNormalizeOptions(NSDictionary *raw) {
@@ -127,9 +126,12 @@ NSDictionary *CCBridgeNormalizeOptions(NSDictionary *raw) {
     return @{
         @"codexApprove": KnownTools(raw[@"codexApprove"]),
         @"claudeAllow": KnownTools(raw[@"claudeAllow"]),
+        @"antigravityAllow": KnownTools(raw[@"antigravityAllow"]),
+        @"antigravityApp": IsJSONBoolean(raw[@"antigravityApp"], YES) ? @YES : @NO,
+        @"tabTitle": IsJSONBoolean(raw[@"tabTitle"], YES) ? @YES : @NO,
         // 必须是 @YES / @NO（CFBoolean）：写回开关文件时要落成 JSON 的 true / false，而不是 1 / 0。
-        @"wake": IsJSONFalse(raw[@"wake"]) ? @NO : @YES,
-        @"editGuard": IsJSONFalse(raw[@"editGuard"]) ? @NO : @YES
+        @"wake": IsJSONBoolean(raw[@"wake"], NO) ? @NO : @YES,
+        @"editGuard": IsJSONBoolean(raw[@"editGuard"], NO) ? @NO : @YES
     };
 }
 

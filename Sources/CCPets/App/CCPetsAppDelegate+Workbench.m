@@ -5,6 +5,7 @@
 #import "CCPetsBridgeStore.h"
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsUsageMode.h"
+#import "CCPetsProviderRegistry.h"
 
 NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWorkbenchQuotasDidChange";
 
@@ -16,7 +17,8 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
     NSMutableArray<NSDictionary *> *sessions = [NSMutableArray array];
     for (NSString *key in self.agentSessionRecords) {
         NSDictionary *record = self.agentSessionRecords[key];
-        NSString *provider = SanitizedShortString(record[@"provider"], 32).lowercaseString;
+        NSString *provider = SanitizedShortString(record[@"provider"], 32);
+        NSString *providerKey = provider.lowercaseString;
         // 和状态气泡一致：启动后一直没有后续事件，说明会话已就绪、在等输入。
         NSString *state = SessionDisplayState([record[@"state"] isKindOfClass:NSString.class]
             ? record[@"state"] : @"", [record[@"timestamp"] doubleValue], NSDate.date.timeIntervalSince1970);
@@ -24,8 +26,8 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
         NSDictionary *terminal = [record[@"terminal"] isKindOfClass:NSDictionary.class] ? record[@"terminal"] : nil;
         NSMutableDictionary *session = [NSMutableDictionary dictionary];
         session[@"id"] = key;
-        session[@"provider"] = [provider isEqualToString:@"claude"] ? @"Claude"
-            : ([provider isEqualToString:@"codex"] ? @"Codex" : (provider.length > 0 ? provider : @"Agent"));
+        session[@"provider"] = [providerKey isEqualToString:@"claude"] ? @"Claude"
+            : ([providerKey isEqualToString:@"codex"] ? @"Codex" : (provider.length > 0 ? provider : @"Agent"));
         if ([record[@"profileId"] isKindOfClass:NSString.class]) session[@"profileId"] = record[@"profileId"];
         if ([record[@"profileName"] isKindOfClass:NSString.class]) session[@"profileName"] = record[@"profileName"];
         session[@"state"] = state;
@@ -75,11 +77,13 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
 
 - (NSArray<NSDictionary *> *)workbenchQuotas {
     NSMutableArray<NSDictionary *> *quotas = [NSMutableArray array];
-    // 平台次序和悬停面板一致，但概览同时列出全部账号，不跟随轮播选择。
-    for (NSString *provider in [self.quotaView visibleProviders]) {
+    // 工作台展示已检测的平台和全部账号，也包含不进入悬停面板的平台。
+    for (CCPetsProviderDescriptor *descriptor in CCPetsProviderDescriptors()) {
+        NSString *provider = descriptor.name;
+        if (self.quotaView.detectedProviders && ![self.quotaView.detectedProviders containsObject:provider]) continue;
         NSMutableArray<NSDictionary *> *profiles = [NSMutableArray array];
         for (NSDictionary *profile in self.quotaView.profiles ?: CCPetsProfiles()) {
-            if ([profile[@"provider"] isEqualToString:provider.lowercaseString]) [profiles addObject:profile];
+            if ([profile[@"provider"] isEqualToString:descriptor.profileProvider]) [profiles addObject:profile];
         }
         // 未登记账号时保留旧版的平台卡片。
         if (profiles.count == 0) [profiles addObject:@{}];
@@ -87,24 +91,18 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
             NSString *profileID = profile[@"id"];
             NSMutableDictionary *quota = [[self.quotaView accountSnapshotForProvider:provider
                 profile:profile.count > 0 ? profile : nil] mutableCopy];
-            NSDictionary *usage = quota[@"usage"];
-            NSString *usedKey = [provider isEqualToString:@"Claude"] ? @"used_percentage" : @"used_percent";
-            NSNumber *weekUsed = nil;
-            for (NSArray<NSString *> *window in @[@[@"fiveHour", @"five"], @[@"week", @"week"]]) {
-                NSDictionary *limit = [usage[window[0]] isKindOfClass:NSDictionary.class] ? usage[window[0]] : nil;
-                NSNumber *used = [limit[usedKey] isKindOfClass:NSNumber.class] ? limit[usedKey] : nil;
-                if (used) {
-                    double clamped = fmax(0, fmin(100, used.doubleValue));
-                    quota[[window[1] stringByAppendingString:@"Remaining"]] = @(100 - clamped);
-                    if ([window[1] isEqualToString:@"week"]) weekUsed = @(clamped);
-                }
-                if ([limit[@"resets_at"] isKindOfClass:NSNumber.class]) {
-                    quota[[window[1] stringByAppendingString:@"Reset"]] = limit[@"resets_at"];
-                }
+            NSArray *windows = quota[@"normalized"][@"windows"];
+            for (NSDictionary *window in windows) {
+                NSString *key = window[@"key"];
+                NSString *prefix = [key isEqualToString:@"fiveHour"] ? @"five" : key;
+                NSNumber *used = window[@"used"];
+                if (used) quota[[prefix stringByAppendingString:@"Remaining"]] = @(100 - used.doubleValue);
+                NSNumber *reset = window[@"quota"][@"resets_at"];
+                if ([reset isKindOfClass:NSNumber.class]) quota[[prefix stringByAppendingString:@"Reset"]] = reset;
             }
             if (![quota[@"apiMode"] boolValue]) {
-                NSDictionary *week = [usage[@"week"] isKindOfClass:NSDictionary.class] ? usage[@"week"] : nil;
-                NSDictionary *pace = [self.quotaView paceStatusForQuota:week currentUsed:weekUsed color:NSColor.systemTealColor];
+                NSDictionary *pace = [self.quotaView paceStatusForWindow:CCPetsTrendWindow(windows)
+                    color:NSColor.systemTealColor];
                 if (pace[@"level"]) {
                     quota[@"pace"] = pace[@"label"];
                     quota[@"paceLevel"] = pace[@"level"];

@@ -7,6 +7,38 @@ truth for the version.
 
 ## [Unreleased]
 
+### Antigravity
+
+- Add Antigravity CLI (`agy`) and App support. Pet hooks, the Bridge MCP server and tool allow lists are installed under the Gemini root (`~/.gemini` or a registered custom root), and `cc-pets install` adds the `agy-with-pet` launcher and an `agy` shim.
+- Add Antigravity Homes to Multi-Account. Use `CC_PETS_ANTIGRAVITY_HOME` to launch `agy` with a custom root. `cc-pets doctor` and `cc-pets paths` cover the hooks, MCP registration and launcher.
+- CLI and App hook events drive the status card, approval card and stall reminders, matching Codex and Claude. App conversations show as "Antigravity App" and focus the App when clicked; approval state is available for the CLI only.
+
+### Usage and quota
+
+- Count Antigravity CLI and App tokens from their local transcripts, with separate filters on the Usage page. The hover panel's daily and 7-day summaries list them as Antigravity CLI and Antigravity App.
+- Read Antigravity subscription quota through `agy -p /usage --output-format json`, once per signed-in account. API-key mode shows local usage.
+- Show Antigravity in the hover panel with its own color, logo and display mode.
+- Add Settings → Hover Panel → Quota Card Order: drag to reorder the provider cards in the hover panel.
+
+### CC Bridge
+
+- Antigravity CLI sessions exchange messages through hooks and MCP; messages are picked up on the next model invocation.
+- Antigravity App conversations can be woken through an opt-in Sidecar: `cc-pets bridge configure --agy-app=on`.
+- Add `--agy-allow` to skip approval for Bridge tools in Antigravity CLI.
+- Add opt-in tab nicknames (`--tab-title=on`, or right-click → CC Bridge → Tab nicknames) that append the Bridge name to CLI terminal tab titles.
+
+### Launch protection
+
+- Check only official endpoints. Custom endpoints, Codex local models and Claude's Bedrock, Vertex and Foundry modes skip the VPN and exit-region checks.
+- When routing can't be determined from the supported settings, print a reason and allow startup. Turn on **Strict Routing** to block startup instead.
+- For `agy`, check only that Shadowrocket is connected: Google's service domains have no `/cdn-cgi/trace` endpoint.
+
+### Fixes
+
+- Pair Codex sessions resumed inside the TUI (`/resume`) with their terminal again, including when the TUI starts late, so the status card can focus it. Desktop clients are never paired.
+- Let prerelease builds such as `2.6.0-beta.3` receive the stable release of the same version or later.
+- Fix a crash when dequeuing low-quota alerts.
+
 ## [2.5.0] - 2026-11-15
 
 ### Menu bar

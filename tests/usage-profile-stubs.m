@@ -5,6 +5,7 @@
 // 正式监控器只会读取已登记的账号，因此测试桩必须保留两个官方默认 Home。
 NSString *const CCPetsProfileProviderClaude = @"claude";
 NSString *const CCPetsProfileProviderCodex = @"codex";
+NSString *const CCPetsProfileProviderAntigravity = @"antigravity";
 NSArray<NSDictionary *> *CCPetsProfiles(void) {
     return @[
         @{ @"id": @"claude:default", @"provider": CCPetsProfileProviderClaude,
@@ -37,4 +38,9 @@ NSDictionary *CCPetsProfileForHome(NSString *provider, NSString *home) {
         if ([candidate isEqualToString:target]) return profile;
     }
     return nil;
+}
+
+BOOL CCPetsProfileIsOfficialDefault(NSDictionary *profile) {
+    // The stub registry contains only default profiles.
+    return CCPetsProfileForHome(profile[@"provider"], profile[@"home"]) != nil;
 }

@@ -1,5 +1,6 @@
 #import "CCPetsUsagePage.h"
 #import "CCPetsProfiles.h"
+#import "CCPetsProviderRegistry.h"
 #import "CCPetsUsageShared.h"
 
 #pragma mark - 数据
@@ -10,6 +11,7 @@ static const NSInteger UsageMaximumRangeDays = 90;
 static const NSTimeInterval UsageStoreFreshness = 120;
 
 NSNotificationName const CCPetsUsageStoreDidChangeNotification = @"CCPetsUsageStoreDidChange";
+NSString *const CCPetsUsageProviderAntigravityApp = @"antigravity-app";
 static NSDictionary<NSString *, NSDictionary *> *UsageStoreResults;
 static NSDictionary<NSString *, NSDictionary *> *UsageStoreProfileResults;
 static NSTimeInterval UsageStoreLoadedAt;
@@ -74,6 +76,8 @@ static NSDictionary *MergeModelUsageResults(NSArray<NSDictionary *> *values) {
     for (NSDictionary *profile in CCPetsProfiles()) {
         [identity addObject:[NSString stringWithFormat:@"%@|%@", profile[@"id"], profile[@"home"]]];
     }
+    BOOL antigravityAppAvailable = CCPetsAntigravityAppUsageAvailable();
+    if (antigravityAppAvailable) [identity addObject:CCPetsUsageProviderAntigravityApp];
     NSString *fingerprint = [identity componentsJoinedByString:@"\n"];
     NSCalendar *calendar = NSCalendar.currentCalendar;
     NSDate *today = [calendar startOfDayForDate:NSDate.date];
@@ -92,7 +96,8 @@ static NSDictionary *MergeModelUsageResults(NSArray<NSDictionary *> *values) {
     dispatch_async(queue, ^{
         NSMutableDictionary *results = [NSMutableDictionary dictionary];
         NSMutableDictionary *profileResults = [NSMutableDictionary dictionary];
-        for (NSString *provider in @[@"claude", @"codex"]) {
+        for (CCPetsProviderDescriptor *descriptor in CCPetsProviderDescriptors()) {
+            NSString *provider = descriptor.profileProvider;
             NSArray<NSDictionary *> *profiles = CCPetsProfilesForProvider(provider);
             if (profiles.count == 0) continue;
             NSMutableArray<NSDictionary *> *providerValues = [NSMutableArray array];
@@ -104,6 +109,11 @@ static NSDictionary *MergeModelUsageResults(NSArray<NSDictionary *> *values) {
                 [providerValues addObject:usage];
             }
             results[provider] = MergeModelUsageResults(providerValues);
+        }
+        if (antigravityAppAvailable) {
+            NSDictionary *appUsage = CCPetsModelUsage(CCPetsUsageProviderAntigravityApp,
+                start.timeIntervalSince1970, end.timeIntervalSince1970);
+            if (appUsage) results[CCPetsUsageProviderAntigravityApp] = appUsage;
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             UsageStoreResults = results;

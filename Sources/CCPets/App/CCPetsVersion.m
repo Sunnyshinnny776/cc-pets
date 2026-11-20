@@ -36,6 +36,40 @@ NSComparisonResult CompareStableVersions(NSString *left, NSString *right, BOOL *
     return NSOrderedSame;
 }
 
+// semver 预发布号：点分隔的标识符，只含字母数字和连字符；纯数字标识符不许有前导零。
+static BOOL ValidPrerelease(NSString *prerelease) {
+    if (prerelease.length == 0 || prerelease.length > 64) return NO;
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
+        @"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"];
+    NSCharacterSet *nonDigits = [NSCharacterSet characterSetWithCharactersInString:@"0123456789"].invertedSet;
+    for (NSString *identifier in [prerelease componentsSeparatedByString:@"."]) {
+        if (identifier.length == 0 || [identifier rangeOfCharacterFromSet:allowed.invertedSet].location != NSNotFound) return NO;
+        BOOL numeric = [identifier rangeOfCharacterFromSet:nonDigits].location == NSNotFound;
+        if (numeric && identifier.length > 1 && [identifier hasPrefix:@"0"]) return NO;
+    }
+    return YES;
+}
+
+NSComparisonResult CompareInstalledVersionToRelease(NSString *installed, NSString *release, BOOL *valid) {
+    BOOL parsed = NO;
+    if (valid) *valid = NO;
+    if (![installed isKindOfClass:NSString.class]) return NSOrderedSame;
+    NSString *core = installed;
+    NSString *prerelease = nil;
+    NSRange dash = [installed rangeOfString:@"-"];
+    if (dash.location != NSNotFound) {
+        core = [installed substringToIndex:dash.location];
+        prerelease = [installed substringFromIndex:NSMaxRange(dash)];
+        if (!ValidPrerelease(prerelease)) return NSOrderedSame;
+    }
+    NSComparisonResult comparison = CompareStableVersions(core, release, &parsed);
+    if (!parsed) return NSOrderedSame;
+    if (valid) *valid = YES;
+    // latest 只会是正式版，预览版只需和同号正式版分出先后。
+    if (comparison == NSOrderedSame && prerelease) return NSOrderedAscending;
+    return comparison;
+}
+
 int RestartAfterPID(pid_t pid, NSString *appPath, BOOL managed) {
     for (NSUInteger attempt = 0; attempt < 300; attempt++) {
         if (pid <= 1 || (kill(pid, 0) != 0 && errno == ESRCH)) break;

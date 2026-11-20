@@ -3,6 +3,7 @@
 #import "CCPetsMenuBarSummary.h"
 #import "CCPetsGlassView.h"
 #import "CCPetsL10n.h"
+#import "CCPetsProviderRegistry.h"
 #import "CCPetsUsagePage.h"
 
 static const CGFloat PanelWidth = 300;
@@ -18,11 +19,13 @@ static NSColor *PrimaryInk(void) { return [NSColor colorWithWhite:0.97 alpha:1];
 static NSColor *SecondaryInk(void) { return [NSColor colorWithWhite:0.80 alpha:1]; }
 static NSColor *TertiaryInk(void) { return [NSColor colorWithWhite:0.80 alpha:0.62]; }
 
-// 与悬停面板同一组品牌色：Codex 青、Claude 紫（原生玻璃上提亮一档）。
+// 与悬停面板共用品牌色，原生玻璃可选更亮的配色。
 static NSColor *ProviderColor(NSString *provider, BOOL liquid) {
-    if ([provider isEqualToString:@"Claude"]) {
-        return liquid ? [NSColor colorWithRed:0.80 green:0.66 blue:1.00 alpha:1]
-            : [NSColor colorWithRed:0.66 green:0.43 blue:0.94 alpha:1];
+    CCPetsProviderDescriptor *descriptor = CCPetsProviderForName(provider);
+    NSArray<NSNumber *> *channels = liquid ? descriptor.glassColorRGB : descriptor.standardColorRGB;
+    if (channels.count == 3) {
+        return [NSColor colorWithRed:channels[0].doubleValue green:channels[1].doubleValue
+            blue:channels[2].doubleValue alpha:1];
     }
     return [NSColor colorWithRed:0.30 green:0.82 blue:0.90 alpha:1];
 }
@@ -410,7 +413,9 @@ static NSString *ResetText(id value) {
 - (CCPetsMenuBarRow *)quotaRow:(NSDictionary *)quota {
     NSString *provider = [quota[@"provider"] isKindOfClass:NSString.class] ? quota[@"provider"] : @"Agent";
     NSString *profileName = [quota[@"profileName"] isKindOfClass:NSString.class] ? quota[@"profileName"] : nil;
-    NSString *name = profileName.length > 0 && [profileName caseInsensitiveCompare:provider] != NSOrderedSame
+    NSString *defaultProfileName = [provider isEqualToString:@"Antigravity"] ? @"gemini" : provider;
+    NSString *name = profileName.length > 0 && [profileName caseInsensitiveCompare:provider] != NSOrderedSame &&
+        [profileName caseInsensitiveCompare:defaultProfileName] != NSOrderedSame
         ? [NSString stringWithFormat:@"%@ · %@", provider, profileName] : provider;
     BOOL api = [quota[@"apiMode"] boolValue];
     BOOL limited = [quota[@"state"] isEqual:@"limited"];

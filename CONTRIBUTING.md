@@ -43,7 +43,7 @@ Install preview builds explicitly; the automatic updater accepts stable versions
 `main` is reserved for stable releases, including the stable GitHub Release and tag.
 Complete implementation, documentation, screenshots, and validation on `publish`
 before submitting to `main`; repeat integration checks there before a stable release.
-The latest stable GitHub release is **v2.4.0**, covering exact terminal jumps, optional launch protection, CC Bridge reliability, token accounting, and clearer local version diagnostics.
+The latest stable GitHub release is **v2.5.0**, covering menu bar mode, clearer session status and lifecycle tracking, and CC Bridge identity, file reservation, and message delivery fixes.
 See [release status](docs/release-status.md) for validation and handoff details.
 
 ## Localization

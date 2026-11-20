@@ -8,10 +8,12 @@ static BOOL Check(NSString *label, NSSet<NSString *> *providers, BOOL unlabeled,
     BOOL expectedCodex, BOOL expectedClaude) {
     QuotaDashboardView *view = [[QuotaDashboardView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
     // 两家都给满额度数据：有数据但没有客户端时必须判离线。
-    view.codexUsage = @{@"fiveHour": @{@"used_percent": @34},
-        @"tokenUsage": @{@"week": @{@"total_tokens": @1000}}};
-    view.claudeUsage = @{@"fiveHour": @{@"used_percentage": @23},
-        @"tokenUsage": @{@"week": @{@"total_tokens": @1000}}};
+    view.usageByProvider = @{
+        @"Codex": @{@"fiveHour": @{@"used_percent": @34},
+            @"tokenUsage": @{@"week": @{@"total_tokens": @1000}}},
+        @"Claude": @{@"fiveHour": @{@"used_percentage": @23},
+            @"tokenUsage": @{@"week": @{@"total_tokens": @1000}}}
+    };
     view.liveProviders = providers;
     view.hasUnlabeledClient = unlabeled;
     BOOL codex = [view isProviderOnline:@"Codex"];

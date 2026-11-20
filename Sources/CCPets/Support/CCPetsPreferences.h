@@ -17,6 +17,7 @@ extern NSString *const PetInteractionAnnoyedThresholdKey;
 extern NSString *const PetInteractionIntervalKey;
 // 启动保护按代理软件分别保存；增加软件时定义独立的布尔键。
 extern NSString *const CCPetsShadowrocketLaunchCheckKey;
+extern NSString *const CCPetsLaunchProtectionStrictRoutingKey;
 
 // 显示位置：仅桌宠（默认）/ 桌宠 + 菜单栏 / 仅菜单栏。字符串而不是整数，以后加模式不错位。
 extern NSString *const CCPetsDisplayModeKey;
@@ -25,6 +26,9 @@ extern NSString *const CCPetsDisplayModeBoth;
 extern NSString *const CCPetsDisplayModeMenuBar;
 // 菜单栏图标旁常驻显示最低的 5 小时剩余额度。默认关；低于 20% 时不论开关都会显示。
 extern NSString *const CCPetsMenuBarShowsPercentKey;
+// 悬停额度卡使用稳定的 Provider key 保存顺序，空数组表示自动排序。
+extern NSString *const CCPetsQuotaCardOrderKey;
+NSArray<NSString *> *CCPetsQuotaCardOrder(void);
 // 规整后的显示位置：没写过或写了未知值都按仅桌宠处理。
 NSString *CCPetsDisplayMode(void);
 
@@ -32,7 +36,7 @@ NSString *CCPetsDisplayMode(void);
 BOOL CCPetsPrefBool(NSString *key);
 void CCPetsPrefSetBool(NSString *key, BOOL value);
 
-// 写字符串或数字。数值键会先钳到合法范围（宠物缩放、点击互动阈值与间隔）；
+// 写字符串、数字或额度卡顺序。数值键会先钳到合法范围（宠物缩放、点击互动阈值与间隔）；
 // 规整后不合法（NaN 之类）时不写，返回 NO。value 为 nil 表示删除该键，交回默认值。
 BOOL CCPetsPrefSetObject(NSString *key, id value);
 

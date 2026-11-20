@@ -1,8 +1,29 @@
-# v2.5.0 发布准备状态
+# v2.5.0 发布状态
 
-2026-11-15 在 `publish` 分支准备 v2.5.0，尚未正式发布。本文件记录发布准备提交前的验证快照。本轮已获取远程引用，并将本地 `publish` 从 `5b8958c` 快进到远程 `main` 的 `9280afd2949ddef4b33a59dd2ed468aa99a7f06e`，同步 29 个提交，无冲突；未操作本地 `main`。发布范围包含 v2.4.0 之后合并的 PR #28、#29、#30、#31。
+2026-11-15 已从 `main` 正式发布 v2.5.0，发布结果见下方记录。发布范围包含 v2.4.0 之后合并的 PR #28、#29、#30、#31，以及发布准备 PR #32 和发布前的双语 README 补检修正。
+
+以下保留发布准备阶段的历史快照：当时在 `publish` 分支准备材料，本地 `publish` 从 `5b8958c` 快进到远程 `main` 的 `9280afd2949ddef4b33a59dd2ed468aa99a7f06e`，同步 29 个提交，无冲突；该准备阶段未操作本地 `main`。
 
 上一版状态已逐字节归档至 [v2.4.0 发布状态](release-status-v2.4.0.md)；更早记录见 [v2.3.0](release-status-v2.3.0.md)、[v2.2.1](release-status-v2.2.1.md) 和 [v2.2.0](release-status-v2.2.0.md)。历史状态是当时的证据，不代表本轮重新验证。
+
+## 正式发布与最终验证（2026-11-15）
+
+- 按维护者授权，发布前的双语 README 修正与验证记录直接提交并推送到 `main`，提交为 `d35f1ab20a3a474aff551cd3a12957bec3b6b16d`。PR #33 已撤回且未合并；本轮在 `publish` 新增的两个提交已撤回，远端与本地 `publish` 恢复为 `dd45d30`。
+- 在最终发布提交重新运行 `CC_PETS_STRICT=1 npm test`，全套通过，退出码 0，耗时 50.8 秒；独立 runner 的 PPID=1，真实事件流与 shim 污染检查通过。对应的 [main CI](https://github.com/Sunnyshinnny776/cc-pets/actions/runs/43728259675) 通过。
+- package、裸二进制、App 内二进制和两个 plist 版本字段均为 `2.5.0`，App 严格签名验证通过；实际解析再次得到预期的中英各三条更新要点，无截断或跨语言内容。海报右上角为 `v2.5.0`。
+- 已推送 annotated tag `v2.5.0`，指向上述发布提交；已发布 [CC Pets 2.5.0](https://github.com/Sunnyshinnny776/cc-pets/releases/tag/v2.5.0)，发布时间为 `2026-11-15T15:13:11Z`，为 Latest 正式版本，非 draft、非 prerelease。
+- 已核对远端 annotated tag 及目标提交，GitHub Release 正文、远端 tag 文件和本地 `docs/release-notes-v2.5.0.md` 逐字节一致。发布后记录直接更新至 `main`，正式 tag 保持指向已验证的发布提交。
+- 未执行 npm 发布或本机安装；未重新人工验收菜单栏交互、终端跳转、会话生命周期与 Bridge 恢复。
+
+## main 集成复验与发版补检（2026-11-15，发布前快照）
+
+- PR #32 已合并；本地 `main` 快进至 `c13a2ba651fc2a8b1beb547a1aaa6e57fa78df5a`，与远端一致。
+- 在该提交重新运行 `CC_PETS_STRICT=1 npm test`，全套通过，退出码 0；独立 runner 的 PPID=1，耗时 106.5 秒，真实事件流与 shim 污染检查通过。同一提交的 [main CI](https://github.com/Sunnyshinnny776/cc-pets/actions/runs/43727008797) 通过。
+- package、裸二进制、App 内二进制及两个 plist 版本字段均为 `2.5.0`；`codesign --verify --deep --strict` 通过。实际 Release Note 解析与预期的中英各三条要点完全一致，无截断或跨语言内容。
+- 检查了 72 个本地文档/图片链接；发布准备前的历史记录保持不变。与 v2.4.0 tag 相比，旧版中文 CHANGELOG 仅包含此前已提交的 Shadowrocket 名称修正。
+- 已目视确认海报右上角为 `v2.5.0`，`main`、`publish` 和已提交图片的 SHA-256 一致。
+- 补检发现双语 README 对应用菜单与菜单栏状态图标的描述混淆，并残留「主窗口 / main window」称呼；修正已在 `publish` 准备，待提交和集成。`git diff --check` 通过；本次补检未修改产品源码。
+- 正式 tag 和 GitHub Release 尚未创建；发布后还需更新双语 CONTRIBUTING 的当前正式版本与本文件。未执行 npm 发布或本机安装；未重新人工验收菜单栏交互、终端跳转、会话生命周期和 Bridge 恢复。
 
 ## 交付范围
 
@@ -18,7 +39,7 @@
 
 Release Note 使用准确的 `## English` / `## 简体中文` 标题，各三条不超过 50 字符的顶层要点；补充信息使用段落。CHANGELOG 链接指向 v2.5.0 tag，在创建 tag 前尚未生效。已逐字节核验 v2.4.0 及更早的 CHANGELOG、Release Note 和发布状态归档保持原文。
 
-## 验证与交接进度
+## 验证与交接进度（发布准备快照）
 
 下表为提交前快照。用户已授权本地提交、push `publish` 和创建面向 `main` 的 PR；实际提交号、远端同步和 PR 状态以 Git 历史及对应 PR 为准。PR 合并、正式 tag、GitHub Release 和 npm 发布仍需分别授权。
 
@@ -48,6 +69,6 @@ Release Note 使用准确的 `## English` / `## 简体中文` 标题，各三条
 
 升级后运行 `cc-pets install` 刷新 App 和集成；重启正在运行的 Codex 会话，并在 `/hooks` 中信任更新后的 Hooks。重新连接 CC Bridge MCP，加载包含 `session_id` 的工具定义。终端扩展按设置页提示安装或更新。
 
-本轮只交付正式版本准备材料，不从 `publish` 发布稳定版本或预发布。用户已授权提交、push 和创建 PR；后续由 `main` 负责人按授权完成远端合并及集成复验，本地 `main` 只同步远端已完成的集成结果。v2.5.0 Release Note 必须在创建 tag 前提交，正式 tag、GitHub Release 和 npm 发布均须按分工另行授权。
+v2.5.0 已按维护者授权从 `main` 发布，Release Note 在创建 tag 前已提交；发布后的文档记录也按本轮授权直接提交至 `main`。npm 发布仍由既有负责人协调，本轮未执行。
 
-正式发布使用 `gh release create v2.5.0 --notes-file docs/release-notes-v2.5.0.md`，tag 内文件与 GitHub Release 正文须一致；不能以 GitHub 自动生成正文替代。
+正式发布已使用 `gh release create v2.5.0 --notes-file docs/release-notes-v2.5.0.md`；已核验 tag 内文件与 GitHub Release 正文一致，未使用 GitHub 自动生成正文。

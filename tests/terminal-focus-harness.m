@@ -70,29 +70,48 @@ static void WriteRollout(NSString *codexHome, NSString *thread, NSString *cwd, N
 }
 
 // 多客户端配对需要真实格式的就绪元数据，只有 rollout 创建时间不能确定所属 PID。
-static BOOL WriteReadyLog(NSString *codexHome, pid_t pid, NSTimeInterval readyAt) {
+static BOOL WriteLog(NSString *codexHome, NSTimeInterval at, NSString *process, NSString *target,
+    NSString *thread, NSString *body) {
     NSString *path = [codexHome stringByAppendingPathComponent:@"logs_2.sqlite"];
     sqlite3 *database = NULL;
     sqlite3_stmt *statement = NULL;
     BOOL ok = sqlite3_open(path.fileSystemRepresentation, &database) == SQLITE_OK;
     if (ok) ok = sqlite3_exec(database,
         "CREATE TABLE IF NOT EXISTS logs (ts INTEGER, ts_nanos INTEGER, process_uuid TEXT, "
-        "target TEXT, feedback_log_body TEXT)", NULL, NULL, NULL) == SQLITE_OK;
+        "target TEXT, feedback_log_body TEXT, thread_id TEXT)", NULL, NULL, NULL) == SQLITE_OK;
     if (ok) ok = sqlite3_prepare_v2(database,
-        "INSERT INTO logs VALUES (?, ?, ?, 'codex_tui::app::startup', 'tui startup initial frame scheduled')",
-        -1, &statement, NULL) == SQLITE_OK;
+        "INSERT INTO logs (ts, ts_nanos, process_uuid, target, feedback_log_body, thread_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)", -1, &statement, NULL) == SQLITE_OK;
     if (ok) {
-        sqlite3_int64 seconds = (sqlite3_int64)floor(readyAt);
-        NSString *process = [NSString stringWithFormat:@"pid:%d:fixture", pid];
+        sqlite3_int64 seconds = (sqlite3_int64)floor(at);
         sqlite3_bind_int64(statement, 1, seconds);
-        sqlite3_bind_int64(statement, 2, (sqlite3_int64)llround((readyAt - seconds) * 1e9));
+        sqlite3_bind_int64(statement, 2, (sqlite3_int64)llround((at - seconds) * 1e9));
         sqlite3_bind_text(statement, 3, process.UTF8String, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 4, target.UTF8String, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 5, body.UTF8String, -1, SQLITE_TRANSIENT);
+        if (thread) sqlite3_bind_text(statement, 6, thread.UTF8String, -1, SQLITE_TRANSIENT);
+        else sqlite3_bind_null(statement, 6);
         ok = sqlite3_step(statement) == SQLITE_DONE;
     }
-    if (!ok) NSLog(@"无法写入测试用 TUI 就绪日志：%s", database ? sqlite3_errmsg(database) : "open failed");
+    if (!ok) NSLog(@"无法写入测试用 Codex 日志：%s", database ? sqlite3_errmsg(database) : "open failed");
     if (statement) sqlite3_finalize(statement);
     if (database) sqlite3_close(database);
     return ok;
+}
+
+static BOOL WriteReadyLog(NSString *codexHome, pid_t pid, NSTimeInterval readyAt) {
+    return WriteLog(codexHome, readyAt, [NSString stringWithFormat:@"pid:%d:fixture", pid],
+        @"codex_tui::app::startup", nil, @"tui startup initial frame scheduled");
+}
+
+// 共享后台记录的请求：连接号与客户端名都在 span 里，格式与 Codex 0.170 一致。
+static BOOL WriteServerRequest(NSString *codexHome, NSTimeInterval at, NSString *method,
+    NSString *thread, NSUInteger connection, NSString *client) {
+    NSString *body = [NSString stringWithFormat:@"app_server.request{otel.kind=\"server\" "
+        "otel.name=\"%@\" rpc.system=\"jsonrpc\" rpc.method=\"%@\" rpc.transport=\"unix_socket\" "
+        "app_server.connection_id=%lu app_server.api_version=\"v2\" app_server.client_name=\"%@\"}: handled",
+        method, method, (unsigned long)connection, client];
+    return WriteLog(codexHome, at, @"pid:4242:daemon-fixture", @"codex_app_server::thread_state", thread, body);
 }
 
 static BOOL ExpectTTY(NSString *name, NSString *thread, NSDictionary *payload, NSString *expected) {
@@ -142,6 +161,24 @@ static BOOL CheckCodexLaunchPairing(void) {
     // 同目录两个 CLI 都已配过会话，分不清就不配，不能跳错。
     ok &= ExpectTTY(@"无法区分的新会话", @"thread-m", @{}, nil);
     ok &= ExpectTTY(@"没有登记过的目录", @"thread-c", @{@"cwd": @"/work/c"}, nil);
+    // TUI 里 /resume 接上的旧会话：命令行没有会话 ID，会话创建时刻远早于 TUI 就绪；带标签昵称的
+    // 终端也不走"目录唯一"兜底。靠后台日志里发起 thread/resume 的 codex-tui 连接配回终端。
+    NSTask *resumer = SleepingProcess();
+    ok &= RegisterCodexLaunchForProcess(resumer.processIdentifier, @"/work/r",
+        @{@"tty": @"ttys021", @"bridgeTitleToken": @"7980900B-74A2-4D2B-AA33-AA384BDB937D"}, t + 50);
+    WriteRollout(codexHome, @"thread-r", @"/work/r", t - 3600);
+    WriteRollout(codexHome, @"thread-d", @"/work/r", t - 3600);
+    ok &= ExpectTTY(@"缺少 resume 日志的旧会话", @"thread-r", @{}, nil);
+    ok &= WriteReadyLog(codexHome, resumer.processIdentifier, t + 50.4);
+    ok &= WriteServerRequest(codexHome, t + 50.5, @"thread/start", @"thread-startup", 7, @"codex-tui");
+    ok &= WriteServerRequest(codexHome, t + 55, @"thread/resume", @"thread-r", 7, @"codex-tui");
+    // 桌面端恢复同目录的会话不能被配到终端：客户端不是 codex-tui。
+    ok &= WriteServerRequest(codexHome, t + 50.45, @"thread/start", @"thread-desktop", 8, @"Codex Desktop");
+    ok &= WriteServerRequest(codexHome, t + 56, @"thread/resume", @"thread-d", 8, @"Codex Desktop");
+    ok &= ExpectTTY(@"TUI 内 /resume 的旧会话", @"thread-r", @{}, @"ttys021");
+    ok &= ExpectTTY(@"桌面端恢复的同目录会话", @"thread-d", @{}, nil);
+    [resumer terminate];
+    [resumer waitUntilExit];
     // CLI 退出后，它的配对随之失效。
     [third terminate];
     [third waitUntilExit];
@@ -198,6 +235,18 @@ int main(int argc, const char *argv[]) {
         puts("Codex 共享服务下不记录回跳目标测试通过");
         if (!CheckCodexLaunchPairing()) return EXIT_FAILURE;
         puts("Codex 共享服务下会话与终端配对测试通过");
+
+        // Antigravity App 会话没有终端，回跳目标只有 bundleID；带 TTY 的是 CLI，不能误判成 App。
+        NSDictionary *appTarget = @{@"bundleID": CCPetsAntigravityAppBundleIdentifier};
+        NSDictionary *cliTarget = @{@"bundleID": CCPetsAntigravityAppBundleIdentifier, @"tty": @"ttys001"};
+        if (!IsAntigravityDesktopFocusTarget(appTarget) || IsAntigravityDesktopFocusTarget(cliTarget) ||
+            IsAntigravityDesktopFocusTarget(@{@"bundleID": @"com.openai.codex"}) ||
+            IsAntigravityDesktopFocusTarget((NSDictionary *)@"com.google.antigravity") ||
+            ![TerminalFocusBundleCandidates(appTarget) isEqual:@[CCPetsAntigravityAppBundleIdentifier]]) {
+            NSLog(@"Antigravity App 回跳目标识别错误");
+            return EXIT_FAILURE;
+        }
+        puts("Antigravity App 回跳目标测试通过");
     }
     return EXIT_SUCCESS;
 }

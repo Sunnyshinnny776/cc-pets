@@ -1,4 +1,5 @@
 #import "CCPetsQuotaHistory.h"
+#import "CCPetsProviderRegistry.h"
 #import "CCPetsPaths.h"
 #import <sys/stat.h>
 
@@ -44,11 +45,14 @@ static NSDictionary *HistoryProviderSample(NSDictionary *usage, NSString *usedKe
 
 // 返回当前的历史文档，供调用方直接取用：原先每次刷新要读盘+解析三次
 // （这里一次、两条曲线各一次），现在整轮只读一次。
-NSDictionary *RecordQuotaHistory(NSDictionary *codexUsage, NSDictionary *claudeUsage) {
+NSDictionary *RecordQuotaHistory(NSDictionary<NSString *, NSDictionary *> *usageByProvider) {
     NSDictionary *document = QuotaHistoryDocument();
-    NSDictionary *codex = HistoryProviderSample(codexUsage, @"used_percent");
-    NSDictionary *claude = HistoryProviderSample(claudeUsage, @"used_percentage");
-    if (codex.count == 0 && claude.count == 0) return document;
+    NSMutableDictionary *providerSamples = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        NSDictionary *sample = HistoryProviderSample(usageByProvider[provider.name], provider.usedKey);
+        if (sample.count > 0) providerSamples[provider.key] = sample;
+    }
+    if (providerSamples.count == 0) return document;
 
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     NSTimeInterval cutoff = now - 7 * 24 * 60 * 60;
@@ -62,8 +66,7 @@ NSDictionary *RecordQuotaHistory(NSDictionary *codexUsage, NSDictionary *claudeU
     if (last && now - [last[@"timestamp"] doubleValue] < 15 * 60) return document;
 
     NSMutableDictionary *sample = [@{@"timestamp": @(now)} mutableCopy];
-    if (codex.count > 0) sample[@"codex"] = codex;
-    if (claude.count > 0) sample[@"claude"] = claude;
+    [sample addEntriesFromDictionary:providerSamples];
     [samples addObject:sample];
     if (samples.count > 672) {
         [samples removeObjectsInRange:NSMakeRange(0, samples.count - 672)];
@@ -114,8 +117,8 @@ NSDictionary *RecordProfileQuotaHistory(NSDictionary<NSString *, NSDictionary *>
     for (NSDictionary *profile in profiles) {
         NSString *profileID = profile[@"id"];
         NSDictionary *usage = profileUsages[profileID];
-        NSString *usedKey = [profile[@"provider"] isEqualToString:@"codex"]
-            ? @"used_percent" : @"used_percentage";
+        NSString *usedKey = CCPetsProviderForProfileProvider(profile[@"provider"]).usedKey
+            ?: @"used_percentage";
         NSDictionary *sample = HistoryProviderSample(usage, usedKey);
         if (profileID.length > 0 && sample.count > 0) profileSamples[profileID] = sample;
     }

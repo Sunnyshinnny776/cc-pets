@@ -1,5 +1,6 @@
 #import "CCPetsL10n.h"
 #import "CCPetsIntegrations.h"
+#import "CCPetsAntigravityConfig.h"
 #import "CCPetsJSON.h"
 #import "CCPetsProfiles.h"
 #import "CCPetsCLISupport.h"
@@ -492,7 +493,7 @@ static BOOL RemoveShims(void) {
         [CCPetsHomeDirectory() stringByAppendingPathComponent:@".cc-pets/shims"];
     if (![NSFileManager.defaultManager fileExistsAtPath:directory]) return NO;
     BOOL changed = NO;
-    for (NSString *name in @[@"codex", @"claude"]) {
+    for (NSString *name in @[@"codex", @"claude", @"agy"]) {
         NSString *shim = [directory stringByAppendingPathComponent:name];
         // lstat：目标包被 npm uninstall 删掉后软链是断的，但仍然要清掉。
         struct stat info;
@@ -569,27 +570,53 @@ int UninstallCodexHooksAtHome(NSString *codexHome) {
     return failed ? 1 : 0;
 }
 
+static BOOL RemoveAntigravityHooksForUninstall(NSDictionary *profile, BOOL *failed) {
+    BOOL installed = CCPetsAntigravityPetHooksInstalled(profile);
+    @try {
+        if (CCPetsRemoveAntigravityPetHooks(profile)) return installed;
+    } @catch (NSException *exception) {
+        CCPetsPrintLine(stderr, exception.reason ?: exception.name);
+    }
+    *failed = YES;
+    return NO;
+}
+
 int UninstallIntegrations(BOOL preparingInstall, NSString *shellRC) {
     BOOL failed = NO;
     // 安装/卸载的隐式范围只包含官方默认 Home；环境变量指向的自定义 Home 必须先显式登记。
     NSString *defaultCodexHome = [CCPetsHomeDirectory() stringByAppendingPathComponent:@".codex"];
     NSString *defaultClaudeHome = [CCPetsHomeDirectory() stringByAppendingPathComponent:@".claude"];
+    NSString *defaultAntigravityHome = [CCPetsHomeDirectory() stringByAppendingPathComponent:@".gemini"];
     NSString *codexHooksPath = [defaultCodexHome stringByAppendingPathComponent:@"hooks.json"];
     BOOL codexChanged = RemoveCodexHooksAtHome(defaultCodexHome, preparingInstall, &failed);
     NSString *claudeSettingsPath = [defaultClaudeHome stringByAppendingPathComponent:@"settings.json"];
     BOOL claudeChanged = RemoveClaudeHooksAtHome(defaultClaudeHome, preparingInstall, &failed);
+    BOOL antigravityChanged = NO;
+    if (!preparingInstall) {
+        NSDictionary *profile = CCPetsProfileForHome(CCPetsProfileProviderAntigravity, defaultAntigravityHome) ?:
+            @{@"provider": CCPetsProfileProviderAntigravity, @"home": defaultAntigravityHome,
+              @"id": CCPetsProfileID(CCPetsProfileProviderAntigravity, defaultAntigravityHome)};
+        antigravityChanged = RemoveAntigravityHooksForUninstall(profile, &failed);
+    }
     BOOL profileChanged = NO;
 
     // 显式登记的 Home 也属于安装范围。默认 Home 已迁移进注册表时按规范化路径去重。
     NSMutableSet<NSString *> *handledHomes = [NSMutableSet setWithObjects:
-        CCPetsResolvePath(defaultCodexHome), CCPetsResolvePath(defaultClaudeHome), nil];
+        CCPetsResolvePath(defaultCodexHome), CCPetsResolvePath(defaultClaudeHome),
+        CCPetsRealPath(defaultAntigravityHome) ?: CCPetsResolvePath(defaultAntigravityHome), nil];
     for (NSDictionary *profile in CCPetsProfiles()) {
         NSString *home = CCPetsResolvePath(profile[@"home"]);
         if (home.length == 0 || [handledHomes containsObject:home]) continue;
         [handledHomes addObject:home];
-        BOOL changed = [profile[@"provider"] isEqualToString:CCPetsProfileProviderClaude]
-            ? RemoveClaudeHooksAtHome(home, preparingInstall, &failed)
-            : RemoveCodexHooksAtHome(home, preparingInstall, &failed);
+        NSString *provider = profile[@"provider"];
+        BOOL changed;
+        if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+            changed = !preparingInstall && RemoveAntigravityHooksForUninstall(profile, &failed);
+        } else if ([provider isEqualToString:CCPetsProfileProviderClaude]) {
+            changed = RemoveClaudeHooksAtHome(home, preparingInstall, &failed);
+        } else {
+            changed = RemoveCodexHooksAtHome(home, preparingInstall, &failed);
+        }
         if (changed) {
             profileChanged = YES;
             CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"%1$@ the CC Pets hooks in %2$@."),
@@ -609,15 +636,18 @@ int UninstallIntegrations(BOOL preparingInstall, NSString *shellRC) {
         CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"%1$@ the CC Pets hooks in %2$@ and restored the original status line."),
             action, claudeSettingsPath]);
     }
+    if (antigravityChanged) {
+        CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"Removed the CC Pets hooks in %@."), defaultAntigravityHome]);
+    }
     if (shellChanged) {
         CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"%1$@ the CC Pets shell integration in %2$@."), action, shellRC]);
     }
     if (shimChanged) {
         NSString *directory = CCPetsEnvironmentValue(@"CC_PETS_SHIM_DIR") ?:
             [CCPetsHomeDirectory() stringByAppendingPathComponent:@".cc-pets/shims"];
-        CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"%1$@ the codex / claude shims in %2$@."), action, directory]);
+        CCPetsPrintLine(stdout, [NSString stringWithFormat:L(@"%1$@ the codex / claude / agy shims in %2$@."), action, directory]);
     }
-    if (!codexChanged && !claudeChanged && !profileChanged && !shellChanged && !shimChanged && !preparingInstall) {
+    if (!codexChanged && !claudeChanged && !antigravityChanged && !profileChanged && !shellChanged && !shimChanged && !preparingInstall && !failed) {
         CCPetsPrintLine(stdout, L(@"No CC Pets integrations to remove."));
     }
     return failed ? 1 : 0;

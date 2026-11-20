@@ -14,8 +14,10 @@
 #import "CCPetsPhrases.h"
 #import "CCPetsPreferences.h"
 #import "CCPetsProfiles.h"
+#import "CCPetsProviderRegistry.h"
 #import "CCPetsUsageMode.h"
 #import "CCPetsUIStyle.h"
+#import "CCPetsWorkbench.h"
 #import <QuartzCore/QuartzCore.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -341,17 +343,21 @@ static void RevealFolder(NSString *path) {
     __weak typeof(self) weakSelf = self;
     [self.form setAccessoryViews:@[
         [self smallButtonWithTitle:L(@"Add Claude Home…") action:^{ [weakSelf.actions addClaudeProfile:nil]; }],
-        [self smallButtonWithTitle:L(@"Add Codex Home…") action:^{ [weakSelf.actions addCodexProfile:nil]; }]
+        [self smallButtonWithTitle:L(@"Add Codex Home…") action:^{ [weakSelf.actions addCodexProfile:nil]; }],
+        [self smallButtonWithTitle:L(@"Add Antigravity Home…") action:^{ [weakSelf.actions addAntigravityProfile:nil]; }]
     ]];
     self.entries = [self currentEntries];
     if (self.entries.count == 0) {
         [self.form addGroupWithTitle:nil rows:@[
             [CCPetsFormBuilder rowWithTitle:L(@"No Agent accounts detected")
-                subtitle:L(@"Use the buttons above to add an existing Claude or Codex Home.") controls:@[]]
+                subtitle:L(@"Use the buttons above to add an existing Agent Home.") controls:@[]]
         ] footer:nil];
         return;
     }
-    for (NSString *provider in @[CCPetsProfileProviderClaude, CCPetsProfileProviderCodex]) {
+    NSArray<NSString *> *providers = @[CCPetsProfileProviderClaude, CCPetsProfileProviderCodex, CCPetsProfileProviderAntigravity];
+    NSDictionary<NSString *, NSString *> *titles = @{CCPetsProfileProviderClaude: @"Claude", CCPetsProfileProviderCodex: @"Codex",
+        CCPetsProfileProviderAntigravity: @"Antigravity CLI"};
+    for (NSString *provider in providers) {
         NSMutableArray<NSView *> *rows = [NSMutableArray array];
         for (NSDictionary *entry in self.entries) {
             NSDictionary *profile = entry[@"profile"];
@@ -366,8 +372,7 @@ static void RevealFolder(NSString *path) {
             row.toolTip = profile[@"home"];
             [rows addObject:row];
         }
-        if (rows.count > 0) [self.form addGroupWithTitle:
-            [provider isEqualToString:CCPetsProfileProviderClaude] ? @"Claude" : @"Codex" rows:rows footer:nil];
+        if (rows.count > 0) [self.form addGroupWithTitle:titles[provider] rows:rows footer:nil];
     }
 }
 
@@ -771,6 +776,151 @@ static const NSUInteger PetPickerColumns = 4;
 
 #pragma mark - 通用
 
+static NSPasteboardType const QuotaCardDragType = @"com.universewang.cc-pets.quota-card";
+static const CGFloat QuotaCardGripWidth = 16;
+static const CGFloat QuotaCardGripHitWidth = 20;
+
+@interface CCPetsQuotaOrderTable : NSTableView <NSTableViewDataSource, NSTableViewDelegate>
+@property(nonatomic, copy) NSArray<NSString *> *providerKeys;
+@property(nonatomic, copy) void (^orderChanged)(NSArray<NSString *> *);
+@property(nonatomic, copy) NSString *draggedProviderKey;
+@end
+
+@implementation CCPetsQuotaOrderTable
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    self.headerView = nil;
+    self.style = NSTableViewStylePlain;
+    self.backgroundColor = NSColor.clearColor;
+    self.selectionHighlightStyle = NSTableViewSelectionHighlightStyleNone;
+    self.rowHeight = 26;
+    self.intercellSpacing = NSZeroSize;
+    self.columnAutoresizingStyle = NSTableViewUniformColumnAutoresizingStyle;
+    NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"provider"];
+    column.width = frame.size.width;
+    [self addTableColumn:column];
+    self.dataSource = self;
+    self.delegate = self;
+    [self registerForDraggedTypes:@[QuotaCardDragType]];
+    [self setDraggingSourceOperationMask:NSDragOperationMove forLocal:YES];
+    [self setDraggingSourceOperationMask:NSDragOperationNone forLocal:NO];
+    [self setAccessibilityLabel:L(@"Quota Card Order")];
+    return self;
+}
+
+- (void)setProviderKeys:(NSArray<NSString *> *)providerKeys {
+    if ([_providerKeys isEqualToArray:providerKeys]) return;
+    _providerKeys = [providerKeys copy];
+    [self reloadData];
+}
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
+    return (NSInteger)self.providerKeys.count;
+}
+
+- (NSView *)hitTest:(NSPoint)point {
+    // The icon and label are passive. The table owns the mouse-down that starts a drag.
+    return [super hitTest:point] ? self : nil;
+}
+
+- (NSRect)gripRectForRow:(NSInteger)row {
+    NSRect cell = [self frameOfCellAtColumn:0 row:row];
+    return NSMakeRect(NSMaxX(cell) - QuotaCardGripHitWidth, NSMinY(cell), QuotaCardGripHitWidth, NSHeight(cell));
+}
+
+- (void)resetCursorRects {
+    [super resetCursorRects];
+    if (self.providerKeys.count < 2) return;
+    for (NSInteger row = 0; row < (NSInteger)self.providerKeys.count; row++) {
+        [self addCursorRect:[self gripRectForRow:row] cursor:NSCursor.openHandCursor];
+    }
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    self.draggedProviderKey = nil;
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    NSInteger row = [self rowAtPoint:point];
+    if (row >= 0 && row < (NSInteger)self.providerKeys.count && NSPointInRect(point, [self gripRectForRow:row])) {
+        self.draggedProviderKey = self.providerKeys[(NSUInteger)row];
+    }
+    [super mouseDown:event];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    self.draggedProviderKey = nil;
+    [super mouseUp:event];
+}
+
+- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)column row:(NSInteger)row {
+    NSString *key = self.providerKeys[(NSUInteger)row];
+    NSString *title = key;
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        if ([provider.key isEqualToString:key]) { title = provider.name; break; }
+    }
+    NSImage *icon = [NSImage imageWithSystemSymbolName:@"line.3.horizontal" accessibilityDescription:nil];
+    NSImageView *handle = [NSImageView imageViewWithImage:icon];
+    handle.contentTintColor = CCPetsSecondaryInkColor();
+    NSTextField *name = CCPetsLabel(title, 12, NSFontWeightRegular, CCPetsInkColor());
+    NSStackView *content = [NSStackView stackViewWithViews:@[name, handle]];
+    content.alignment = NSLayoutAttributeCenterY;
+    content.spacing = 8;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    NSView *cell = [NSView new];
+    [cell addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [handle.widthAnchor constraintEqualToConstant:QuotaCardGripWidth],
+        [content.trailingAnchor constraintEqualToAnchor:cell.trailingAnchor],
+        [content.leadingAnchor constraintGreaterThanOrEqualToAnchor:cell.leadingAnchor constant:4],
+        [content.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor]
+    ]];
+    return cell;
+}
+
+- (id<NSPasteboardWriting>)tableView:(NSTableView *)tableView pasteboardWriterForRow:(NSInteger)row {
+    if (self.providerKeys.count < 2 || row < 0 || row >= (NSInteger)self.providerKeys.count) return nil;
+    NSString *key = self.providerKeys[(NSUInteger)row];
+    if (![key isEqualToString:self.draggedProviderKey]) return nil;
+    NSPasteboardItem *item = [NSPasteboardItem new];
+    [item setString:key forType:QuotaCardDragType];
+    return item;
+}
+
+- (void)tableView:(NSTableView *)tableView draggingSession:(NSDraggingSession *)session
+    endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation {
+    self.draggedProviderKey = nil;
+}
+
+- (NSDragOperation)tableView:(NSTableView *)tableView validateDrop:(id<NSDraggingInfo>)info
+    proposedRow:(NSInteger)row proposedDropOperation:(NSTableViewDropOperation)operation {
+    if (info.draggingSource != self || row < 0 || row > (NSInteger)self.providerKeys.count) return NSDragOperationNone;
+    if (operation == NSTableViewDropOn && row < (NSInteger)self.providerKeys.count) {
+        NSPoint location = [self convertPoint:info.draggingLocation fromView:nil];
+        if (location.y > NSMidY([self rectOfRow:row])) row++;
+    }
+    [self setDropRow:row dropOperation:NSTableViewDropAbove];
+    return NSDragOperationMove;
+}
+
+- (BOOL)tableView:(NSTableView *)tableView acceptDrop:(id<NSDraggingInfo>)info row:(NSInteger)row
+    dropOperation:(NSTableViewDropOperation)operation {
+    if (info.draggingSource != self || operation != NSTableViewDropAbove || row < 0 ||
+        row > (NSInteger)self.providerKeys.count) return NO;
+    NSString *key = [info.draggingPasteboard stringForType:QuotaCardDragType];
+    NSUInteger source = key ? [self.providerKeys indexOfObject:key] : NSNotFound;
+    if (source == NSNotFound) return NO;
+    NSUInteger destination = (NSUInteger)row;
+    if (destination > source) destination--;
+    if (destination == source) return YES;
+    NSMutableArray<NSString *> *order = [self.providerKeys mutableCopy];
+    [order removeObjectAtIndex:source];
+    [order insertObject:key atIndex:destination];
+    if (self.orderChanged) self.orderChanged(order);
+    return YES;
+}
+
+@end
+
 @interface CCPetsGeneralPage ()
 @property(nonatomic) CCPetsGlassView *glassPreview;
 @property(nonatomic, copy) NSArray<NSDictionary *> *usageProfiles;
@@ -789,6 +939,8 @@ static const NSUInteger PetPickerColumns = 4;
     [super loadView];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
         name:CCPetsProfilesDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesDidChange:)
+        name:CCPetsWorkbenchQuotasDidChangeNotification object:nil];
 }
 
 - (void)viewWillAppear {
@@ -1095,7 +1247,31 @@ static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
         NSArray *registered = CCPetsProfilesForProvider(provider);
         [profiles addObjectsFromArray:registered.count > 0 ? registered : @[@{@"provider": provider}]];
     }
+    [profiles addObjectsFromArray:CCPetsProfilesForProvider(CCPetsProfileProviderAntigravity)];
     return profiles.copy;
+}
+
+- (NSView *)quotaCardOrderRow {
+    __weak typeof(self) weakSelf = self;
+    CCPetsQuotaOrderTable *table = [[CCPetsQuotaOrderTable alloc] initWithFrame:NSMakeRect(0, 0, 150, 26)];
+    table.autoresizingMask = NSViewWidthSizable;
+    table.orderChanged = ^(NSArray<NSString *> *order) { [weakSelf.actions updateQuotaCardOrder:order]; };
+
+    NSScrollView *list = [NSScrollView new];
+    list.drawsBackground = NO;
+    list.hasVerticalScroller = NO;
+    list.documentView = table;
+    [list.widthAnchor constraintEqualToConstant:150].active = YES;
+    NSLayoutConstraint *height = [list.heightAnchor constraintEqualToConstant:table.rowHeight];
+    height.active = YES;
+
+    [self.reloaders addObject:^{
+        table.providerKeys = [weakSelf.actions quotaCardOrderForSettings] ?: @[];
+        height.constant = MAX(1, table.providerKeys.count) * table.rowHeight;
+        [table setFrameSize:NSMakeSize(table.frame.size.width, height.constant)];
+    }];
+    return [CCPetsFormBuilder rowWithTitle:L(@"Quota Card Order")
+        subtitle:L(@"Drag to reorder cards in the hover panel") controls:@[list]];
 }
 
 - (void)reloadValues {
@@ -1336,20 +1512,30 @@ static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
 
     [self.form addGroupWithTitle:L(@"Launch Protection") rows:@[
         [self switchRowWithTitle:@"Shadowrocket"
-            subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region")
+            subtitle:L(@"Check official Claude and Codex endpoints. Antigravity checks the VPN connection.")
             key:CCPetsShadowrocketLaunchCheckKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
                 CCPetsPrefSetBool(CCPetsShadowrocketLaunchCheckKey, enabled);
             }],
-    ] footer:L(@"Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key.")];
+        [self switchRowWithTitle:L(@"Strict Routing")
+            subtitle:L(@"When Shadowrocket protection is on, block Claude and Codex if their endpoint cannot be determined.")
+            key:CCPetsLaunchProtectionStrictRoutingKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
+                CCPetsPrefSetBool(CCPetsLaunchProtectionStrictRoutingKey, enabled);
+            }],
+    ] footer:nil];
 
     // 悬停面板：每家一个胶囊，点一下在订阅额度和 Token 用量之间切换，和右键菜单同一个样子。
     [self.form addGroupTitle:L(@"Hover Panel") note:L(@"Click a pill to switch")];
     NSMutableArray<NSView *> *panelRows = [NSMutableArray array];
     self.usageProfiles = [self currentUsageProfiles];
     for (NSDictionary *profile in self.usageProfiles) {
-        NSString *provider = [profile[@"provider"] isEqualToString:@"codex"] ? @"Codex" : @"Claude";
+        NSString *provider = CCPetsProviderForProfileProvider(profile[@"provider"]).name ?: profile[@"provider"];
         NSString *name = profile[@"displayName"] ?: provider;
+        if ([profile[@"provider"] isEqual:CCPetsProfileProviderAntigravity]) {
+            name = CCPetsProfileIsOfficialDefault(profile) && ![profile[@"customName"] boolValue]
+                ? @"Antigravity CLI" : [NSString stringWithFormat:@"Antigravity CLI · %@", name];
+        }
         CCPetsPillButton *pill = [CCPetsPillButton new];
         [pill setAccessibilityLabel:[NSString stringWithFormat:L(@"%@ usage display"), name]];
         NSView *row = [CCPetsFormBuilder rowWithTitle:name subtitle:@" " controls:@[pill]];
@@ -1375,6 +1561,7 @@ static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
         }];
         [panelRows addObject:row];
     }
+    [panelRows addObject:[self quotaCardOrderRow]];
     // 三项可以任意组合：用"可多选"的分段控件，一行放得下，也和上面的分段控件一个样子。
     NSArray<NSString *> *metricKeys = @[SystemCPUEnabledKey, SystemTemperatureEnabledKey, SystemMemoryEnabledKey];
     NSSegmentedControl *metrics = [NSSegmentedControl segmentedControlWithLabels:@[@"CPU", L(@"Temperature"), L(@"Memory")]
@@ -1392,7 +1579,7 @@ static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
             [metrics setSelected:CCPetsPrefBool(metricKeys[index]) forSegment:(NSInteger)index];
         }
     }];
-    [panelRows addObject:[CCPetsFormBuilder rowWithTitle:L(@"System Status") controls:@[metrics]]];
+    [panelRows insertObject:[CCPetsFormBuilder rowWithTitle:L(@"System Status") controls:@[metrics]] atIndex:0];
     [self.form addGroupWithTitle:nil rows:panelRows footer:nil];
 
     // 终端跳转：一张卡片，行在 refreshIDEIntegration 拿到检测结果后填入。

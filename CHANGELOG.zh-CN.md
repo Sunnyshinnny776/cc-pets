@@ -6,6 +6,38 @@
 
 ## [Unreleased]
 
+### Antigravity
+
+- 支持 Antigravity CLI（`agy`）和 App。桌宠 Hooks、Bridge MCP 和工具免确认列表安装在 Gemini 根目录（`~/.gemini` 或已登记的自定义根目录）下，`cc-pets install` 新增 `agy-with-pet` 启动器和 `agy` shim。
+- 多账号支持添加 Antigravity Home，启动 `agy` 时可用 `CC_PETS_ANTIGRAVITY_HOME` 指定自定义根目录。`cc-pets doctor` 和 `cc-pets paths` 覆盖 Hooks、MCP 注册和启动入口。
+- CLI 和 App 的 Hook 事件驱动状态卡、审批卡和卡住提醒，与 Codex、Claude 一致。App 对话以「Antigravity App」显示，点击回到 App；审批状态只对 CLI 可用。
+
+### 用量与额度
+
+- 从本地转录统计 Antigravity CLI 和 App 的 Token，用量页各有独立筛选。悬停面板的「今日」和「最近 7 天」汇总分别显示为 Antigravity CLI 和 Antigravity App。
+- 通过 `agy -p /usage --output-format json` 读取 Antigravity 订阅额度，每个已登录账号只读一份。API key 模式展示本地用量。
+- 悬停面板显示 Antigravity，有独立的颜色、logo 和展示模式。
+- 新增「设置 → 悬停面板显示 → 额度卡片顺序」，拖动即可调整悬停面板中各家卡片的顺序。
+
+### CC Bridge
+
+- Antigravity CLI 会话通过 Hooks 和 MCP 互发消息，消息在下一次模型调用时读取。
+- Antigravity App 对话可通过需手动开启的 Sidecar 自动唤醒：`cc-pets bridge configure --agy-app=on`。
+- 新增 `--agy-allow`，设置 Antigravity CLI 中免确认的 Bridge 工具。
+- 新增可选的标签昵称（`--tab-title=on`，或右键「CC Bridge → 标签昵称」），在 CLI 终端标签标题末尾追加 Bridge 名称。
+
+### 启动保护
+
+- 只检查官方端点。自定义端点、Codex 本地模型及 Claude 的 Bedrock、Vertex、Foundry 模式跳过 VPN 和出口地区检查。
+- 无法从支持的设置确认实际端点时，提示原因后继续启动；开启「严格保护」后改为阻止启动。
+- `agy` 只检查 Shadowrocket 是否已连接：Google 的服务域名没有 `/cdn-cgi/trace` 端点。
+
+### 修复
+
+- Codex 在 TUI 内 `/resume` 恢复的会话重新与终端配对（包括 TUI 启动较慢的情况），状态卡可以再次跳回终端。桌面端不参与配对。
+- 预发布版（如 `2.6.0-beta.3`）也能收到同号或更高的正式版更新。
+- 修复低额度提醒出队时崩溃的问题。
+
 ## [2.5.0] - 2026-11-15
 
 ### 菜单栏

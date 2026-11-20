@@ -38,6 +38,20 @@ NSString *DefaultCodexHomeDirectory(void) {
     return [NSHomeDirectory() stringByAppendingPathComponent:@".codex"];
 }
 
+NSString *DefaultAntigravityConfigDirectory(void) {
+    NSString *override = NSProcessInfo.processInfo.environment[@"CC_PETS_ANTIGRAVITY_HOME"];
+    if (override.length > 0) return override.stringByStandardizingPath;
+    return DefaultAntigravityAppConfigDirectory();
+}
+
+// 与账号登记（CCPetsProfiles 的官方 Home）一致地遵循 $HOME；NSHomeDirectory() 只看账户
+// 记录，两边不一致时按目录查不到已登记的账号。
+NSString *DefaultAntigravityAppConfigDirectory(void) {
+    NSString *home = NSProcessInfo.processInfo.environment[@"HOME"];
+    if (!home.isAbsolutePath) home = NSHomeDirectory();
+    return [home stringByAppendingPathComponent:@".gemini"];
+}
+
 // 额度是按账号的。一台机器上可以有多个配置目录（例如 ~/.claude 和 ~/.claude-nw），
 // 各自是不同账号、不同额度周期。共用一个文件的话两边的 statusline 会互相覆盖，
 // 面板就会把 A 账号的剩余百分比配上 B 账号的用量。因此按配置目录分文件。
@@ -235,6 +249,7 @@ NSString *const SystemTemperatureEnabledKey = @"CCPetsSystemTemperatureEnabled";
 NSString *const SystemMemoryEnabledKey = @"CCPetsSystemMemoryEnabled";
 NSString *const CodexUsageDisplayModeKey = @"CCPetsCodexUsageDisplayMode";
 NSString *const ClaudeUsageDisplayModeKey = @"CCPetsClaudeUsageDisplayMode";
+NSString *const AntigravityUsageDisplayModeKey = @"CCPetsAntigravityUsageDisplayMode";
 NSString *const DetectedProvidersKey = @"CCPetsDetectedProviders";
 const NSTimeInterval AgentStatusInactivityInterval = 60.0;
 // 客户端进程已经消失、但状态气泡还停在它最后一条事件上时，多等这么久再清场。

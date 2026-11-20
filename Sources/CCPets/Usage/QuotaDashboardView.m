@@ -1,4 +1,8 @@
 #import "QuotaDashboardView+Private.h"
+#import "CCPetsPreferences.h"
+#import "CCPetsProfiles.h"
+
+static NSString *const SummaryCarousel = @"summary";
 
 const CGFloat QuotaLogicalWidth = 760;
 const CGFloat QuotaLogicalHeight = 590;
@@ -76,6 +80,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         if (resourcePath.length > 0) [paths addObject:resourcePath];
     }
     NSString *applicationName = [bundleIdentifier containsString:@"anthropic"] ? @"Claude.app" : @"ChatGPT.app";
+    if ([bundleIdentifier isEqualToString:@"com.google.antigravity"]) applicationName = @"Antigravity.app";
     [paths addObject:[@"/Applications" stringByAppendingPathComponent:
         [applicationName stringByAppendingPathComponent:[@"Contents/Resources" stringByAppendingPathComponent:resourceName]]]];
     [paths addObject:[[NSHomeDirectory() stringByAppendingPathComponent:@"Applications"] stringByAppendingPathComponent:
@@ -89,8 +94,11 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         if (image) return NormalizedAgentIcon(image);
     }
     // 没装官方桌面端（例如只装 CLI）时，从发布包读取备用图标。
-    NSString *fallback = [bundleIdentifier isEqualToString:@"com.anthropic.claudefordesktop"]
-        ? @"claude.png" : ([bundleIdentifier isEqualToString:@"com.openai.codex"] ? @"codex.icns" : nil);
+    NSString *fallback = @{
+        @"com.anthropic.claudefordesktop": @"claude.png",
+        @"com.openai.codex": @"codex.icns",
+        @"com.google.antigravity": @"antigravity.icns"
+    }[bundleIdentifier];
     if (!fallback) return nil;
     NSArray<NSString *> *directories = @[
         NSBundle.mainBundle.resourcePath ?: @"",
@@ -114,7 +122,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = L(@"Agent usage account cards");
-        self.accessibilityHelp = L(@"Click the arrows or page dots, swipe horizontally, or use the left and right arrow keys to switch accounts.");
+        self.accessibilityHelp = L(@"Use the arrows, page dots, or horizontal swipes to switch usage pages or accounts. Use the button below the cards to show more or fewer.");
         NSTrackingArea *tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
             options:NSTrackingMouseEnteredAndExited |
                     NSTrackingActiveAlways | NSTrackingInVisibleRect
@@ -131,23 +139,76 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (void)mouseExited:(NSEvent *)event {
     if (self.hoverChanged) self.hoverChanged(NO);
 }
-// detectedProviders 未赋值时按"两家都有"渲染。这是刻意的兜底：探测是 App 侧的额外信号，
-// 拿不到时宁可多画一张卡，也不要让有额度的用户看不到自己的卡片。
+// 探测还未完成时保留旧版 Codex / Claude 布局。已有账号或用量的 Antigravity 也可以显示。
 - (NSArray<NSString *> *)visibleProviders {
-    NSArray<NSString *> *order = @[@"Codex", @"Claude"];
-    if (!self.detectedProviders) return order;
     NSMutableArray<NSString *> *visible = [NSMutableArray array];
-    for (NSString *name in order) {
-        if ([self.detectedProviders containsObject:name]) [visible addObject:name];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        BOOL detected = [self.detectedProviders containsObject:provider.name];
+        if (!self.detectedProviders) {
+            detected = ![provider.profileProvider isEqualToString:CCPetsProfileProviderAntigravity] ||
+                [self profilesForProvider:provider.name].count > 0 || self.usageByProvider[provider.name].count > 0;
+        }
+        if (detected) {
+            [visible addObject:provider.name];
+        }
     }
     return visible;
 }
+- (NSArray<NSString *> *)orderedCardProviders {
+    NSArray<NSString *> *available = [self visibleProviders];
+    if (self.animatingCardOrder && [[NSSet setWithArray:self.animatingCardOrder] isEqualToSet:[NSSet setWithArray:available]]) {
+        return self.animatingCardOrder;
+    }
+    NSArray<NSString *> *manual = CCPetsQuotaCardOrder();
+    NSMutableDictionary<NSString *, NSNumber *> *weeklyUsed = [NSMutableDictionary dictionary];
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    for (NSString *name in available) {
+        CCPetsProviderDescriptor *descriptor = CCPetsProviderForName(name);
+        NSDictionary *week = [self quota:[self usageForProvider:name] key:@"week"];
+        NSNumber *used = [week[descriptor.usedKey] isKindOfClass:NSNumber.class] ? week[descriptor.usedKey] : nil;
+        NSNumber *reset = [week[@"resets_at"] isKindOfClass:NSNumber.class] ? week[@"resets_at"] : nil;
+        if (used && isfinite(used.doubleValue) && (!reset || reset.doubleValue > now)) weeklyUsed[name] = used;
+    }
+    return [available sortedArrayWithOptions:NSSortStable usingComparator:^NSComparisonResult(NSString *left, NSString *right) {
+        NSUInteger leftIndex = [manual indexOfObject:CCPetsProviderForName(left).key];
+        NSUInteger rightIndex = [manual indexOfObject:CCPetsProviderForName(right).key];
+        if (leftIndex != rightIndex) return leftIndex < rightIndex ? NSOrderedAscending : NSOrderedDescending;
+        NSNumber *leftUsed = weeklyUsed[left], *rightUsed = weeklyUsed[right];
+        if (leftUsed && rightUsed) return [rightUsed compare:leftUsed];
+        if (leftUsed == rightUsed) return NSOrderedSame;
+        return leftUsed ? NSOrderedAscending : NSOrderedDescending;
+    }];
+}
+
+- (NSArray<NSString *> *)orderedQuotaProviderKeys {
+    NSMutableArray<NSString *> *keys = [NSMutableArray array];
+    for (NSString *name in [self orderedCardProviders]) [keys addObject:CCPetsProviderForName(name).key];
+    return keys;
+}
+
+- (NSArray<NSString *> *)displayedCardProviders {
+    NSArray<NSString *> *providers = [self orderedCardProviders];
+    if (!self.quotaCardsExpanded && providers.count > QuotaCollapsedCardCount) {
+        return [providers subarrayWithRange:NSMakeRange(0, QuotaCollapsedCardCount)];
+    }
+    return providers;
+}
+
+- (BOOL)areQuotaCardsExpanded { return self.quotaCardsExpanded; }
+
 - (CGFloat)logicalHeight {
-    return QuotaLogicalHeightForProviderCount([self visibleProviders].count);
+    NSUInteger available = [self visibleProviders].count;
+    NSUInteger shown = self.quotaCardsExpanded ? available : MIN(available, QuotaCollapsedCardCount);
+    return QuotaLogicalHeightForProviderCount(shown);
+}
+
+- (void)refreshQuotaCardLayout {
+    [self updateTrackingAreas];
+    self.needsDisplay = YES;
 }
 
 - (NSString *)profileProviderForName:(NSString *)name {
-    return name.lowercaseString;
+    return CCPetsProviderForName(name).profileProvider;
 }
 
 - (NSArray<NSDictionary *> *)profilesForProvider:(NSString *)name {
@@ -185,7 +246,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (NSDictionary *)usageForProvider:(NSString *)name {
     NSDictionary *profile = [self selectedProfileForProvider:name];
     if (profile) return self.profileUsages[profile[@"id"]] ?: @{};
-    return [name isEqualToString:@"Codex"] ? (self.codexUsage ?: @{}) : (self.claudeUsage ?: @{});
+    return self.usageByProvider[name] ?: @{};
 }
 
 - (NSDictionary *)summedTokenBucket:(NSArray<NSDictionary *> *)buckets {
@@ -219,6 +280,17 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     }};
 }
 
+- (NSDictionary *)summaryUsageForAntigravityApp {
+    NSArray<NSDictionary *> *profiles = [self profilesForProvider:@"Antigravity"];
+    // App 的本机记录仅归属默认 Gemini Home，没有第二份账号额度或自定义 CLI Home 的份额。
+    for (NSDictionary *profile in profiles) {
+        NSDictionary *tokens = [self quota:self.profileUsages[profile[@"id"]] key:@"appTokenUsage"];
+        if (tokens) return @{@"tokenUsage": tokens};
+    }
+    NSDictionary *tokens = [self quota:self.usageByProvider[@"Antigravity"] key:@"appTokenUsage"];
+    return tokens ? @{@"tokenUsage": tokens} : @{};
+}
+
 - (NSString *)displayNameForProvider:(NSString *)name {
     NSDictionary *profile = [self selectedProfileForProvider:name];
     NSString *displayName = [profile[@"displayName"] isKindOfClass:NSString.class]
@@ -241,7 +313,15 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSInteger index = (NSInteger)[self selectedIndexForProvider:name];
     NSInteger count = (NSInteger)profiles.count;
     NSInteger next = (index + (direction > 0 ? 1 : -1) + count) % count;
-    NSString *profileID = profiles[(NSUInteger)next][@"id"];
+    [self selectProfileIndex:(NSUInteger)next forProvider:name direction:direction];
+}
+
+- (void)selectProfileIndex:(NSUInteger)index forProvider:(NSString *)name direction:(NSInteger)direction {
+    NSArray<NSDictionary *> *profiles = [self profilesForProvider:name];
+    if (index >= profiles.count || index == [self selectedIndexForProvider:name]) return;
+    NSString *profileID = profiles[index][@"id"];
+    // Keep the card in place through the account animation. Reapply quota order when it completes.
+    self.animatingCardOrder = [self orderedCardProviders];
     self.animatingCarouselProvider = name;
     self.carouselAnimationDirection = direction > 0 ? 1 : -1;
     self.carouselAnimationStartedAt = NSDate.date.timeIntervalSince1970;
@@ -258,6 +338,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     self.needsDisplay = YES;
     if (NSDate.date.timeIntervalSince1970 - self.carouselAnimationStartedAt >= 0.20) {
         self.animatingCarouselProvider = nil;
+        self.animatingCardOrder = nil;
+        [self refreshQuotaCardLayout];
         return;
     }
     [NSObject cancelPreviousPerformRequestsWithTarget:self
@@ -267,7 +349,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 
 - (NSRect)logicalCardRectForProvider:(NSString *)target {
     CGFloat cardTop = [self logicalHeight] - QuotaHeaderHeight - QuotaSummaryHeight;
-    NSArray<NSString *> *providers = [self visibleProviders];
+    NSArray<NSString *> *providers = [self displayedCardProviders];
     CGFloat cardHeight = QuotaCardHeightForProviderCount(providers.count);
     for (NSString *name in providers) {
         cardTop -= QuotaBlockGap;
@@ -288,7 +370,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
     [self removeAllToolTips];
-    for (NSString *provider in [self visibleProviders]) {
+    for (NSString *provider in [self displayedCardProviders]) {
         NSRect rect = [self logicalTrendRectForProvider:provider];
         rect.origin.x *= QuotaScale;
         rect.origin.y *= QuotaScale;
@@ -303,14 +385,13 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     // 在显示时读取当前账号，轮播或刷新数据后不会留下上一账号的统计。
     if (self.animatingCarouselProvider.length > 0) return nil;
     NSPoint logicalPoint = NSMakePoint(point.x / QuotaScale, point.y / QuotaScale);
-    for (NSString *provider in [self visibleProviders]) {
+    for (NSString *provider in [self displayedCardProviders]) {
         if (!NSPointInRect(logicalPoint, [self logicalTrendRectForProvider:provider])) continue;
         NSDictionary *usage = [self usageForProvider:provider];
-        NSDictionary *state = [self accountStateForProvider:provider
+        NSDictionary *normalized = [self normalizedUsageForProvider:provider
             profile:[self selectedProfileForProvider:provider] usage:usage];
-        if (![state[@"apiMode"] boolValue]) return nil;
-        NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
-            ? usage[@"tokenUsage"] : nil;
+        if ([normalized[@"billing"] isEqualToString:@"subscription"]) return nil;
+        NSDictionary *tokenUsage = normalized[@"tokens"];
         NSArray<NSDictionary *> *days = [tokenUsage[@"monthDaily"] isKindOfClass:NSArray.class]
             ? tokenUsage[@"monthDaily"] : @[];
         NSTimeInterval now = NSDate.date.timeIntervalSince1970;
@@ -332,21 +413,40 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     return nil;
 }
 
-- (NSString *)providerAtEvent:(NSEvent *)event includeArrowGutters:(BOOL)includeArrowGutters
-    logicalPoint:(NSPoint *)outPoint {
+- (NSPoint)logicalPointForEvent:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-    point.x /= QuotaScale;
-    point.y /= QuotaScale;
-    if (outPoint) *outPoint = point;
-    for (NSString *name in [self visibleProviders]) {
+    return NSMakePoint(point.x / QuotaScale, point.y / QuotaScale);
+}
+
+- (NSString *)carouselAtPoint:(NSPoint)point {
+    if ([self summaryPageCount] > 1) {
+        NSRect summary = [self logicalSummaryRect];
+        summary.origin.x = 0;
+        summary.size.width = QuotaLogicalWidth;
+        if (NSPointInRect(point, summary)) return SummaryCarousel;
+    }
+    for (NSString *name in [self displayedCardProviders]) {
         NSRect hit = [self logicalCardRectForProvider:name];
-        if (includeArrowGutters) {
-            hit.origin.x = 0;
-            hit.size.width = QuotaLogicalWidth;
-        }
+        hit.origin.x = 0;
+        hit.size.width = QuotaLogicalWidth;
         if (NSPointInRect(point, hit)) return name;
     }
     return nil;
+}
+
+- (NSUInteger)pageCountForCarousel:(NSString *)target {
+    return [target isEqualToString:SummaryCarousel] ? [self summaryPageCount] : [self profilesForProvider:target].count;
+}
+
+- (void)moveCarousel:(NSString *)target direction:(NSInteger)direction {
+    if (![target isEqualToString:SummaryCarousel]) {
+        [self moveProfileForProvider:target direction:direction];
+        return;
+    }
+    NSInteger count = (NSInteger)[self summaryPageCount];
+    if (count < 2 || direction == 0) return;
+    self.selectedSummaryPage = (NSUInteger)(((NSInteger)[self summaryPageIndex] + (direction > 0 ? 1 : -1) + count) % count);
+    self.needsDisplay = YES;
 }
 
 - (NSRect)previousArrowHitRectForCard:(NSRect)card {
@@ -373,41 +473,50 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 
     NSInteger oldIndex = (NSInteger)[self selectedIndexForProvider:provider];
     if (index == oldIndex) return YES;
-    NSString *profileID = profiles[(NSUInteger)index][@"id"];
-    self.animatingCarouselProvider = provider;
-    self.carouselAnimationDirection = index > oldIndex ? 1 : -1;
-    self.carouselAnimationStartedAt = NSDate.date.timeIntervalSince1970;
-    self.selectedProfileIDs[provider] = profileID;
-    [NSUserDefaults.standardUserDefaults setObject:profileID
-        forKey:[self selectionDefaultsKeyForProvider:provider]];
-    self.activeCarouselProvider = provider;
-    self.needsDisplay = YES;
-    [self advanceCarouselAnimation];
+    [self selectProfileIndex:(NSUInteger)index forProvider:provider direction:index > oldIndex ? 1 : -1];
     return YES;
 }
 
 - (void)mouseDown:(NSEvent *)event {
-    NSPoint point;
-    NSString *provider = [self providerAtEvent:event includeArrowGutters:YES logicalPoint:&point];
-    if (!provider || [self profilesForProvider:provider].count < 2) {
+    NSPoint point = [self logicalPointForEvent:event];
+    if (NSPointInRect(point, [self logicalCardsDisclosureRect])) {
+        self.quotaCardsExpanded = !self.quotaCardsExpanded;
+        if (self.layoutChanged) self.layoutChanged();
+        else [self refreshQuotaCardLayout];
+        return;
+    }
+    NSString *target = [self carouselAtPoint:point];
+    if (!target || [self pageCountForCarousel:target] < 2) {
         [super mouseDown:event];
         return;
     }
     [self.window makeFirstResponder:self];
-    self.activeCarouselProvider = provider;
-    NSRect card = [self logicalCardRectForProvider:provider];
-    if (NSPointInRect(point, [self previousArrowHitRectForCard:card])) {
-        [self moveProfileForProvider:provider direction:-1];
+    self.activeCarouselProvider = target;
+    BOOL summary = [target isEqualToString:SummaryCarousel];
+    NSRect card = summary ? NSZeroRect : [self logicalCardRectForProvider:target];
+    NSRect previous = summary ? NSInsetRect([self logicalSummaryPageArrowRectForDirection:-1], -8, 0)
+        : [self previousArrowHitRectForCard:card];
+    NSRect next = summary ? NSInsetRect([self logicalSummaryPageArrowRectForDirection:1], -8, 0)
+        : [self nextArrowHitRectForCard:card];
+    if (NSPointInRect(point, previous)) {
+        [self moveCarousel:target direction:-1];
         return;
     }
-    if (NSPointInRect(point, [self nextArrowHitRectForCard:card])) {
-        [self moveProfileForProvider:provider direction:1];
+    if (NSPointInRect(point, next)) {
+        [self moveCarousel:target direction:1];
         return;
     }
-    if ([self selectProfileDotAtPoint:point provider:provider card:card]) return;
+    if (summary) {
+        for (NSUInteger index = 0; index < [self summaryPageCount]; index++) {
+            if (!NSPointInRect(point, NSInsetRect([self logicalSummaryPageDotRectAtIndex:index], -4, -3))) continue;
+            self.selectedSummaryPage = index;
+            self.needsDisplay = YES;
+            return;
+        }
+    } else if ([self selectProfileDotAtPoint:point provider:target card:card]) return;
 
     // 卡片其余区域允许按住左右拖动；超过阈值后每次拖动只切换一次。
-    self.dragCarouselProvider = provider;
+    self.dragCarouselProvider = target;
     self.dragCarouselStartPoint = point;
     self.dragCarouselDidSwitch = NO;
 }
@@ -418,12 +527,11 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         return;
     }
     if (self.dragCarouselDidSwitch) return;
-    NSPoint point;
-    [self providerAtEvent:event includeArrowGutters:YES logicalPoint:&point];
+    NSPoint point = [self logicalPointForEvent:event];
     CGFloat deltaX = point.x - self.dragCarouselStartPoint.x;
     if (fabs(deltaX) < 36) return;
     self.dragCarouselDidSwitch = YES;
-    [self moveProfileForProvider:self.dragCarouselProvider direction:deltaX < 0 ? 1 : -1];
+    [self moveCarousel:self.dragCarouselProvider direction:deltaX < 0 ? 1 : -1];
 }
 
 - (void)mouseUp:(NSEvent *)event {
@@ -432,10 +540,10 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 }
 
 - (void)scrollWheel:(NSEvent *)event {
-    NSString *provider = [self providerAtEvent:event includeArrowGutters:YES logicalPoint:nil];
+    NSString *provider = [self carouselAtPoint:[self logicalPointForEvent:event]];
     CGFloat delta = fabs(event.scrollingDeltaX) >= fabs(event.scrollingDeltaY)
         ? event.scrollingDeltaX : (event.modifierFlags & NSEventModifierFlagShift ? event.scrollingDeltaY : 0);
-    if (provider && delta != 0 && [self profilesForProvider:provider].count > 1) {
+    if (provider && delta != 0 && [self pageCountForCarousel:provider] > 1) {
         // 惯性阶段不再继续翻页，避免一次触控板滑动跳过多个账号。
         if (event.momentumPhase != NSEventPhaseNone) return;
         BOOL phasedGesture = event.phase != NSEventPhaseNone;
@@ -450,7 +558,7 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
             CGFloat threshold = event.hasPreciseScrollingDeltas ? 12 : 1;
             if (!self.scrollCarouselDidSwitch && fabs(self.scrollCarouselAccumulator) >= threshold) {
                 self.scrollCarouselDidSwitch = YES;
-                [self moveProfileForProvider:provider
+                [self moveCarousel:provider
                     direction:self.scrollCarouselAccumulator > 0 ? 1 : -1];
             }
             if ((event.phase & (NSEventPhaseEnded | NSEventPhaseCancelled)) != 0) {
@@ -465,19 +573,56 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
         NSTimeInterval now = NSDate.date.timeIntervalSince1970;
         if (now - self.lastCarouselSwitchAt < 0.22) return;
         self.lastCarouselSwitchAt = now;
-        [self moveProfileForProvider:provider direction:delta > 0 ? 1 : -1];
+        [self moveCarousel:provider direction:delta > 0 ? 1 : -1];
         return;
     }
     [super scrollWheel:event];
 }
 
 - (void)keyDown:(NSEvent *)event {
-    if (self.activeCarouselProvider.length > 0 && (event.keyCode == 123 || event.keyCode == 124)) {
-        [self moveProfileForProvider:self.activeCarouselProvider direction:event.keyCode == 123 ? -1 : 1];
+    NSString *target = self.activeCarouselProvider;
+    if (target.length > 0 && (event.keyCode == 123 || event.keyCode == 124) &&
+        ([target isEqualToString:SummaryCarousel] || [[self displayedCardProviders] containsObject:target]) &&
+        [self pageCountForCarousel:target] > 1) {
+        [self moveCarousel:target direction:event.keyCode == 123 ? -1 : 1];
         return;
     }
     [super keyDown:event];
 }
+- (NSUInteger)summaryPageCount {
+    NSArray<NSString *> *providers = [self visibleProviders];
+    NSUInteger rowCount = providers.count + ([providers containsObject:@"Antigravity"] ? 1 : 0);
+    return (rowCount + QuotaSummaryRowsPerPage - 1) / QuotaSummaryRowsPerPage;
+}
+
+- (NSUInteger)summaryPageIndex {
+    NSUInteger count = [self summaryPageCount];
+    return count > 0 ? MIN(self.selectedSummaryPage, count - 1) : 0;
+}
+
+- (NSRect)logicalSummaryPageArrowRectForDirection:(NSInteger)direction {
+    if ([self summaryPageCount] < 2) return NSZeroRect;
+    NSRect summary = [self logicalSummaryRect];
+    CGFloat x = direction < 0 ? 0 : NSMaxX(summary);
+    return NSMakeRect(x, NSMidY(summary) - 25, NSMinX(summary), 50);
+}
+
+- (NSRect)logicalSummaryPageDotRectAtIndex:(NSUInteger)index {
+    NSUInteger count = [self summaryPageCount];
+    if (count < 2 || index >= count) return NSZeroRect;
+    NSRect summary = [self logicalSummaryRect];
+    CGFloat width = (count - 1) * QuotaCarouselDotGap + QuotaCarouselDotDiameter;
+    CGFloat x = NSMidX(summary) - width / 2 + index * QuotaCarouselDotGap;
+    return NSMakeRect(x, NSMinY(summary) + 3, QuotaCarouselDotDiameter, QuotaCarouselDotDiameter);
+}
+
+- (NSRect)logicalCardsDisclosureRect {
+    if ([self visibleProviders].count <= QuotaCollapsedCardCount) return NSZeroRect;
+    NSRect card = [self logicalCardRectForProvider:[self displayedCardProviders].lastObject];
+    CGFloat width = 128;
+    return NSMakeRect(NSMidX(card) - width / 2, NSMinY(card) + 3, width, QuotaCardsDisclosureHeight);
+}
+
 - (NSRect)logicalSummaryRect {
     return NSMakeRect(20, [self logicalHeight] - QuotaHeaderHeight - QuotaSummaryHeight,
         QuotaLogicalWidth - 40, QuotaSummaryHeight + 1 / QuotaScale);
@@ -557,7 +702,8 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
 // 再按同一规则（含今天在内的 7 个自然日）现场计算，避免界面暂时退回到没有起期。
 - (NSString *)recentWeekUsageLabel {
     NSNumber *start = nil;
-    for (NSDictionary *usage in @[self.codexUsage ?: @{}, self.claudeUsage ?: @{}]) {
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        NSDictionary *usage = self.usageByProvider[provider.name];
         NSDictionary *tokenUsage = [usage[@"tokenUsage"] isKindOfClass:NSDictionary.class]
             ? usage[@"tokenUsage"] : nil;
         if ([tokenUsage[@"recentWeekStartsAt"] isKindOfClass:NSNumber.class]) {
@@ -605,27 +751,33 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     }
     return [self.liveProviders containsObject:name] || self.hasUnlabeledClient;
 }
-- (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage {
-    BOOL api = profile ? CCPetsProfileShowsAPIUsage(profile)
-        : ([name isEqualToString:@"Codex"] ? self.codexShowsAPIUsage : self.claudeShowsAPIUsage);
-    NSString *usedKey = [name isEqualToString:@"Claude"] ? @"used_percentage" : @"used_percent";
-    BOOL exhausted = [usage[@"exhaustedAt"] isKindOfClass:NSNumber.class];
-    BOOL hasData = api ? [self tokenTotals:usage key:@"month"] != nil
-        : ([self usedForQuota:[self quota:usage key:@"fiveHour"] usedKey:usedKey] ||
-           [self usedForQuota:[self quota:usage key:@"week"] usedKey:usedKey] ||
-           [self tokenTotals:usage key:@"fiveHour"] || [self tokenTotals:usage key:@"week"] || exhausted);
+- (NSDictionary *)normalizedUsageForProvider:(NSString *)name profile:(NSDictionary *)profile usage:(NSDictionary *)usage {
+    BOOL api = profile ? CCPetsProfileShowsAPIUsage(profile) : [self.showsAPIUsageByProvider[name] boolValue];
+    return CCPetsNormalizedUsage(CCPetsProviderForName(name), usage, api);
+}
+- (NSDictionary *)accountStateForProvider:(NSString *)name profile:(NSDictionary *)profile normalized:(NSDictionary *)normalized {
+    BOOL api = ![normalized[@"billing"] isEqualToString:@"subscription"];
+    BOOL exhausted = [normalized[@"exhausted"] boolValue];
+    BOOL hasData = [normalized[@"hasData"] boolValue];
     BOOL online = [self isProfileOnline:profile provider:name];
     NSString *state = !api && exhausted ? @"limited" : (!hasData ? @"waiting" : (online ? @"online" : @"offline"));
     NSString *text = !api && exhausted ? L(@"Rate limited")
         : (!hasData ? L(@"Waiting for data") : (online ? L(@"● Online") : L(@"Offline")));
     return @{@"apiMode": @(api), @"online": @(online), @"hasData": @(hasData), @"state": state, @"status": text};
 }
+- (NSColor *)statusColorForState:(NSDictionary *)state {
+    if ([state[@"state"] isEqualToString:@"limited"]) return NSColor.systemOrangeColor;
+    if ([state[@"state"] isEqualToString:@"online"]) return NSColor.systemGreenColor;
+    return self.secondaryColor;
+}
 - (NSDictionary *)accountSnapshotForProvider:(NSString *)name profile:(NSDictionary *)profile {
     NSString *profileID = profile[@"id"];
     NSDictionary *usage = profile ? (self.profileUsages[profileID] ?: @{}) : [self usageForProvider:name];
     NSArray *history = profile ? (self.profileHistories[profileID] ?: @[])
-        : ([name isEqualToString:@"Codex"] ? self.codexHistory : self.claudeHistory);
-    NSMutableDictionary *snapshot = [[self accountStateForProvider:name profile:profile usage:usage] mutableCopy];
+        : self.historyByProvider[name];
+    NSDictionary *normalized = [self normalizedUsageForProvider:name profile:profile usage:usage];
+    NSMutableDictionary *snapshot = [[self accountStateForProvider:name profile:profile normalized:normalized] mutableCopy];
+    snapshot[@"normalized"] = normalized;
     snapshot[@"provider"] = name;
     snapshot[@"usage"] = usage ?: @{};
     snapshot[@"history"] = history ?: @[];
@@ -636,8 +788,9 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     }
     return snapshot;
 }
-- (NSDictionary *)paceStatusForQuota:(NSDictionary *)quota currentUsed:(NSNumber *)currentUsed
-    color:(NSColor *)providerColor {
+- (NSDictionary *)paceStatusForWindow:(NSDictionary *)window color:(NSColor *)providerColor {
+    NSDictionary *quota = window[@"quota"];
+    NSNumber *currentUsed = window[@"used"];
     if (!currentUsed) {
         return @{@"label": L(@"Not enough data"), @"tip": L(@"Waiting for data"),
                  @"color": self.secondaryColor};
@@ -645,19 +798,19 @@ NSImage *OfficialAppIcon(NSString *bundleIdentifier, NSString *resourceName) {
     NSNumber *reset = [quota[@"resets_at"] isKindOfClass:NSNumber.class]
         ? quota[@"resets_at"] : nil;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    const NSTimeInterval sevenDaySeconds = 7 * 24 * 60 * 60;
-    NSTimeInterval start = reset ? reset.doubleValue - sevenDaySeconds : 0;
+    NSTimeInterval windowSeconds = [window[@"minutes"] doubleValue] * 60;
+    NSTimeInterval start = reset ? reset.doubleValue - windowSeconds : 0;
     NSTimeInterval elapsed = now - start;
     double projectedRemaining = NAN;
-    const NSTimeInterval paceObservationSeconds = 24 * 60 * 60;
+    NSTimeInterval paceObservationSeconds = windowSeconds / 7.0;
     // 满 24 小时就全额外推的话，放大倍数还有 7 倍：窗口第 25 小时，任何已用超过 14.3%
     // 的用户都会被判成"重置前用尽"。更糟的是两家的窗口起点差几个小时，就会出现一家
     // 已外推、另一家还没到门槛的断层——剩 80% 的报高风险，剩 61% 的却显示平稳。
     // 因此在 24 小时到窗口 1/3（56 小时）之间按观测时长加权，从"按当前已用"平滑过渡
     // 到"完全信任外推"，门槛处不再有跳变。
-    const NSTimeInterval paceFullTrustSeconds = sevenDaySeconds / 3.0;
+    const NSTimeInterval paceFullTrustSeconds = windowSeconds / 3.0;
     if (reset && reset.doubleValue > now && elapsed >= paceObservationSeconds) {
-        double linearUsed = currentUsed.doubleValue * sevenDaySeconds / elapsed;
+        double linearUsed = currentUsed.doubleValue * windowSeconds / elapsed;
         double confidence = fmin(1.0, (elapsed - paceObservationSeconds) /
             (paceFullTrustSeconds - paceObservationSeconds));
         double projectedUsed = currentUsed.doubleValue +

@@ -2,6 +2,7 @@
 #import "CCPetsCLISupport.h"
 #import "CCPetsJSON.h"
 #import "CCPetsPaths.h"
+#import "CCPetsProfiles.h"
 
 NSNotificationName const CCPetsAuthenticationModesDidChangeNotification = @"CCPetsAuthenticationModesDidChange";
 static NSMutableDictionary<NSString *, NSDictionary *> *AuthenticationModes;
@@ -16,6 +17,21 @@ static NSDictionary *ReadJSONObject(NSString *path) {
     NSData *data = [NSData dataWithContentsOfFile:path];
     id object = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     return [object isKindOfClass:NSDictionary.class] ? object : nil;
+}
+
+static NSDictionary *AntigravitySettings(NSString *configDirectory) {
+    return configDirectory.length > 0 ? ReadJSONObject(
+        [configDirectory stringByAppendingPathComponent:@"antigravity-cli/settings.json"]) : nil;
+}
+
+BOOL CCPetsAntigravityUsesGeminiAPI(NSString *configDirectory) {
+    return [AntigravitySettings(configDirectory)[@"modelProvider"] isEqual:@"gemini"];
+}
+
+BOOL CCPetsAntigravityQuotaReportEnabled(NSString *configDirectory) {
+    NSDictionary *settings = AntigravitySettings(configDirectory);
+    // A disabled slash command can turn /usage into an ordinary model prompt.
+    return ![settings[@"modelProvider"] isEqual:@"gemini"] && ![settings[@"disableSlashCommands"] isEqual:@YES];
 }
 
 static NSString *ClaudeConfiguredMode(NSString *home) {
@@ -61,6 +77,9 @@ static BOOL CodexHasCustomProvider(NSString *home) {
 static NSString *ProbeAuthenticationMode(NSDictionary *profile, NSString *searchPath) {
     NSString *provider = profile[@"provider"], *home = profile[@"home"];
     if (!CCPetsDirectoryExists(home)) return @"unknown";
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) {
+        return CCPetsAntigravityUsesGeminiAPI(home) ? @"api" : @"unknown";
+    }
     BOOL claude = [provider isEqualToString:@"claude"];
     NSString *fallback = claude ? ClaudeConfiguredMode(home) : @"unknown";
     if (!claude) {
@@ -124,7 +143,9 @@ void CCPetsRefreshProfileAuthenticationModes(NSArray<NSDictionary *> *profiles) 
         NSDictionary *previous;
         @synchronized(CCPetsAuthenticationModesDidChangeNotification) { previous = AuthenticationModes[key]; }
         if (previous && now - [previous[@"checkedAt"] doubleValue] < 60) continue;
-        if (!searchPath) searchPath = CCPetsLoginShellPath() ?: @"";
+        if (!searchPath && ![profile[@"provider"] isEqualToString:CCPetsProfileProviderAntigravity]) {
+            searchPath = CCPetsLoginShellPath() ?: @"";
+        }
         NSString *mode = ProbeAuthenticationMode(profile, searchPath);
         @synchronized(CCPetsAuthenticationModesDidChangeNotification) {
             if (!AuthenticationModes) AuthenticationModes = [NSMutableDictionary dictionary];
@@ -143,10 +164,15 @@ NSString *CCPetsProfileAuthenticationMode(NSDictionary *profile) {
     }
 }
 
+static NSString *ProviderUsageModePreferenceKey(NSString *provider) {
+    if ([provider isEqualToString:CCPetsProfileProviderAntigravity]) return AntigravityUsageDisplayModeKey;
+    return [provider isEqualToString:CCPetsProfileProviderCodex] ? CodexUsageDisplayModeKey : ClaudeUsageDisplayModeKey;
+}
+
 NSString *CCPetsUsageModePreferenceKey(NSDictionary *profile) {
     NSString *profileID = profile[@"id"];
     if (profileID.length > 0) return [@"CCPetsUsageDisplayMode." stringByAppendingString:profileID];
-    return [profile[@"provider"] isEqualToString:@"codex"] ? CodexUsageDisplayModeKey : ClaudeUsageDisplayModeKey;
+    return ProviderUsageModePreferenceKey(profile[@"provider"]);
 }
 
 BOOL CCPetsProfileCanSwitchUsageMode(NSDictionary *profile) {
@@ -157,7 +183,6 @@ BOOL CCPetsProfileShowsAPIUsage(NSDictionary *profile) {
     if (!CCPetsProfileCanSwitchUsageMode(profile)) return YES;
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSString *mode = [defaults stringForKey:CCPetsUsageModePreferenceKey(profile)];
-    if (!mode) mode = [defaults stringForKey:[profile[@"provider"] isEqualToString:@"codex"]
-        ? CodexUsageDisplayModeKey : ClaudeUsageDisplayModeKey];
+    if (!mode) mode = [defaults stringForKey:ProviderUsageModePreferenceKey(profile[@"provider"])];
     return [mode isEqualToString:@"api"];
 }

@@ -2,6 +2,7 @@
 // 共享常量和跨文件的方法声明见 CCPetsAppDelegate+Private.h。
 #import "CCPetsAppDelegate+Private.h"
 #import "CCPetsOpenCommand.h"
+#import "CCPetsProviderRegistry.h"
 
 @implementation CCPetsBubbleContainerView
 @end
@@ -219,7 +220,8 @@
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     [defaults registerDefaults:@{StatusBubbleExpandedKey: @YES,
         CodexUsageDisplayModeKey: @"subscription",
-        ClaudeUsageDisplayModeKey: @"subscription"}];
+        ClaudeUsageDisplayModeKey: @"subscription",
+        AntigravityUsageDisplayModeKey: @"subscription"}];
     [defaults registerDefaults:@{
         SystemCPUEnabledKey: @YES,
         SystemTemperatureEnabledKey: @YES,
@@ -258,7 +260,8 @@
     self.panel.backgroundColor = NSColor.clearColor;
     self.panel.hasShadow = NO;
     self.panel.level = NSFloatingWindowLevel;
-    self.panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    self.panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
+        NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorCanJoinAllApplications;
     // 与 1.0 一致：透明背景交给 AppKit 原生拖动；PetView 通过
     // mouseDownCanMoveWindow=NO 保留自己的点击和奔跑动画拖动，两条路径按命中区隔离。
     self.panel.movableByWindowBackground = YES;
@@ -466,12 +469,17 @@
     self.quotaView.cardScrimAlpha = CCPetsGlassCardScrimAlpha();
     [self applySystemMetricPreferences];
     [self applyUsageDisplayModePreferences];
-    self.quotaView.codexLogo = OfficialAppIcon(@"com.openai.codex", @"icon-chatgpt.icns");
-    self.quotaView.claudeLogo = OfficialAppIcon(@"com.anthropic.claudefordesktop", @"electron.icns");
+    NSMutableDictionary *logoByProvider = [NSMutableDictionary dictionary];
+    for (CCPetsProviderDescriptor *provider in CCPetsProviderDescriptors()) {
+        NSImage *logo = OfficialAppIcon(provider.logoBundleIdentifier, provider.logoResourceName);
+        if (logo) logoByProvider[provider.name] = logo;
+    }
+    self.quotaView.logoByProvider = logoByProvider;
     self.quotaView.hoverChanged = ^(BOOL hovering) {
         weakSelf.dashboardHovering = hovering;
         if (!hovering) [weakSelf scheduleQuotaDashboardHide];
     };
+    self.quotaView.layoutChanged = ^{ [weakSelf resizeQuotaDashboard]; };
     [self.quotaGlass.contentView addSubview:self.quotaView];
     self.quotaPanel.contentView = quotaRoot;
     // 先探测再第一次显示：否则面板会先按两张卡的高度弹出来再收缩一下。
@@ -489,10 +497,10 @@
     self.agentEventPartialLine = [NSMutableData data];
     self.pendingApprovalRecords = [NSMutableDictionary dictionary];
     self.stallNotifiedSessionKeys = [NSMutableSet set];
-    self.usageMonitor.changeHandler = ^(NSDictionary *codexUsage, NSDictionary *claudeUsage) {
+    self.usageMonitor.changeHandler = ^(NSDictionary<NSString *, NSDictionary *> *usageByProvider) {
         weakSelf.quotaView.profiles = weakSelf.usageMonitor.profiles;
         weakSelf.quotaView.profileUsages = weakSelf.usageMonitor.profileUsages;
-        [weakSelf applyCodexUsage:codexUsage claudeUsage:claudeUsage];
+        [weakSelf applyUsageByProvider:usageByProvider];
         [weakSelf considerQuotaSpeech];
     };
     [self.usageMonitor start];

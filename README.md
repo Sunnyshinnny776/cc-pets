@@ -6,10 +6,8 @@
 
 English | [简体中文](./README.zh-CN.md)
 
-A native macOS desktop pet for Codex CLI and Claude Code CLI that needs neither
-desktop app. Launch CC Pets directly, or let it appear automatically when Codex CLI
-or Claude Code CLI starts. It reads five-hour and weekly quota data from the official
-Codex App Server interface and Claude Code's official status line input.
+A native macOS desktop pet for Codex, Claude Code, and Antigravity CLI. Launch CC Pets
+directly or start a supported CLI to see session activity, quota, and local token usage.
 
 > The app and CLI are available in English and Simplified Chinese (see [Language](#language)).
 
@@ -34,9 +32,9 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
 
 - Supports English and Simplified Chinese in the app and CLI, with live UI language switching.
 - Offers Classic and native Liquid Glass panel themes on macOS 26 and later.
-- Starts with Codex CLI or Claude Code CLI and closes after the last managed CLI exits, unless Codex desktop is still running.
-- Shares one pet across multiple simultaneous Codex and Claude sessions.
-- Shows five-hour and weekly remaining quota, reset times, local token totals, and seven-day trends.
+- Starts with Codex, Claude Code, or Antigravity CLI and closes when the last CLI launched through CC Pets exits, unless Codex or Antigravity desktop is still running.
+- Shares one pet across simultaneous sessions from supported CLIs.
+- Shows five-hour and weekly remaining quota, reset times, local token counts, and seven-day trends in the hover panel.
 - Converts reset times to the Mac's current system time zone.
 - Responds to thinking, tool, approval, subagent, completion, and failure events.
 - Displays a redacted glass status card with the active CLI session count.
@@ -44,7 +42,7 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
 - Lists up to eight recent online Agent terminal sessions from the status card icon.
 - Badges the status icon with the number of sessions waiting for approval and pins those sessions to the top of the list.
 - Speaks up when an Agent sits in approval or thinking longer than its threshold.
-- Announces new versions through the pet with release highlights and updates from the right-click menu.
+- Announces new versions through the pet with release highlights and updates from the right-click menu. Prerelease builds such as `2.6.0-beta.3` are offered the stable release of the same version or later.
 - Supports optional local quota history and macOS notifications.
 - Supports third-party CLI agents through a provider event protocol.
 - Includes editable global and per-pet speech.
@@ -61,7 +59,7 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
 - macOS 13 or later
 - Node.js 18 or later, for npm only: it installs and updates CC Pets, while the app and
   its `cc-pets` commands, hooks and CC Bridge run natively
-- Codex CLI and/or Claude Code CLI installed and signed in
+- A configured copy of Codex, Claude Code, or Antigravity CLI (`agy`)
 - zsh
 - Xcode Command Line Tools (`xcode-select --install`)
 
@@ -75,10 +73,12 @@ npm install -g cc-pets@latest --allow-scripts=cc-pets
 codex
 # or
 claude
+# or
+agy
 ```
 
 The `--allow-scripts=cc-pets` option allows recent npm versions to run the
-package's `postinstall`. That step builds the native app, installs both hook
+package's `postinstall`. That step builds the native app, installs the supported hook
 integrations, configures shell shims, and installs `~/Applications/CC Pets.app`.
 If npm installed the package without running its scripts, initialize it manually:
 
@@ -123,10 +123,12 @@ cc-pets install
 codex
 # or
 claude
+# or
+agy
 ```
 
-CC Pets installs `cc-pets`, `codex-with-pet`, and `claude-with-pet`. It creates
-`codex` and `claude` shims under `~/.cc-pets/shims` and adds one marked block to
+CC Pets installs `cc-pets`, `codex-with-pet`, `claude-with-pet`, and `agy-with-pet`. It creates
+`codex`, `claude`, and `agy` shims under `~/.cc-pets/shims` and adds one marked block to
 `~/.zshrc`; the real CLI binaries are not replaced. The shims also handle casing
 variants on the default case-insensitive macOS filesystem.
 
@@ -135,6 +137,7 @@ If a real CLI is not on the current `PATH`, set its absolute path:
 ```bash
 export CODEX_REAL_BIN=/absolute/path/to/codex
 export CLAUDE_REAL_BIN=/absolute/path/to/claude
+export AGY_REAL_BIN=/absolute/path/to/agy
 ```
 
 The wrappers pass the current terminal environment through unchanged. They do not
@@ -142,13 +145,20 @@ load or execute `.env` files.
 
 ## Multi-Account
 
-CC Pets automatically detects and integrates the official `~/.claude` and
-`~/.codex` Homes. Custom Homes such as `~/.claude-x` or `~/.codex-work` are never
+CC Pets automatically detects and integrates the official `~/.claude`, `~/.codex`, and
+`~/.gemini` Homes for installed CLIs. Custom Homes such as `~/.claude-x` or `~/.codex-work` are never
 scanned automatically: add them explicitly from **Main menu → Multi-Account**.
 The folder name is used as the account name by default and is preserved exactly;
 you can rename an account from its Manage menu on the same page. Each provider has its own
 circular quota-card carousel, and the Usage page can filter local token history
 by account.
+
+An Antigravity Home is the Gemini root that contains `antigravity-cli/`. After adding a custom
+root in Multi-Account, use it when opening a session with `agy`.
+
+```bash
+CC_PETS_ANTIGRAVITY_HOME=/absolute/path/to/gemini-root agy
+```
 
 Pet Hooks and usage collection are configured when an account is added. If CC
 Bridge is already enabled, its Hooks, permissions, and MCP registration are also
@@ -159,14 +169,16 @@ enabled later.
 
 Enable **Main menu → Settings → Launch Protection → Shadowrocket** (off by default).
 Each proxy app has its own preference; Shadowrocket is the first supported option.
-CC Pets wrappers require a connected Shadowrocket VPN and a valid exit IP / region from
-the service's HTTPS `/cdn-cgi/trace` endpoint before starting Claude / Codex. Failures
+When Claude or Codex uses an official endpoint, CC Pets wrappers require a connected
+Shadowrocket VPN and a valid exit IP / region from the service's HTTPS `/cdn-cgi/trace`. Failures
 print a reason and return a nonzero exit code before registering a session or sending
-a starting event. Disabling the option skips all network checks.
+a starting event. Disabling the option skips all network checks. For `agy`, only the
+Shadowrocket connection is checked: Google's service domains have no `/cdn-cgi/trace`
+endpoint, so the exit region can't be verified.
 
 Claude defaults to `api.anthropic.com`. Codex uses the current Home's `auth.json` to select
 `chatgpt.com` for ChatGPT login or `api.openai.com` for API-key login. If the mode is unknown
-(for example, credentials stored only in Keychain), both exits must pass.
+and both possible endpoints are official, both exits must pass.
 The response must contain valid `ip`, `loc` and matching `h` fields. `CN` and `HK` exits,
 unknown regions, invalid responses, non-200 HTTP responses and connection / TLS / timeout
 failures block launch. Successful probes print the domain, exit IP and region.
@@ -184,19 +196,20 @@ Claude reads network environment settings from the current `CLAUDE_CONFIG_DIR/se
 and terminal proxy variables, including an overridden `ANTHROPIC_BASE_URL`. Codex supports
 common single-line string routing settings in `CODEX_HOME/config.toml` (`model_provider`,
 `profile`, `model_providers.<id>.base_url`, `chatgpt_base_url`), `--profile` / `-p`,
-`OPENAI_BASE_URL` and terminal proxy variables. Custom endpoints use their own origin's
-`/cdn-cgi/trace`, with no fallback to another domain. Gateways must serve valid trace data;
-this only describes the exit to the gateway, not the gateway's upstream exit.
-Complex routing TOML, unsupported cloud providers, command-line configuration overrides
-and project network overrides are rejected with an explanation. Enterprise-managed network
+`OPENAI_BASE_URL` and terminal proxy variables. Custom endpoints, Codex local models, and
+Claude's Bedrock, Vertex, and Foundry modes skip the VPN and exit-region checks. If routing
+cannot be determined from the supported settings, CC Pets prints a reason and allows startup.
+Enable **Strict Routing** to block startup in that case. Enterprise-managed network
 configuration is outside the supported scope. The check does not validate account access,
 service-supported countries or future routing changes. It recognizes the Shadowrocket VPN
 configuration, not just its running process. Original CLI binaries and desktop clients bypass it.
 
 ## CC Bridge
 
-[CC Bridge](./CC_BRIDGE.md) is optional and off by default. It lets local Claude Code
-and Codex sessions exchange messages and reserve files. Session IDs are validated;
+[CC Bridge](./CC_BRIDGE.md) is optional and off by default. It lets local Claude Code,
+Codex, and Antigravity CLI sessions exchange messages and reserve files. Antigravity's native
+`agy` interface reads messages on its next model invocation. [Antigravity App](./CC_BRIDGE.md#antigravity-app)
+supports automatic wake-up when its Sidecar is enabled. Session IDs are validated;
 PID fallback is accepted only for a unique live session. Ambiguous shared-host identities
 are rejected rather than guessed. Codex delivery uses the recipient's Home.
 For Codex sessions sharing an app-server PID, agents pass the current `session_id` from
@@ -243,6 +256,7 @@ cc-pets uninstall-app         # Remove only ~/Applications/CC Pets.app.
 
 codex-with-pet                # Start the pet and enter Codex CLI.
 claude-with-pet               # Start the pet and enter Claude Code CLI.
+agy-with-pet                  # Start the pet and enter Antigravity CLI.
 ```
 
 `package.json` is the single version source. Use `npm version patch`, `minor`, or
@@ -278,7 +292,7 @@ without a command line tool fall back to **Extensions → ⋯ → Install from V
 extension, a card only brings the app forward. Remote windows (SSH, WSL, containers) are not
 supported. See [extension details](plugins/vscode/README.md).
 
-### Codex and Claude hooks
+### Agent hooks
 
 Status card titles show the session and its state. Generated CC Bridge names use the
 short `directory.animal` form; custom names are preserved. Without a Bridge name, the
@@ -301,6 +315,13 @@ The Claude Code integration merges into `~/.claude/settings.json` while preservi
 existing `env`, `model`, `statusLine`, and hook settings. Its quota collector is
 injected into the existing status line script without changing the configured
 script path or output.
+
+The Antigravity CLI integration uses global Gemini hooks for the status card, approval and stall
+reminders, the Main menu, the menu bar and notifications, matching Claude and Codex. Antigravity
+App conversations share the same hooks, appear as "Antigravity App" and focus the App when
+clicked. Approval state is available for the CLI only. Use `agy` to keep the native terminal UI and `agy-with-pet` to
+invoke the launcher explicitly. `cc-pets doctor` checks the launcher, hooks and Bridge MCP
+registration, and `cc-pets paths` lists their configuration files.
 
 Third-party CLI agents can send redacted state events through standard input:
 
@@ -349,17 +370,17 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 - **Sessions** — the Agent sessions online right now (sessions waiting for
   approval first, each with **Go to Terminal**) and CC Bridge traffic: messages waiting in
   an inbox and recent deliveries. Only who sent what to whom is shown, never the message.
-- **Usage** — local Claude Code and Codex token usage for the last 7, 30 or 90 days. The same
+- **Usage** — local Claude Code, Codex, Antigravity CLI, and Antigravity App token usage for the last 7, 30 or 90 days. The All view includes every source, and Antigravity CLI and App each have a separate filter. The same
   five numbers as the overview lead the page: total usage (input + cache write + output +
   cached input + background usage), input, output, cached input with its hit rate, and requests. Background usage from local Codex SQLite logs contributes to the total only, without an inferred token breakdown. The daily bar
   chart stacks models in fixed colors and can switch between those five measures; click a model in the legend or the table to see only that
   model, and hover a bar for that day's numbers. Everything is counted from local session
   logs; nothing is sent anywhere. A per-day archive keeps history after Claude Code prunes
   old transcripts.
-- **Multi-Account** — add Claude / Codex Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
+- **Multi-Account** — add Claude, Codex, or Antigravity CLI Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
 - **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
   picker, deletion of unselected custom pets with confirmation, size, chatter, click reactions and Codex import; Alerts: notifications, the status
-  card and system status; Settings: language, display location, panel appearance and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
+  card and system status; Settings: language, display location, panel appearance, the hover panel's quota card order and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
   Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
@@ -379,9 +400,10 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
   `manifest.json` records original paths, permissions and backup files. Other issues retain
   their manual commands. Plain `cc-pets doctor` remains read-only.
 
-The window is created when you open it and released when you close it, and nothing runs in
-the background while it is closed. The Dock icon and menu bar appear only while it is open;
-clicking the Dock icon brings a minimized window back.
+The Main menu window is created when you open it and released when you close it; its pages
+do not run background tasks while closed. The Dock icon and application menus appear only
+while the window is open; clicking the Dock icon brings a minimized window back. The optional
+menu bar status icon follows Settings → Show In independently of this window.
 
 ### Menu bar
 
@@ -393,7 +415,7 @@ clicking the Dock icon brings a minimized window back.
   its terminal), one row per account with a 5-hour quota ring, weekly quota left and the next
   reset (API accounts show this month's tokens and calls; plan accounts are listed first), today's total tokens, **Show Pet**
   and **Main menu**. When an update is available, **Update to x.y.z…** appears here too. Trends,
-  token breakdowns and system status stay in the hover panel and the main window. Click outside
+  token breakdowns and system status stay in the hover panel and the Main menu. Click outside
   the panel or press Esc to close it.
 - **While a session awaits approval**, left-click jumps straight to its terminal instead (the
   first one in the session list, so the next click goes to the next one). ⌥-click still opens
@@ -496,6 +518,14 @@ across resume, fork, and compaction copies.
 The persistent app reads `~/.codex` and `~/.claude` by default instead of inheriting
 session-specific `CODEX_HOME` or `CLAUDE_CONFIG_DIR` values. Advanced users can
 override these with `CC_PETS_CODEX_HOME` and `CC_PETS_CLAUDE_CONFIG_DIR`.
+
+Antigravity CLI reads local transcripts from `~/.gemini/antigravity-cli/brain`, or from the registered
+CLI Home. Antigravity App reads the separate transcript folder at `~/.gemini/antigravity/brain`.
+CC Pets displays the two sets of Token and request counts separately. The hover panel also shows
+Antigravity alongside Codex and Claude, with its display mode under Hover Panel in Settings. Drag the
+providers under **Settings → Hover Panel → Quota Card Order** to change the card order. CC Pets reads subscription quota
+for each signed-in account through `agy -p /usage --output-format json` and displays the available
+five-hour and weekly windows once per account. API-key mode displays local usage.
 
 Local seven-day quota history is disabled by default. When enabled, it is stored
 only at `~/Library/Application Support/CC Pets/quota-history.json`, retains seven

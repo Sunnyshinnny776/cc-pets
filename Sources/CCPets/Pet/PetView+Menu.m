@@ -23,6 +23,20 @@ static const CGFloat PetMenuControlGap = 8.0;
 static const NSInteger PetMenuCheckViewTag = 1001;
 static const NSInteger PetMenuDeleteButtonTag = 1002;
 
+// AppKit 单独创建菜单和玻璃背景窗口。只给父面板设置 Space 策略，背景仍可能留在普通桌面。
+static void PetJoinMenuWindowsToSpaces(NSWindow *parent) {
+    for (NSWindow *child in parent.childWindows) {
+        NSWindowCollectionBehavior behavior = child.collectionBehavior;
+        behavior &= ~(NSWindowCollectionBehaviorMoveToActiveSpace | NSWindowCollectionBehaviorFullScreenNone |
+            NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorPrimary |
+            NSWindowCollectionBehaviorAuxiliary);
+        behavior |= NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary |
+            NSWindowCollectionBehaviorCanJoinAllApplications;
+        if (child.collectionBehavior != behavior) child.collectionBehavior = behavior;
+        PetJoinMenuWindowsToSpaces(child);
+    }
+}
+
 @implementation PetView (Menu)
 - (void)selectPetFromButton:(NSButton *)sender {
     NSString *petID = sender.identifier;
@@ -408,7 +422,7 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
         action:action width:PetSubmenuRowWidth tag:tag];
     ((MenuHintRowView *)item.view).hint = toolTip;
 }
-// 一级子菜单只放启用和最常动的两个开关（开关在上、二级菜单在下）；免审批（设一次就不动）和只影响桌宠的提醒各收进二级菜单。
+// 一级子菜单放常用开关；免审批和只影响桌宠的提醒各收进二级菜单。
 // 未开启时只留"启用"一行：其余开关此时都不生效，列出来只是占地方。开启是异步的，
 // 菜单停留期间不会自己长出其余项，下次打开时按实际状态重建。
 - (void)addBridgeMenuToMenu:(NSMenu *)menu {
@@ -420,7 +434,7 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
     BOOL enabled = CCBridgeEnabled();
     [self addBridgeSwitchToMenu:bridgeMenu title:L(@"Enable") checked:enabled
         action:@selector(toggleBridgeEnabled:) tag:0
-        toolTip:L(@"Let local Claude Code / Codex sessions message and wake each other and reserve files")];
+        toolTip:L(@"Let local Agent sessions exchange messages, wake supported sessions, and reserve files")];
     if (!enabled) return;
 
     // 状态放在"启用"行的第二行，省掉底部单独的状态行和分隔线。开关上移与标题对齐，
@@ -451,9 +465,12 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
     [self addBridgeSwitchToMenu:bridgeMenu title:L(@"Edit guard") checked:[options[@"editGuard"] boolValue]
         action:@selector(toggleBridgeEditGuard:) tag:0
         toolTip:L(@"Pause once with an explanation when editing a file another session reserved; retrying goes through. Codex needs a session restart")];
+    [self addBridgeSwitchToMenu:bridgeMenu title:L(@"Tab nicknames") checked:[options[@"tabTitle"] boolValue]
+        action:@selector(toggleBridgeTabTitle:) tag:0
+        toolTip:L(@"Append CC Bridge nicknames to terminal tab titles. Restart CLI sessions after turning this on.")];
 
     NSMenuItem *approvalItem = [bridgeMenu addItemWithTitle:L(@"Auto-approve") action:nil keyEquivalent:@""];
-    approvalItem.representedObject = L(@"Each group applies to both Codex approvals and Claude permissions. Codex needs a session restart");
+    approvalItem.representedObject = L(@"Each group applies to the integrated Agents. Restart sessions to reload tool permissions");
     NSMenu *approvalMenu = [NSMenu new];
     NSArray<NSDictionary *> *groups = @[
         @{@"title": L(@"Read"), @"group": @"view", @"tag": @1,
@@ -467,9 +484,12 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
     ];
     NSSet *codex = [NSSet setWithArray:options[@"codexApprove"]];
     NSSet *claude = [NSSet setWithArray:options[@"claudeAllow"]];
+    NSSet *agy = [NSSet setWithArray:options[@"antigravityAllow"]];
+    BOOL hasAntigravity = CCPetsProfilesForProvider(CCPetsProfileProviderAntigravity).count > 0;
     for (NSDictionary *group in groups) {
         NSSet *tools = [NSSet setWithArray:CCBridgeToolGroup(group[@"group"])];
-        BOOL checked = tools.count > 0 && [tools isSubsetOfSet:codex] && [tools isSubsetOfSet:claude];
+        BOOL checked = tools.count > 0 && [tools isSubsetOfSet:codex] && [tools isSubsetOfSet:claude] &&
+            (!hasAntigravity || [tools isSubsetOfSet:agy]);
         [self addBridgeSwitchToMenu:approvalMenu title:group[@"title"] checked:checked
             action:@selector(toggleBridgeApproval:) tag:[group[@"tag"] integerValue] toolTip:group[@"tip"]];
     }
@@ -490,7 +510,32 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
-    [NSMenu popUpContextMenu:[self buildContextMenu] withEvent:event forView:self];
+    // 桌宠同时出现在多个 Space。用点击处的单独面板定位菜单，避免菜单跟随桌宠的原始桌面。
+    NSPoint click = [self.window convertPointToScreen:event.locationInWindow];
+    NSPanel *anchor = [[NSPanel alloc] initWithContentRect:NSMakeRect(click.x, click.y, 1, 1)
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+        backing:NSBackingStoreBuffered defer:NO];
+    anchor.opaque = NO;
+    anchor.backgroundColor = NSColor.clearColor;
+    anchor.hasShadow = NO;
+    anchor.hidesOnDeactivate = NO;
+    anchor.level = self.window.level;
+    anchor.collectionBehavior = NSWindowCollectionBehaviorMoveToActiveSpace |
+        NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorFullScreenAuxiliary |
+        NSWindowCollectionBehaviorCanJoinAllApplications;
+    [anchor orderFrontRegardless];
+
+    NSMenu *menu = [self buildContextMenu];
+    CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(NULL, kCFRunLoopBeforeWaiting,
+        true, 0, ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
+            PetJoinMenuWindowsToSpaces(anchor);
+        });
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+    NSPoint location = [anchor.contentView convertPoint:[anchor convertPointFromScreen:click] fromView:nil];
+    [menu popUpMenuPositioningItem:nil atLocation:location inView:anchor.contentView];
+    CFRunLoopObserverInvalidate(observer);
+    CFRelease(observer);
+    [anchor orderOut:nil];
     [self finishContextMenu];
 }
 // 菜单栏图标的右键菜单也是这一份，所以建菜单和收尾分开，不和 NSEvent 绑在一起。
@@ -533,6 +578,12 @@ static const NSInteger PetMenuDeleteButtonTag = 1002;
             [self addUsageModeControlToMenu:usageModeMenu provider:profile[@"displayName"] ?: provider
                 preferenceKey:key tag:codex ? 1 : 2 profile:profile];
         }
+    }
+    for (NSDictionary *profile in CCPetsProfilesForProvider(CCPetsProfileProviderAntigravity)) {
+        NSString *name = CCPetsProfileIsOfficialDefault(profile) && ![profile[@"customName"] boolValue]
+            ? @"Antigravity CLI" : [NSString stringWithFormat:@"Antigravity CLI · %@", profile[@"displayName"]];
+        [self addUsageModeControlToMenu:usageModeMenu provider:name preferenceKey:CCPetsUsageModePreferenceKey(profile)
+            tag:0 profile:profile];
     }
     usageModeItem.submenu = usageModeMenu;
     NSMenuItem *themeItem = [menu addItemWithTitle:L(@"Panel Theme") action:nil keyEquivalent:@""];
