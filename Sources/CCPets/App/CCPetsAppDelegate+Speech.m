@@ -178,7 +178,8 @@ static NSString *SpeechQuotaResetTime(NSDictionary *usage) {
         return;
     }
     if (self.updateBubbleVisible || ![self canSpeakNow]) return;
-    for (NSString *profileID in self.pendingQuotaSpeechProfileIDs.array) {
+    // 遍历独立快照，让账号出队后仍由快照持有，直到本轮处理完成。
+    for (NSString *profileID in [self.pendingQuotaSpeechProfileIDs copy]) {
         NSDictionary *profile = nil;
         for (NSDictionary *candidate in profiles) {
             if ([candidate[@"id"] isEqualToString:profileID]) { profile = candidate; break; }
