@@ -169,8 +169,8 @@ enabled later.
 
 Enable **Main menu → Settings → Launch Protection → Shadowrocket** (off by default).
 Each proxy app has its own preference; Shadowrocket is the first supported option.
-CC Pets wrappers require a connected Shadowrocket VPN and a valid exit IP / region from
-the service's HTTPS `/cdn-cgi/trace` endpoint before starting Claude / Codex. Failures
+When Claude or Codex uses an official endpoint, CC Pets wrappers require a connected
+Shadowrocket VPN and a valid exit IP / region from the service's HTTPS `/cdn-cgi/trace`. Failures
 print a reason and return a nonzero exit code before registering a session or sending
 a starting event. Disabling the option skips all network checks. For `agy`, only the
 Shadowrocket connection is checked: Google's service domains have no `/cdn-cgi/trace`
@@ -178,7 +178,7 @@ endpoint, so the exit region can't be verified.
 
 Claude defaults to `api.anthropic.com`. Codex uses the current Home's `auth.json` to select
 `chatgpt.com` for ChatGPT login or `api.openai.com` for API-key login. If the mode is unknown
-(for example, credentials stored only in Keychain), both exits must pass.
+and both possible endpoints are official, both exits must pass.
 The response must contain valid `ip`, `loc` and matching `h` fields. `CN` and `HK` exits,
 unknown regions, invalid responses, non-200 HTTP responses and connection / TLS / timeout
 failures block launch. Successful probes print the domain, exit IP and region.
@@ -196,11 +196,10 @@ Claude reads network environment settings from the current `CLAUDE_CONFIG_DIR/se
 and terminal proxy variables, including an overridden `ANTHROPIC_BASE_URL`. Codex supports
 common single-line string routing settings in `CODEX_HOME/config.toml` (`model_provider`,
 `profile`, `model_providers.<id>.base_url`, `chatgpt_base_url`), `--profile` / `-p`,
-`OPENAI_BASE_URL` and terminal proxy variables. Custom endpoints use their own origin's
-`/cdn-cgi/trace`, with no fallback to another domain. Gateways must serve valid trace data;
-this only describes the exit to the gateway, not the gateway's upstream exit.
-Complex routing TOML, unsupported cloud providers, command-line configuration overrides
-and project network overrides are rejected with an explanation. Enterprise-managed network
+`OPENAI_BASE_URL` and terminal proxy variables. Custom endpoints, Codex local models, and
+Claude's Bedrock, Vertex, and Foundry modes skip the VPN and exit-region checks. If routing
+cannot be determined from the supported settings, CC Pets prints a reason and allows startup.
+Enable **Strict Routing** to block startup in that case. Enterprise-managed network
 configuration is outside the supported scope. The check does not validate account access,
 service-supported countries or future routing changes. It recognizes the Shadowrocket VPN
 configuration, not just its running process. Original CLI binaries and desktop clients bypass it.

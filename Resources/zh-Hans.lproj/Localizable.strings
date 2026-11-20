@@ -924,9 +924,11 @@
 
 /* 启动前代理检查 */
 "Launch Protection" = "启动保护";
-"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region. Antigravity only checks the connection." = "Shadowrocket 未连接，或出口为不支持的地区时，阻止启动 Claude / Codex。Antigravity 只检查连接状态。";
-"Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key." = "默认关闭。通过 CC Pets 包装器分别检查各服务的出口 IP 和地区，不验证账号或 API 密钥。";
+"Check official Claude and Codex endpoints. Antigravity checks the VPN connection." = "检查 Claude 和 Codex 官方端点的出口。Antigravity 检查 VPN 连接。";
+"Strict Routing" = "严格保护";
+"When Shadowrocket protection is on, block Claude and Codex if their endpoint cannot be determined." = "开启 Shadowrocket 启动保护后，如果无法确认 Claude 或 Codex 的实际端点，则阻止启动。";
 "CC Pets blocked {provider}: {reason}" = "CC Pets 已阻止启动 {provider}：{reason}";
+"CC Pets: skipped launch protection for {provider}. {reason}" = "CC Pets：本次已跳过 {provider} 的启动保护。{reason}";
 "Connect Shadowrocket and select an exit outside mainland China / Hong Kong, then check routing and DNS settings. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接 Shadowrocket，选择中国大陆和香港以外的出口，并检查分流及 DNS 设置。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
 "Connect Shadowrocket to continue. You can turn off this check in Main menu → Settings → Launch Protection." = "请连接 Shadowrocket 后继续。可在「主菜单 → 设置 → 启动保护」关闭此检查。";
 "Unable to read the system VPN status." = "无法读取系统 VPN 状态。";
@@ -940,10 +942,10 @@
 "TLS negotiation or certificate verification failed." = "TLS 握手或证书校验失败。";
 "{host}: {detail}" = "{host}：{detail}";
 "Unable to read the CLI network configuration." = "无法读取 CLI 的网络配置。";
-"CLI arguments or project network overrides cannot be verified by this exit check." = "当前命令行参数或项目网络覆盖配置无法由出口检查可靠验证，请使用用户级网络配置或关闭启动保护。";
-"Unable to determine the CLI endpoint from its network configuration." = "无法从网络配置中可靠确定 CLI 的服务地址，未使用其他域名代替检查。";
+"CLI arguments or project network overrides cannot be verified by this exit check." = "无法根据当前命令行参数或项目网络配置确认实际端点。";
+"Unable to determine the CLI endpoint from its network configuration." = "无法从网络配置中可靠确定 CLI 的服务地址。";
 "The exit check requires an HTTPS endpoint without embedded credentials." = "出口检查需要不含内嵌账号凭据的 HTTPS 服务地址。";
-"Exit checks for this cloud provider are not supported. No official-domain fallback was used." = "暂不支持该云服务商的出口检查，未使用官方域名代替检查。";
+"Codex login mode is unknown and its configured endpoints do not all use official hosts." = "无法确定 Codex 登录模式，可能使用官方端点或自定义端点。";
 "Codex login mode is unknown; checking both ChatGPT and OpenAI API exits." = "无法确定 Codex 登录模式，将同时检查 ChatGPT 和 OpenAI API 的出口。";
 "The exit-check process exceeded its 16s limit." = "出口检测进程超过 16 秒保护时限，已终止。";
 "The exit request timed out; connection timing is unavailable." = "出口请求超时，未取得连接阶段耗时。";

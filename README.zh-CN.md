@@ -214,14 +214,14 @@ Hook 状态卡和消息气泡在宠物小于 100% 时同比例缩小，文字、
 
 在 **主菜单 → 设置 → 启动保护** 打开「Shadowrocket」开关（默认关闭）。
 启动保护按软件分别配置，当前提供 Shadowrocket，后续软件可在同一分组增加独立开关。
-通过 CC Pets 包装器启动 `claude` / `codex` 时，会先确认 Shadowrocket 的系统 VPN
+通过 CC Pets 包装器启动 `claude` / `codex` 并使用官方端点时，会先确认 Shadowrocket 的系统 VPN
 状态为已连接，再向对应服务的 `/cdn-cgi/trace` 发起 HTTPS GET，检查出口 IP 和地区；失败会在终端提示原因并返回非零退出码，
 不会启动 CLI，也不会登记会话或发送启动事件。关闭开关后不进行网络检查。
 `agy` 只检查 Shadowrocket 是否已连接：Google 的服务域名没有 `/cdn-cgi/trace` 这类端点，无法核验出口地区。
 
 仅识别 Shadowrocket 的 VPN 配置，不把「应用进程正在运行」当成代理已连接。
 Claude 默认检查 `api.anthropic.com`；Codex 根据当前 Home 的 `auth.json` 选择：ChatGPT 登录检查
-`chatgpt.com`，API Key 登录检查 `api.openai.com`。模式未知（例如凭据仅在 Keychain 中）时，两者都必须通过。
+`chatgpt.com`，API Key 登录检查 `api.openai.com`。登录模式未知且两个候选端点均为官方端点时，两者都必须通过。
 返回的 `ip`、`loc`、`h` 必须有效且匹配目标域名；`loc=CN` 或 `HK` 会阻止启动。
 请求失败、非 HTTP 200、无效响应、未知地区、TLS 错误或超时也会阻止启动；成功时在终端显示域名、出口 IP 和地区。
 每次尝试连接最多等待 8 秒，请求总计最多 15 秒，外层进程保护时限为 16 秒。
@@ -234,9 +234,9 @@ Claude 默认检查 `api.anthropic.com`；Codex 根据当前 Home 的 `auth.json
 Claude 支持当前 `CLAUDE_CONFIG_DIR` 下 `settings.json` 中的网络环境变量及终端代理变量，
 优先使用其中的 `ANTHROPIC_BASE_URL`。Codex 支持 `CODEX_HOME/config.toml` 中常见的单行字符串
 路由配置（`model_provider`、`profile`、`model_providers.<id>.base_url`、`chatgpt_base_url`）、
-`--profile` / `-p`、`OPENAI_BASE_URL` 和终端代理变量。自定义地址检查同一源站的 `/cdn-cgi/trace`，
-不回退到其他域名；网关必须提供有效 trace，且结果只代表到网关的出口，不代表网关到上游的出口。
-复杂路由 TOML、未支持的云服务商、命令行配置覆盖及项目网络覆盖会拒绝检查并提示原因。
+`--profile` / `-p`、`OPENAI_BASE_URL` 和终端代理变量。自定义端点、Codex 本地模型及 Claude 的
+Bedrock、Vertex、Foundry 模式会跳过 VPN 和出口地区检查。无法从支持的设置确认实际端点时，默认提示后继续启动。
+开启「严格保护」后，无法确认端点时将阻止启动。
 企业托管网络配置不在支持范围内。此检查不验证账号、密钥或服务支持地区，也不能保证探测后出口不变。
 直接启动原始 CLI 二进制或桌面客户端不会经过此保护。
 
@@ -840,7 +840,7 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 
 ## 隐私
 
-- 可选 Shadowrocket 启动保护默认关闭；启用后检查本机 VPN 状态，并向配置的服务 `/cdn-cgi/trace` 端点发起 HTTPS 请求。端点可见连接的出口 IP；请求不携带账号凭据、校验 TLS 且不跟随重定向。路由与支持限制见启动保护章节。
+- 可选 Shadowrocket 启动保护默认关闭；Claude 和 Codex 使用官方端点时，启动保护检查本机 VPN 状态，并向官方服务的 `/cdn-cgi/trace` 发起 HTTPS 请求。端点可见连接的出口 IP；请求不携带账号凭据、校验 TLS 且不跟随重定向。路由与支持限制见启动保护章节。
 - Token 统计还会读取本机 Codex SQLite 日志和线程元数据，并在本机缓存派生用量与增量读取游标，不上传这些日志。
 - 已安装的终端扩展仅监听 `127.0.0.1`，并验证本地请求身份；实例元数据与本地访问令牌保存在 `~/Library/Application Support/CC Pets/ide-instances/`，权限仅限本人。扩展安装经确认后写入所选 IDE 的插件或扩展目录；通过脚本跳转终端需要 macOS Automation 权限。
 - Codex 额度通过本机 Codex CLI 启动的官方 App Server 读取，沿用 Codex CLI 自身的登录状态；Codex Token 从本机已登记 Home 的会话记录及 SQLite 数据读取（默认 Home 可用 `CC_PETS_CODEX_HOME` 覆盖）。

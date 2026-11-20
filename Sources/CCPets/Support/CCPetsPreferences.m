@@ -11,6 +11,7 @@ NSString *const PetInteractionHeartThresholdKey = @"CCPetsInteractionHeartThresh
 NSString *const PetInteractionAnnoyedThresholdKey = @"CCPetsInteractionAnnoyedThreshold";
 NSString *const PetInteractionIntervalKey = @"CCPetsInteractionInterval";
 NSString *const CCPetsShadowrocketLaunchCheckKey = @"CCPetsLaunchProtection.Shadowrocket";
+NSString *const CCPetsLaunchProtectionStrictRoutingKey = @"CCPetsLaunchProtection.StrictRouting";
 NSString *const CCPetsDisplayModeKey = @"CCPetsDisplayMode";
 NSString *const CCPetsDisplayModePet = @"pet";
 NSString *const CCPetsDisplayModeBoth = @"both";

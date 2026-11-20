@@ -1512,12 +1512,18 @@ static NSString *TerminalJumpShortState(NSDictionary *item, BOOL vscode) {
 
     [self.form addGroupWithTitle:L(@"Launch Protection") rows:@[
         [self switchRowWithTitle:@"Shadowrocket"
-            subtitle:L(@"Block Claude / Codex when Shadowrocket is disconnected or the exit is in an unsupported region. Antigravity only checks the connection.")
+            subtitle:L(@"Check official Claude and Codex endpoints. Antigravity checks the VPN connection.")
             key:CCPetsShadowrocketLaunchCheckKey
             apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
                 CCPetsPrefSetBool(CCPetsShadowrocketLaunchCheckKey, enabled);
             }],
-    ] footer:L(@"Off by default. Checks each service's exit IP and region through CC Pets wrappers; does not validate your account or API key.")];
+        [self switchRowWithTitle:L(@"Strict Routing")
+            subtitle:L(@"When Shadowrocket protection is on, block Claude and Codex if their endpoint cannot be determined.")
+            key:CCPetsLaunchProtectionStrictRoutingKey
+            apply:^(id<CCPetsSettingsActions> actions, BOOL enabled) {
+                CCPetsPrefSetBool(CCPetsLaunchProtectionStrictRoutingKey, enabled);
+            }],
+    ] footer:nil];
 
     // 悬停面板：每家一个胶囊，点一下在订阅额度和 Token 用量之间切换，和右键菜单同一个样子。
     [self.form addGroupTitle:L(@"Hover Panel") note:L(@"Click a pill to switch")];

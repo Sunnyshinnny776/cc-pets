@@ -17,6 +17,7 @@ extern NSString *const PetInteractionAnnoyedThresholdKey;
 extern NSString *const PetInteractionIntervalKey;
 // 启动保护按代理软件分别保存；增加软件时定义独立的布尔键。
 extern NSString *const CCPetsShadowrocketLaunchCheckKey;
+extern NSString *const CCPetsLaunchProtectionStrictRoutingKey;
 
 // 显示位置：仅桌宠（默认）/ 桌宠 + 菜单栏 / 仅菜单栏。字符串而不是整数，以后加模式不错位。
 extern NSString *const CCPetsDisplayModeKey;
