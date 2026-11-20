@@ -14,7 +14,7 @@
 
 ### 用量与额度
 
-- 从本地转录统计 Antigravity CLI 和 App 的 Token，用量页各有独立筛选。悬停面板的「今日」和「最近 7 天」汇总分别标为 `AGY CLI` 和 `AGY APP`。
+- 从本地转录统计 Antigravity CLI 和 App 的 Token，用量页各有独立筛选。悬停面板的「今日」和「最近 7 天」汇总分别显示为 Antigravity CLI 和 Antigravity App。
 - 通过 `agy -p /usage --output-format json` 读取 Antigravity 订阅额度，每个已登录账号只读一份。API key 模式展示本地用量。
 - 悬停面板显示 Antigravity，有独立的颜色、logo 和展示模式。
 - 新增「设置 → 悬停面板显示 → 额度卡片顺序」，拖动即可调整悬停面板中各家卡片的顺序。

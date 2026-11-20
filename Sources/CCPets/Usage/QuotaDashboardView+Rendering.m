@@ -489,10 +489,12 @@
     for (NSString *provider in providers) {
         BOOL antigravity = [provider isEqualToString:@"Antigravity"];
         NSColor *color = [self colorForProvider:provider];
-        [rows addObject:@{@"name": antigravity ? @"AGY CLI" : provider,
-            @"usage": [self summaryUsageForProvider:provider], @"color": color}];
+        [rows addObject:@{@"name": antigravity ? @"Antigravity CLI" : provider,
+            @"usage": [self summaryUsageForProvider:provider], @"color": color,
+            @"shiftsName": @(antigravity)}];
         if (antigravity) {
-            [rows addObject:@{@"name": @"AGY APP", @"usage": [self summaryUsageForAntigravityApp], @"color": color}];
+            [rows addObject:@{@"name": @"Antigravity App", @"usage": [self summaryUsageForAntigravityApp],
+                @"color": color, @"shiftsName": @YES}];
         }
     }
     NSUInteger pageCount = [self summaryPageCount];
@@ -550,13 +552,17 @@
             if (pageRows.count == 1) iconY += QuotaSummaryRowHeight / 2;
             CGFloat nameY = iconY + 9;
             CGFloat labelY = iconY + 25;
-            if (CCPetsLanguageIsSource()) labelY += 2 / QuotaScale;
+            // 中英文标签基线相同，统一上移，和下方 Token 数留出一致的间距。
+            labelY += 2 / QuotaScale;
             CGFloat valueY = iconY + 4;
             // 这是图标字形不是文字，原生玻璃下也保留颜色：它负责标出这一行是哪一家。
             [cell[@"icon"] drawInRect:NSMakeRect(x + 20, iconY, 42, 42)
                 withAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:30
                     weight:NSFontWeightRegular], NSForegroundColorAttributeName: rowColor}];
-            [self drawText:row[@"name"] inRect:NSMakeRect(x + 66, nameY, inputX - (x + 66) - 6, 22)
+            // Antigravity 的名称较长，整体左移 8pt 但宽度不变，让出与「输入」列之间的空隙；
+            // 若同时放宽，字号收缩会把空隙重新吃掉。
+            CGFloat nameX = x + ([row[@"shiftsName"] boolValue] ? 58 : 66);
+            [self drawText:row[@"name"] inRect:NSMakeRect(nameX, nameY, inputX - (x + 66) - 6, 22)
                 size:14 weight:NSFontWeightMedium color:rowColor dotColor:nil];
             [L(@"Input") drawInRect:NSMakeRect(inputX, labelY, 76, 16)
                 withAttributes:headerAttributes];

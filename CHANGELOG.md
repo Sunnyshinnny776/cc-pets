@@ -15,7 +15,7 @@ truth for the version.
 
 ### Usage and quota
 
-- Count Antigravity CLI and App tokens from their local transcripts, with separate filters on the Usage page. The hover panel's daily and 7-day summaries label them `AGY CLI` and `AGY APP`.
+- Count Antigravity CLI and App tokens from their local transcripts, with separate filters on the Usage page. The hover panel's daily and 7-day summaries list them as Antigravity CLI and Antigravity App.
 - Read Antigravity subscription quota through `agy -p /usage --output-format json`, once per signed-in account. API-key mode shows local usage.
 - Show Antigravity in the hover panel with its own color, logo and display mode.
 - Add Settings → Hover Panel → Quota Card Order: drag to reorder the provider cards in the hover panel.
