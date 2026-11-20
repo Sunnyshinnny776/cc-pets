@@ -42,7 +42,7 @@ See the [changelog](./CHANGELOG.md) and [release notes](./docs/release-notes-v2.
 - Lists up to eight recent online Agent terminal sessions from the status card icon.
 - Badges the status icon with the number of sessions waiting for approval and pins those sessions to the top of the list.
 - Speaks up when an Agent sits in approval or thinking longer than its threshold.
-- Announces new versions through the pet with release highlights and updates from the right-click menu.
+- Announces new versions through the pet with release highlights and updates from the right-click menu. Prerelease builds such as `2.6.0-beta.3` are offered the stable release of the same version or later.
 - Supports optional local quota history and macOS notifications.
 - Supports third-party CLI agents through a provider event protocol.
 - Includes editable global and per-pet speech.
@@ -380,7 +380,7 @@ cc-pets open general       # also: pet, accounts, alerts, diagnostics
 - **Multi-Account** — add Claude, Codex, or Antigravity CLI Homes, view paths and integration status, and manage repairs, names, relocation and removal of custom Home integrations.
 - **Pet / Alerts / Settings** — every pet setting, split into three short pages (Pet:
   picker, deletion of unselected custom pets with confirmation, size, chatter, click reactions and Codex import; Alerts: notifications, the status
-  card and system status; Settings: language, display location, panel appearance and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
+  card and system status; Settings: language, display location, panel appearance, the hover panel's quota card order and the pet sprites folder), plus finer controls such as the click-reaction thresholds and a
   continuous glass dimming slider (the menu keeps its four presets). Changes apply to the
   desktop pet immediately, and changes made in the menu show up here. Options that rewrite
   Claude Code / Codex configuration (enabling CC Bridge, auto-approve) stay in the
@@ -522,7 +522,8 @@ override these with `CC_PETS_CODEX_HOME` and `CC_PETS_CLAUDE_CONFIG_DIR`.
 Antigravity CLI reads local transcripts from `~/.gemini/antigravity-cli/brain`, or from the registered
 CLI Home. Antigravity App reads the separate transcript folder at `~/.gemini/antigravity/brain`.
 CC Pets displays the two sets of Token and request counts separately. The hover panel also shows
-Antigravity alongside Codex and Claude, with its display mode under Hover Panel in Settings. CC Pets reads subscription quota
+Antigravity alongside Codex and Claude, with its display mode under Hover Panel in Settings. Drag the
+providers under **Settings → Hover Panel → Quota Card Order** to change the card order. CC Pets reads subscription quota
 for each signed-in account through `agy -p /usage --output-format json` and displays the available
 five-hour and weekly windows once per account. API-key mode displays local usage.
 

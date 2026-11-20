@@ -84,7 +84,7 @@ cc-pets open general       # 还有 pet、accounts、alerts、diagnostics
   数据全部来自本机会话日志，不会发送到任何地方；按日归档让 Claude Code 清理旧转录之后，历史仍然留得住。
 - **多账号**可添加 Claude、Codex 或 Antigravity CLI Home，查看目录与集成状态，并通过「管理」菜单修复、重命名、重新定位或移除自定义 Home 的集成。
 - **宠物 / 提醒 / 设置**：桌宠的全部设置拆成三页（宠物：选宠物、确认删除未选中的自定义宠物、大小、碎碎念、点击互动、导入 Codex 素材；提醒：系统通知、桌面状态卡和系统状态；
-  设置：语言、显示位置、面板外观和素材目录），另有更细的项（比如连击阈值、可以连续调节的玻璃压暗，菜单里仍是四档）。
+  设置：语言、显示位置、面板外观、悬停面板的额度卡片顺序和素材目录），另有更细的项（比如连击阈值、可以连续调节的玻璃压暗，菜单里仍是四档）。
   右键菜单只留最常用的几项：管理桌宠、宠物大小、显示消息气泡、用量展示模式、面板主题和 CC Bridge，其余都到这里改。改动会立刻作用到桌面上的宠物，在菜单里改的也会同步显示在这里。
   会改写 Claude Code / Codex 配置的选项（启用 CC Bridge、免审批）仍只在右键菜单里。
 - **诊断**：和 `cc-pets doctor` 同一套检查，要处理的问题置顶，每条带所属模块、修复命令和「复制命令」；
@@ -554,6 +554,7 @@ CC_PETS_ANTIGRAVITY_HOME=/absolute/path/to/gemini-root agy
 随后在后台复用首次安装时记录的 Node.js/npm 完成升级；用户无需打开终端。升级会同步更新原生应用、
 Codex/Claude Hooks 和 shell 集成，并自动重启正在运行的桌宠。自动更新不会请求管理员权限；如果原来的
 全局 npm 目录不可写或 Node.js/npm 已被移动，应用会保留旧版本并显示更新日志和手动升级命令。
+预发布版（如 `2.6.0-beta.3`）同样会收到同号或更高的正式版更新。
 
 ### 指定真实 CLI 路径
 
@@ -676,6 +677,7 @@ Claude.ai Pro/Max 订阅账号，并在会话完成首次 API 响应后出现；
 Antigravity CLI 从 `~/.gemini/antigravity-cli/brain` 或已登记 CLI Home 的对应目录读取会话转录，
 Antigravity App 从 `~/.gemini/antigravity/brain` 读取。两种来源的 Token 和请求数分别展示。
 Antigravity 的展示模式位于「设置 → 悬停面板显示」，与 Codex 和 Claude 使用同一组设置。
+在「设置 → 悬停面板显示 → 额度卡片顺序」中拖动即可调整各家额度卡片的顺序。
 订阅额度由 `agy -p /usage --output-format json` 读取，每个已登录账号只显示一份可用的五小时与周额度。
 API key 模式展示本地用量。
 
