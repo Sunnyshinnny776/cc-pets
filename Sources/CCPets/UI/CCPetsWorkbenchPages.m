@@ -471,8 +471,8 @@ static const CGFloat HeroExtraPadding = 15;
 
 #pragma mark - 会话
 
-// 会话表的列宽：状态胶囊、最近活动、按钮固定，会话名和当前在做平分剩下的。
-static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActionWidth = 82;
+// 会话名占剩余宽度；窄窗口下允许「当前在做」收窄，以保留可见的会话名。
+static const CGFloat SessionStateWidth = 92, SessionDoingWidth = 256, SessionTimeWidth = 72, SessionActionWidth = 82;
 
 @interface CCPetsSessionsPage ()
 @property(nonatomic) CCPetsFormBuilder *form;
@@ -590,12 +590,15 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
         [cell.centerYAnchor constraintEqualToAnchor:row.centerYAnchor].active = YES;
     }
     NSView *state = cells[0], *name = cells[1], *doing = cells[2], *time = cells[3], *action = cells[4];
+    NSLayoutConstraint *doingWidth = [doing.widthAnchor constraintEqualToConstant:SessionDoingWidth];
+    doingWidth.priority = NSLayoutPriorityRequired - 1;
     [NSLayoutConstraint activateConstraints:@[
         [row.heightAnchor constraintEqualToConstant:height],
         [state.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
         [name.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14 + SessionStateWidth + 12],
         [doing.leadingAnchor constraintEqualToAnchor:name.trailingAnchor constant:12],
-        [doing.widthAnchor constraintEqualToAnchor:name.widthAnchor multiplier:1.15],
+        [name.widthAnchor constraintGreaterThanOrEqualToConstant:96],
+        doingWidth,
         [time.leadingAnchor constraintEqualToAnchor:doing.trailingAnchor constant:12],
         [time.widthAnchor constraintEqualToConstant:SessionTimeWidth],
         [action.leadingAnchor constraintEqualToAnchor:time.trailingAnchor constant:12],
@@ -645,6 +648,13 @@ static const CGFloat SessionStateWidth = 92, SessionTimeWidth = 72, SessionActio
         nameCell.orientation = NSUserInterfaceLayoutOrientationVertical;
         nameCell.alignment = NSLayoutAttributeLeading;
         nameCell.spacing = 1;
+        [name.widthAnchor constraintEqualToAnchor:nameCell.widthAnchor].active = YES;
+        NSString *projectName = session[@"projectName"];
+        if (projectName.length > 0 && ![title containsString:projectName]) {
+            nameCell.toolTip = [NSString stringWithFormat:@"%@\n%@", title, projectName];
+        } else {
+            name.allowsExpansionToolTips = YES;
+        }
         for (NSView *view in @[name, detail, nameCell]) {
             [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                 forOrientation:NSLayoutConstraintOrientationHorizontal];
