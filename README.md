@@ -599,6 +599,27 @@ The source and installation record is stored separately in `.source.json`; upstr
 `--as` option accepts localized names but rejects path separators, whitespace, and
 consecutive `..` sequences.
 
+### Discover Pets in the app
+
+The window's **Pet** page has a **Discover Pets** tab for browsing and installing
+community pets without the CLI: 25 per page with page jump, search, a kind filter
+(characters / creatures / objects) and **Hide Installed**. Click a card for an animated
+preview. **Use** downloads the pet into `~/.cc-pets/pets/` and switches to it; **Install
+Only** just downloads it.
+
+The list defaults to PetDex's own gallery order, most installed first. Besides the
+manifest, the tab makes these requests:
+
+- `https://petdex.dev/api/pets/search?sort=installed` for the 300 most installed pets
+  (5 requests, cached for 6 hours). The PetDex website uses this endpoint but doesn't
+  document it; if it fails, the list keeps manifest order.
+- `https://assets.petdex.dev/pets/<slug>/preview.webp` for card thumbnails (tens of KB
+  each). The full sprite sheet is downloaded only for the detail preview, or when a
+  thumbnail is missing.
+
+Both are cached under `~/.cc-pets/cache/`: `popular-petdex.json`, and up to 200 MB of
+images in `petdex-previews/`. `cc-pets clean` removes them.
+
 ### Importing Codex assets
 
 CC Pets never renders directly from `~/.codex/pets/`. Enable **Import Codex Pets** on the

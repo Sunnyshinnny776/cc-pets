@@ -34,6 +34,7 @@
 - (void)presentSpeechText:(NSString *)text;
 // 可选的宠物：id、name、path（精灵图）、rowCount、builtin（是否包内自带）。
 - (NSArray<NSDictionary *> *)petPickerOptions;
+- (void)invalidatePetOptionsCache;
 - (NSString *)currentPetID;
 - (void)switchPetToID:(NSString *)petID;
 // 删掉自己素材文件夹里的一只（builtin 的删不了）；删的是当前那只会自动换到下一只。成功返回 YES。

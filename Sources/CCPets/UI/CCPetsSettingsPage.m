@@ -11,6 +11,7 @@
 #import "CCPetsL10n.h"
 #import "CCPetsPaths.h"
 #import "CCPetsPetSize.h"
+#import "CCPetsPetCatalog.h"
 #import "CCPetsPhrases.h"
 #import "CCPetsPreferences.h"
 #import "CCPetsProfiles.h"
@@ -381,6 +382,8 @@ static void RevealFolder(NSString *path) {
 #pragma mark - 宠物
 
 @interface CCPetsPetPage ()
+@property(nonatomic) CCPetsPetCatalog *catalog;
+@property(nonatomic) NSSegmentedControl *petTabs;
 @property(nonatomic) NSStackView *pickerRows;
 @property(nonatomic) NSMutableDictionary<NSString *, CCPetsTileView *> *petTiles;
 @property(nonatomic) NSMutableDictionary<NSString *, CCPetsSpriteView *> *petSprites;
@@ -415,13 +418,68 @@ static const NSUInteger PetPickerColumns = 4;
     self.petDeleteButtons = [NSMutableDictionary dictionary];
     self.petDeleteItems = [NSMutableDictionary dictionary];
     [super loadView];
+    self.view = [[NSView alloc] initWithFrame:self.form.view.frame];
+    self.petTabs = [NSSegmentedControl segmentedControlWithLabels:@[L(@"Installed"), L(@"Discover Pets")]
+        trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(changePetTab:)];
+    CCPetsApplyAccent(self.petTabs);
+    [self displayForm:self.form];
     // 切宠物不走 defaults 写入口（选中项记在桌宠自己身上），靠名片通知得知换了。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(petDidChange:)
         name:CCPetsPetCardDidChangeNotification object:nil];
     // 文件夹一开始可能不存在（监视不上），回到窗口时再对一次，兜住这种情况。
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowDidBecomeKey:)
         name:NSWindowDidBecomeKeyNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(catalogDidInstall:)
+        name:CCPetsCatalogDidInstallNotification object:nil];
     [self startWatchingPetsDirectory];
+}
+
+- (void)displayForm:(CCPetsFormBuilder *)form {
+    [self.petTabs removeFromSuperview];
+    self.petTabs.selectedSegment = form == self.form ? 0 : 1;
+    [form setAccessoryViews:@[self.petTabs]];
+    for (NSView *previous in self.view.subviews.copy) [previous removeFromSuperview];
+    NSView *content = form.view;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [content.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [content.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [content.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [content.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+    ]];
+}
+
+- (void)changePetTab:(NSSegmentedControl *)tabs {
+    if (tabs.selectedSegment == 1) {
+        [self showDiscovery];
+    } else {
+        [self.catalog pausePreviews];
+        [self reloadPickerIfChanged];
+        [self displayForm:self.form];
+    }
+}
+
+- (void)showDiscovery {
+    if (!self.catalog) {
+        self.catalog = [CCPetsPetCatalog new];
+        __weak typeof(self) weakSelf = self;
+        self.catalog.selectPet = ^(NSString *petID) { [weakSelf.actions switchPetToID:petID]; };
+    }
+    [self refreshCatalogSelection];
+    [self displayForm:self.catalog.form];
+    [self.catalog show];
+}
+
+- (void)catalogDidInstall:(NSNotification *)notification {
+    [self.actions invalidatePetOptionsCache];
+    if (!self.petsWatcher) [self startWatchingPetsDirectory];
+    [self reloadPickerIfChanged];
+    [self refreshCatalogSelection];
+}
+
+- (void)refreshCatalogSelection {
+    if (self.catalog) [self.catalog setInstalledPets:[self.actions petPickerOptions] currentID:[self.actions currentPetID]];
 }
 
 - (void)dealloc {
@@ -562,7 +620,7 @@ static const NSUInteger PetPickerColumns = 4;
     self.sampleLine.stringValue = text.length > 0 ? [NSString stringWithFormat:L(@"“%@”"), text] : @"";
 }
 
-// 宠物卡片：精灵图 + 名字 + 来源。最后一张是"添加宠物"，打开素材文件夹。
+// 宠物卡片：精灵图 + 名字 + 来源。最后一张是「添加宠物」，切到在线目录。
 - (void)rebuildPicker {
     for (NSView *view in [self.pickerRows.arrangedSubviews copy]) {
         [self.pickerRows removeArrangedSubview:view];
@@ -591,9 +649,9 @@ static const NSUInteger PetPickerColumns = 4;
     }
     NSTextField *plus = CCPetsLabel(@"+", 30, NSFontWeightLight, CCPetsTertiaryInkColor());
     plus.alignment = NSTextAlignmentCenter;
-    CCPetsTileView *add = [self tileWithTop:plus title:L(@"Add a Pet") subtitle:L(@"cc-pets pet add <name>")];
-    add.onClick = ^{ RevealFolder(OwnPetsDirectory()); };
-    add.toolTip = L(@"Opens your pets folder. Put a sprite sheet in its own folder there, or run cc-pets pet add <name>.");
+    CCPetsTileView *add = [self tileWithTop:plus title:L(@"Add a Pet") subtitle:L(@"Community Pets")];
+    add.onClick = ^{ [weakSelf showDiscovery]; };
+    add.toolTip = L(@"Pick and install community pets.");
     [tiles addObject:add];
 
     for (NSUInteger start = 0; start < tiles.count; start += PetPickerColumns) {
@@ -721,6 +779,7 @@ static const NSUInteger PetPickerColumns = 4;
 }
 
 - (void)updatePetSelection {
+    [self refreshCatalogSelection];
     NSString *current = [self.actions currentPetID];
     [self.petTiles enumerateKeysAndObjectsUsingBlock:^(NSString *petID, CCPetsTileView *tile, BOOL *stop) {
         BOOL selected = [petID isEqualToString:current];

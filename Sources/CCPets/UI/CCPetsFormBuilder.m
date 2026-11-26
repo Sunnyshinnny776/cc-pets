@@ -30,6 +30,19 @@ static const CGFloat FormSideInset = 28;
 }
 
 - (instancetype)initWithTitle:(NSString *)title subtitle:(NSString *)subtitle {
+    return [self initWithTitle:title subtitle:subtitle toolbar:nil];
+}
+
+- (instancetype)initWithTitle:(NSString *)title subtitle:(NSString *)subtitle toolbar:(NSView *)toolbar {
+    return [self initWithTitle:title subtitle:subtitle toolbar:toolbar content:nil];
+}
+
++ (CGFloat)contentInsetForWidth:(CGFloat)width {
+    return MAX(FormSideInset, floor((width - FormMaximumWidth) / 2));
+}
+
+- (instancetype)initWithTitle:(NSString *)title subtitle:(NSString *)subtitle toolbar:(NSView *)toolbar
+                      content:(NSView *)content {
     if ((self = [super init])) {
         NSTextField *titleLabel = CCPetsLabel(title, 22, NSFontWeightBold, CCPetsInkColor());
         NSTextField *subtitleLabel = CCPetsLabel(subtitle, 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
@@ -86,7 +99,28 @@ static const CGFloat FormSideInset = 28;
         // 贴合优先级（250），否则内容列只按自己最窄的宽度排，宽窗口里缩成中间一小条。
         NSLayoutConstraint *fullWidth = [stack.widthAnchor constraintEqualToAnchor:document.widthAnchor
             constant:-2 * FormSideInset];
+        if (toolbar) {
+            toolbar.translatesAutoresizingMaskIntoConstraints = NO;
+            [root addSubview:toolbar];
+            [NSLayoutConstraint activateConstraints:@[
+                [toolbar.leadingAnchor constraintEqualToAnchor:stack.leadingAnchor],
+                [toolbar.trailingAnchor constraintEqualToAnchor:stack.trailingAnchor],
+                [toolbar.topAnchor constraintEqualToAnchor:header.bottomAnchor constant:12],
+            ]];
+        }
         fullWidth.priority = NSLayoutPriorityDragThatCannotResizeWindow;
+        // 表单的滚动区仍然留着（隐藏）：页头和工具栏靠它里面的内容列定左右边。
+        if (content) {
+            scroll.hidden = YES;
+            content.translatesAutoresizingMaskIntoConstraints = NO;
+            [root addSubview:content];
+            [NSLayoutConstraint activateConstraints:@[
+                [content.topAnchor constraintEqualToAnchor:scroll.topAnchor],
+                [content.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+                [content.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+                [content.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+            ]];
+        }
         [NSLayoutConstraint activateConstraints:@[
             [header.topAnchor constraintEqualToAnchor:root.topAnchor],
             [header.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
@@ -102,7 +136,7 @@ static const CGFloat FormSideInset = 28;
             [rule.trailingAnchor constraintEqualToAnchor:header.trailingAnchor],
             [rule.bottomAnchor constraintEqualToAnchor:header.bottomAnchor],
 
-            [scroll.topAnchor constraintEqualToAnchor:header.bottomAnchor],
+            [scroll.topAnchor constraintEqualToAnchor:toolbar ? toolbar.bottomAnchor : header.bottomAnchor constant:toolbar ? 4 : 0],
             [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
             [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
             [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],

@@ -1,5 +1,6 @@
 // 宠物素材发现、切换与删除。
 #import "CCPetsAppDelegate+Private.h"
+#import "CCPetsPetStore.h"
 
 @implementation AppDelegate (Pets)
 - (NSDictionary *)petManifestInDirectory:(NSString *)directory {
@@ -66,6 +67,7 @@
         [result addObject:@{
             @"id": [@"external:" stringByAppendingString:name],
             @"name": name,
+            @"petdexSlug": CCPetsInstalledPetdexSlug(directory) ?: @"",
             @"path": path,
             @"spriteVersionNumber": @(version),
             @"spriteRowCount": @([self spriteRowCountForVersion:version])
@@ -156,6 +158,7 @@
     for (NSDictionary *option in [self petOptions]) {
         [options addObject:@{@"id": option[@"id"], @"name": option[@"name"] ?: @"", @"path": option[@"path"] ?: @"",
                              @"rowCount": option[@"spriteRowCount"] ?: @9,
+                             @"petdexSlug": option[@"petdexSlug"] ?: @"",
                              @"builtin": @([option[@"id"] hasPrefix:@"builtin:"])}];
     }
     return options;

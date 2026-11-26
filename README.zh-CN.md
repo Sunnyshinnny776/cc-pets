@@ -822,6 +822,22 @@ cc-pets pet add boba --as 波霸
 反复启动是幂等的：已经导入过的素材因为同名而跳过，不会重复复制。关掉开关不会删除已经
 导入的素材，想删用 `cc-pets pet remove`。
 
+#### 应用内发现宠物
+
+主窗口「宠物」页有「发现宠物」标签，不用命令行也能浏览、安装社区宠物：每页 25 只，可翻页和
+跳页，支持搜索、类型筛选（角色 / 生物 / 物件）和「隐藏已安装」。点卡片看动画预览；「使用」会把
+宠物下载到 `~/.cc-pets/pets/` 并直接换上，「仅安装」只下载。
+
+默认顺序与 PetDex 网站画廊一致，按安装量从高到低。除素材清单外，这个页面还会请求：
+
+- `https://petdex.dev/api/pets/search?sort=installed`：安装量前 300 名（5 次请求，缓存 6 小时）。
+  这是 PetDex 网站自用、未写进文档的接口；请求失败时按清单原顺序排列。
+- `https://assets.petdex.dev/pets/<slug>/preview.webp`：卡片缩略图，每张几十 KB。只有打开详情
+  预览或缩略图缺失时才下载整张精灵图。
+
+两者都缓存在 `~/.cc-pets/cache/` 下：`popular-petdex.json`，以及 `petdex-previews/` 里最多
+200 MB 的图片。`cc-pets clean` 会一并清除。
+
 #### 其他
 
 素材清单按源分别缓存 6 小时，加 `--refresh` 强制刷新。下载只接受源白名单内的 host（PetDex
