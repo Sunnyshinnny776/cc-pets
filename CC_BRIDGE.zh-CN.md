@@ -80,6 +80,62 @@ Agent 会调用这些 MCP 工具：
 | `list_reservations` | 查看当前仓库的所有预留，或某个文件被谁预留。 |
 | `check_inbox` | 手动读取信箱。正常情况下消息会自动送达，一般不需要调用。 |
 
+### Slack
+
+在一个 Slack 工作区中，每个配置的机器人都可以成为一个 Bridge 收件人。适配器通过 Socket Mode 主动连接 Slack，可随桌宠自动运行，也可以在终端前台运行。
+
+1. 给 Bridge 创建一个 Slack App，启用 Socket Mode，生成带 `connections:write` 的 App-Level Token。为 bot 添加 `chat:write`。公开频道需要 `channels:history` 并订阅 bot 事件 `message.channels`；私有频道需要 `groups:history` 和 `message.groups`。安装或重新安装 App，再将 Bridge 和对端机器人都邀请到目标频道。[Slack Socket Mode 配置](https://docs.slack.dev/apis/events-api/using-socket-mode/)
+2. 让对端 agent 接受 Bridge bot 的频道 @ 提及，并用 `thread_ts` 在原消息下回复。记录频道 ID 和**对端**的两个 ID。消息事件中的 `bot_id` 识别发送方，bot 的成员 ID（`user_id`）用于 @ 提及。管理对端 App 的人也可以从该 bot 的 `auth.test` 结果获取两个 ID。[Slack 机器人消息](https://docs.slack.dev/reference/events/message/bot_message/) · [auth.test](https://docs.slack.dev/reference/methods/auth.test/)
+3. 将配置保存到 `~/.cc-pets/bridge-slack.json`。把示例 ID 换成真实值，每个 agent 加一项。同一频道中的每个 bot 只配置一次。
+
+```json
+{
+  "enabled": true,
+  "app_token": "xapp-…",
+  "bot_token": "xoxb-…",
+  "agents": [
+    {
+      "name": "slack-reviewer",
+      "channel": "C0123456789",
+      "bot_id": "B0123456789",
+      "user_id": "U0123456789"
+    }
+  ]
+}
+```
+
+在默认 JSON 中填好本机 App 的两个真实令牌，右键桌宠启用 **CC Bridge**。打开支持此功能的 CC Pets 后，桌宠会自动连接 Slack；运行期间保存配置会重新加载，设置 `"enabled": false`、关闭 Bridge 或退出桌宠都会停止由桌宠启动的适配器。缺省 `enabled` 时自动启动关闭。含令牌的 JSON 以明文保存在本机，读取时会将权限设为仅当前用户读写（`0600`）。
+
+手动调试仍可运行 `cc-pets bridge slack [config.json]`。手动启动优先使用 JSON 中的 `app_token`、`bot_token`，缺少哪个就读取对应的 `SLACK_APP_TOKEN`、`SLACK_BOT_TOKEN` 环境变量。桌宠会与已运行的手动实例共用单实例锁。使用源码构建时，需运行新构建的桌宠，并让 Agent 会话加载同一版 hooks 和 MCP。
+
+- **本地发起**。调用 `list_agents` 找到 Slack 收件人，再用 `send_message(to="slack-reviewer", message="请审查接口变更")` 发起新线程。消息中的本地会话名、ref 和正文会发布到配置的 Slack 频道。可以用 `cc-pets bridge status` 查看最近的回执。
+- **Slack 发起**。让已配置的机器人在频道中新发一条 `@CCBridge 发给 codex-main 请审查接口变更`。通过 API 发送时用 `<@U…>` 表示 Bridge bot 的成员 ID。适配器也接受 `@CCBridge to codex-main …`。目标是在线的本地会话。
+- **继续同一线程**。本地回复时使用来信给出的完整地址，例如 `slack-reviewer [a1b2c3]#1234567890.123456`。适配器按原会话 ID 匹配线程；原会话离线后，即使另一会话用了同名，也不会接走回复。线程路由随回执保留，连续 48 小时无消息后可发起新线程。
+
+#### 通过 Slack 频道自动发现电脑
+
+每台 Mac 运行自己的 Bridge 和 Slack App，把这些 App 邀请进同一个工作区的同一个私有频道。频道是登记和发现的范围。在每台电脑的 `~/.cc-pets/bridge-slack.json` 填同一个频道 ID；想指定本机的地址前缀时可以加 `name`。例如 UniverseWang 这台 Mac 使用：
+
+```json
+{
+  "enabled": true,
+  "app_token": "xapp-…",
+  "bot_token": "xoxb-…",
+  "discovery": {
+    "channel": "C0123456789",
+    "name": "UniverseWang"
+  }
+}
+```
+
+将示例频道 ID 替换成真实值。本机名可以包含大小写字母、数字、点、下划线和短横线。省略 `name` 时会使用 Slack bot 的用户名生成地址前缀。每台电脑把自己 App 的两个令牌填入同一 JSON，打开桌宠并启用 Bridge。适配器连上 Slack 后会主动在频道登记，并公布本机在线会话。
+
+- **加入第三台电脑**。邀请第三台电脑的 Slack App 进入这个频道，让它使用同一频道 ID 启动适配器。已经启用频道发现的电脑会自动看到新会话，无需更新或重启；整个过程无需交换 bot ID 或成员 ID。
+- **查看和发送**。调用 `list_agents` 或运行 `cc-pets bridge list`。例如，其他电脑会看到 `UniverseWang/reviewer` 的 Agent 类型和忙闲状态。使用 `send_message(to="UniverseWang/reviewer", message="请审查代码")` 跨机发送；本机仍使用 `reviewer`。回复使用来信中的完整地址，回到原 Slack 线程。对方 Bridge 确认接收后，回执更新为已送达。
+- **在线状态**。适配器约每 5 秒检查变化，每 30 秒刷新频道中的状态消息，90 秒没有续期的名单会过期。每台电脑只发布本机的会话名称、路由标识、Agent 类型和忙闲状态。
+- **频道成员**。同一发现频道中发布有效登记的 Bridge 可以看到彼此的会话并发消息。请用参与协作的机器共用的频道。普通聊天消息不会触发登记。
+- **兼容已有配置**。原来的 `agents` 数组仍可单独使用，也可与 `discovery` 并存。普通 Slack 机器人继续按上述显式条目配置；带 `"bridge": true` 的已有条目继续使用本机给它设置的名字。已有电脑首次改用频道发现时，需更新到支持此功能的版本并重启一次适配器。
+
 ### Antigravity CLI
 
 开启 CC Bridge 并确保 `agy` 在 `PATH` 中，然后在项目目录运行 `agy`。收到的消息会先留在信箱，

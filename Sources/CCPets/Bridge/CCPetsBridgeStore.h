@@ -14,6 +14,7 @@
 extern const NSUInteger CCBridgeMessageBodyLimit;
 extern const long long CCBridgeMessageTTL;
 extern const NSUInteger CCBridgePairLimitCount;
+extern NSString *const CCBridgeSlackProvider;
 extern NSString *const CCBridgeAntigravityProvider;
 extern NSString *const CCBridgeAntigravityAppProvider;
 

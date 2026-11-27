@@ -15,6 +15,7 @@
 
 #define LF(localized, values) CCPetsInterpolate(localized, values)
 
+NSString *const CCBridgeSlackProvider = @"Slack";
 const NSUInteger CCBridgeMessageBodyLimit = 16 * 1024;
 const long long CCBridgeMessageTTL = 24LL * 60 * 60 * 1000;
 NSString *const CCBridgeAntigravityProvider = @"Antigravity";
@@ -322,7 +323,7 @@ NSArray<NSDictionary *> *CCBridgeListSessions(void) {
 }
 
 static BOOL UsesBridgeHostPID(id provider) {
-    return [provider isEqual:CCBridgeAntigravityProvider] || [provider isEqual:CCBridgeAntigravityAppProvider];
+    return [provider isEqual:CCBridgeAntigravityProvider] || [provider isEqual:CCBridgeAntigravityAppProvider] || [provider isEqual:CCBridgeSlackProvider];
 }
 
 NSNumber *CCBridgeSessionHostPID(NSDictionary *session) {
@@ -673,7 +674,7 @@ NSString *CCBridgeCheckSendLimits(NSString *fromSession, NSString *toSession) {
 // 和清理共用信箱锁，并在锁内复查：发送可能卡在 codex queue 上几十秒，这期间 Bridge 可能已关闭、
 // 目标可能已退出。锁外检查的话，清理做完之后这里才写入，正文就再也没人收拾了。
 NSString *CCBridgeEnqueueInbox(NSDictionary *message) {
-    NSString *target = CCBridgeSafeSessionId(PartySession(message, @"to"));
+    NSString *target = CCBridgeSafeSessionId(message[@"to"][@"gateway"] ?: PartySession(message, @"to"));
     if (!target) [NSException raise:@"CCBridgeInbox" format:@"%@", L(@"invalid target session id")];
     return CCBridgeWithLock([@"inbox-" stringByAppendingString:target], ^id {
         if (!CCBridgeEnabled()) return L(@"CC Bridge is off.");
@@ -793,7 +794,26 @@ void CCBridgeAbandonInbox(id sessionId) {
     @finally { CCBridgeReleaseLock(lock); }
 }
 
+static void PruneSlackEvents(BOOL all) {
+    NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:@"slack-events"];
+    if (!all && ![NSFileManager.defaultManager fileExistsAtPath:directory]) return;
+    CCBridgeWithLock(@"slack-events", ^id {
+        if (![NSFileManager.defaultManager fileExistsAtPath:directory]) return nil;
+        NSString *checked = CCBridgeSubdirectory(@[@"slack-events"]);
+        for (NSString *name in ListJSON(checked)) {
+            NSString *file = [checked stringByAppendingPathComponent:name];
+            struct stat info;
+            if (all || (lstat(file.fileSystemRepresentation, &info) == 0 &&
+                CCPetsMilliseconds() - (long long)info.st_mtime * 1000 > CCBridgeMessageTTL)) {
+                unlink(file.fileSystemRepresentation);
+            }
+        }
+        return nil;
+    });
+}
+
 void CCBridgeAbandonAllInboxes(NSString *reason) {
+    PruneSlackEvents(YES);
     NSMutableSet<NSString *> *sessions = [NSMutableSet set];
     for (NSString *kind in @[@"inbox", @"claimed"]) {
         NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:kind];
@@ -849,6 +869,7 @@ static void ExpireInbox(NSString *sessionId) {
 }
 
 void CCBridgeSweepMessages(void) {
+    PruneSlackEvents(NO);
     NSMutableSet<NSString *> *sessions = [NSMutableSet set];
     for (NSString *kind in @[@"inbox", @"claimed", @"subscriptions"]) {
         NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:kind];
@@ -1079,6 +1100,10 @@ static BOOL AntigravityAppHost(pid_t pid) {
 BOOL CCBridgeArgumentsMatchProvider(NSString *provider, NSArray<NSString *> *arguments) {
     NSString *executable = arguments.firstObject ?: @"";
     NSString *second = arguments.count > 1 ? arguments[1] : @"";
+    if ([provider isEqual:CCBridgeSlackProvider]) {
+        return [executable.lastPathComponent isEqual:@"cc-pets"] && [second isEqual:@"bridge"] &&
+            arguments.count > 2 && [arguments[2] isEqual:@"slack"];
+    }
     // Codex 的 npm 包是 node 包装器 + 原生二进制；hook 和 MCP 进程的直接祖先都是原生二进制，
     // 取离自己最近的那个，两边才能落到同一个 pid。
     if ([provider isEqualToString:@"Codex"]) {

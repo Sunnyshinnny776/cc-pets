@@ -212,6 +212,7 @@ Codex, and Antigravity CLI sessions exchange messages and reserve files. Antigra
 supports automatic wake-up when its Sidecar is enabled. Session IDs are validated;
 PID fallback is accepted only for a unique live session. Ambiguous shared-host identities
 are rejected rather than guessed. Codex delivery uses the recipient's Home.
+The optional [Slack adapter](./CC_BRIDGE.md#slack) supports Slack bots and discovers online sessions from Macs registered in a shared Slack channel. Address remote sessions with `computer/session`.
 For Codex sessions sharing an app-server PID, agents pass the current `session_id` from
 Bridge hook context on each MCP call. Reconnect MCP after updating to load the new tool definitions.
 
@@ -648,7 +649,7 @@ external assets.
 - Hooks write redacted state events and quota cache files to the current user's temporary directory. Events may include working-directory, Home and transcript paths for session labels and lifecycle tracking, but not transcript contents.
 - Local quota history is disabled by default and retains seven days when enabled.
 - Status cards show session labels, state and redacted tool categories; tooltips may show the full session name and working directory. Agent notifications show provider and redacted status, without conversation content.
-- CC Pets contains no telemetry and uploads no conversations, quotas, credentials, or usage statistics.
+- By default, CC Pets uploads no conversations, quotas, credentials, or usage statistics. CC Pets contains no telemetry. The optional Slack adapter posts messages addressed to Slack peers, including the sender’s Bridge name and ref, to their configured channels. Computer peers also exchange session names, routing identifiers, providers and busy/idle states.
 - On launch, and when a CLI reopens the running pet, CC Pets asks the npm registry for the latest version (at most once every 10 minutes per run); only when a newer version exists does it read that version's committed release notes from the tag through raw.githubusercontent.com, then jsDelivr, with the GitHub Release API as a fallback. These requests carry no account or usage data.
 - Exiting the pet or running `cc-pets uninstall` leaves no background daemon running.
 - [CC Bridge](./CC_BRIDGE.md) is off by default. When enabled, messages between sessions are stored

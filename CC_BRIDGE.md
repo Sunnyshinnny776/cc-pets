@@ -83,6 +83,62 @@ The agent uses these MCP tools:
 | `list_reservations` | Lists reservations in the current repository, or who reserved a given file. |
 | `check_inbox` | Reads the inbox manually. Messages are normally delivered automatically. |
 
+### Slack
+
+Run the Socket Mode adapter with the desktop pet or in the foreground to exchange messages with named bots in one Slack workspace.
+
+1. Create a Slack app for Bridge, enable Socket Mode and create an app-level token with `connections:write`. Give the bot `chat:write`. For public channels, add `channels:history` and subscribe to the `message.channels` bot event. For private channels, use `groups:history` and `message.groups`. Install or reinstall the app, then invite both Bridge and the peer bot to the channel. [Slack Socket Mode setup](https://docs.slack.dev/apis/events-api/using-socket-mode/)
+2. Configure the peer to accept mentions from the Bridge bot and reply in the same thread using `thread_ts`. Record the channel ID and the **peer's** bot ID and bot user ID. The bot ID identifies incoming messages and the user ID addresses mentions. The peer app owner can find both IDs in the bot's `auth.test` response. [Bot message events](https://docs.slack.dev/reference/events/message/bot_message/) · [auth.test](https://docs.slack.dev/reference/methods/auth.test/)
+3. Save the following as `~/.cc-pets/bridge-slack.json`, replacing the example IDs. Add one entry per agent, with a unique name and channel/bot pair.
+
+```json
+{
+  "enabled": true,
+  "app_token": "xapp-…",
+  "bot_token": "xoxb-…",
+  "agents": [
+    {
+      "name": "slack-reviewer",
+      "channel": "C0123456789",
+      "bot_id": "B0123456789",
+      "user_id": "U0123456789"
+    }
+  ]
+}
+```
+
+Fill in both tokens from this Mac’s Slack app in the default JSON, enable **CC Bridge** in the pet’s menu, and open an updated CC Pets app. It starts the adapter automatically, reloads saved changes and stops its own adapter when you set `"enabled": false`, disable Bridge or quit the pet. Omitting `enabled` leaves automatic startup off. The JSON stores tokens in plain text locally. The reader restricts token files to owner read/write permissions (`0600`).
+
+For foreground operation, run `cc-pets bridge slack [config.json]`. The CLI prefers each token from JSON, falling back to `SLACK_APP_TOKEN` or `SLACK_BOT_TOKEN` individually. The pet and the foreground command share a single-instance lock. When using a source checkout, launch its updated app and load the matching hooks and MCP in your agent sessions.
+
+- **From a local session**. Find the peer with `list_agents`, then start a thread with `send_message(to="slack-reviewer", message="Please review the API change")`. The configured channel receives the local session name, ref and message body. Recent delivery receipts appear in `cc-pets bridge status`.
+- **From Slack**. Have the configured bot post a new channel message such as `@CCBridge to codex-main Please review the API change`. In an API payload, use the Bridge bot's user mention (`<@U…>`). The recipient must be an online local session.
+- **Reply in the same thread**. Use the full address in the incoming message, such as `slack-reviewer [a1b2c3]#1234567890.123456`. Threads bind to the original local session ID across concurrent requests and session renames. Start a fresh thread after 48 hours of inactivity.
+
+#### Discover computers through a Slack channel
+
+Use one Slack app and Bridge adapter per Mac and invite the apps to the same private channel in one workspace. The channel is the discovery boundary. Set its ID in each Mac’s `~/.cc-pets/bridge-slack.json`. Optionally set the local computer’s address prefix, for example:
+
+```json
+{
+  "enabled": true,
+  "app_token": "xapp-…",
+  "bot_token": "xoxb-…",
+  "discovery": {
+    "channel": "C0123456789",
+    "name": "UniverseWang"
+  }
+}
+```
+
+Replace the example channel ID. Computer names accept uppercase and lowercase letters, digits, dots, underscores and hyphens. Omitting `name` derives the prefix from the Slack bot username. Fill in each app’s own tokens, open the pet and enable Bridge. Each adapter registers in the channel and advertises its local online sessions.
+
+- **Add another Mac** by inviting its app to the channel and starting its adapter with the same channel ID. Existing discovery-enabled Macs pick up the newcomer without a config change, restart or exchange of bot and member IDs.
+- **List and send** with `list_agents` or `cc-pets bridge list`. The listing includes the provider and busy/idle state. Send to `UniverseWang/reviewer` from another computer and to `reviewer` locally. Reply to the full address in an incoming message to continue its thread. A delivery receipt is confirmed when the remote Bridge accepts the message.
+- **Presence** checks for changes about every five seconds, renews every 30 seconds and expires after 90 seconds. Each computer advertises its own session names, routing identifiers, providers and busy/idle states.
+- **Membership** allows participating Bridge bots in the discovery channel to see each other’s sessions and send messages. Use a channel shared by the collaborating machines. Ordinary chat messages do not register a bot.
+- **Existing configurations** can keep `agents`, with or without `discovery`. Ordinary bots use explicit entries; existing `"bridge": true` entries keep their configured aliases. When first enabling channel discovery, update and restart each existing adapter once.
+
 ### Antigravity CLI
 
 Enable CC Bridge and make sure `agy` is on your `PATH`. Run `agy` in the project directory.

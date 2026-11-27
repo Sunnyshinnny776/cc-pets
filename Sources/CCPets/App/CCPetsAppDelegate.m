@@ -567,6 +567,7 @@
     if (self.speechPanel.isVisible) [self positionSpeechPanel];
 }
 - (void)applicationWillTerminate:(NSNotification *)notification {
+    [self stopManagedSlackAdapter];
     [self.usageMonitor stop];
     [self.systemMetricsTimer invalidate];
     self.systemMetricsTimer = nil;

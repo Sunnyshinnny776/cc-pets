@@ -1,6 +1,8 @@
 // CC Bridge 开关、消息角标与菜单。
 #import "CCPetsAppDelegate+Private.h"
 #import "CCPetsBridgeStore.h"
+#import "CCPetsBridgeSlack.h"
+#import "CCPetsCLISupport.h"
 
 @implementation AppDelegate (Bridge)
 // 菜单开关 → cc-pets bridge enable / disable / configure。逻辑全在 CLI 里，桌宠只负责调用，
@@ -151,11 +153,50 @@
         sender.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
     }];
 }
+- (void)stopManagedSlackAdapter {
+    NSPipe *lifetime = self.managedSlackTask.standardInput;
+    [lifetime.fileHandleForWriting closeAndReturnError:nil];
+}
+
+- (void)updateManagedSlackAdapter:(BOOL)bridgeEnabled {
+    struct stat file;
+    NSArray *revision = nil;
+    if (bridgeEnabled && stat(CCBridgeSlackConfigPath().fileSystemRepresentation, &file) == 0 && S_ISREG(file.st_mode)) {
+        revision = @[@(file.st_ino), @(file.st_mtimespec.tv_sec), @(file.st_mtimespec.tv_nsec), @(file.st_size)];
+    }
+    if (self.slackConfigRevision != revision && ![self.slackConfigRevision isEqual:revision]) {
+        self.slackConfigRevision = revision;
+        self.slackAutoStart = revision && CCBridgeSlackAutoStartEnabled();
+        self.slackRetryAt = 0;
+        [self stopManagedSlackAdapter];
+    }
+    if (self.managedSlackTask.running) return;
+    self.managedSlackTask = nil;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (!self.slackAutoStart || now < self.slackRetryAt) return;
+    self.slackRetryAt = now + 30;
+    if (CCBridgeSlackAdapterRunning()) return;
+
+    NSTask *task = [NSTask new];
+    task.executableURL = [NSURL fileURLWithPath:CCPetsExecutablePath()];
+    task.arguments = @[@"bridge", @"slack", @"--managed"];
+    task.standardInput = [NSPipe pipe];
+    NSMutableDictionary *environment = [NSProcessInfo.processInfo.environment mutableCopy];
+    NSString *path = CCBridgeCLILocator()[@"path"];
+    if (path.length) environment[@"PATH"] = path;
+    [environment removeObjectsForKeys:@[@"SLACK_APP_TOKEN", @"SLACK_BOT_TOKEN"]];
+    task.environment = environment;
+    NSError *error = nil;
+    if ([task launchAndReturnError:&error]) self.managedSlackTask = task;
+    else NSLog(@"cc-bridge Slack: %@", error.localizedDescription);
+}
 // 读 bridge 状态（会话名、最近送达、信箱积压），刷新角标。bridge 未开启时清空并隐藏。
 // 回执目录没变就不重读文件，只按时间窗重新过滤缓存——回执状态一变，写入端的
 // "临时文件 + rename" 必然改动目录的修改时间。
 - (void)refreshBridgeState:(NSTimer *)timer {
-    if (!CCBridgeEnabled()) {
+    BOOL enabled = CCBridgeEnabled();
+    [self updateManagedSlackAdapter:enabled];
+    if (!enabled) {
         self.bridgeSessions = nil;
         self.bridgeRecentDeliveries = nil;
         self.bridgePendingCounts = nil;

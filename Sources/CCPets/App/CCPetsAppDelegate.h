@@ -53,6 +53,10 @@
 @property NSDictionary<NSString *, NSNumber *> *bridgePendingCounts;
 // 菜单开关触发的 cc-pets bridge 命令正在执行时为 YES，期间忽略新的切换，避免并发改配置。
 @property BOOL bridgeCommandRunning;
+@property NSTask *managedSlackTask;
+@property NSArray *slackConfigRevision;
+@property BOOL slackAutoStart;
+@property NSTimeInterval slackRetryAt;
 // 手动 Agent Home 适配任务与其非阻塞进度窗口。
 @property BOOL profileCommandRunning;
 @property NSTask *profileTask;
