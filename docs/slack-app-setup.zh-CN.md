@@ -46,6 +46,8 @@
 
 示例可直接用于**公开频道**。如果只用私有频道，把 JSON 中的 `channels:history` 换成 `groups:history`，同时把 `message.channels` 换成 `message.groups`，保留 `chat:write`。
 
+**需要收发文件时**，在 `oauth_config.scopes.bot` 数组中加上 `files:write`（上传）和 `files:read`（读取文件信息和下载）。例如，公开频道的完整数组是 `["chat:write", "channels:history", "files:write", "files:read"]`。如果 App 已安装，可在 **OAuth & Permissions → Bot Token Scopes** 补上权限，再点 **Reinstall to Workspace** 授权。[Slack 文件接口](https://docs.slack.dev/messaging/working-with-files/)
+
 点击 **Next**，在 **Review your app** 页面核对权限和事件，再点 **Create**。如果看到 Socket Mode 需要额外设置的黄色提示，继续创建，并完成下一步。
 
 ## 3. 生成连接令牌，安装 App
@@ -77,8 +79,6 @@
 
 ### 可选：用于 CC Pets 的 CC Bridge
 
-若要传图片或文件，请在每个参与的 App 的 **Bot Token Scopes** 中额外添加 `files:write` 和 `files:read`，再点击 **Reinstall to Workspace**。
-
 要让多台 Mac 自动发现对方的在线 agent，每台 Mac 各建一个 App，加入同一个频道。在每台电脑的 `~/.cc-pets/bridge-slack.json` 中填入该机 App 的两个令牌、共用频道 ID 和本机名称。例如：
 
 ```json
@@ -94,3 +94,29 @@
 ```
 
 打开支持 Slack 发现的 CC Pets，在桌宠菜单启用 **CC Bridge**。频道里出现 `mac-a` 的在线名单后，到另一台已接入的 Mac，让 agent 执行 `list_agents`。从结果中选一个 `mac-a/会话名`，让 agent 通过 Bridge 发消息并请对方回复 `pong`。看到回复就验证了跨机双向收发。[CC Bridge 使用指南](../CC_BRIDGE.zh-CN.md#slack)
+
+#### 发送图片和文件
+
+先用 `list_agents` 看收件人的位置。发给**本地**会话时，把文件的绝对路径写进消息正文，对方按自己的权限打开。发给**远程**会话时，用 `send_message` 的 `attachments` 参数：Bridge 会把选定的文件上传到共用 Slack 频道，能访问该频道的成员也能看到文件。跨机双向收发需要两台 Mac 都使用支持附件的 CC Pets，两个 Slack App 都已获得第 2 步的文件权限。
+
+例如，在发送会话的工作目录里放一张 `screenshot.png` 和一份 `check.txt`，将下面的 `to` 换成列表里实际在线的远程地址：
+
+```json
+{
+  "to": "mac-b/reviewer",
+  "message": "请描述截图内容，读出 check.txt 的校验词，并在原线程把 check.txt 原样作为附件回传。",
+  "attachments": ["screenshot.png", "check.txt"]
+}
+```
+
+一次最多发 **8 个普通文件，合计 32 MiB**。路径可以是相对路径，也可以是指向发送会话工作目录内文件的绝对路径。接收方也可以直接转发本会话收到的附件。
+
+**接收与回传。** 接收端的 Bridge 下载完全部附件后，才把消息交给指定 agent。消息中“已从 Slack 下载的附件（当前设备路径）”下面列出的文件，已经保存在接收方的 Mac 上。默认路径为：
+
+```text
+~/.cc-pets/var/attachments/yyyy-MM-dd/<消息ID>/<Slack文件ID>/<原文件名>
+```
+
+日期取接收方首次收到消息时的本地日期，原名和扩展名会保留。接收方可以用读图或文件工具打开这些路径。回传时，把来信给出的**完整回复地址**填进 `to`，把收到的 `check.txt` 的**本地路径**填进 `attachments`，回复就会进入原 Slack 线程。超过 48 小时的本机副本会在 Bridge 清理回执时回收。
+
+**验证往返。** 先在 `check.txt` 里写一个只出现在文件里的校验词。对方能说出校验词、正确描述截图，说明附件已送达并成功读取；同一 Slack 线程中出现对方回传的 `check.txt`，下载后内容与原件一致，才算文件往返成功。如果文字能通、工具却没有 `attachments` 参数，更新 CC Pets 后重新连接 MCP 或重启该 agent 会话。
