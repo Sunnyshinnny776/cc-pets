@@ -7,6 +7,8 @@
 #import "CCPetsBridgeStore.h"
 #import "CCPetsCLISupport.h"
 #import "CCPetsL10n.h"
+#import <IOKit/IOMessage.h>
+#import <IOKit/pwr_mgt/IOPMLib.h>
 #import <unistd.h>
 #import <fcntl.h>
 #import <sys/stat.h>
@@ -236,9 +238,62 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
 @property (atomic, copy) NSString *discoveryJoin;
 @property (atomic) long long retryPostsAt;
 @property (atomic, copy) NSString *connectionID;
+// Only the listener installs a socket. The power callback can invalidate it.
+@property (nonatomic, strong) NSURLSessionWebSocketTask *activeSocket;
+@property (nonatomic) io_connect_t powerConnection;
 @property (nonatomic, strong) NSMutableDictionary *publications;
 @property (nonatomic) long long nextDirectoryCheck;
 @end
+
+static void SlackPowerChanged(void *context, io_service_t service, natural_t message, void *argument) {
+    CCBridgeSlackAdapter *adapter = (__bridge CCBridgeSlackAdapter *)context;
+    if (message == kIOMessageCanSystemSleep || message == kIOMessageSystemWillSleep) {
+        IOAllowPowerChange(adapter.powerConnection, (intptr_t)argument);
+    } else if (message == kIOMessageSystemHasPoweredOn) {
+        @synchronized (adapter) {
+            if (!adapter.activeSocket) return;
+            adapter.connectionID = nil;
+            [adapter.activeSocket cancel];
+            adapter.activeSocket = nil;
+        }
+        Report(L(@"Mac woke from sleep; reconnecting Socket Mode."));
+    }
+}
+
+// Scope the pong deadline to the probed socket. Neither a late callback nor
+// its timer can cancel a replacement connection.
+static void PingSlackSocket(NSURLSessionWebSocketTask *socket) {
+    dispatch_semaphore_t pong = dispatch_semaphore_create(0);
+    __block BOOL healthy = NO;
+    [socket sendPingWithPongReceiveHandler:^(NSError *error) {
+        healthy = error == nil;
+        dispatch_semaphore_signal(pong);
+    }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10LL * NSEC_PER_SEC), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        if (socket.state == NSURLSessionTaskStateRunning &&
+            (dispatch_semaphore_wait(pong, DISPATCH_TIME_NOW) != 0 || !healthy)) {
+            Report(L(@"Socket Mode ping failed or timed out; reconnecting."));
+            [socket cancel];
+        }
+    });
+}
+
+// Keep a single receive outstanding during the probe, so new envelopes can be
+// processed and acknowledged without waiting for a pong.
+static NSURLSessionWebSocketMessage *ReceiveSlackFrame(NSURLSessionWebSocketTask *socket, BOOL connected) {
+    dispatch_semaphore_t received = dispatch_semaphore_create(0);
+    __block NSURLSessionWebSocketMessage *frame = nil;
+    [socket receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage *message, NSError *error) {
+        frame = message;
+        dispatch_semaphore_signal(received);
+    }];
+    const int64_t idle = (connected ? 30LL : 15LL) * NSEC_PER_SEC;
+    while (dispatch_semaphore_wait(received, dispatch_time(DISPATCH_TIME_NOW, idle)) != 0) {
+        if (!connected || socket.state != NSURLSessionTaskStateRunning || !CCBridgeEnabled()) return nil;
+        PingSlackSocket(socket);
+    }
+    return frame;
+}
 
 @implementation CCBridgeSlackAdapter
 
@@ -706,22 +761,22 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
             NSURL *url = [open[@"url"] isKindOfClass:NSString.class] ? [NSURL URLWithString:open[@"url"]] : nil;
             if ([open[@"ok"] isEqual:@YES] && [url.scheme isEqual:@"wss"]) {
                 NSURLSessionWebSocketTask *socket = [self.http webSocketTaskWithURL:url];
-                [socket resume];
+                @synchronized (self) {
+                    self.activeSocket = socket;
+                    [socket resume];
+                }
                 while (CCBridgeEnabled()) {
                     @autoreleasepool {
-                        dispatch_semaphore_t done = dispatch_semaphore_create(0);
-                        __block NSURLSessionWebSocketMessage *frame;
-                        [socket receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage *message, NSError *error) {
-                            frame = message;
-                            dispatch_semaphore_signal(done);
-                        }];
-                        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+                        NSURLSessionWebSocketMessage *frame = ReceiveSlackFrame(socket, self.connectionID != nil);
                         if (!frame) break;
                         NSData *data = frame.type == NSURLSessionWebSocketMessageTypeData ? frame.data : [frame.string dataUsingEncoding:NSUTF8StringEncoding];
                         NSDictionary *envelope = Parse(data);
                         if ([envelope[@"type"] isEqual:@"disconnect"]) break;
                         if ([envelope[@"type"] isEqual:@"hello"]) {
-                            self.connectionID = NSUUID.UUID.UUIDString;
+                            @synchronized (self) {
+                                if (self.activeSocket != socket) break;
+                                self.connectionID = NSUUID.UUID.UUIDString;
+                            }
                             backoff = 1;
                             Report(L(@"Socket Mode connected."));
                         }
@@ -736,11 +791,14 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
                         }];
                     }
                 }
-                self.connectionID = nil;
+                @synchronized (self) {
+                    self.activeSocket = nil;
+                    self.connectionID = nil;
+                }
+                [socket cancel];
                 for (NSDictionary *peer in self.peers.allValues) {
                     if (CCBridgeIsRemoteHost(peer)) CCBridgeClearRemoteDirectory(peer);
                 }
-                [socket cancel];
             } else {
                 Report(open[@"error"] ?: @"invalid_socket_url");
             }
@@ -787,6 +845,9 @@ int CCBridgeRunSlack(NSArray<NSString *> *arguments) {
     NSString *lock = CCBridgeAcquireLock(@"slack-adapter");
     if (!lock) { Report(L(@"The Slack adapter is already running.")); return 1; }
     NSMutableDictionary *peers = [NSMutableDictionary dictionary];
+    IONotificationPortRef powerPort = NULL;
+    io_object_t notifier = IO_OBJECT_NULL;
+    dispatch_queue_t powerQueue = dispatch_queue_create("cc-pets.slack.power", DISPATCH_QUEUE_SERIAL);
     @try {
         NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
         configuration.URLCache = nil;
@@ -833,6 +894,11 @@ int CCBridgeRunSlack(NSArray<NSString *> *arguments) {
             Report(CCBridgeDescribeSession(peer));
         }
         adapter.peers = peers;
+        // Both foreground and desktop-managed adapters run a blocking CLI loop.
+        // Deliver system power notifications on a queue independent of file I/O.
+        adapter.powerConnection = IORegisterForSystemPower((__bridge void *)adapter, &powerPort, SlackPowerChanged, &notifier);
+        if (adapter.powerConnection) IONotificationPortSetDispatchQueue(powerPort, powerQueue);
+        else Report(L(@"System wake notifications unavailable; Socket Mode will use idle pings."));
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ [adapter listenWithConnection:connection]; });
         // Heartbeats continue while the routing loop waits on a busy local CLI.
         if (adapter.publications) dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
@@ -852,6 +918,12 @@ int CCBridgeRunSlack(NSArray<NSString *> *arguments) {
             usleep(500000);
         }
     } @finally {
+        if (notifier) IODeregisterForSystemPower(&notifier);
+        if (powerPort) IONotificationPortDestroy(powerPort);
+        if (adapter.powerConnection) {
+            dispatch_sync(powerQueue, ^{});
+            IOServiceClose(adapter.powerConnection);
+        }
         [adapter.http invalidateAndCancel];
         for (NSDictionary *peer in (adapter.peers ?: peers).allValues) CCBridgeRemoveSession(peer[@"session"]);
         CCBridgeReleaseLock(lock);

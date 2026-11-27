@@ -1133,6 +1133,9 @@
 "The adapter stopped during a Slack post. Check the thread before retrying." = "适配器在发布期间停止。重试前请先查看 Slack 线程。";
 "This Slack thread does not belong to the sending session or has expired." = "该 Slack 线程属于其他会话或已经过期。";
 "Slack message has no unique online local recipient." = "Slack 消息未能匹配唯一的在线本地收件人。";
+"Socket Mode ping failed or timed out; reconnecting." = "Socket Mode 心跳失败或超时，正在重新连接。";
+"Mac woke from sleep; reconnecting Socket Mode." = "Mac 已从睡眠唤醒，正在重新连接 Socket Mode。";
+"System wake notifications unavailable; Socket Mode will use idle pings." = "系统唤醒通知不可用，Socket Mode 将通过空闲心跳检测连接。";
 "Socket Mode connected." = "Socket Mode 已连接。";
 "Set discovery.channel or configure peers in the agents array in the Slack configuration." = "请在 Slack 配置中设置 discovery.channel，或在 agents 数组中配置对端。";
 "Set app_token (xapp-) and bot_token (xoxb-) in the Slack JSON, or supply the tokens in the terminal environment." = "请在 Slack JSON 中填写 app_token（xapp-）和 bot_token（xoxb-），或使用终端环境变量提供令牌。";

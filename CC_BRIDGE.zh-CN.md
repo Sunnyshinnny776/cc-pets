@@ -136,6 +136,8 @@ Agent 会调用这些 MCP 工具：
 - **频道成员**。同一发现频道中发布有效登记的 Bridge 可以看到彼此的会话并发消息。请用参与协作的机器共用的频道。普通聊天消息不会触发登记。
 - **兼容已有配置**。原来的 `agents` 数组仍可单独使用，也可与 `discovery` 并存。普通 Slack 机器人继续按上述显式条目配置；带 `"bridge": true` 的已有条目继续使用本机给它设置的名字。已有电脑首次改用频道发现时，需更新到支持此功能的版本并重启一次适配器。
 
+适配器收到 Slack 握手后，连续 30 秒没有收到消息就会发送 WebSocket ping；探测失败或 10 秒内没有收到 pong时，自动重新连接。Mac 从系统睡眠唤醒后，适配器会关闭旧连接，重新向 Slack 获取连接地址。桌宠管理和终端前台运行都使用同一机制。
+
 #### 发送图片和文件
 
 发给远程收件人时，在 `send_message` 的可选 `attachments` 数组里填写文件路径。例如，向远端发送截图和日志可以传 `{"to":"mac-b/reviewer","message":"请查看截图和日志","attachments":["screenshot.png","logs/build.txt"]}`。命令行也支持 `cc-pets bridge send --attach screenshot.png --attach logs/build.txt mac-b/reviewer "请查看截图和日志"`。

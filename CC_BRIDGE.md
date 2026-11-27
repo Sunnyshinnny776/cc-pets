@@ -139,6 +139,8 @@ Replace the example channel ID. Computer names accept uppercase and lowercase le
 - **Membership** allows participating Bridge bots in the discovery channel to see each other’s sessions and send messages. Use a channel shared by the collaborating machines. Ordinary chat messages do not register a bot.
 - **Existing configurations** can keep `agents`, with or without `discovery`. Ordinary bots use explicit entries; existing `"bridge": true` entries keep their configured aliases. When first enabling channel discovery, update and restart each existing adapter once.
 
+After the Slack handshake, 30 seconds without an incoming message triggers a WebSocket ping. If the probe fails or ten seconds pass without a pong, the adapter reconnects. Waking the Mac from system sleep closes the old connection and obtains a fresh Socket Mode URL. This applies to both desktop-managed and foreground adapters.
+
 #### Image and file attachments
 
 For remote recipients, pass file paths in the optional `attachments` array of `send_message`. For example, send `{"to":"mac-b/reviewer","message":"Review the screenshot and log","attachments":["screenshot.png","logs/build.txt"]}`. The CLI equivalent is `cc-pets bridge send --attach screenshot.png --attach logs/build.txt mac-b/reviewer "Review the screenshot and log"`.
