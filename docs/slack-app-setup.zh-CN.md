@@ -77,6 +77,8 @@
 
 ### 可选：用于 CC Pets 的 CC Bridge
 
+若要传图片或文件，请在每个参与的 App 的 **Bot Token Scopes** 中额外添加 `files:write` 和 `files:read`，再点击 **Reinstall to Workspace**。
+
 要让多台 Mac 自动发现对方的在线 agent，每台 Mac 各建一个 App，加入同一个频道。在每台电脑的 `~/.cc-pets/bridge-slack.json` 中填入该机 App 的两个令牌、共用频道 ID 和本机名称。例如：
 
 ```json

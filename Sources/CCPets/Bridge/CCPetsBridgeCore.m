@@ -1,5 +1,6 @@
 #import "CCPetsL10n.h"
 #import "CCPetsBridgeCore.h"
+#import "CCPetsBridgeAttachments.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeStore.h"
 #import "CCPetsProfiles.h"
@@ -172,6 +173,11 @@ NSString *CCBridgeFormatEnvelope(NSDictionary *message) {
                 @{@"name": from[@"slackThread"] ? CCPetsShellQuote(sender) : (from[@"name"] ?: @"")})];
         }
     }
+    NSArray *files = message[@"attachments"];
+    if (files.count) {
+        [lines addObject:L(@"Files downloaded from Slack (paths on this device):")];
+        for (NSString *path in files) [lines addObject:path];
+    }
     [lines addObject:@"---"];
     [lines addObject:StringValue(message[@"body"]) ?: @""];
     return [lines componentsJoinedByString:@"\n"];
@@ -229,10 +235,11 @@ static NSDictionary *RunCodexQueue(NSDictionary *target, NSString *text, NSStrin
 
 // 入信箱被拒（Bridge 刚关闭、目标刚退出）时回执要到终态，否则发送方永远看到"待投递"。
 static NSDictionary *PutInInbox(NSDictionary *message, NSDictionary *receiptPatch) {
-    CCBridgeUpdateReceipt(message[@"id"], receiptPatch);
+    BOOL withFiles = [message[@"attachments"] count] > 0;
+    if (!withFiles) CCBridgeUpdateReceipt(message[@"id"], receiptPatch);
     NSString *refused = nil;
     @try {
-        refused = CCBridgeEnqueueInbox(message);
+        refused = withFiles ? CCBridgeEnqueueInboxWithReceipt(message, receiptPatch) : CCBridgeEnqueueInbox(message);
     } @catch (NSException *exception) {
         refused = exception.reason ?: exception.name;
     }
@@ -256,10 +263,22 @@ static NSDictionary *Deliver(NSDictionary *message, NSDictionary *target) {
         if (!CCBridgeSessionLive(CCBridgeReadSession(target[@"session"]))) {
             return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": L(@"the target session is offline")});
         }
+        BOOL withFiles = [message[@"attachments"] count] > 0;
+        if (withFiles) {
+            if ([CCBridgeReadReceipt(message[@"id"])[@"dispatchingFiles"] boolValue]) {
+                return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable",
+                    @"reason": L(@"Attachment delivery was interrupted. Check the target before retrying.")});
+            }
+            CCBridgeUpdateReceipt(message[@"id"], @{@"dispatchingFiles": @YES});
+        }
         NSDictionary *result = RunCodexQueue(target, CCBridgeFormatEnvelope(message), message[@"from"][@"provider"]);
         if ([result[@"ok"] boolValue]) {
             return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"delivered",
                 @"transport": @{@"kind": @"codex-queue", @"ref": result[@"ref"]}});
+        }
+        if (withFiles && [result[@"uncertain"] boolValue]) {
+            return CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable",
+                @"reason": L(@"Attachment delivery was interrupted. Check the target before retrying.")});
         }
         // queue 不可用（旧版本 Codex 等）时退回信箱，对方可以用 check_inbox 手动拉取。
         // 没有宿主确认协议，超时后没法知道是否已入队。宁可重复也不丢，同时告诉发送方；
@@ -272,16 +291,26 @@ static NSDictionary *Deliver(NSDictionary *message, NSDictionary *target) {
 
 static NSDictionary *Identity(NSDictionary *session) {
     NSMutableDictionary *identity = [NSMutableDictionary dictionary];
-    for (NSString *key in @[@"session", @"name", @"ref", @"provider", @"nameSource", @"slackThread", @"remoteID", @"gateway"]) {
+    for (NSString *key in @[@"session", @"name", @"ref", @"provider", @"nameSource", @"slackThread", @"remoteID", @"gateway", @"acceptsAttachments"]) {
         if (session[key]) identity[key] = session[key];
     }
     return identity;
 }
 
-NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body, BOOL notifyWhenIdle, BOOL system) {
+static NSDictionary *SendMessage(NSDictionary *from, NSDictionary *to, id body, id paths, BOOL notifyWhenIdle, BOOL system) {
     if (!CCBridgeEnabled()) return @{@"error": L(@"CC Bridge is off. Run cc-pets bridge enable first.")};
     NSString *text = [body isKindOfClass:NSString.class] ? body : (body && body != NSNull.null ? [body description] : @"");
-    if ([text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) {
+    if (paths && (![paths isKindOfClass:NSArray.class] || [paths count] > CCBridgeAttachmentCountLimit)) {
+        return @{@"error": L(@"Provide up to eight attachment file paths.")};
+    }
+    if ([paths count] && ![to[@"provider"] isEqual:CCBridgeSlackProvider] &&
+        !([from[@"provider"] isEqual:CCBridgeSlackProvider] && from[@"slackEventID"])) {
+        return @{@"error": L(@"Local sessions exchange text. Put the local file path in the message instead.")};
+    }
+    if ([paths count] && to[@"gateway"] && ![to[@"acceptsAttachments"] isEqual:@YES]) {
+        return @{@"error": L(@"Update the remote Bridge before sending attachments.")};
+    }
+    if (![paths count] && [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) {
         return @{@"error": L(@"The message is empty.")};
     }
     if ([text lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > CCBridgeMessageBodyLimit) {
@@ -294,14 +323,14 @@ NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body,
     if (!system && [from[@"session"] isEqual:to[@"session"]]) return @{@"error": L(@"You can't message yourself.")};
     // Socket Mode may replay an accepted event after a lost ACK or a restart.
     NSString *eventID = [from[@"provider"] isEqual:CCBridgeSlackProvider] ? from[@"slackEventID"] : nil;
-    NSDictionary *message = @{
+    NSMutableDictionary *message = [@{
         @"id": eventID ?: CCBridgeNewMessageId(),
         @"from": system ? @{@"system": @YES} : Identity(from),
         @"to": Identity(to),
         @"body": text,
         @"createdAt": @(CCPetsMilliseconds()),
         @"status": @"queued"
-    };
+    } mutableCopy];
     if (system) {
         CCBridgeWriteReceipt(message);
     } else {
@@ -320,8 +349,27 @@ NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body,
             return @{@"receipt": previous};
         }
     }
+    if ([paths count]) {
+        NSString *error = nil;
+        // The adapter has already downloaded inbound files to this message's
+        // private slots. Never interpret a path supplied in a Slack packet.
+        NSArray *files = eventID ? paths : CCBridgeSnapshotAttachments(paths, from, message[@"id"], &error);
+        if (!files) {
+            CCBridgeUpdateReceipt(message[@"id"], @{@"status": @"undeliverable", @"reason": error});
+            return @{@"error": error};
+        }
+        message[@"attachments"] = files;
+    }
     if (notifyWhenIdle && !system) CCBridgeAddIdleSubscription(to[@"session"], from[@"session"]);
     return @{@"receipt": Deliver(message, to) ?: message};
+}
+
+NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body, BOOL notifyWhenIdle, BOOL system) {
+    return SendMessage(from, to, body, nil, notifyWhenIdle, system);
+}
+
+NSDictionary *CCBridgeSendMessageWithAttachments(NSDictionary *from, NSDictionary *to, id body, id paths, BOOL notifyWhenIdle) {
+    return SendMessage(from, to, body, paths, notifyWhenIdle, NO);
 }
 
 void CCBridgeSendIdleNotices(NSDictionary *target, NSArray<NSString *> *subscribers) {

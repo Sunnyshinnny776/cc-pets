@@ -28,6 +28,7 @@ NSString *CCBridgeFormatEnvelope(NSDictionary *message);
 
 // 返回 @{receipt} 或 @{error}。
 NSDictionary *CCBridgeSendMessage(NSDictionary *from, NSDictionary *to, id body, BOOL notifyWhenIdle, BOOL system);
+NSDictionary *CCBridgeSendMessageWithAttachments(NSDictionary *from, NSDictionary *to, id body, id paths, BOOL notifyWhenIdle);
 // 目标会话进入空闲时，给订阅者各发一条一次性通知。
 void CCBridgeSendIdleNotices(NSDictionary *target, NSArray<NSString *> *subscribers);
 NSString *CCBridgeReceiptSummary(NSDictionary *receipt, NSDictionary *target);

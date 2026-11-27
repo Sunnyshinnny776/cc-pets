@@ -370,7 +370,7 @@
 "%1$@ the CC Pets shell integration in %2$@." = "%1$@ %2$@ 中的 CC Pets shell 集成。";
 "%1$@ the codex / claude / agy shims in %2$@." = "%1$@ %2$@ 中的 codex / claude / agy shim。";
 "No CC Pets integrations to remove." = "未发现需要移除的 CC Pets 集成。";
-"Usage: cc-pets bridge <command>\n\n  enable [options]       Turn on CC Bridge: install Agent hooks and register MCP\n  configure [options]    Change options while enabled (doesn't re-register MCP)\n  disable                Turn off and remove all CC Bridge integrations\n  status                 Show whether it's on and which sessions are online\n  list                   List online sessions\n  slack [config.json]    Run the Slack Socket Mode adapter in this terminal\n  send <to> <message…>   Send as the current session (run inside an Agent session, or use --from)\n  name <new-name>        Rename the current session (run inside an Agent session, or use --from)\n  inbox                  Read the current session's inbox (for debugging)\n\nOptions (anything omitted keeps its current value):\n  --approve=<list>       Auto-approve in both Codex and Claude\n  --codex-approve=<list> Auto-approve in Codex only\n  --claude-allow=<list>  Allow without asking in Claude only\n  --agy-allow=<list>     Allow without asking in Antigravity only\n                         Use groups view, send, reserve, name, or tool names; pass an empty value to clear\n  --agy-app=on|off       Enable or disable the Antigravity App Sidecar (off by default)\n  --tab-title=on|off     Append Bridge nicknames to CLI terminal titles (off by default)\n  --wake=on|off          Wake supported idle sessions automatically (off saves tokens; messages arrive with the next user input)\n  --edit-guard=on|off    Pause once when editing a file another session reserved\n\nName a session at launch: CC_BRIDGE_NAME=frontend claude (or codex, or agy)\n\nCC Bridge connects local Claude Code, Codex and Antigravity sessions.\nMessage bodies are stored in a local temp directory readable only by you. Off by default." = "用法: cc-pets bridge <命令>\n\n  enable [选项]          开启 CC Bridge：安装 Agent Hooks 并注册 MCP\n  configure [选项]       已开启时只修改选项（不重新注册 MCP）\n  disable                关闭并移除所有 CC Bridge 集成\n  status                 查看开关状态与在线会话\n  list                   列出在线会话\n  slack [config.json]    在此终端运行 Slack Socket Mode 适配器\n  send <to> <消息…>      以当前会话身份发送（需在 Agent 会话内执行，或用 --from 指定）\n  name <新名字>          修改当前会话的名字（需在 Agent 会话内执行，或用 --from 指定）\n  inbox                  读取当前会话信箱（调试用）\n\n选项（没给的保持原值）：\n  --approve=<列表>       Codex 与 Claude 同时免审批\n  --codex-approve=<列表> 只设 Codex 免审批\n  --claude-allow=<列表>  只设 Claude 免确认\n  --agy-allow=<列表>     只设 Antigravity 免确认\n                         列表可写分组 view, send, reserve, name，或具体工具名；传空值表示清空\n  --agy-app=on|off       启用或关闭 Antigravity App Sidecar（默认关闭）\n  --tab-title=on|off     在 CLI 终端标签标题末尾追加 Bridge 昵称（默认关闭）\n  --wake=on|off          自动唤醒支持此功能的空闲会话（关闭可省 token，消息等对方下次收到用户输入时带入）\n  --edit-guard=on|off    编辑他人预留的文件时暂停一次\n\n启动时指定会话名：CC_BRIDGE_NAME=frontend claude（也可用 codex 或 agy）\n\nCC Bridge 连接本机的 Claude Code、Codex 和 Antigravity 会话。\n消息正文会保存在本机临时目录（仅当前用户可读），默认关闭。";
+"Usage: cc-pets bridge <command>\n\n  enable [options]       Turn on CC Bridge: install Agent hooks and register MCP\n  configure [options]    Change options while enabled (doesn't re-register MCP)\n  disable                Turn off and remove all CC Bridge integrations\n  status                 Show whether it's on and which sessions are online\n  list                   List online sessions\n  slack [config.json]    Run the Slack Socket Mode adapter in this terminal\n  send [--attach path] <to> <message…>   Send as the current session (or use --from)\n  name <new-name>        Rename the current session (run inside an Agent session, or use --from)\n  inbox                  Read the current session's inbox (for debugging)\n\nOptions (anything omitted keeps its current value):\n  --approve=<list>       Auto-approve in both Codex and Claude\n  --codex-approve=<list> Auto-approve in Codex only\n  --claude-allow=<list>  Allow without asking in Claude only\n  --agy-allow=<list>     Allow without asking in Antigravity only\n                         Use groups view, send, reserve, name, or tool names; pass an empty value to clear\n  --agy-app=on|off       Enable or disable the Antigravity App Sidecar (off by default)\n  --tab-title=on|off     Append Bridge nicknames to CLI terminal titles (off by default)\n  --wake=on|off          Wake supported idle sessions automatically (off saves tokens; messages arrive with the next user input)\n  --edit-guard=on|off    Pause once when editing a file another session reserved\n\nName a session at launch: CC_BRIDGE_NAME=frontend claude (or codex, or agy)\n\nCC Bridge connects local Claude Code, Codex and Antigravity sessions.\nMessage bodies are stored in a local temp directory readable only by you. Off by default." = "用法: cc-pets bridge <命令>\n\n  enable [选项]          开启 CC Bridge：安装 Agent Hooks 并注册 MCP\n  configure [选项]       已开启时只修改选项（不重新注册 MCP）\n  disable                关闭并移除所有 CC Bridge 集成\n  status                 查看开关状态与在线会话\n  list                   列出在线会话\n  slack [config.json]    在此终端运行 Slack Socket Mode 适配器\n  send [--attach 路径] <to> <消息…>  以当前会话身份发送（或用 --from 指定）\n  name <新名字>          修改当前会话的名字（需在 Agent 会话内执行，或用 --from 指定）\n  inbox                  读取当前会话信箱（调试用）\n\n选项（没给的保持原值）：\n  --approve=<列表>       Codex 与 Claude 同时免审批\n  --codex-approve=<列表> 只设 Codex 免审批\n  --claude-allow=<列表>  只设 Claude 免确认\n  --agy-allow=<列表>     只设 Antigravity 免确认\n                         列表可写分组 view, send, reserve, name，或具体工具名；传空值表示清空\n  --agy-app=on|off       启用或关闭 Antigravity App Sidecar（默认关闭）\n  --tab-title=on|off     在 CLI 终端标签标题末尾追加 Bridge 昵称（默认关闭）\n  --wake=on|off          自动唤醒支持此功能的空闲会话（关闭可省 token，消息等对方下次收到用户输入时带入）\n  --edit-guard=on|off    编辑他人预留的文件时暂停一次\n\n启动时指定会话名：CC_BRIDGE_NAME=frontend claude（也可用 codex 或 agy）\n\nCC Bridge 连接本机的 Claude Code、Codex 和 Antigravity 会话。\n消息正文会保存在本机临时目录（仅当前用户可读），默认关闭。";
 "No sessions online." = "没有在线会话。";
 "pending" = "待投递";
 "[cc-bridge file reservation] This edit is paused once: the files below are reserved by another Agent session on this machine." = "[cc-bridge 文件预留] 这次编辑先暂停一次：以下文件已被本机另一个 Agent 会话预留。";
@@ -384,7 +384,6 @@
 "Users may also call it “pet”, “desktop pet”, “桌宠” or “cc-pets”: “send this to web with pet”, “have the pet tell api”, “pet, who's online?” " = "用户也会把它叫作“pet”“桌宠”“cc-pets”：“用 pet 发给 web”“让桌宠转告 api”“pet 看看谁在线”";
 "and “reserve src/api with pet” all mean this tool. It only counts when it's about messaging other sessions, listing sessions or reserving files; " = "“用 pet 预留 src/api”都指本工具。只有涉及给其他会话发消息、查看会话、预留文件时才算；";
 "“add a field to pet” or “the pet API” refer to a pet in the code, so don't call this tool for those." = "“给 pet 加个字段”“pet 接口”这类说的是业务代码里的 pet，不要调用本工具。";
-"List other local sessions that can receive CC Bridge messages, including Claude Code, Codex, and Antigravity CLI sessions (" = "列出本机其他可接收 CC Bridge 消息的会话，包括 Claude Code、Codex 和Antigravity CLI（";
 "this is what the user means by “bridge”, “cc-bridge”, “other sessions” or “another terminal”). " = "用户说“bridge”“cc-bridge”“其他会话”“另一个终端”时指的就是它）。";
 "Each line shows: name [ref], CLI, busy/idle, terminal (tty), start time, working directory. " = "每行依次是：名字 [ref]、CLI、忙闲状态、所在终端（tty）、启动时间、工作目录。";
 "The name is the send_message address; append ` [ref]` only when names collide. " = "名字就是 send_message 的地址；只有重名时才需要在名字后加上 ` [ref]`。";
@@ -395,7 +394,7 @@
 "Delivery doesn't mean it was read or agreed to; replies arrive as new messages in this session. " = "送达不代表对方已读或同意；对方回复会作为新消息出现在本会话里。";
 "When replying, put the from name from the message header into to." = "回复收到的消息时，把消息头里的 from 名字填到 to。";
 "Recipient session name (from list_agents); write \"name [ref]\" when names collide" = "收件会话名（来自 list_agents），重名时写成 \"名字 [ref]\"";
-"Message body. Say what it's about in the first sentence; don't rely on @file references, since attachments aren't delivered." = "消息正文。第一句写清楚这条消息是关于什么的；不要依赖 @文件 引用，对方收不到附件。";
+"Message body. An empty message is allowed with attachments." = "消息正文。发送附件时正文可以留空。";
 "When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle. That turn may be one already in progress, so the notice doesn't mean this message was handled." = "为 true 时，对方下一次完成回合进入空闲后，本会话会收到一条一次性空闲通知。这一回合可能是正在进行的回合，所以收到通知不代表这条消息已处理。";
 "Send cross-session message" = "发送跨会话消息";
 "Rename the current session in CC Bridge (the address other sessions use to message you), e.g. frontend or api-server. " = "修改当前会话在 CC Bridge 中的名字（即其他会话给你发消息时用的地址），例如 frontend、api-server。";
@@ -464,7 +463,7 @@
 "\nFile reservations:" = "\n文件预留：";
 "\nRecent messages:" = "\n最近消息：";
 " ({reason})" = "（{reason}）";
-"Usage: cc-pets bridge send <to> <message…>" = "用法: cc-pets bridge send <to> <消息…>";
+"Usage: cc-pets bridge send [--attach path] <to> <message…>" = "用法：cc-pets bridge send [--attach 路径] <to> <消息…>";
 "Usage: cc-pets bridge name <new-name>" = "用法: cc-pets bridge name <新名字>";
 "Renamed {previous} to {session}." = "已从 {previous} 改名为 {session}。";
 "Unknown command: {command}\n\n{USAGE}" = "未知命令：{command}\n\n{USAGE}";
@@ -1149,3 +1148,19 @@
 "Message exceeds Slack’s wire size limit." = "消息编码后超过 Slack 的发送大小限制。";
 "Remote directory exceeds Slack’s wire size limit." = "远程会话名单编码后超过 Slack 的发送大小限制。";
 "Slack token configuration must be owned by you and allow mode 0600." = "Slack 令牌配置文件须归当前用户所有，并允许设为 0600 权限。";
+"Provide up to eight attachment file paths." = "最多可发送 8 个附件，请提供文件路径。";
+"Invalid attachment path." = "附件路径无效。";
+"Cannot read attachment: %@" = "无法读取附件：%@";
+"Choose a file in the sending session’s working directory or its received attachments." = "请选择发送会话工作目录中的文件，或该会话已收到的附件。";
+"Attachments must be regular files totaling at most 32 MiB." = "附件须为普通文件，总大小最多 32 MiB。";
+"Invalid attachment name." = "附件名称无效。";
+"Could not read attachment data." = "无法读取附件内容。";
+"Attachment changed or could not be saved." = "附件已发生变化或无法保存。";
+"Files downloaded from Slack (paths on this device):" = "已从 Slack 下载的附件（当前设备路径）：";
+"Update the remote Bridge before sending attachments." = "请先更新远端 Bridge 再发送附件。";
+"Attachment delivery was interrupted. Check the target before retrying." = "附件投递中断，重试前请先确认对方是否已收到。";
+"For remote recipients only: file paths to upload to the configured Slack channel. For local recipients, include the path in the message." = "仅远程收件人支持附件，选定的文件会上传到配置的 Slack 频道。发给本地会话时，请在正文中写文件路径。";
+"List local and remote CC Bridge recipients, with their location (" = "列出可接收消息的 CC Bridge 会话并标明本地或远程（";
+"Local" = "本地";
+"Local sessions exchange text. Put the local file path in the message instead." = "本地会话使用文本投递，请在消息正文中填写本机文件路径。";
+"Configured" = "已配置";

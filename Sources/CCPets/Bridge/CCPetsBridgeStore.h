@@ -79,6 +79,7 @@ NSArray<NSDictionary *> *CCBridgeListReceipts(void);
 NSString *CCBridgeCheckSendLimits(NSString *fromSession, NSString *toSession);
 // 写入目标信箱。返回 nil 表示成功；Bridge 已关闭或目标已离线时不写入，返回拒绝原因。
 NSString *CCBridgeEnqueueInbox(NSDictionary *message);
+NSString *CCBridgeEnqueueInboxWithReceipt(NSDictionary *message, NSDictionary *receiptPatch);
 // 认领并持有信箱锁：恢复上次未确认的 claimed；调用方必须在输出后 FinishInbox。
 NSArray<NSDictionary *> *CCBridgeClaimInbox(id sessionId);
 // transport 非 nil 表示输出成功；nil 保留消息供重试。两种情况都会释放锁。

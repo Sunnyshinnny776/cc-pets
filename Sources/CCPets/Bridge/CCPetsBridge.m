@@ -178,6 +178,11 @@ NSDictionary<NSString *, NSDictionary *> *CCBridgeSessions(void) {
             @"ref": BridgeSafeString(record[@"ref"], 6),
             @"provider": BridgeSafeString(record[@"provider"], 16)
         } mutableCopy];
+        if ([entry[@"provider"] isEqual:CCBridgeSlackProvider]) {
+            entry[@"session"] = session;
+            NSNumber *pid = CCBridgeSessionHostPID(record);
+            if (pid) entry[@"hostPid"] = pid;
+        }
         NSString *nameSource = [record[@"nameSource"] isKindOfClass:NSString.class] ? record[@"nameSource"] : nil;
         if ([nameSource isEqualToString:@"generated"] || [nameSource isEqualToString:@"custom"]) {
             entry[@"nameSource"] = nameSource;

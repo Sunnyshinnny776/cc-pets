@@ -1,5 +1,6 @@
 #import "CCPetsBridgeRemote.h"
 #import "CCPetsBridgeCore.h"
+#import "CCPetsBridge.h"
 #import "CCPetsBridgeStore.h"
 #import "CCPetsCLISupport.h"
 
@@ -8,7 +9,7 @@ BOOL CCBridgeIsRemoteHost(NSDictionary *peer) {
 }
 
 NSDictionary *CCBridgeRemoteAdvertisement(NSDictionary *local) {
-    return @{@"id": CCBridgeSHA1Hex(local[@"session"]), @"name": local[@"name"],
+    return @{@"id": CCBridgeSHA1Hex(local[@"session"]), @"name": local[@"name"], @"attachments": @YES,
         @"provider": local[@"provider"], @"status": [local[@"status"] isEqual:@"busy"] ? @"busy" : @"idle"};
 }
 
@@ -23,23 +24,25 @@ NSDictionary *CCBridgeRemoteIdentity(NSDictionary *peer, NSDictionary *entry) {
     NSString *sid = [NSString stringWithFormat:@"%@.%@", peer[@"session"], key];
     return @{@"session": sid, @"name": [NSString stringWithFormat:@"%@/%@", peer[@"name"], name],
         @"ref": CCBridgeSessionRef(sid), @"provider": CCBridgeSlackProvider, @"status": entry[@"status"],
-        @"remoteProvider": entry[@"provider"], @"remoteID": key, @"gateway": peer[@"session"]};
+        @"acceptsAttachments": @([entry[@"attachments"] isEqual:@YES]), @"remoteProvider": entry[@"provider"], @"remoteID": key, @"gateway": peer[@"session"]};
 }
 
-static NSString *DirectoryFile(NSDictionary *peer) {
-    return [CCBridgeSubdirectory(@[@"slack-directories"]) stringByAppendingPathComponent:
+static NSString *DirectoryFile(NSDictionary *peer, BOOL writing) {
+    NSString *directory = writing ? CCBridgeSubdirectory(@[@"slack-directories"]) :
+        [CCBridgeStateDirectory() stringByAppendingPathComponent:@"slack-directories"];
+    return [directory stringByAppendingPathComponent:
         [peer[@"session"] stringByAppendingString:@".json"]];
 }
 
 NSDictionary *CCBridgeRemoteDirectory(NSDictionary *peer) {
-    NSDictionary *directory = CCBridgeReadJSON(DirectoryFile(peer));
+    NSDictionary *directory = CCBridgeReadJSON(DirectoryFile(peer, NO));
     if (![directory isKindOfClass:NSDictionary.class] || ![directory[@"pid"] isEqual:CCBridgeSessionHostPID(peer)] ||
         [directory[@"expiresAt"] longLongValue] <= CCPetsMilliseconds()) return nil;
     return directory;
 }
 
 void CCBridgeClearRemoteDirectory(NSDictionary *peer) {
-    CCBridgeWriteJSON(DirectoryFile(peer), @{});
+    CCBridgeWriteJSON(DirectoryFile(peer, YES), @{});
 }
 
 // The Socket Mode receiver is the only writer. Use Slack's event timestamp,
@@ -57,7 +60,7 @@ BOOL CCBridgeSaveRemoteDirectory(NSDictionary *peer, NSString *eventTS, NSArray 
         [sessions addObject:session];
         [ids addObject:session[@"session"]];
     }
-    CCBridgeWriteJSON(DirectoryFile(peer), @{@"ts": eventTS, @"expiresAt": @(expires),
+    CCBridgeWriteJSON(DirectoryFile(peer, YES), @{@"ts": eventTS, @"expiresAt": @(expires),
         @"pid": CCBridgeSessionHostPID(peer), @"sessions": sessions, @"instance": instance});
     return YES;
 }

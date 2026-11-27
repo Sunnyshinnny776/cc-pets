@@ -1,4 +1,6 @@
 #import "CCPetsBridgeSlack.h"
+#import "CCPetsBridgeSlackFiles.h"
+#import "CCPetsBridgeAttachments.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeCore.h"
 #import "CCPetsBridgeRemote.h"
@@ -29,14 +31,34 @@ static void Report(NSString *message) {
 
 // Use form encoding for token-only methods and JSON for chat.postMessage. Never log
 // request headers, message bodies or the signed WebSocket URL on failure.
-static NSDictionary *API(NSURLSession *http, NSString *method, NSString *token, NSDictionary *body) {
+NSDictionary *CCBridgeSlackAPI(NSURLSession *http, NSString *method, NSString *token, NSDictionary *body) {
     NSURL *url = [NSURL URLWithString:[@"https://slack.com/api/" stringByAppendingString:method]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     request.HTTPMethod = @"POST";
     request.timeoutInterval = 20;
     [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
-    [request setValue:body ? @"application/json; charset=utf-8" : @"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
-    if (body) request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    BOOL form = [method isEqual:@"files.getUploadURLExternal"] || [method isEqual:@"files.info"];
+    if (form) {
+        NSMutableArray *items = [NSMutableArray array];
+        for (NSString *key in body) {
+            [items addObject:[NSURLQueryItem queryItemWithName:key value:[body[key] description]]];
+        }
+        NSURLComponents *parts = [NSURLComponents new];
+        parts.queryItems = items;
+        NSString *encoded = [parts.percentEncodedQuery stringByReplacingOccurrencesOfString:@"+" withString:@"%2B"];
+        if ([method isEqual:@"files.info"]) {
+            request.HTTPMethod = @"GET";
+            NSURLComponents *endpoint = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+            endpoint.percentEncodedQuery = encoded;
+            request.URL = endpoint.URL;
+        } else {
+            request.HTTPBody = [encoded dataUsingEncoding:NSUTF8StringEncoding];
+        }
+    } else if (body) {
+        request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    }
+    [request setValue:(body && !form) ? @"application/json; charset=utf-8" : @"application/x-www-form-urlencoded"
+        forHTTPHeaderField:@"Content-Type"];
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
     __block NSDictionary *result;
     [[http dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -226,7 +248,7 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
     if (![receipt[@"status"] isEqual:@"pending"] || !self.connectionID || !CCBridgeEnabled()) return;
     self.retryPostsAt = MAX(self.retryPostsAt, [receipt[@"retryAt"] longLongValue]);
     if (receipt[@"postedAt"]) {
-        if (CCPetsMilliseconds() - [receipt[@"postedAt"] longLongValue] > 180000) {
+        if (CCPetsMilliseconds() - [receipt[@"postedAt"] longLongValue] > ([message[@"attachments"] count] ? CCBridgeMessageTTL : 180000)) {
             CCBridgeUpdateReceipt(mid, @{@"status": @"undeliverable", @"reason": L(@"The remote Bridge did not confirm receipt.")});
         }
         return;
@@ -239,16 +261,39 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
     } else if (thread && ![ThreadOwner(message[@"to"][@"session"], thread) isEqual:message[@"from"][@"session"]]) {
         failure = L(@"This Slack thread does not belong to the sending session or has expired.");
     } else {
-        NSMutableDictionary *post;
-        if (remote) {
-            NSString *destination = message[@"to"][@"remoteID"];
-            NSArray *online = CCBridgeRemoteDirectory(peer)[@"sessions"];
-            if (!destination || (!thread && ![[online valueForKey:@"remoteID"] containsObject:destination])) {
-                CCBridgeUpdateReceipt(mid, @{@"status": @"undeliverable", @"reason": L(@"The remote session is offline.")});
+        NSString *destination = message[@"to"][@"remoteID"];
+        if (remote && (!destination || (!thread && ![[CCBridgeRemoteDirectory(peer)[@"sessions"] valueForKey:@"remoteID"] containsObject:destination]))) {
+            CCBridgeUpdateReceipt(mid, @{@"status": @"undeliverable", @"reason": L(@"The remote session is offline.")});
+            return;
+        }
+        NSString *comment = [NSString stringWithFormat:@"<@%@> [%@] %@", peer[@"user_id"],
+            CCBridgeDescribeSession(message[@"from"]), EscapeSlackText(message[@"body"])];
+        NSArray *fileIDs = nil;
+        if ([message[@"attachments"] count]) {
+            NSDictionary *shared = CCBridgeSlackShareFiles(self.http, self.botToken, message, peer,
+                remote ? [NSString stringWithFormat:@"%@ → %@", message[@"from"][@"name"], message[@"to"][@"name"]] : comment, thread);
+            if (shared[@"delay"]) {
+                self.retryPostsAt = CCPetsMilliseconds() + 1000LL * [shared[@"delay"] longLongValue];
+                CCBridgeUpdateReceipt(mid, @{@"retryAt": @(self.retryPostsAt)});
                 return;
             }
-            NSDictionary *packet = @{@"type": @"message", @"id": mid, @"to": destination,
-                @"from": CCBridgeRemoteAdvertisement(message[@"from"]), @"body": message[@"body"]};
+            if (shared[@"error"]) {
+                CCBridgeUpdateReceipt(mid, @{@"status": @"undeliverable", @"reason": shared[@"error"]});
+                Report(shared[@"error"]);
+                return;
+            }
+            thread = shared[@"thread"];
+            fileIDs = shared[@"ids"];
+            if (!remote) {
+                CCBridgeUpdateReceipt(mid, @{@"status": @"delivered", @"transport": @{@"kind": @"slack", @"thread": thread}});
+                return;
+            }
+        }
+        NSMutableDictionary *post;
+        if (remote) {
+            NSMutableDictionary *packet = [@{@"type": fileIDs ? @"message-files" : @"message", @"id": mid, @"to": destination,
+                @"from": CCBridgeRemoteAdvertisement(message[@"from"]), @"body": message[@"body"]} mutableCopy];
+            if (fileIDs) packet[@"files"] = fileIDs;
             NSString *display = [NSString stringWithFormat:@"%@ → %@\n%@", message[@"from"][@"name"],
                 message[@"to"][@"name"], message[@"body"]];
             post = WirePost(peer, packet, PlainTextBlocks(display), thread);
@@ -257,14 +302,12 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
                 return;
             }
         } else {
-            NSString *text = [NSString stringWithFormat:@"<@%@> [%@] %@", peer[@"user_id"],
-                CCBridgeDescribeSession(message[@"from"]), EscapeSlackText(message[@"body"])];
-            post = [@{@"channel": peer[@"channel"], @"text": text, @"unfurl_links": @NO, @"unfurl_media": @NO} mutableCopy];
+            post = [@{@"channel": peer[@"channel"], @"text": comment, @"unfurl_links": @NO, @"unfurl_media": @NO} mutableCopy];
             if (thread) post[@"thread_ts"] = thread;
         }
         NSDictionary *posting = CCBridgeUpdateReceipt(mid, @{@"posting": @YES});
         if (![posting[@"status"] isEqual:@"pending"] || !CCBridgeEnabled()) return;
-        NSDictionary *reply = API(self.http, @"chat.postMessage", self.botToken, post);
+        NSDictionary *reply = CCBridgeSlackAPI(self.http, @"chat.postMessage", self.botToken, post);
         if ([reply[@"ok"] isEqual:@YES] && Matches(reply[@"ts"], @"^[0-9]+\\.[0-9]{6}\\z")) {
             NSDictionary *transport = @{@"kind": remote ? @"slack-bridge" : @"slack", @"thread": thread ?: reply[@"ts"]};
             CCBridgeUpdateReceipt(mid, remote ? @{@"postedAt": @(CCPetsMilliseconds()), @"posting": @NO, @"transport": transport}
@@ -298,7 +341,7 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
 - (NSDictionary *)peerForEvent:(NSDictionary *)event {
     NSString *bot = event[@"bot_id"] ?: Object(event[@"bot_profile"])[@"id"];
     if (!Matches(bot, @"^B[A-Z0-9]+\\z") || [bot isEqual:self.bot] || ![event[@"type"] isEqual:@"message"] ||
-        (event[@"subtype"] && ![event[@"subtype"] isEqual:@"bot_message"]) || ![event[@"channel"] isKindOfClass:NSString.class]) return nil;
+        (event[@"subtype"] && ![@[@"bot_message", @"file_share"] containsObject:event[@"subtype"]]) || ![event[@"channel"] isKindOfClass:NSString.class]) return nil;
     NSDictionary *peer = self.peers[ChannelBot(event[@"channel"], bot)];
     if (event[@"user"] && ![event[@"user"] isEqual:peer[@"user_id"]]) return nil;
     return peer;
@@ -345,7 +388,7 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
         // original bot-authored announcement so it can bind bot and user IDs.
         BOOL newListener = broadcast && (![last[@"other"] isEqual:other] || ![last[@"connection"] isEqual:connection]);
         if (last[@"ts"] && !newListener) post[@"ts"] = last[@"ts"];
-        NSDictionary *reply = API(self.http, post[@"ts"] ? @"chat.update" : @"chat.postMessage", self.botToken, post);
+        NSDictionary *reply = CCBridgeSlackAPI(self.http, post[@"ts"] ? @"chat.update" : @"chat.postMessage", self.botToken, post);
         if ([reply[@"ok"] isEqual:@YES] && [reply[@"ts"] isKindOfClass:NSString.class]) {
             self.publications[sid] = @{@"ts": reply[@"ts"], @"at": @(now), @"connection": connection,
                 @"roster": roster, @"other": other};
@@ -402,6 +445,20 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
     if (![previousInstance isEqual:packet[@"instance"]]) self.discoveryJoin = NSUUID.UUID.UUIDString;
 }
 
+- (NSDictionary *)fetchFiles:(NSArray *)ids peer:(NSDictionary *)peer event:(NSDictionary *)event
+        messageID:(NSString *)mid requireRoot:(BOOL)root {
+    if (self.retryPostsAt > CCPetsMilliseconds()) return @{@"delay": @1};
+    NSDictionary *result = CCBridgeSlackFetchFiles(self.http, self.botToken, ids, peer,
+        event[@"thread_ts"] ?: event[@"ts"], root, mid, event[@"downloadDay"] ?: CCBridgeAttachmentDay([event[@"ts"] doubleValue]));
+    // The event can precede Slack's file metadata becoming visible.
+    if (([result[@"error"] isEqual:@"file_not_found"] || [result[@"error"] isEqual:@"file_share_not_visible"]) &&
+        NSDate.date.timeIntervalSince1970 - [event[@"ts"] doubleValue] < 60) {
+        result = @{@"delay": @3};
+    }
+    if (result[@"delay"]) self.retryPostsAt = CCPetsMilliseconds() + 1000LL * [result[@"delay"] longLongValue];
+    return result;
+}
+
 // Acknowledgements belong to one authenticated peer, original post and thread.
 // Keep the sender's receipt pending until the other Bridge has accepted the body.
 - (BOOL)handleRemoteEvent:(NSDictionary *)event peer:(NSDictionary *)peer {
@@ -415,12 +472,14 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
         NSString *state = packet[@"result"];
         if ([state isEqual:@"accepted"]) CCBridgeUpdateReceipt(mid, @{@"status": @"delivered"});
         else if ([state isEqual:@"offline"] || [state isEqual:@"refused"]) {
-            CCBridgeUpdateReceipt(mid, @{@"status": @"undeliverable", @"reason": [state isEqual:@"offline"]
-                ? L(@"The remote session is offline.") : L(@"The remote Bridge refused delivery.")});
+            NSString *reason = [state isEqual:@"offline"] ? L(@"The remote session is offline.") : L(@"The remote Bridge refused delivery.");
+            if (Matches(packet[@"file_error"], @"^[a-z_]{1,64}\\z")) reason = [reason stringByAppendingFormat:@" (%@)", packet[@"file_error"]];
+            CCBridgeUpdateReceipt(mid, @{@"status": @"undeliverable", @"reason": reason});
         }
         return YES;
     }
-    if (![packet[@"type"] isEqual:@"message"] || !Matches(packet[@"to"], @"^[a-f0-9]{40}\\z") ||
+    BOOL withFiles = [packet[@"type"] isEqual:@"message-files"];
+    if ((!withFiles && ![packet[@"type"] isEqual:@"message"]) || !Matches(packet[@"to"], @"^[a-f0-9]{40}\\z") ||
         ![packet[@"body"] isKindOfClass:NSString.class]) return YES;
     NSMutableDictionary *from = [CCBridgeRemoteIdentity(peer, packet[@"from"]) mutableCopy];
     if (!from) return YES;
@@ -429,13 +488,28 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
     from[@"slackThread"] = thread;
     NSDictionary *received = CCBridgeReadReceipt(incoming);
     NSString *state = @"offline";
+    NSString *fileError = nil;
     if (!received || [received[@"status"] isEqual:@"queued"]) {
         // Resolve only a local session with this full, stable routing ID.
         for (NSDictionary *target in CCBridgeListSessions()) {
             if ([target[@"provider"] isEqual:CCBridgeSlackProvider] ||
                 ![CCBridgeSHA1Hex(target[@"session"]) isEqual:packet[@"to"]] || !CCBridgeSessionLive(target)) continue;
-            if (event[@"thread_ts"] && ![ThreadOwner(from[@"session"], thread) isEqual:target[@"session"]]) break;
-            NSDictionary *result = CCBridgeSendMessage(from, target, packet[@"body"], NO, NO);
+            NSString *owner = event[@"thread_ts"] ? ThreadOwner(from[@"session"], thread) : nil;
+            if (event[@"thread_ts"] && ![owner isEqual:target[@"session"]] && (owner || !withFiles)) break;
+            NSArray *paths = nil;
+            if (withFiles) {
+                NSDictionary *download = [self fetchFiles:packet[@"files"] peer:peer event:event messageID:incoming
+                    requireRoot:!owner];
+                if (download[@"delay"]) return NO;
+                if (download[@"error"]) {
+                    fileError = download[@"error"];
+                    Report(fileError);
+                    state = @"refused";
+                    break;
+                }
+                paths = download[@"paths"];
+            }
+            NSDictionary *result = CCBridgeSendMessageWithAttachments(from, target, packet[@"body"], paths, NO);
             received = result[@"receipt"];
             state = @"refused";
             break;
@@ -445,9 +519,11 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
         state = [@[@"pending", @"delivered"] containsObject:received[@"status"]] ? @"accepted" : @"refused";
     }
     if (!self.connectionID || self.retryPostsAt > CCPetsMilliseconds() || !CCBridgeEnabled()) return NO;
-    NSDictionary *ack = WirePost(peer, @{@"type": @"ack", @"id": mid, @"result": state},
+    NSMutableDictionary *ackPacket = [@{@"type": @"ack", @"id": mid, @"result": state} mutableCopy];
+    if (fileError) ackPacket[@"file_error"] = fileError;
+    NSDictionary *ack = WirePost(peer, ackPacket,
         PlainTextBlocks([NSString stringWithFormat:@"CC Bridge · %@ · %@", mid, state]), thread);
-    NSDictionary *reply = API(self.http, @"chat.postMessage", self.botToken, ack);
+    NSDictionary *reply = CCBridgeSlackAPI(self.http, @"chat.postMessage", self.botToken, ack);
     if ([reply[@"ok"] isEqual:@YES]) return YES;
     NSString *error = reply[@"error"] ?: @"invalid_response";
     Report(error);
@@ -457,7 +533,7 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
     return NO;
 }
 
-- (void)handleEvent:(NSDictionary *)event peer:(NSDictionary *)peer messageID:(NSString *)mid {
+- (BOOL)handleEvent:(NSDictionary *)event peer:(NSDictionary *)peer messageID:(NSString *)mid {
     NSString *thread = event[@"thread_ts"], *text = event[@"text"];
     NSString *owner = thread ? ThreadOwner(peer[@"session"], thread) : nil;
     NSString *mention = [NSString stringWithFormat:@"<@%@>", self.user];
@@ -467,30 +543,41 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
         if ([text hasPrefix:mention]) text = [text substringFromIndex:mention.length];
     } else {
         // Only an explicit top-level mention can establish a new conversation.
-        if (thread || ![text hasPrefix:mention]) return;
+        if (thread || ![text hasPrefix:mention]) return YES;
         NSString *command = [text substringFromIndex:mention.length];
         NSRegularExpression *syntax = [NSRegularExpression regularExpressionWithPattern:
-            @"\\A\\s*(?:to|发给)\\s+([a-z0-9._-]+(?: \\[[a-f0-9]{6}\\])?)\\s+([\\s\\S]+)\\z" options:0 error:nil];
+            @"\\A\\s*(?:to|发给)\\s+([a-z0-9._-]+(?: \\[[a-f0-9]{6}\\])?)(?:\\s+([\\s\\S]+))?\\z" options:0 error:nil];
         NSTextCheckingResult *match = [syntax firstMatchInString:command options:0 range:NSMakeRange(0, command.length)];
-        if (!match) return;
+        if (!match) return YES;
         NSString *priorTarget = CCBridgeReadReceipt(mid)[@"to"][@"session"];
         target = priorTarget ? CCBridgeReadSession(priorTarget) :
             CCBridgeResolveTarget([command substringWithRange:[match rangeAtIndex:1]], CCBridgeLiveSessions())[@"session"];
-        text = [command substringWithRange:[match rangeAtIndex:2]];
+        NSRange bodyRange = [match rangeAtIndex:2];
+        text = bodyRange.location == NSNotFound ? @"" : [command substringWithRange:bodyRange];
         thread = event[@"ts"];
     }
     if (!CCBridgeSessionLive(target) || [target[@"provider"] isEqual:CCBridgeSlackProvider]) {
         Report(L(@"Slack message has no unique online local recipient."));
-        return;
+        return YES;
     }
     NSMutableDictionary *from = [peer mutableCopy];
     from[@"slackThread"] = thread;
     from[@"slackEventID"] = mid;
     text = [[[text stringByReplacingOccurrencesOfString:@"&lt;" withString:@"<"] stringByReplacingOccurrencesOfString:@"&gt;" withString:@">"]
         stringByReplacingOccurrencesOfString:@"&amp;" withString:@"&"];
-    NSDictionary *result = CCBridgeSendMessage(from, target, text, NO, NO);
+    NSArray *paths = nil;
+    if (event[@"fileIDs"]) {
+        NSDictionary *existing = CCBridgeReadReceipt(mid);
+        if (existing && ![existing[@"status"] isEqual:@"queued"]) return YES;
+        NSDictionary *download = [self fetchFiles:event[@"fileIDs"] peer:peer event:event messageID:mid requireRoot:NO];
+        if (download[@"delay"]) return NO;
+        if (download[@"error"]) { Report(download[@"error"]); return YES; }
+        paths = download[@"paths"];
+    }
+    NSDictionary *result = CCBridgeSendMessageWithAttachments(from, target, text, paths, NO);
     if (result[@"error"]) Report(result[@"error"]);
     else if ([result[@"receipt"][@"status"] isEqual:@"undeliverable"]) Report(result[@"receipt"][@"reason"]);
+    return YES;
 }
 
 // Persist accepted envelopes before ACK. A slow local Codex wake-up or an HTTP
@@ -509,16 +596,16 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
     NSDictionary *peer = [self peerForEvent:event];
     // Some edited bot messages retain only the bot user ID. Only accept that
     // form for presence, bound to the configured user and channel.
-    if (edit && !peer && !event[@"bot_id"] && !Object(event[@"bot_profile"])[@"id"] && [event[@"type"] isEqual:@"message"]) {
+    if ((edit || event[@"files"]) && !peer && !event[@"bot_id"] && !Object(event[@"bot_profile"])[@"id"] && [event[@"type"] isEqual:@"message"]) {
         for (NSDictionary *candidate in self.peers.allValues) {
-            if (CCBridgeIsRemoteHost(candidate) && [event[@"user"] isEqual:candidate[@"user_id"]] &&
+            if ((edit ? CCBridgeIsRemoteHost(candidate) : !CCBridgeIsRemoteHost(candidate)) && [event[@"user"] isEqual:candidate[@"user_id"]] &&
                 [event[@"channel"] isEqual:candidate[@"channel"]]) {
                 peer = candidate;
                 break;
             }
         }
     }
-    NSString *text = event[@"text"];
+    NSString *text = event[@"text"] ?: (event[@"files"] ? @"" : nil);
     if (![text isKindOfClass:NSString.class]) return;
     if ([event[@"channel"] isEqual:self.discovery[@"channel"]] && [text hasPrefix:WirePrefix(nil)]) {
         if (!event[@"thread_ts"]) {
@@ -541,10 +628,21 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
             if (!peer[@"discovered"]) CCBridgeSaveRemoteDirectory(peer, eventTS, packet[@"sessions"], packet[@"instance"]);
             return;
         }
-        if (![@[@"message", @"ack"] containsObject:packet[@"type"] ?: @""]) return;
+        if (![@[@"message", @"message-files", @"ack"] containsObject:packet[@"type"] ?: @""]) return;
     }
     // Edits can refresh presence, but never trigger or replay a user message.
     if (edit || (!event[@"thread_ts"] && ![text hasPrefix:[NSString stringWithFormat:@"<@%@>", self.user]])) return;
+    NSMutableArray *fileIDs = nil;
+    if (!CCBridgeIsRemoteHost(peer) && (event[@"files"] || [event[@"subtype"] isEqual:@"file_share"])) {
+        NSArray *files = event[@"files"];
+        if (![files isKindOfClass:NSArray.class] || !files.count || files.count > CCBridgeAttachmentCountLimit) return;
+        fileIDs = [NSMutableArray array];
+        for (id file in files) {
+            NSString *fid = Object(file)[@"id"];
+            if (!CCBridgeSlackFileIDValid(fid)) return;
+            [fileIDs addObject:fid];
+        }
+    }
     NSString *mid = [@"s" stringByAppendingString:CCBridgeSHA1Hex([NSString stringWithFormat:@"%@/%@", peer[@"session"], payload[@"event_id"]])];
     CCBridgeWithLock(@"slack-events", ^id {
         NSDictionary *existing = CCBridgeReadReceipt(mid);
@@ -556,8 +654,11 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
             for (NSString *key in @[@"type", @"bot_id", @"user", @"channel", @"ts", @"thread_ts", @"text"]) {
                 if (event[key]) message[key] = event[key];
             }
+            if (fileIDs) { message[@"fileIDs"] = fileIDs; message[@"text"] = text; }
             message[@"bot_id"] = peer[@"bot_id"];
             long long now = CCPetsMilliseconds();
+            // Persist the receiver's local calendar day across retries, including timezone changes.
+            message[@"downloadDay"] = CCBridgeAttachmentDay(now / 1000.0);
             NSMutableDictionary *item = [@{@"id": mid, @"peer": peer[@"session"], @"event": message, @"at": @(now)} mutableCopy];
             if (waitForRoster) item[@"registrationDeadline"] = @(now + 90000);
             CCBridgeWriteJSON(file, item);
@@ -587,7 +688,7 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
             if (CCBridgeIsRemoteHost(peer)) {
                 if (![self handleRemoteEvent:event peer:peer]) continue;
             } else {
-                [self handleEvent:event peer:peer messageID:item[@"id"]];
+                if (![self handleEvent:event peer:peer messageID:item[@"id"]]) continue;
             }
         }
         unlink(path.fileSystemRepresentation);
@@ -600,7 +701,7 @@ static NSMutableDictionary *WirePost(NSDictionary *peer, NSDictionary *packet, N
     NSUInteger backoff = 1;
     while (CCBridgeEnabled()) {
         @autoreleasepool {
-            NSDictionary *open = initial ?: API(self.http, @"apps.connections.open", self.appToken, nil);
+            NSDictionary *open = initial ?: CCBridgeSlackAPI(self.http, @"apps.connections.open", self.appToken, nil);
             initial = nil;
             NSURL *url = [open[@"url"] isKindOfClass:NSString.class] ? [NSURL URLWithString:open[@"url"]] : nil;
             if ([open[@"ok"] isEqual:@YES] && [url.scheme isEqual:@"wss"]) {
@@ -690,7 +791,7 @@ int CCBridgeRunSlack(NSArray<NSString *> *arguments) {
         NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
         configuration.URLCache = nil;
         adapter.http = [NSURLSession sessionWithConfiguration:configuration];
-        NSDictionary *auth = API(adapter.http, @"auth.test", adapter.botToken, nil);
+        NSDictionary *auth = CCBridgeSlackAPI(adapter.http, @"auth.test", adapter.botToken, nil);
         if (![auth[@"ok"] isEqual:@YES] || !Matches(auth[@"team_id"], @"^T[A-Z0-9]+\\z") ||
             !Matches(auth[@"user_id"], @"^[UW][A-Z0-9]+\\z") || !Matches(auth[@"bot_id"], @"^B[A-Z0-9]+\\z")) {
             Report(auth[@"error"] ?: @"invalid_bot_identity"); return 1;
@@ -704,7 +805,7 @@ int CCBridgeRunSlack(NSArray<NSString *> *arguments) {
             adapter.discovery = @{@"channel": config[@"discovery"][@"channel"], @"name": name ?: adapter.bot.lowercaseString};
             adapter.publications = [NSMutableDictionary dictionary];
         }
-        NSDictionary *connection = API(adapter.http, @"apps.connections.open", adapter.appToken, nil);
+        NSDictionary *connection = CCBridgeSlackAPI(adapter.http, @"apps.connections.open", adapter.appToken, nil);
         if (![connection[@"ok"] isEqual:@YES]) { Report(connection[@"error"] ?: @"invalid_socket_url"); return 1; }
         for (NSDictionary *agent in agents) {
             if ([agent[@"bot_id"] isEqual:adapter.bot] || [agent[@"user_id"] isEqual:adapter.user]) {

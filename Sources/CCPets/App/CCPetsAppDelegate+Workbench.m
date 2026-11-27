@@ -3,6 +3,7 @@
 #import "CCPetsAppDelegate+Private.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeStore.h"
+#import "CCPetsBridgeRemote.h"
 #import "CCPetsDiagnosticsPage.h"
 #import "CCPetsUsageMode.h"
 #import "CCPetsProviderRegistry.h"
@@ -45,11 +46,24 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
         session[@"pendingMessages"] = bridgeID ? (pending[bridgeID] ?: @0) : @0;
         [sessions addObject:session];
     }
+    if (CCBridgeEnabled()) {
+        for (NSDictionary *peer in CCBridgeMessageRecipients(self.bridgeSessions.allValues)) {
+            if (![peer[@"provider"] isEqual:CCBridgeSlackProvider]) continue;
+            NSString *state = peer[@"gateway"] ? peer[@"status"] : @"idle";
+            NSString *status = [state isEqual:@"busy"] ? L(@"Busy") : L(@"Idle");
+            [sessions addObject:@{@"id": peer[@"session"], @"remote": @YES,
+                @"displayName": peer[@"name"], @"provider": peer[@"remoteProvider"] ?: CCBridgeSlackProvider,
+                @"state": state, @"status": peer[@"gateway"] ? status : L(@"Configured"), @"updatedAt": @0}];
+        }
+    }
     // 和右键会话菜单同一个次序：等审批的置顶，其余新的在前。
     [sessions sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
         BOOL leftApproval = [left[@"state"] isEqualToString:@"approval"];
         BOOL rightApproval = [right[@"state"] isEqualToString:@"approval"];
         if (leftApproval != rightApproval) return leftApproval ? NSOrderedAscending : NSOrderedDescending;
+        if ([left[@"remote"] boolValue] && [right[@"remote"] boolValue]) {
+            return [left[@"displayName"] localizedStandardCompare:right[@"displayName"]];
+        }
         return [right[@"updatedAt"] compare:left[@"updatedAt"]];
     }];
     return sessions;

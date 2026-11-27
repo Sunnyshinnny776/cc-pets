@@ -636,6 +636,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   -framework Foundation \
   "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PET_SRC[CCPetsBridge.m]:?}" \
+  "${PET_SRC[CCPetsBridgeAttachments.m]:?}" \
   "${PET_SRC[CCPetsBridgeStore.m]:?}" \
   "${PET_SRC[CCPetsCLISupport.m]:?}" \
   "${PET_SRC[CCPetsJSON.m]:?}" \
@@ -2443,6 +2444,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsBridge.m]:?}" \
+  "${PET_SRC[CCPetsBridgeAttachments.m]:?}" \
   "${PET_SRC[CCPetsBridgeCore.m]:?}" \
   "${PET_SRC[CCPetsBridgeSetup.m]:?}" \
   "${PET_SRC[CCPetsAntigravityConfig.m]:?}" \

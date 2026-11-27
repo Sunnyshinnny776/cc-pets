@@ -21,6 +21,7 @@ static NSDictionary *PetCardSnapshot(void) {
 }
 
 static NSString *RelativeTime(NSTimeInterval timestamp) {
+    if (timestamp <= 0) return @"–";
     NSTimeInterval age = fmax(0, NSDate.date.timeIntervalSince1970 - timestamp);
     if (age < 5) return L(@"just now");
     if (age < 60) return [NSString stringWithFormat:L(@"%.0fs ago"), age];
@@ -638,7 +639,8 @@ static const CGFloat SessionStateWidth = 92, SessionDoingWidth = 256, SessionTim
 
         NSString *title = [session[@"displayName"] length] > 0 ? session[@"displayName"] : session[@"provider"];
         NSTextField *name = CCPetsLabel(title, 13, NSFontWeightSemibold, CCPetsInkColor());
-        NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObject:session[@"provider"]];
+        BOOL remote = [session[@"remote"] boolValue];
+        NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObjects:remote ? L(@"Remote") : L(@"Local"), session[@"provider"], nil];
         if ([session[@"terminal"] length] > 0) [parts addObject:session[@"terminal"]];
         NSUInteger mail = [session[@"pendingMessages"] unsignedIntegerValue];
         if (mail > 0) [parts addObject:[NSString stringWithFormat:L(@"%lu waiting"), (unsigned long)mail]];
@@ -672,17 +674,19 @@ static const CGFloat SessionStateWidth = 92, SessionDoingWidth = 256, SessionTim
         time.alignment = NSTextAlignmentRight;
 
         NSString *sessionID = session[@"id"];
-        NSButton *jump = ActionButton(L(@"Go to Terminal"), approval, ^{
-            [WorkbenchSource() focusWorkbenchSessionWithID:sessionID];
-        });
         NSView *actionCell = [NSView new];
-        jump.translatesAutoresizingMaskIntoConstraints = NO;
-        [actionCell addSubview:jump];
-        [NSLayoutConstraint activateConstraints:@[
-            [jump.trailingAnchor constraintEqualToAnchor:actionCell.trailingAnchor],
-            [jump.centerYAnchor constraintEqualToAnchor:actionCell.centerYAnchor],
-            [actionCell.heightAnchor constraintEqualToAnchor:jump.heightAnchor],
-        ]];
+        if (!remote) {
+            NSButton *jump = ActionButton(L(@"Go to Terminal"), approval, ^{
+                [WorkbenchSource() focusWorkbenchSessionWithID:sessionID];
+            });
+            jump.translatesAutoresizingMaskIntoConstraints = NO;
+            [actionCell addSubview:jump];
+            [NSLayoutConstraint activateConstraints:@[
+                [jump.trailingAnchor constraintEqualToAnchor:actionCell.trailingAnchor],
+                [jump.centerYAnchor constraintEqualToAnchor:actionCell.centerYAnchor],
+                [actionCell.heightAnchor constraintEqualToAnchor:jump.heightAnchor],
+            ]];
+        }
         [rows addObject:[self sessionRowWithCells:@[chip, nameCell, doing, time, actionCell] height:50]];
     }
     return [self cardWithRows:rows];

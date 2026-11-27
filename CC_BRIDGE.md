@@ -139,6 +139,15 @@ Replace the example channel ID. Computer names accept uppercase and lowercase le
 - **Membership** allows participating Bridge bots in the discovery channel to see each other’s sessions and send messages. Use a channel shared by the collaborating machines. Ordinary chat messages do not register a bot.
 - **Existing configurations** can keep `agents`, with or without `discovery`. Ordinary bots use explicit entries; existing `"bridge": true` entries keep their configured aliases. When first enabling channel discovery, update and restart each existing adapter once.
 
+#### Image and file attachments
+
+For remote recipients, pass file paths in the optional `attachments` array of `send_message`. For example, send `{"to":"mac-b/reviewer","message":"Review the screenshot and log","attachments":["screenshot.png","logs/build.txt"]}`. The CLI equivalent is `cc-pets bridge send --attach screenshot.png --attach logs/build.txt mac-b/reviewer "Review the screenshot and log"`.
+
+- Choose regular files in the sending session’s working directory (relative or absolute paths), or forward files that session received. Each message accepts up to 8 files totaling 32 MiB. The body is optional with attachments.
+- Pet’s session list and `cc-pets bridge list` mark recipients as Local or Remote. Only remote recipients accept attachments. For another local session, put the existing absolute path in a text message. Across Macs, both adapters must support attachments. Add `files:write` and `files:read` to **OAuth & Permissions → Bot Token Scopes** for each participating app and reinstall it to the workspace. Reconnect MCP or restart agent sessions after updating Bridge.
+- Slack hosts the files in the configured channel, visible to its members. The receiving adapter downloads the files before delivering local paths to the target. Files are saved under `~/.cc-pets/var/attachments/yyyy-MM-dd/<message-ID>/<Slack-file-ID>/<original-filename>`, retaining the original extension and the receiver’s local date at initial intake. `CC_PETS_HOME` overrides the default home. The agent uses its own file or image reader. Bridge cleans its temporary copies during receipt cleanup after 48 hours. Slack retains channel files according to workspace policy.
+- A configured ordinary bot can also share hosted files with an initial comment such as `<@BRIDGE_USER_ID> to reviewer Please inspect`. Thread replies can carry files too. [Slack file API](https://docs.slack.dev/messaging/working-with-files/)
+
 ### Antigravity CLI
 
 Enable CC Bridge and make sure `agy` is on your `PATH`. Run `agy` in the project directory.

@@ -136,6 +136,15 @@ Agent 会调用这些 MCP 工具：
 - **频道成员**。同一发现频道中发布有效登记的 Bridge 可以看到彼此的会话并发消息。请用参与协作的机器共用的频道。普通聊天消息不会触发登记。
 - **兼容已有配置**。原来的 `agents` 数组仍可单独使用，也可与 `discovery` 并存。普通 Slack 机器人继续按上述显式条目配置；带 `"bridge": true` 的已有条目继续使用本机给它设置的名字。已有电脑首次改用频道发现时，需更新到支持此功能的版本并重启一次适配器。
 
+#### 发送图片和文件
+
+发给远程收件人时，在 `send_message` 的可选 `attachments` 数组里填写文件路径。例如，向远端发送截图和日志可以传 `{"to":"mac-b/reviewer","message":"请查看截图和日志","attachments":["screenshot.png","logs/build.txt"]}`。命令行也支持 `cc-pets bridge send --attach screenshot.png --attach logs/build.txt mac-b/reviewer "请查看截图和日志"`。
+
+- 可用发送会话工作目录中的相对路径或绝对路径，也可以转发该会话已收到的附件。单条消息最多 8 个普通文件，总计 32 MiB；有附件时正文可留空。
+- Pet 会话列表和 `cc-pets bridge list` 会标出「本地」或「远程」。只有发给远程收件人才能使用 `attachments`。发给同机会话时，沿用文本消息，在正文中写绝对路径即可。跨机使用时，两端都要升级到支持附件的 Bridge。在各自 Slack App 的 **OAuth & Permissions → Bot Token Scopes** 中添加 `files:write` 和 `files:read`，然后重新安装到工作区。更新后重新连接 MCP 或重启 Agent 会话。
+- 跨机附件会上传到配置的 Slack 频道，频道成员可见。接收端下载成功后，将本地路径交给目标会话；收件文件按首次接收时的本地日期保存到 `~/.cc-pets/var/attachments/yyyy-MM-dd/<消息ID>/<Slack文件ID>/<原文件名>`，保留扩展名；设置 `CC_PETS_HOME` 时使用该目录作为根目录。Agent 可用自己的读图或文件工具打开。Bridge 在回执清理时回收超过 48 小时的本机副本，Slack 文件遵循工作区的保留策略。
+- 已配置的普通 bot 也可通过 Slack 原生文件分享发送附件，在初始评论中写 `<@Bridge成员ID> to reviewer 请查看附件`，或在已绑定的线程中回复文件。[Slack 文件接口](https://docs.slack.dev/messaging/working-with-files/)
+
 ### Antigravity CLI
 
 开启 CC Bridge 并确保 `agy` 在 `PATH` 中，然后在项目目录运行 `agy`。收到的消息会先留在信箱，

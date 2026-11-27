@@ -1,5 +1,6 @@
 #import "CCPetsL10n.h"
 #import "CCPetsBridgeStore.h"
+#import "CCPetsBridgeAttachments.h"
 #import "CCPetsBridge.h"
 #import "CCPetsCLISupport.h"
 #import "CCPetsJSON.h"
@@ -617,7 +618,7 @@ NSDictionary *CCBridgeReadReceipt(id messageId) {
 // 回执只是元数据：正文只在信箱里，送达后随之删除，不跟着回执再留 48 小时。
 void CCBridgeWriteReceipt(NSDictionary *message) {
     NSMutableDictionary *receipt = [message mutableCopy];
-    [receipt removeObjectForKey:@"body"];
+    [receipt removeObjectsForKeys:@[@"body", @"attachments"]];
     CCBridgeWriteJSON(ReceiptFile(message[@"id"]), receipt);
 }
 
@@ -673,16 +674,22 @@ NSString *CCBridgeCheckSendLimits(NSString *fromSession, NSString *toSession) {
 
 // 和清理共用信箱锁，并在锁内复查：发送可能卡在 codex queue 上几十秒，这期间 Bridge 可能已关闭、
 // 目标可能已退出。锁外检查的话，清理做完之后这里才写入，正文就再也没人收拾了。
-NSString *CCBridgeEnqueueInbox(NSDictionary *message) {
+NSString *CCBridgeEnqueueInboxWithReceipt(NSDictionary *message, NSDictionary *receiptPatch) {
     NSString *target = CCBridgeSafeSessionId(message[@"to"][@"gateway"] ?: PartySession(message, @"to"));
     if (!target) [NSException raise:@"CCBridgeInbox" format:@"%@", L(@"invalid target session id")];
     return CCBridgeWithLock([@"inbox-" stringByAppendingString:target], ^id {
         if (!CCBridgeEnabled()) return L(@"CC Bridge is off.");
         if (!CCBridgeSessionLive(CCBridgeReadSession(target))) return L(@"the target session is offline");
+        if (IsTerminalStatus(CCBridgeReadReceipt(message[@"id"])[@"status"])) return nil;
         CCBridgeWriteJSON([CCBridgeSubdirectory(@[@"inbox", target]) stringByAppendingPathComponent:
             [message[@"id"] stringByAppendingString:@".json"]], message);
+        if (receiptPatch) CCBridgeUpdateReceipt(message[@"id"], receiptPatch);
         return nil;
     });
+}
+
+NSString *CCBridgeEnqueueInbox(NSDictionary *message) {
+    return CCBridgeEnqueueInboxWithReceipt(message, nil);
 }
 
 static NSString *InboxLockFile(NSString *sessionId) {
@@ -897,6 +904,7 @@ void CCBridgePruneReceipts(void) {
             CCBridgeUpdateReceipt(receipt[@"id"], @{@"status": @"expired"});
         }
     }
+    CCBridgePruneAttachmentFiles(now);
 }
 
 #pragma mark - 空闲订阅
