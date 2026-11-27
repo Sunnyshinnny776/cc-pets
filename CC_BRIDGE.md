@@ -347,8 +347,8 @@ bottom-right corner (the red top-right badge still counts pending approvals):
   anything in that terminal to deliver them.
 
 Click the icon to open the session menu. The "CC Bridge messages" section at the top lists the last
-30 minutes of traffic (such as `api → web · 22:43`) and inbox reminders; click one to jump to the
-**recipient's terminal**. The session list below shows each session's CC Bridge name. Opening the
+30 minutes of traffic (such as `api → web · 22:43`) and inbox reminders. Click a message to open the local recipient's
+terminal, or the local sender's terminal when the recipient is remote. The session list below shows each local session's CC Bridge name. Opening the
 menu marks messages as seen. The menu and badge show names and times only, never message bodies.
 
 ## Pet menu

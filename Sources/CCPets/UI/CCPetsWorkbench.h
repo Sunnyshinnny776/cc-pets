@@ -7,7 +7,7 @@
 // 返回的都是快照：普通字典和数组，页面拿去渲染，不回写。
 @protocol CCPetsWorkbenchSource <NSObject>
 
-// 在线会话，等审批的排最前，其余按最近活动倒序。每项：
+// 本机在线会话，等审批的排最前，其余按最近活动倒序。每项：
 //   id（会话键，交回 focusWorkbenchSessionWithID: 用）、provider（Claude / Codex）、
 //   name（CC Bridge 里的会话名，没开 Bridge 时没有）、state（Agent 状态）、status（状态文字）、
 //   tool（正在用的工具，可能为空）、terminal（终端名）、updatedAt（最近一条事件的时间戳）、
@@ -30,7 +30,7 @@
 
 // 跳到会话所在的终端。
 - (void)focusWorkbenchSessionWithID:(NSString *)sessionID;
-// 跳到 CC Bridge 会话所在的终端（收件人、信箱积压的那个会话）。
+// 跳到 CC Bridge 会话所在的终端（本机收件人，或发给远程收件人的本机发件人）。
 - (void)focusBridgeSessionWithID:(NSString *)sessionID;
 // 用户在主窗口看过消息了：和打开右键会话菜单一样，清掉桌宠上的未读角标。
 - (void)markWorkbenchMessagesSeen;

@@ -372,8 +372,7 @@ static NSString *ResetText(id value) {
         NSString *display = [session[@"displayName"] isKindOfClass:NSString.class] ? session[@"displayName"] : @"";
         NSString *name = display.length > 0 ? display : (session[@"provider"] ?: @"Agent");
         NSString *state = [session[@"state"] isKindOfClass:NSString.class] ? session[@"state"] : @"";
-        BOOL remote = [session[@"remote"] boolValue];
-        NSString *status = [NSString stringWithFormat:@"%@ · %@", remote ? L(@"Remote") : L(@"Local"), session[@"status"] ?: @""];
+        NSString *status = [NSString stringWithFormat:@"%@ · %@", L(@"Local"), session[@"status"] ?: @""];
         NSString *terminal = [session[@"terminal"] isKindOfClass:NSString.class] ? session[@"terminal"] : @"";
         NSUInteger waiting = [session[@"pendingMessages"] unsignedIntegerValue];
         NSColor *dotColor = (stateColor ? stateColor(state) : nil) ?: SecondaryInk();
@@ -389,7 +388,7 @@ static NSString *ResetText(id value) {
                 approval ? NSColor.systemOrangeColor : SecondaryInk(), NSTextAlignmentRight);
             DrawText(name, NSMakeRect(NSMinX(inner), NSMinY(inner), NSWidth(inner) - trailingWidth - 10, NSHeight(inner)),
                 13, NSFontWeightRegular, PrimaryInk(), NSTextAlignmentLeft);
-        } action:remote ? (void (^)(void))nil : ^{
+        } action:^{
             [weakSelf dismiss];
             [weakSelf.owner.source focusWorkbenchSessionWithID:sessionID];
         }];

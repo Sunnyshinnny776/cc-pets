@@ -1163,4 +1163,3 @@
 "List local and remote CC Bridge recipients, with their location (" = "列出可接收消息的 CC Bridge 会话并标明本地或远程（";
 "Local" = "本地";
 "Local sessions exchange text. Put the local file path in the message instead." = "本地会话使用文本投递，请在消息正文中填写本机文件路径。";
-"Configured" = "已配置";

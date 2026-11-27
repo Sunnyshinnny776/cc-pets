@@ -639,8 +639,7 @@ static const CGFloat SessionStateWidth = 92, SessionDoingWidth = 256, SessionTim
 
         NSString *title = [session[@"displayName"] length] > 0 ? session[@"displayName"] : session[@"provider"];
         NSTextField *name = CCPetsLabel(title, 13, NSFontWeightSemibold, CCPetsInkColor());
-        BOOL remote = [session[@"remote"] boolValue];
-        NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObjects:remote ? L(@"Remote") : L(@"Local"), session[@"provider"], nil];
+        NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObjects:L(@"Local"), session[@"provider"], nil];
         if ([session[@"terminal"] length] > 0) [parts addObject:session[@"terminal"]];
         NSUInteger mail = [session[@"pendingMessages"] unsignedIntegerValue];
         if (mail > 0) [parts addObject:[NSString stringWithFormat:L(@"%lu waiting"), (unsigned long)mail]];
@@ -675,18 +674,16 @@ static const CGFloat SessionStateWidth = 92, SessionDoingWidth = 256, SessionTim
 
         NSString *sessionID = session[@"id"];
         NSView *actionCell = [NSView new];
-        if (!remote) {
-            NSButton *jump = ActionButton(L(@"Go to Terminal"), approval, ^{
-                [WorkbenchSource() focusWorkbenchSessionWithID:sessionID];
-            });
-            jump.translatesAutoresizingMaskIntoConstraints = NO;
-            [actionCell addSubview:jump];
-            [NSLayoutConstraint activateConstraints:@[
-                [jump.trailingAnchor constraintEqualToAnchor:actionCell.trailingAnchor],
-                [jump.centerYAnchor constraintEqualToAnchor:actionCell.centerYAnchor],
-                [actionCell.heightAnchor constraintEqualToAnchor:jump.heightAnchor],
-            ]];
-        }
+        NSButton *jump = ActionButton(L(@"Go to Terminal"), approval, ^{
+            [WorkbenchSource() focusWorkbenchSessionWithID:sessionID];
+        });
+        jump.translatesAutoresizingMaskIntoConstraints = NO;
+        [actionCell addSubview:jump];
+        [NSLayoutConstraint activateConstraints:@[
+            [jump.trailingAnchor constraintEqualToAnchor:actionCell.trailingAnchor],
+            [jump.centerYAnchor constraintEqualToAnchor:actionCell.centerYAnchor],
+            [actionCell.heightAnchor constraintEqualToAnchor:jump.heightAnchor],
+        ]];
         [rows addObject:[self sessionRowWithCells:@[chip, nameCell, doing, time, actionCell] height:50]];
     }
     return [self cardWithRows:rows];
@@ -779,15 +776,19 @@ static const CGFloat SessionStateWidth = 92, SessionDoingWidth = 256, SessionTim
             CCPetsTertiaryInkColor());
         NSTextField *route = [self routeFrom:CCBridgeSessionDisplayName(delivery[@"fromIdentity"])
             to:CCBridgeSessionDisplayName(delivery[@"toIdentity"])];
-        NSTextField *detail = CCPetsLabel(@"", 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
+        NSString *locations = [NSString stringWithFormat:@"%@ → %@",
+            [delivery[@"fromIdentity"][@"remote"] boolValue] ? L(@"Remote") : L(@"Local"),
+            [delivery[@"toIdentity"][@"remote"] boolValue] ? L(@"Remote") : L(@"Local")];
+        NSTextField *detail = CCPetsLabel(locations, 12, NSFontWeightRegular, CCPetsSecondaryInkColor());
         BOOL unseen = [delivery[@"unseen"] boolValue];
         CCPetsChipView *chip = [[CCPetsChipView alloc] initWithText:unseen ? L(@"Unread") : L(@"Delivered")
             kind:unseen ? CCPetsStatusWork : CCPetsStatusOK];
-        NSString *session = delivery[@"toSession"];
+        NSDictionary *terminalIdentity = delivery[@"terminalIdentity"];
+        NSString *session = terminalIdentity[@"session"];
         NSButton *jump = ActionButton(L(@"Go to Terminal"), NO, ^{
             [WorkbenchSource() focusBridgeSessionWithID:session];
         });
-        jump.toolTip = [NSString stringWithFormat:L(@"Jump to %@'s terminal"), delivery[@"to"]];
+        jump.toolTip = [NSString stringWithFormat:L(@"Jump to %@'s terminal"), CCBridgeSessionDisplayName(terminalIdentity)];
         [rows addObject:[self messageRowWithLeading:time title:route detail:detail trailing:@[chip, jump]]];
     }
     if (rows.count == 0) {

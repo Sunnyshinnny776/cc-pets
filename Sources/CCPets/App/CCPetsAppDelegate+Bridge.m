@@ -306,7 +306,7 @@
     NSString *session = [self bridgeSessionIdForRecord:record];
     return session ? self.bridgeSessions[session] : nil;
 }
-// 收件会话的终端：优先用桌宠自己记录的该会话终端信息（带宿主应用），其次按 tty 对上任一
+// 本机会话的终端：优先用桌宠自己记录的该会话终端信息（带宿主应用），其次按 tty 对上任一
 // 已知终端，最后借用最近一次的宿主应用配上 bridge 记录的 tty。
 - (NSDictionary *)terminalTargetForBridgeSession:(NSString *)sessionId {
     NSString *tty = self.bridgeSessions[sessionId][@"tty"];
@@ -357,8 +357,9 @@
             unseen ? @"✉️ " : @"", CCBridgeSessionDisplayName(delivery[@"fromIdentity"]), CCBridgeSessionDisplayName(delivery[@"toIdentity"]), time];
         NSMenuItem *item = [menu addItemWithTitle:title action:@selector(focusBridgeSession:) keyEquivalent:@""];
         item.target = self;
-        item.representedObject = delivery[@"toSession"];
-        item.toolTip = [NSString stringWithFormat:L(@"Jump to %@'s terminal"), CCBridgeSessionDisplayName(delivery[@"toIdentity"])];
+        NSDictionary *terminalIdentity = delivery[@"terminalIdentity"];
+        item.representedObject = terminalIdentity[@"session"];
+        item.toolTip = [NSString stringWithFormat:L(@"Jump to %@'s terminal"), CCBridgeSessionDisplayName(terminalIdentity)];
     }
 }
 @end

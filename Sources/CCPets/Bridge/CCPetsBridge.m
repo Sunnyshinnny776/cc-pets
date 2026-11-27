@@ -196,6 +196,17 @@ NSDictionary<NSString *, NSDictionary *> *CCBridgeSessions(void) {
     return sessions;
 }
 
+static NSDictionary *DeliveryIdentity(NSDictionary *party) {
+    NSString *name = [party[@"name"] isKindOfClass:NSString.class] ? party[@"name"] : @"";
+    BOOL remote = [party[@"provider"] isEqual:CCBridgeSlackProvider];
+    NSArray<NSString *> *parts = remote ? [name componentsSeparatedByString:@"/"] : nil;
+    NSString *displayName = parts.count == 2
+        ? [NSString stringWithFormat:@"%@/%@", BridgeSafeString(parts[0], 40), BridgeSafeString(parts[1], 40)]
+        : BridgeSafeString(name, 40);
+    return @{@"session": BridgeSafeString(party[@"session"], 128), @"name": displayName,
+        @"nameSource": BridgeSafeString(party[@"nameSource"], 16), @"remote": @(remote)};
+}
+
 NSArray<NSDictionary *> *CCBridgeRecentDeliveries(NSTimeInterval since, NSUInteger limit) {
     NSString *directory = [CCBridgeStateDirectory() stringByAppendingPathComponent:@"sent"];
     NSMutableArray<NSDictionary *> *deliveries = [NSMutableArray array];
@@ -209,19 +220,21 @@ NSArray<NSDictionary *> *CCBridgeRecentDeliveries(NSTimeInterval since, NSUInteg
         if (![stamp isKindOfClass:NSNumber.class]) continue;
         NSTimeInterval at = [stamp doubleValue] / 1000.0;
         if (at < since) continue;
-        NSString *fromName = BridgeSafeString(from[@"name"], 40);
-        NSString *toName = BridgeSafeString(to[@"name"], 40);
-        NSString *toSession = BridgeSafeString(to[@"session"], 128);
+        NSDictionary *fromIdentity = DeliveryIdentity(from);
+        NSDictionary *toIdentity = DeliveryIdentity(to);
+        NSString *fromName = fromIdentity[@"name"], *toName = toIdentity[@"name"];
+        NSString *toSession = toIdentity[@"session"];
         if (fromName.length == 0 || toName.length == 0 || toSession.length == 0) continue;
         // 只取元数据：receipt[@"body"] 不进入返回值。
         [deliveries addObject:@{
             @"id": BridgeSafeString(receipt[@"id"], 64),
             @"from": fromName,
             @"to": toName,
-            @"fromIdentity": @{@"name": fromName, @"nameSource": BridgeSafeString(from[@"nameSource"], 16)},
-            @"toIdentity": @{@"name": toName, @"nameSource": BridgeSafeString(to[@"nameSource"], 16)},
+            @"fromIdentity": fromIdentity,
+            @"toIdentity": toIdentity,
+            @"terminalIdentity": [toIdentity[@"remote"] boolValue] ? fromIdentity : toIdentity,
             @"toSession": toSession,
-            @"fromSession": BridgeSafeString(from[@"session"], 128),
+            @"fromSession": fromIdentity[@"session"],
             @"at": @(at)
         }];
     }
