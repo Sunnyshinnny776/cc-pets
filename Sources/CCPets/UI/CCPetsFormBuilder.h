@@ -7,6 +7,14 @@
 @interface CCPetsFormBuilder : NSObject
 
 - (instancetype)initWithTitle:(NSString *)title subtitle:(NSString *)subtitle;
+// 需要固定搜索框等控件时，将其放在页头与滚动区之间。
+- (instancetype)initWithTitle:(NSString *)title subtitle:(NSString *)subtitle toolbar:(NSView *)toolbar;
+// 内容自己负责滚动（比如 NSCollectionView 的滚动视图）时传 content：它铺满工具栏以下、
+// 左右贴窗口边，代替表单的滚动区。内容要和页头对齐，就按 +contentInsetForWidth: 留边。
+- (instancetype)initWithTitle:(NSString *)title subtitle:(NSString *)subtitle toolbar:(NSView *)toolbar
+                      content:(NSView *)content;
+// 宽度为 width 的内容区里，表单列左右各留多少：至少 28pt，超过最大列宽时居中。
++ (CGFloat)contentInsetForWidth:(CGFloat)width;
 
 // 整页：页头 + 滚动区。页面把它设成自己的 view。
 @property(nonatomic, readonly) NSView *view;

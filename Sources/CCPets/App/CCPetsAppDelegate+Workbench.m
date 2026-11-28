@@ -36,6 +36,9 @@ NSNotificationName const CCPetsWorkbenchQuotasDidChangeNotification = @"CCPetsWo
         session[@"terminal"] = terminal.count > 0 ? [self terminalNameForTarget:terminal] : @"";
         session[@"updatedAt"] = record[@"timestamp"] ?: @0;
         NSDictionary *bridge = [self bridgeSessionEntryForRecord:record];
+        NSString *cwd = SanitizedWorkingDirectory(record[@"cwd"]);
+        if (cwd.length == 0) cwd = SanitizedWorkingDirectory(bridge[@"cwd"]);
+        if (cwd.length > 0) session[@"projectName"] = cwd.lastPathComponent;
         if ([bridge[@"name"] isKindOfClass:NSString.class]) session[@"name"] = bridge[@"name"];
         session[@"displayName"] = CCBridgeSessionDisplayName(bridge);
         NSString *bridgeID = [self bridgeSessionIdForRecord:record];

@@ -21,6 +21,19 @@ static NSString *WindowKey(id value) {
     return nil;
 }
 
+// 组名（"Gemini Models"）或桶 id（"gemini-weekly"）任一带 gemini 即认定为 Gemini 组。
+static BOOL IsGeminiQuotaGroup(NSString *name, NSArray *buckets) {
+    if ([name rangeOfString:@"gemini" options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+    for (id bucket in buckets) {
+        id identifier = [bucket isKindOfClass:NSDictionary.class] ? bucket[@"id"] : nil;
+        if ([identifier isKindOfClass:NSString.class] &&
+            [identifier rangeOfString:@"gemini" options:NSCaseInsensitiveSearch | NSAnchoredSearch].location != NSNotFound) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 static NSDictionary *UsageFromAntigravityQuotaReport(NSDictionary *report) {
     if (![report[@"status"] isEqual:@"SUCCESS"]) return nil;
     NSDictionary *command = [report[@"command"] isKindOfClass:NSDictionary.class] ? report[@"command"] : nil;
@@ -38,6 +51,7 @@ static NSDictionary *UsageFromAntigravityQuotaReport(NSDictionary *report) {
         NSString *name = [group[@"name"] isKindOfClass:NSString.class] ? group[@"name"] : nil;
         NSArray *buckets = [group[@"buckets"] isKindOfClass:NSArray.class] ? group[@"buckets"] : nil;
         if (!name || !buckets) continue;
+        BOOL gemini = IsGeminiQuotaGroup(name, buckets);
         NSMutableArray *clean = [NSMutableArray array];
         for (id candidate in buckets) {
             if (![candidate isKindOfClass:NSDictionary.class]) continue;
@@ -50,6 +64,9 @@ static NSDictionary *UsageFromAntigravityQuotaReport(NSDictionary *report) {
                 if ([bucket[field] isKindOfClass:NSNumber.class]) details[field] = bucket[field];
             }
             [clean addObject:details];
+            // 订阅额度只看 Gemini 组。Claude/GPT 等第三方模型组各自独立重置，混进来取最紧值时，
+            // Gemini 周额度刷新后卡片仍停在第三方组的旧百分比，看起来像数据没更新。
+            if (!gemini) continue;
             NSString *key = WindowKey(details[@"window"]) ?: WindowKey(details[@"name"]);
             NSNumber *remaining = details[@"remaining_fraction"];
             if (!key || !remaining || !isfinite(remaining.doubleValue) || [details[@"disabled"] boolValue]) continue;
@@ -57,7 +74,7 @@ static NSDictionary *UsageFromAntigravityQuotaReport(NSDictionary *report) {
             NSDate *reset = ISO8601Timestamp(details[@"reset_time"]);
             if (reset && reset.timeIntervalSince1970 <= now) continue;
             double used = (1.0 - remaining.doubleValue) * 100.0;
-            // The overview and menu bar show the most constrained bucket in each window.
+            // The overview and menu bar show the most constrained Gemini bucket in each window.
             if (usage[key] && [usage[key][@"used_percent"] doubleValue] >= used) continue;
             NSMutableDictionary *window = [@{@"used_percent": @(used), @"group": name,
                 @"window_minutes": [key isEqual:@"week"] ? @10080 : @300} mutableCopy];

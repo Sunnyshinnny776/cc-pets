@@ -636,6 +636,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   -framework Foundation \
   "${PET_SRC[CCPetsPaths.m]:?}" \
   "${PET_SRC[CCPetsBridge.m]:?}" \
+  "${PET_SRC[CCPetsBridgeAttachments.m]:?}" \
   "${PET_SRC[CCPetsBridgeStore.m]:?}" \
   "${PET_SRC[CCPetsCLISupport.m]:?}" \
   "${PET_SRC[CCPetsJSON.m]:?}" \
@@ -679,6 +680,19 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   -o "${IMAGE_LOADER_TMP}/image-loader-test"
 "${IMAGE_LOADER_TMP}/image-loader-test" \
   "${PROJECT_DIR}/Sources/CCPets/Resources/ByteMochi.webp"
+
+# 在线宠物目录：精灵图行数、固定位置的页码、热门榜解析（含缓存读回）与默认排序、安装量文案。
+PET_CATALOG_TMP="$(mktemp -d /tmp/cc-pets-pet-catalog-test.XXXXXX)"
+cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
+  "${PET_INCLUDE_FLAGS[@]}" \
+  -framework Foundation \
+  "${PET_SRC[CCPetsCatalogModel.m]:?}" \
+  "${PROJECT_DIR}/tests/pet-catalog-harness.m" \
+  -o "${PET_CATALOG_TMP}/pet-catalog-test"
+"${PET_CATALOG_TMP}/pet-catalog-test"
+# 目录预览图缓存要放在 pet-store 缓存目录下，cc-pets clean 才清得到。
+grep -Fq 'stringByAppendingPathComponent:@"petdex-previews"' "${PET_SRC[CCPetsPetCatalog.m]:?}"
+grep -Fq 'CCPetsPetStoreCacheDirectory()' "${PET_SRC[CCPetsPetCatalog.m]:?}"
 
 # 系统低功耗和减少动态效果会降低空闲动画频率。
 grep -q 'NSProcessInfoPowerStateDidChangeNotification' "${PET_SOURCES[@]}"
@@ -2430,6 +2444,7 @@ cc_pets_compile -fobjc-arc -mmacosx-version-min=13.0 \
   "${PET_INCLUDE_FLAGS[@]}" \
   -framework Foundation \
   "${PET_SRC[CCPetsBridge.m]:?}" \
+  "${PET_SRC[CCPetsBridgeAttachments.m]:?}" \
   "${PET_SRC[CCPetsBridgeCore.m]:?}" \
   "${PET_SRC[CCPetsBridgeSetup.m]:?}" \
   "${PET_SRC[CCPetsAntigravityConfig.m]:?}" \

@@ -33,6 +33,13 @@ truth for the version.
 - When routing can't be determined from the supported settings, print a reason and allow startup. Turn on **Strict Routing** to block startup instead.
 - For `agy`, check only that Shadowrocket is connected: Google's service domains have no `/cdn-cgi/trace` endpoint.
 
+### Pets
+
+- Add a **Discover Pets** tab to the Pet page: browse PetDex community pets 25 per page with page jump, search, a kind filter and Hide Installed. Pets are sorted by installs by default, matching the PetDex gallery, and cards show install counts.
+- Click a card for an animated preview with a state switcher. **Use** installs the pet and switches to it in one step; **Install Only** just downloads it. A failed install shows **Retry** on its card.
+- Cards load PetDex's small preview images instead of full sprite sheets. Images and the popularity list are cached under `~/.cc-pets/cache/` and removed by `cc-pets clean`.
+- The **Add a Pet** tile now opens Discover Pets instead of the pets folder.
+
 ### Fixes
 
 - Pair Codex sessions resumed inside the TUI (`/resume`) with their terminal again, including when the TUI starts late, so the status card can focus it. Desktop clients are never paired.

@@ -455,7 +455,7 @@ defaults delete com.universewang.cc-pets CCPetsSpeechCooldown             # 交�
 [CC Bridge](./CC_BRIDGE.zh-CN.md) 是默认关闭的可选功能，让本机 Claude Code、Codex 和 Antigravity CLI 会话互发消息并预留文件。
 原生 `agy` 在下一次模型调用时读取等待消息。[Antigravity App](./CC_BRIDGE.zh-CN.md#antigravity-app) 启用 Sidecar 后支持自动唤醒。
 身份识别优先验证会话 ID；按 PID 回退时只接受唯一在线会话，共享宿主下身份不明确会拒绝操作。
-Codex 消息使用接收方的 Home 投递。
+Codex 消息使用接收方的 Home 投递。可选的 [Slack 适配器](./CC_BRIDGE.zh-CN.md#slack) 支持普通机器人收发消息，也能通过共用频道自动发现其他 Mac 的在线会话，新增电脑只需在同一频道登记。用 `电脑名/会话名` 跨机发送和回复。
 多个 Codex 会话共用 app-server PID 时，Agent 在每次 MCP 调用中传入 Bridge hook 提供的当前 `session_id`。
 更新后需重新连接 MCP，以加载新的工具定义。
 
@@ -822,6 +822,22 @@ cc-pets pet add boba --as 波霸
 反复启动是幂等的：已经导入过的素材因为同名而跳过，不会重复复制。关掉开关不会删除已经
 导入的素材，想删用 `cc-pets pet remove`。
 
+#### 应用内发现宠物
+
+主窗口「宠物」页有「发现宠物」标签，不用命令行也能浏览、安装社区宠物：每页 25 只，可翻页和
+跳页，支持搜索、类型筛选（角色 / 生物 / 物件）和「隐藏已安装」。点卡片看动画预览；「使用」会把
+宠物下载到 `~/.cc-pets/pets/` 并直接换上，「仅安装」只下载。
+
+默认顺序与 PetDex 网站画廊一致，按安装量从高到低。除素材清单外，这个页面还会请求：
+
+- `https://petdex.dev/api/pets/search?sort=installed`：安装量前 300 名（5 次请求，缓存 6 小时）。
+  这是 PetDex 网站自用、未写进文档的接口；请求失败时按清单原顺序排列。
+- `https://assets.petdex.dev/pets/<slug>/preview.webp`：卡片缩略图，每张几十 KB。只有打开详情
+  预览或缩略图缺失时才下载整张精灵图。
+
+两者都缓存在 `~/.cc-pets/cache/` 下：`popular-petdex.json`，以及 `petdex-previews/` 里最多
+200 MB 的图片。`cc-pets clean` 会一并清除。
+
 #### 其他
 
 素材清单按源分别缓存 6 小时，加 `--refresh` 强制刷新。下载只接受源白名单内的 host（PetDex
@@ -852,7 +868,7 @@ PetDex 官方 CLI（`npx petdex install <slug>`）会把素材放在 `~/.petdex/
 - Agent Hooks 向当前用户的临时目录写入脱敏状态事件和额度缓存；事件可包含工作目录、Home 和转录路径，用于会话标签与生命周期跟踪，不包含转录正文。
 - 额度历史默认关闭；启用后只在本机保留最近 7 天的剩余比例快照。
 - 状态卡显示会话标签、状态及脱敏工具类别，悬停提示可显示完整会话名和工作目录；Agent 通知显示 Provider 和脱敏状态，不显示会话正文。
-- 项目不上传会话内容、额度、凭据或使用统计，也不包含遥测服务。
+- 项目不包含遥测服务，默认不上传会话内容、额度、凭据或使用统计。启用 Slack 适配器后，发给 Slack agent 的消息正文和发送方的 Bridge 名字、ref 会发布到配置的频道。电脑对端还会在该频道交换在线会话名单（名称、路由标识、Agent 类型及忙闲状态）。
 - 桌宠启动时及 CLI 再次唤起桌宠时会向 npm Registry 查询最新版本号（同一次运行内最多每 10 分钟一次）；仅在有新版本时再读取该版本 tag 中已提交的 Release Note，依次尝试 raw.githubusercontent.com、jsDelivr，最后回退到 GitHub Release API。请求不携带任何账号或使用数据。
 - 右键“退出桌宠”或执行 `cc-pets uninstall` 后，不会继续运行后台守护进程。
 - [CC Bridge](./CC_BRIDGE.zh-CN.md) 默认关闭；开启后，会话之间的消息正文会保存在当前用户的临时目录

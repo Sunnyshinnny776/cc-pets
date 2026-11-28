@@ -267,6 +267,7 @@ static inline void PetResizeBubblePanel(NSPanel *panel, NSSize logicalSize) {
 - (void)updateBridgeBadgeEnabled:(BOOL)enabled;
 - (void)toggleBridgeNotification:(NSButton *)sender;
 - (void)refreshBridgeState:(NSTimer *)timer;
+- (void)stopManagedSlackAdapter;
 - (void)notifyNewBridgeDeliveries;
 - (void)refreshBridgeBadge;
 - (NSString *)bridgeSessionIdForRecord:(NSDictionary *)record;

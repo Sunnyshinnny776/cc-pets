@@ -1,6 +1,7 @@
 #import "CCPetsL10n.h"
 #import "CCPetsPetStore.h"
 #import "CCPetsCLISupport.h"
+#import "CCPetsCatalogModel.h"
 #import "CCPetsJSON.h"
 #import "CCPetsPaths.h"
 #import "CCPetsVersion.h"
@@ -17,6 +18,8 @@ static NSDictionary<NSString *, NSDictionary *> *Sources(void) {
         @"petdex": @{
             @"label": @"PetDex",
             @"manifestUrl": @"https://petdex.dev/api/manifest",
+            // 网站画廊自己用的排序接口，没写进文档；只用来给目录排默认顺序，拿不到不影响别的。
+            @"popularUrl": @"https://petdex.dev/api/pets/search",
             @"assetHosts": @[@"assets.petdex.dev"],
             @"referer": @"https://petdex.dev/",
             @"homepage": @"https://petdex.dev"
@@ -56,9 +59,13 @@ static NSString *PetsRoot(void) {
 }
 
 // 与 CC Bridge、cc-pets clean 一致：CC_PETS_HOME 可覆盖 ~/.cc-pets。
-static NSString *CachePath(NSString *sourceName) {
+NSString *CCPetsPetStoreCacheDirectory(void) {
     NSString *home = CCPetsEnvironmentValue(@"CC_PETS_HOME") ?: [CCPetsHomeDirectory() stringByAppendingPathComponent:@".cc-pets"];
-    return [[home stringByAppendingPathComponent:@"cache"] stringByAppendingPathComponent:
+    return [home stringByAppendingPathComponent:@"cache"];
+}
+
+static NSString *CachePath(NSString *sourceName) {
+    return [CCPetsPetStoreCacheDirectory() stringByAppendingPathComponent:
         [NSString stringWithFormat:@"manifest-%@.json", sourceName]];
 }
 
@@ -76,7 +83,13 @@ static BOOL Matches(NSString *pattern, NSString *text) {
 
 // slug 直接用作目录名，而它来自远端清单，必须自己校验，不能指望上游。
 static BOOL IsSafeSlug(id slug) {
-    return Matches(@"\\A[A-Za-z0-9][A-Za-z0-9._-]*\\z", slug) && ![slug containsString:@".."];
+    static NSRegularExpression *expression;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        expression = [NSRegularExpression regularExpressionWithPattern:@"\\A[A-Za-z0-9][A-Za-z0-9._-]*\\z" options:0 error:nil];
+    });
+    return [slug isKindOfClass:NSString.class] && ![slug containsString:@".."] &&
+        [expression firstMatchInString:slug options:0 range:NSMakeRange(0, [slug length])] != nil;
 }
 
 // 本地名由用户通过 --as 指定，可以用中文等 Unicode 字母。路径分隔符、空白和控制字符不在允许集内；
@@ -125,15 +138,24 @@ static NSData *Fetch(NSURL *url, NSDictionary<NSString *, NSString *> *headers, 
     return failure ? nil : result;
 }
 
-static NSArray<NSDictionary *> *FetchManifest(NSString *sourceName, BOOL refresh) {
+static NSArray<NSDictionary *> *ManifestPets(NSData *data) {
+    id body = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![body isKindOfClass:NSDictionary.class] || ![body[@"pets"] isKindOfClass:NSArray.class]) return nil;
+    NSMutableArray *pets = [NSMutableArray array];
+    for (id pet in body[@"pets"]) {
+        if ([pet isKindOfClass:NSDictionary.class] && IsSafeSlug(pet[@"slug"])) [pets addObject:pet];
+    }
+    return pets;
+}
+
+static NSArray<NSDictionary *> *ReadManifest(NSString *sourceName, BOOL refresh, NSString **failure) {
     NSString *cache = CachePath(sourceName);
     NSString *label = Sources()[sourceName][@"label"];
     if (!refresh) {
         NSDate *modified = [NSFileManager.defaultManager attributesOfItemAtPath:cache error:nil].fileModificationDate;
         if (modified && -modified.timeIntervalSinceNow < ManifestTTL) {
-            NSData *data = [NSData dataWithContentsOfFile:cache];
-            id cached = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-            if ([cached isKindOfClass:NSDictionary.class] && [cached[@"pets"] isKindOfClass:NSArray.class]) return cached[@"pets"];
+            NSArray *pets = ManifestPets([NSData dataWithContentsOfFile:cache]);
+            if (pets) return pets;
         }
     }
     NSURL *url = [NSURL URLWithString:ManifestURLFor(sourceName)];
@@ -142,25 +164,91 @@ static NSArray<NSDictionary *> *FetchManifest(NSString *sourceName, BOOL refresh
     NSData *data = url ? Fetch(url, @{@"User-Agent": UserAgent()}, &status, &error) : nil;
     if (!data && !url) error = ManifestURLFor(sourceName);
     if (error || status < 200 || status >= 300) {
-        Fail(LF(L(@"Failed to fetch the {label} pet list: HTTP {status}"), (@{@"label": label, @"status": error ?: @(status)})));
+        *failure = LF(L(@"Failed to fetch the {label} pet list: HTTP {status}"), (@{@"label": label, @"status": error ?: @(status)}));
+        return nil;
     }
-    id body = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    if (![body isKindOfClass:NSDictionary.class] || ![body[@"pets"] isKindOfClass:NSArray.class]) {
-        Fail(LF(L(@"The {label} pet list has an unexpected format"), @{@"label": label}));
+    NSArray *pets = ManifestPets(data);
+    if (!pets) {
+        *failure = LF(L(@"The {label} pet list has an unexpected format"), @{@"label": label});
+        return nil;
     }
     [NSFileManager.defaultManager createDirectoryAtPath:cache.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
     [data writeToFile:cache atomically:YES];
-    NSMutableArray<NSDictionary *> *pets = [NSMutableArray array];
-    for (id pet in body[@"pets"]) {
-        if ([pet isKindOfClass:NSDictionary.class]) [pets addObject:pet];
-    }
     return pets;
 }
 
-static NSData *Download(id urlValue, NSDictionary *source, NSString **error) {
+static NSArray<NSDictionary *> *FetchManifest(NSString *sourceName, BOOL refresh) {
+    NSString *error = nil;
+    NSArray *pets = ReadManifest(sourceName, refresh, &error);
+    if (!pets) Fail(error);
+    return pets;
+}
+
+NSArray<NSDictionary *> *CCPetsPetdexCatalog(NSString **error) {
+    return ReadManifest(@"petdex", NO, error);
+}
+
+static const NSInteger PopularPageSize = 60;  // 接口单页上限
+static const NSInteger PopularPages = 5;
+
+static NSArray<NSDictionary *> *PopularPetsInBody(id body) {
+    NSArray<NSDictionary *> *entries = CCPetsCatalogPopularEntries(body);
+    if (!entries) return nil;
+    // slug 来自远端，和清单一样要自己校验。
+    return [entries filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *entry, NSDictionary *bindings) {
+        return IsSafeSlug(entry[@"slug"]);
+    }]];
+}
+
+NSArray<NSDictionary *> *CCPetsPetdexPopularPets(void) {
+    NSString *cache = [CachePath(@"petdex") stringByReplacingOccurrencesOfString:@"manifest-" withString:@"popular-"];
+    id cached = nil;
+    NSData *cachedData = [NSData dataWithContentsOfFile:cache];
+    if (cachedData) cached = PopularPetsInBody([NSJSONSerialization JSONObjectWithData:cachedData options:0 error:nil]);
+    NSDate *modified = [NSFileManager.defaultManager attributesOfItemAtPath:cache error:nil].fileModificationDate;
+    if (cached && modified && -modified.timeIntervalSinceNow < ManifestTTL) return cached;
+
+    // 游标就是偏移量，几页一起请求，不用等上一页的 nextCursor。
+    NSString *base = Sources()[@"petdex"][@"popularUrl"];
+    NSMutableArray *pages = [NSMutableArray array];
+    for (NSInteger page = 0; page < PopularPages; page++) [pages addObject:NSNull.null];
+    dispatch_apply((size_t)PopularPages, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t page) {
+        NSURLComponents *components = [NSURLComponents componentsWithString:base];
+        components.queryItems = @[
+            [NSURLQueryItem queryItemWithName:@"sort" value:@"installed"],
+            [NSURLQueryItem queryItemWithName:@"limit" value:[@(PopularPageSize) stringValue]],
+            [NSURLQueryItem queryItemWithName:@"cursor" value:[@(page * PopularPageSize) stringValue]],
+        ];
+        NSInteger status = 0;
+        NSString *error = nil;
+        NSData *data = components.URL ? Fetch(components.URL, @{@"User-Agent": UserAgent()}, &status, &error) : nil;
+        id body = data && status == 200 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        NSArray *pets = PopularPetsInBody(body);
+        if (pets) @synchronized(pages) { pages[page] = pets; }
+    });
+    NSMutableArray *ranked = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (id page in pages) {
+        // 中间某页失败就到此为止，后面的名次接不上。
+        if (![page isKindOfClass:NSArray.class]) break;
+        for (NSDictionary *pet in page) {
+            if ([seen containsObject:pet[@"slug"]]) continue;
+            [seen addObject:pet[@"slug"]];
+            [ranked addObject:pet];
+        }
+    }
+    if (ranked.count == 0) return cached;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"pets": ranked} options:0 error:nil];
+    [NSFileManager.defaultManager createDirectoryAtPath:cache.stringByDeletingLastPathComponent
+        withIntermediateDirectories:YES attributes:nil error:nil];
+    [data writeToFile:cache atomically:YES];
+    return ranked;
+}
+
+static NSURL *AssetURL(id urlValue, NSDictionary *source, NSString **error) {
     NSString *text = [urlValue isKindOfClass:NSString.class] ? urlValue : @"";
     NSURL *url = [NSURL URLWithString:text];
-    if (!url || !url.scheme) {
+    if (!url.scheme) {
         *error = LF(L(@"Invalid pet URL: {url}"), @{@"url": text});
         return nil;
     }
@@ -168,6 +256,40 @@ static NSData *Download(id urlValue, NSDictionary *source, NSString **error) {
         *error = LF(L(@"Untrusted pet source: {url}"), @{@"url": url.host.length > 0 ? url.host : text});
         return nil;
     }
+    return url;
+}
+
+NSURLRequest *CCPetsPetdexPreviewRequest(NSDictionary *pet) {
+    NSDictionary *source = Sources()[@"petdex"];
+    NSString *error = nil;
+    NSURL *url = AssetURL(pet[@"spritesheetUrl"], source, &error);
+    if (!url) return nil;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    [request setValue:source[@"referer"] forHTTPHeaderField:@"Referer"];
+    [request setValue:UserAgent() forHTTPHeaderField:@"User-Agent"];
+    return request;
+}
+
+// 地址不在 manifest 里，是 Petdex 网站卡片的固定路径：https://<素材域名>/pets/<slug>/preview.webp。
+NSURLRequest *CCPetsPetdexThumbnailRequest(NSDictionary *pet) {
+    if (!IsSafeSlug(pet[@"slug"])) return nil;
+    NSDictionary *source = Sources()[@"petdex"];
+    NSURLComponents *components = [NSURLComponents new];
+    components.scheme = @"https";
+    components.host = [source[@"assetHosts"] firstObject];
+    components.path = [NSString stringWithFormat:@"/pets/%@/preview.webp", pet[@"slug"]];
+    NSString *error = nil;
+    NSURL *url = AssetURL(components.URL.absoluteString, source, &error);
+    if (!url) return nil;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    [request setValue:source[@"referer"] forHTTPHeaderField:@"Referer"];
+    [request setValue:UserAgent() forHTTPHeaderField:@"User-Agent"];
+    return request;
+}
+
+static NSData *Download(id urlValue, NSDictionary *source, NSString **error) {
+    NSURL *url = AssetURL(urlValue, source, error);
+    if (!url) return nil;
     NSInteger status = 0;
     NSString *failure = nil;
     NSData *data = Fetch(url, @{@"Referer": source[@"referer"], @"User-Agent": UserAgent()}, &status, &failure);
@@ -197,42 +319,80 @@ static NSString *InstallBlocker(NSString *directory, NSString *sourceName, NSStr
         stringByAppendingFormat:@"cc-pets pet add %@:%@ --as %@-%@", sourceName, localName, localName, sourceName];
 }
 
-static NSString *InstallPet(NSDictionary *pet, NSString *sourceName, NSString *localName, NSString **error) {
+static NSString *InstallPet(NSDictionary *pet, NSString *sourceName, NSString *localName, NSString *root, BOOL allowUpdate, NSString **error) {
     NSDictionary *source = Sources()[sourceName];
     if (!IsSafeSlug(pet[@"slug"])) {
         *error = LF(L(@"Invalid pet name: {slug}"), @{@"slug": [pet[@"slug"] description] ?: @""});
         return nil;
     }
-    NSString *directory = [PetsRoot() stringByAppendingPathComponent:localName];
+    NSString *directory = [root stringByAppendingPathComponent:localName];
     NSString *blocker = InstallBlocker(directory, sourceName, localName);
     if (blocker) {
         *error = blocker;
         return nil;
     }
+    NSFileManager *files = NSFileManager.defaultManager;
+    BOOL updating = allowUpdate && [ReadSidecar(directory)[@"source"] isEqual:sourceName];
     NSData *meta = Download(pet[@"petJsonUrl"], source, error);
     if (!meta) return nil;
     NSData *sprite = Download(pet[@"spritesheetUrl"], source, error);
     if (!sprite) return nil;
     NSString *extension = [[NSURL URLWithString:pet[@"spritesheetUrl"]].path hasSuffix:@".png"] ? @"png" : @"webp";
-    [NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
-    // 同一只宠物换过格式时，旧的 spritesheet 会留下来抢加载顺序，先清掉。
-    for (NSString *stale in @[@"spritesheet.webp", @"spritesheet.png"]) {
-        if (![stale isEqualToString:[@"spritesheet." stringByAppendingString:extension]]) {
-            [NSFileManager.defaultManager removeItemAtPath:[directory stringByAppendingPathComponent:stale] error:nil];
-        }
+    NSString *spriteName = [@"spritesheet." stringByAppendingString:extension];
+    // 新装先在同一文件系统的隐藏目录写齐，最后一次移动才让桌宠发现它。
+    // CLI 允许更新已安装的宠物；保留用户自行添加的台词等文件。
+    NSString *target = updating ? directory : [root stringByAppendingPathComponent:
+        [@".install-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+    NSError *writeError = nil;
+    if (![files createDirectoryAtPath:target withIntermediateDirectories:YES attributes:nil error:&writeError]) {
+        *error = writeError.localizedDescription;
+        return nil;
     }
-    // pet.json 原样落盘，不掺自己的字段——保持上游原始内容，以后比对和更新才干净。
-    [meta writeToFile:[directory stringByAppendingPathComponent:@"pet.json"] atomically:YES];
-    [sprite writeToFile:[directory stringByAppendingPathComponent:[@"spritesheet." stringByAppendingString:extension]] atomically:YES];
     CCPetsJSONObject *sidecar = [CCPetsJSONObject new];
     sidecar[@"source"] = sourceName;
     sidecar[@"slug"] = pet[@"slug"];
     NSISO8601DateFormatter *formatter = [NSISO8601DateFormatter new];
     formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
     sidecar[@"installedAt"] = [formatter stringFromDate:NSDate.date];
-    [[CCPetsJSONStringify(sidecar) stringByAppendingString:@"\n"] writeToFile:[directory stringByAppendingPathComponent:SidecarName]
-        atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    return directory;
+    NSString *record = [CCPetsJSONStringify(sidecar) stringByAppendingString:@"\n"];
+    BOOL saved = [meta writeToFile:[target stringByAppendingPathComponent:@"pet.json"] options:NSDataWritingAtomic error:&writeError]
+        && [sprite writeToFile:[target stringByAppendingPathComponent:spriteName] options:NSDataWritingAtomic error:&writeError]
+        && [record writeToFile:[target stringByAppendingPathComponent:SidecarName] atomically:YES encoding:NSUTF8StringEncoding error:&writeError];
+    if (!updating) {
+        saved = saved && [files moveItemAtPath:target toPath:directory error:&writeError];
+        if (!saved) [files removeItemAtPath:target error:nil];
+    } else if (saved) {
+        NSString *stale = [extension isEqualToString:@"png"] ? @"spritesheet.webp" : @"spritesheet.png";
+        [files removeItemAtPath:[directory stringByAppendingPathComponent:stale] error:nil];
+    }
+    if (!saved) *error = writeError.localizedDescription;
+    return saved ? directory : nil;
+}
+
+BOOL CCPetsInstallPetdexPet(NSDictionary *pet, NSString **error) {
+    NSString *slug = pet[@"slug"];
+    if (!IsSafeSlug(slug)) {
+        *error = LF(L(@"Invalid pet name: {slug}"), @{@"slug": [slug description] ?: @""});
+        return NO;
+    }
+    NSString *root = OwnPetsDirectory();
+    NSString *name = slug;
+    // 本地手动导入的同名素材归用户所有。在线安装使用独立目录，保留原始 slug 供后续识别。
+    for (NSUInteger suffix = 1; ; suffix++) {
+        NSString *directory = [root stringByAppendingPathComponent:name];
+        if (![NSFileManager.defaultManager fileExistsAtPath:directory]) break;
+        if ([CCPetsInstalledPetdexSlug(directory) isEqual:slug] &&
+            ([NSFileManager.defaultManager fileExistsAtPath:[directory stringByAppendingPathComponent:@"spritesheet.webp"]] ||
+             [NSFileManager.defaultManager fileExistsAtPath:[directory stringByAppendingPathComponent:@"spritesheet.png"]])) return YES;
+        name = suffix == 1 ? [slug stringByAppendingString:@"-petdex"]
+            : [NSString stringWithFormat:@"%@-petdex-%lu", slug, (unsigned long)suffix];
+    }
+    return InstallPet(pet, @"petdex", name, root, NO, error) != nil;
+}
+
+NSString *CCPetsInstalledPetdexSlug(NSString *directory) {
+    NSDictionary *sidecar = ReadSidecar(directory);
+    return [sidecar[@"source"] isEqual:@"petdex"] && IsSafeSlug(sidecar[@"slug"]) ? sidecar[@"slug"] : nil;
 }
 
 static NSArray<NSDictionary *> *InstalledPets(void) {
@@ -299,7 +459,7 @@ static int CommandAdd(NSArray<NSString *> *arguments) {
             }
             NSString *localName = alias ?: slug;
             NSString *error = nil;
-            NSString *directory = InstallPet(pet, sourceName, localName, &error);
+            NSString *directory = InstallPet(pet, sourceName, localName, PetsRoot(), YES, &error);
             if (!directory) {
                 failed++;
                 PrintError([NSString stringWithFormat:@"%@ %@:%@: %@", Red(@"×"), sourceName, slug, error]);

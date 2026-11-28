@@ -20,8 +20,8 @@ static NSString *ClientStateDirectory(void) {
     return [PetStateDirectory() stringByAppendingPathComponent:name];
 }
 
-// pet-store 的素材源清单缓存（~/.cc-pets/cache，可用 CC_PETS_HOME 覆盖）。过期会自动重拉，
-// 属于纯缓存；~/.cc-pets 下其余内容（素材、台词）是用户数据，clean 和 purge 都不碰。
+// pet-store 的缓存（~/.cc-pets/cache，可用 CC_PETS_HOME 覆盖）：素材源清单、热门榜、「发现宠物」的
+// 预览图。过期或缺失会自动重拉，属于纯缓存；~/.cc-pets 下其余内容（素材、台词）是用户数据，clean 和 purge 都不碰。
 static NSString *PetStoreCacheDirectory(void) {
     NSString *home = NSProcessInfo.processInfo.environment[@"CC_PETS_HOME"];
     if (home.length == 0) home = [NSHomeDirectory() stringByAppendingPathComponent:@".cc-pets"];

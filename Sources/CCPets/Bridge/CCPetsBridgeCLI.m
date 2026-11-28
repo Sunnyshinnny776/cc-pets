@@ -5,6 +5,9 @@
 #import "CCPetsBridgeTitleRelay.h"
 #import "CCPetsBridge.h"
 #import "CCPetsBridgeCore.h"
+#import "CCPetsBridgeAttachments.h"
+#import "CCPetsBridgeSlack.h"
+#import "CCPetsBridgeRemote.h"
 #import "CCPetsBridgeSetup.h"
 #import "CCPetsBridgeStore.h"
 #import "CCPetsCLISupport.h"
@@ -77,7 +80,8 @@ static NSString *USAGE(void) {
         "  disable                Turn off and remove all CC Bridge integrations\n"
         "  status                 Show whether it's on and which sessions are online\n"
         "  list                   List online sessions\n"
-        "  send <to> <message…>   Send as the current session (run inside an Agent session, or use --from)\n"
+        "  slack [config.json]    Run the Slack Socket Mode adapter in this terminal\n"
+        "  send [--attach path] <to> <message…>   Send as the current session (or use --from)\n"
         "  name <new-name>        Rename the current session (run inside an Agent session, or use --from)\n"
         "  inbox                  Read the current session's inbox (for debugging)\n"
         "\n"
@@ -144,16 +148,26 @@ static NSDictionary *MergedOptions(NSDictionary *base, NSMutableArray<NSString *
     return options;
 }
 
+static NSString *RemoteSessionLine(NSDictionary *session) {
+    if (!session[@"gateway"]) return [NSString stringWithFormat:@"%@  ·  %@  ·  Slack", CCBridgeDescribeSession(session), L(@"Remote")];
+    return [NSString stringWithFormat:@"%@  ·  %@  ·  %@  ·  %@", CCBridgeDescribeSession(session), L(@"Remote"),
+        session[@"remoteProvider"], session[@"status"]];
+}
+
 static void PrintSessions(void) {
-    NSArray<NSDictionary *> *sessions = CCBridgeLiveSessions();
+    NSArray<NSDictionary *> *sessions = CCBridgeMessageRecipients(CCBridgeLiveSessions());
     if (sessions.count == 0) {
         Print(L(@"No sessions online."));
         return;
     }
     for (NSDictionary *session in sessions) {
-        Print([NSString stringWithFormat:@"%@  %@  %@  pid=%@  %@  %@  %@=%lu", CCBridgeDescribeSessionForDisplay(session), session[@"provider"],
+        if ([session[@"provider"] isEqual:CCBridgeSlackProvider]) {
+            Print(RemoteSessionLine(session));
+            continue;
+        }
+        Print([NSString stringWithFormat:@"%@  %@  %@  pid=%@  %@  %@  %@=%lu  ·  %@", CCBridgeDescribeSessionForDisplay(session), session[@"provider"],
             StringValue(session[@"status"]) ?: @"-", CCBridgeSessionHostPID(session) ?: @"-", StringValue(session[@"tty"]) ?: @"-",
-            StringValue(session[@"cwd"]) ?: @"-", L(@"pending"), (unsigned long)CCBridgePendingCount(session[@"session"])]);
+            StringValue(session[@"cwd"]) ?: @"-", L(@"pending"), (unsigned long)CCBridgePendingCount(session[@"session"]), L(@"Local")]);
     }
 }
 
@@ -163,6 +177,7 @@ static NSDictionary *SelfOrFrom(NSMutableArray<NSString *> *arguments, NSUIntege
     if (from.length > 0) {
         NSDictionary *resolved = CCBridgeResolveTarget(from, CCBridgeLiveSessions());
         if (resolved[@"error"]) Fail(resolved[@"error"]);
+        if ([resolved[@"session"][@"provider"] isEqual:CCBridgeSlackProvider]) Fail(L(@"Select a local session for --from."));
         return resolved[@"session"];
     }
     NSDictionary *session = CCBridgeIdentifySelf();
@@ -499,8 +514,10 @@ static NSArray<NSDictionary *> *Tools(void) {
     return @[
         @{@"name": @"list_agents",
           @"description": [@[
-              L(@"List other local sessions that can receive CC Bridge messages, including Claude Code, Codex, and Antigravity CLI sessions ("),
+              L(@"List local and remote CC Bridge recipients, with their location ("),
               L(@"this is what the user means by “bridge”, “cc-bridge”, “other sessions” or “another terminal”). "), AliasNote(),
+              L(@"Configured Slack agents appear while the Slack adapter is running. "),
+              L(@"Remote sessions use computer/session addresses and are sent through that computer’s Bridge. "),
               L(@"Each line shows: name [ref], CLI, busy/idle, terminal (tty), start time, working directory. "),
               L(@"The name is the send_message address; append ` [ref]` only when names collide. "),
               L(@"When the user describes a target by terminal (e.g. ttys003) or directory, use this to find its name.")
@@ -510,6 +527,7 @@ static NSArray<NSDictionary *> *Tools(void) {
         @{@"name": @"send_message",
           @"description": [@[
               L(@"Send a message to another CC Bridge session on this machine (what the user means by “message it via bridge” or “send to another session / terminal”). "),
+              L(@"Slack recipients forward the message to their configured Slack channel. Preserve the full thread address when replying. "),
               L(@"An idle recipient is woken; a busy one gets it after its current turn. "), AliasNote(),
               L(@"Delivery doesn't mean it was read or agreed to; replies arrive as new messages in this session. "),
               L(@"When replying, put the from name from the message header into to."), SafetyNote()
@@ -517,10 +535,13 @@ static NSArray<NSDictionary *> *Tools(void) {
           @"inputSchema": Schema(@{
               @"to": @{@"type": @"string", @"description": L(@"Recipient session name (from list_agents); write \"name [ref]\" when names collide")},
               @"message": @{@"type": @"string",
-                  @"description": L(@"Message body. Say what it's about in the first sentence; don't rely on @file references, since attachments aren't delivered.")},
+                  @"description": L(@"Message body. An empty message is allowed with attachments.")},
+              @"attachments": @{@"type": @"array", @"maxItems": @(CCBridgeAttachmentCountLimit),
+                  @"items": @{@"type": @"string", @"minLength": @1},
+                  @"description": L(@"For remote recipients only: file paths to upload to the configured Slack channel. For local recipients, include the path in the message.")},
               @"notify_when_idle": @{@"type": @"boolean",
                   @"description": L(@"When true, this session gets a one-time notice when the recipient next finishes a turn and goes idle. That turn may be one already in progress, so the notice doesn't mean this message was handled.")}
-          }, @[@"to", @"message"]),
+          }, @[@"to"]),
           @"annotations": @{@"readOnlyHint": @NO, @"destructiveHint": @NO, @"title": L(@"Send cross-session message")}},
         @{@"name": @"set_name",
           @"description": [@[
@@ -604,11 +625,11 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
     if ([name isEqualToString:@"list_agents"]) {
         NSArray<NSDictionary *> *live = CCBridgeLiveSessions();
         NSMutableArray<NSDictionary *> *sessions = [NSMutableArray array];
-        for (NSDictionary *session in live) {
+        for (NSDictionary *session in CCBridgeMessageRecipients(live)) {
             if (![session[@"session"] isEqual:self[@"session"]]) [sessions addObject:session];
         }
         NSString *header = self
-            ? LF(L(@"This session is {self}; other sessions use this name to message you (it isn't in the list below)."), @{@"self": CCBridgeDescribeSessionForDisplay(self)})
+            ? LF(L(@"This session is {self}; other sessions use this name to message you (it isn't in the list below)."), (@{@"self": [CCBridgeDescribeSessionForDisplay(self) stringByAppendingFormat:@" · %@", L(@"Local")]}))
             : [L(@"Current session identity is unavailable or ambiguous (you can view sessions, but cannot act as one).") stringByAppendingString:IdentityNote()];
         if (sessions.count == 0) {
             return TextResult(LF(L(@"{header}\n\nNo other sessions online. New sessions will show up here once they start."), @{@"header": header}), NO);
@@ -618,12 +639,16 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
         for (NSDictionary *reservation in CCBridgeActiveReservations(nil, live)) [counts addObject:reservation[@"session"]];
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
         for (NSDictionary *session in sessions) {
+            if ([session[@"provider"] isEqual:CCBridgeSlackProvider]) {
+                [lines addObject:[@"  " stringByAppendingString:RemoteSessionLine(session)]];
+                continue;
+            }
             NSUInteger count = [counts countForObject:session[@"session"]];
             NSString *line = [NSString stringWithFormat:@"  %@  ·  %@  ·  %@  ·  %@  ·  %@  ·  %@", CCBridgeDescribeSessionForDisplay(session),
                 session[@"provider"], [session[@"status"] isEqual:@"busy"] ? @"busy" : @"idle", StringValue(session[@"tty"]) ?: @"-",
                 AgeText(session[@"startedAt"]), StringValue(session[@"cwd"]) ?: @"-"];
             if (count > 0) line = [line stringByAppendingString:LF(L(@"  ·  {count} reserved"), @{@"count": @(count)})];
-            [lines addObject:line];
+            [lines addObject:[line stringByAppendingFormat:@"  ·  %@", L(@"Local")]];
         }
         return TextResult(LF(L(@"{header}\n\nOnline sessions ({length}):\n{lines}"),
             (@{@"header": header, @"length": @(sessions.count), @"lines": [lines componentsJoinedByString:@"\n"]})), NO);
@@ -631,10 +656,10 @@ static NSDictionary *CallTool(NSString *name, NSDictionary *arguments) {
 
     if ([name isEqualToString:@"send_message"]) {
         if (!self) return TextResult(UnknownSelf(), YES);
-        NSDictionary *target = CCBridgeResolveTarget(arguments[@"to"], CCBridgeLiveSessions());
+        NSDictionary *target = CCBridgeResolveMessageRecipient(arguments[@"to"], self, CCBridgeLiveSessions());
         if (target[@"error"]) return TextResult(target[@"error"], YES);
         BOOL notify = [arguments[@"notify_when_idle"] isEqual:@YES];
-        NSDictionary *result = CCBridgeSendMessage(self, target[@"session"], arguments[@"message"], notify, NO);
+        NSDictionary *result = CCBridgeSendMessageWithAttachments(self, target[@"session"], arguments[@"message"], arguments[@"attachments"], notify);
         if (result[@"error"]) return TextResult(result[@"error"], YES);
         NSDictionary *receipt = result[@"receipt"];
         NSString *text = CCBridgeReceiptSummary(receipt, target[@"session"]);
@@ -966,12 +991,23 @@ static int StatusCommand(void) {
 
 static int SendCommand(NSMutableArray<NSString *> *arguments) {
     // --from 只能写在收件人前后，再往后就是正文。
+    // Attachment flags precede the recipient; the body remains literal.
+    NSMutableArray *attachments = [NSMutableArray array];
+    NSString *sender = nil;
+    while (arguments.count) {
+        NSString *path = ParseFlagWithin(arguments, @"attach", 1);
+        if (path) { [attachments addObject:path]; continue; }
+        if (sender) break;
+        sender = ParseFlagWithin(arguments, @"from", 1);
+        if (!sender) break;
+    }
+    if (sender) [arguments insertObject:[@"--from=" stringByAppendingString:sender] atIndex:0];
     NSDictionary *from = SelfOrFrom(arguments, 2);
-    if (arguments.count < 2) Fail(L(@"Usage: cc-pets bridge send <to> <message…>"));
-    NSDictionary *target = CCBridgeResolveTarget(arguments[0], CCBridgeLiveSessions());
+    if (!arguments.count || (arguments.count < 2 && !attachments.count)) Fail(L(@"Usage: cc-pets bridge send [--attach path] <to> <message…>"));
+    NSDictionary *target = CCBridgeResolveMessageRecipient(arguments[0], from, CCBridgeLiveSessions());
     if (target[@"error"]) Fail(target[@"error"]);
     NSString *body = [[arguments subarrayWithRange:NSMakeRange(1, arguments.count - 1)] componentsJoinedByString:@" "];
-    NSDictionary *result = CCBridgeSendMessage(from, target[@"session"], body, NO, NO);
+    NSDictionary *result = CCBridgeSendMessageWithAttachments(from, target[@"session"], body, attachments, NO);
     if (result[@"error"]) Fail(result[@"error"]);
     Print(CCBridgeReceiptSummary(result[@"receipt"], target[@"session"]));
     return [result[@"receipt"][@"status"] isEqual:@"undeliverable"] ? 1 : 0;
@@ -1033,6 +1069,7 @@ int CCBridgeCommandMain(NSArray<NSString *> *argv) {
             @"disable": ^int { return DisableCommand(); },
             @"teardown": ^int { return TeardownCommand(); },
             @"status": ^int { return StatusCommand(); },
+            @"slack": ^int { return CCBridgeRunSlack(arguments); },
             @"list": ^int { PrintSessions(); return 0; },
             @"send": ^int { return SendCommand(arguments); },
             @"name": ^int { return NameCommand(arguments); },
